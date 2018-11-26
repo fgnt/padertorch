@@ -14,9 +14,17 @@ Examples, why the API is seriously broken:
 - torch.transpose(input, dim0, dim1) although input is already defined
 
 Milestones:
-1. Implement two standard models
+0. Input pipeline
+   - Needs to support filter
+   - Infinite iterators?
+   - I/O bound tasks
+   - Janek tests own loader using toolbox iterator
+   - Christoph tests ...
+   - Jens tests the PyTorch dataloader and checks, if it supports infinite data
+1. Implement parameterized models (e.g. with nt.options.Options)
    - Acoustic model (CBJ)
    - Mask estimator (JHeit)
+   - SequenceVAE (Janek, Thomas)
 2. Make it possible to decode (=predict) both models
    - Does the batch axis stay? Christoph always wants to allow independent axis.
      Christoph investigates if all ops support independent axis.
@@ -34,3 +42,16 @@ Milestones:
   - Batch norm
 99. Trainer/ framework
 100. Resume training
+
+
+Structures:
+ - Module (comparable to chain or chain_list in Chainer, building_blocks in PF)
+ - Ops (comparable to ops in PF)
+
+
+Definitions:
+packed: Uses `torch.nn.utils.rnn.PackedSequence`
+padded: Uses `padded` and `sequence_length`
+
+padded to packed: `pack_padded_sequence` yields `PackedSequence`
+packed to padded: `pad_packed_sequence` yields `Tensor`
