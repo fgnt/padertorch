@@ -2,6 +2,7 @@ import os
 from collections import defaultdict
 from pathlib import Path
 from datetime import datetime
+import numbers
 
 import numpy as np
 import torch
@@ -239,6 +240,39 @@ class Trainer:
 
 
 class BatchIterator(BaseIterator):
+    """
+
+    Is it not it better to use the collate_fn with a map?
+    "BatchIterator(iterator, batchsize).map(collate_fn)"
+    Similar to zip for the iterator.
+
+    >>> from nt.database.iterator import ExamplesIterator
+    >>> import string
+    >>> examples = {c: i for i, c in enumerate(string.ascii_letters[:7])}
+    >>> it = ExamplesIterator(examples)
+    >>> it = BatchIterator(it, 3, collate_fn=lambda x: x)
+    >>> list(it), len(it)
+    ([[0, 1, 2], [3, 4, 5], [6]], 3)
+    >>> it[2], it[-1]
+    ([6], [6])
+    >>> it[3]
+    Traceback (most recent call last):
+    ...
+    IndexError: tuple index out of range
+    >>> it = ExamplesIterator(examples)[:6]
+    >>> it = BatchIterator(it, 3, collate_fn=lambda x: x)
+    >>> list(it), len(it)
+    ([[0, 1, 2], [3, 4, 5]], 2)
+    >>> it[1]
+    [3, 4, 5]
+    >>> it['abc']
+    Traceback (most recent call last):
+    ...
+    NotImplementedError: __getitem__ is not implemented for <class 'trainer.BatchIterator'>['abc'],
+    where type('abc') == <class 'str'>
+    self: BatchIterator()
+
+    """
     def __init__(self, input_generator, batchsize, collate_fn=default_collate):
         self.input_generator = input_generator
         self.batchsize = batchsize
@@ -255,10 +289,25 @@ class BatchIterator(BaseIterator):
             yield self.collate_fn(current_batch)
 
     def __getitem__(self, index):
-        input_index = index * self.batchsize
-        return self.collate_fn(
-            [self.input_generator[i]
-             for i in range(input_index, input_index + self.batchsize)])
+        if isinstance(index, numbers.Integral):
+            if index < 0:
+                # only touch len when necessary
+                index = index % len(self)
+            input_index = index * self.batchsize
+            current_batch = []
+            for i in range(self.batchsize):
+                try:
+                    current_batch.append(self.input_generator[input_index + i])
+                except IndexError:
+                    if i == 0:
+                        raise
+                    else:
+                        pass
+            return self.collate_fn(current_batch)
+        # elif isinstance(index, str):
+        # ToDo: allow merge/collate keys -> allows __getitem__(str)
+        else:
+            return super().__getitem__(index)
 
     def __len__(self):
         return int(np.ceil(len(self.input_generator) / self.batchsize))
