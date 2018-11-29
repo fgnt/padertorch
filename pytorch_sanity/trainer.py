@@ -41,7 +41,7 @@ class Trainer:
         self.train_iterator = train_iterator
         self.validation_iterator = validation_iterator
 
-        self.storage_dir = Path(storage_dir).absolute()
+        self.storage_dir = Path(storage_dir).expanduser().absolute()
         self.reset_summary()
         self.iteration = 0
         self.writer = SummaryWriter(self.storage_dir)
