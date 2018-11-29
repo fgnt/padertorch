@@ -265,6 +265,10 @@ class BatchIterator(BaseIterator):
 
 
 class RepeatIterator(BaseIterator):
+    """
+    Equal to BaseIterator.tile(n_epochs) expect for the print.
+    Note: np.repeat does something different.
+    """
     def __init__(self, input_generator, n_epochs):
         self.input_generator = input_generator
         self.n_epochs = n_epochs
@@ -275,7 +279,7 @@ class RepeatIterator(BaseIterator):
             i += 1
             print(f'Epoch: {i}')
             for element in self.input_generator():
-                    yield element
+                yield element
 
     def __getitem__(self, index):
         return self.input_generator[index % len(self.input_generator)]
