@@ -21,6 +21,7 @@ Milestones:
    - Janek tests own loader using toolbox iterator
    - Christoph tests ...
    - Jens tests the PyTorch dataloader and checks, if it supports infinite data
+   - Thomas enforces, that a benchmark is possible
 1. Implement parameterized models (e.g. with nt.options.Options)
    - Acoustic model (CBJ)
    - Mask estimator (JHeit)
