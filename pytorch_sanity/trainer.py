@@ -2,14 +2,11 @@ import os
 from collections import defaultdict
 from pathlib import Path
 from datetime import datetime
-import numbers
 
 import numpy as np
 import torch
 from torch.utils.data.dataloader import default_collate
 from tensorboardX import SummaryWriter
-
-from nt.database.iterator import BaseIterator
 
 from pytorch_sanity.utils import to_list, nested_update
 
@@ -51,6 +48,7 @@ class Trainer:
         self.use_cuda = config["use_cuda"]
 
     def reset_summary(self):
+        # Todo: add figures
         self.summary = dict(
             losses=defaultdict(list),
             scalars=defaultdict(list),
@@ -68,8 +66,13 @@ class Trainer:
         torch.manual_seed(self.config['seed'])
         torch.cuda.manual_seed(self.config['seed'])
 
-        train_iterator = BatchIterator(self.train_iterator, self.config['batch_size'])
-        train_iterator = RepeatIterator(train_iterator, self.config['max_epochs'])
+        # Todo: batch outside of trainer
+        train_iterator = self.train_iterator.batch(
+            self.config['batch_size'], collate_fn=default_collate
+        )
+        train_iterator = train_iterator.tile(self.config['max_epochs'])
+
+        # Todo: unit(s) for steps?
         max_iterations = self.config['max_iterations']
         if self.use_cuda:
             self.cuda()
@@ -79,6 +82,7 @@ class Trainer:
             for batch in train_iterator.map(self.batch_to_device)():
                 if max_iterations is not None and self.iteration >= max_iterations:
                     break
+                # Todo: backup OOM
                 self.train_step(batch)
 
                 if self.iteration % self.config['summary_step'] == 0:
@@ -87,6 +91,7 @@ class Trainer:
                     self.save_checkpoint()
                 if self.iteration % self.config['validation_step'] == 0 \
                         and self.iteration > 0:
+                    # Todo: allow continuous evaluation
                     self.add_summary('training')
                     self.validate()
                     [m.train() for m in self.models]
@@ -98,8 +103,8 @@ class Trainer:
     def validate(self):
         print('Starting Validation')
         [m.eval() for m in self.models]
-        validation_iterator = BatchIterator(
-            self.validation_iterator, self.config['batch_size'])
+        validation_iterator = self.validation_iterator.batch(
+            self.config['batch_size'], collate_fn=default_collate)
         for i, batch in enumerate(validation_iterator.map(
                 self.batch_to_device)()):
             self.validation_step(batch)
@@ -141,6 +146,8 @@ class Trainer:
         loss.backward(retain_graph=retain_graph)
 
     def clip_grad(self, prefix=''):
+        # Todo: report clipped and unclipped
+        # Todo: allow clip=None but still report grad_norm
         prefix_ = f'{prefix}_' if prefix else ''
         grad_clips = to_list(self.config[f'{prefix_}gradient_clips'], len(self.models))
         for i, model in enumerate(self.models):
@@ -208,7 +215,7 @@ class Trainer:
               f"{self.iteration} to {checkpoint_path}")
 
     def load_checkpoint(self, checkpoint_path):
-        assert os.path.isfile(checkpoint_path)
+        assert os.path.isfile(checkpoint_path), checkpoint_path
         checkpoint_dict = torch.load(str(checkpoint_path), map_location='cpu')
         [m.load_state_dict(d) for m, d in zip(
             self.models, checkpoint_dict['models'])]
@@ -237,101 +244,3 @@ class Trainer:
                 for k, v in state.items():
                     if torch.is_tensor(v):
                         state[k] = v.cuda()
-
-
-class BatchIterator(BaseIterator):
-    """
-
-    Is it not it better to use the collate_fn with a map?
-    "BatchIterator(iterator, batchsize).map(collate_fn)"
-    Similar to zip for the iterator.
-
-    >>> from nt.database.iterator import ExamplesIterator
-    >>> import string
-    >>> examples = {c: i for i, c in enumerate(string.ascii_letters[:7])}
-    >>> it = ExamplesIterator(examples)
-    >>> it = BatchIterator(it, 3, collate_fn=lambda x: x)
-    >>> list(it), len(it)
-    ([[0, 1, 2], [3, 4, 5], [6]], 3)
-    >>> it[2], it[-1]
-    ([6], [6])
-    >>> it[3]
-    Traceback (most recent call last):
-    ...
-    IndexError: tuple index out of range
-    >>> it = ExamplesIterator(examples)[:6]
-    >>> it = BatchIterator(it, 3, collate_fn=lambda x: x)
-    >>> list(it), len(it)
-    ([[0, 1, 2], [3, 4, 5]], 2)
-    >>> it[1]
-    [3, 4, 5]
-    >>> it['abc']
-    Traceback (most recent call last):
-    ...
-    NotImplementedError: __getitem__ is not implemented for <class 'trainer.BatchIterator'>['abc'],
-    where type('abc') == <class 'str'>
-    self: BatchIterator()
-
-    """
-    def __init__(self, input_generator, batchsize, collate_fn=default_collate):
-        self.input_generator = input_generator
-        self.batchsize = batchsize
-        self.collate_fn = collate_fn
-
-    def __iter__(self):
-        current_batch = list()
-        for element in self.input_generator():
-            current_batch.append(element)
-            if len(current_batch) >= self.batchsize:
-                yield self.collate_fn(current_batch)
-                current_batch = list()
-        if len(current_batch) > 0:
-            yield self.collate_fn(current_batch)
-
-    def __getitem__(self, index):
-        if isinstance(index, numbers.Integral):
-            if index < 0:
-                # only touch len when necessary
-                index = index % len(self)
-            input_index = index * self.batchsize
-            current_batch = []
-            for i in range(self.batchsize):
-                try:
-                    current_batch.append(self.input_generator[input_index + i])
-                except IndexError:
-                    if i == 0:
-                        raise
-                    else:
-                        pass
-            return self.collate_fn(current_batch)
-        # elif isinstance(index, str):
-        # ToDo: allow merge/collate keys -> allows __getitem__(str)
-        else:
-            return super().__getitem__(index)
-
-    def __len__(self):
-        return int(np.ceil(len(self.input_generator) / self.batchsize))
-
-
-class RepeatIterator(BaseIterator):
-    """
-    Equal to BaseIterator.tile(n_epochs) expect for the print.
-    Note: np.repeat does something different.
-    """
-    def __init__(self, input_generator, n_epochs):
-        self.input_generator = input_generator
-        self.n_epochs = n_epochs
-
-    def __iter__(self):
-        i = 0
-        while self.n_epochs is None or i < self.n_epochs:
-            i += 1
-            print(f'Epoch: {i}')
-            for element in self.input_generator():
-                yield element
-
-    def __getitem__(self, index):
-        return self.input_generator[index % len(self.input_generator)]
-
-    def __len__(self):
-        return self.n_epochs * len(self.input_generator)
