@@ -5,43 +5,56 @@ Will be evaluated in terms of WTFs/min.
 import importlib
 from copy import deepcopy
 from sacred import Experiment as Exp
+from warnings import warn
 
 
-class VAE:
+class Module:
     @classmethod
-    def get_defaults(cls):
+    def _get_defaults(cls):
+        return dict()
+
+    @classmethod
+    def get_config(cls, updates=None):
+        config = cls._get_defaults()
+        update_config(config, updates)
+        return config
+
+
+class VAE(Module):
+    @classmethod
+    def _get_defaults(cls):
         return {
             'encoder_cls': 'pytorch_sanity.config_je.DenseEncoder',
-            'encoder': None
+            'encoder_kwargs': None
         }
 
 
-class DenseEncoder:
+class DenseEncoder(Module):
     @classmethod
-    def get_defaults(cls):
+    def _get_defaults(cls):
         return {'layers': 2, 'nonlinearity': 'elu'}
 
 
-class RecurrentEncoder:
+class RecurrentEncoder(Module):
     @classmethod
-    def get_defaults(cls):
+    def _get_defaults(cls):
         return {
             'layers': 2,
             'bidirectional': False,
             'recurrent_cls': 'pytorch_sanity.config_je.GRU',
-            'recurrent': None
+            'recurrent_kwargs': None
         }
 
 
-class GRU:
+class GRU(Module):
     @classmethod
-    def get_defaults(cls):
+    def _get_defaults(cls):
         return {'nonlinearity': 'tanh'}
 
 
-class LSTM:
+class LSTM(Module):
     @classmethod
-    def get_defaults(cls):
+    def _get_defaults(cls):
         return {'peephole': False}
 
 
@@ -64,7 +77,7 @@ def import_class(name: str):
     return getattr(module, splitted[-1])
 
 
-def update_config(config, updates=None):
+def update_config(config, updates=None, strict=True):
     """
 
     :param config: config dict
@@ -73,24 +86,32 @@ def update_config(config, updates=None):
     :return:
     """
     blacklist = list()
-    for key in deepcopy(config).keys():
+    for key in sorted(deepcopy(config).keys()):
         if key in blacklist:
             continue
         if isinstance(config[key], dict):
+            print(key)
             update_config(
                 config[key],
-                updates[key] if updates and key in updates else dict()
+                updates.pop(key) if updates and key in updates else dict(),
+                strict=strict
             )
         elif updates and key in updates:
             config[key] = updates.pop(key)
         if key.endswith('_cls'):
-            opts_key = key[:-4]
-            config[opts_key] = import_class(config[key]).get_defaults()
-            blacklist.append(opts_key)
+            kwargs_key = f'{key[:-4]}_kwargs'
+            config[kwargs_key] = import_class(config[key]).get_config()
+            blacklist.append(kwargs_key)
             update_config(
-                config[opts_key],
-                updates[opts_key] if updates and opts_key in updates else dict()
+                config[kwargs_key],
+                updates.pop(kwargs_key)
+                if updates and kwargs_key in updates else dict(),
+                strict=strict
             )
+    if strict:
+        assert not updates
+    elif updates:
+        warn(f"Updates not used: {updates}")
 
 
 exp = Exp('vae')
@@ -98,17 +119,17 @@ exp = Exp('vae')
 
 @exp.config
 def config():
-    options = VAE.get_defaults()
+    config_ = VAE.get_config()
     update_config(
-        options,
+        config_,
         dict(
-            # encoder_cls="pytorch_sanity.config_je.RecurrentEncoder",
-            # encoder=dict(recurrent_cls="pytorch_sanity.config_je.LSTM")
-        )
+            encoder_cls="pytorch_sanity.config_je.RecurrentEncoder",
+            encoder_kwargs=dict(recurrent_cls="pytorch_sanity.config_je.LSTM")
+        ),
+        strict=False
     )
 
 
 @exp.automain
 def main(_config):
-    print(_config)
-
+    pass
