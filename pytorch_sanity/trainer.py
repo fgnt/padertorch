@@ -11,6 +11,11 @@ from tensorboardX import SummaryWriter
 from pytorch_sanity.utils import to_list, nested_update
 
 
+__all__ = [
+    'Trainer',
+]
+
+
 OPTIMIZER_MAP = dict(
     adam=torch.optim.Adam,
     sgd=torch.optim.SGD

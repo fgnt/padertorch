@@ -5,6 +5,12 @@ from torch import nn
 from pytorch_sanity.parameterized import Parameterized
 
 
+__all__ = [
+    'Module',
+    'Model',
+]
+
+
 class Module(nn.Module, Parameterized, abc.ABC):
     @abc.abstractmethod
     def forward(self, *args, **kwargs):
