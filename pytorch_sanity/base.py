@@ -1,8 +1,11 @@
-from torch import nn
 import abc
 
+from torch import nn
 
-class Module(nn.Module, abc.ABC):
+from pytorch_sanity.parameterized import Parameterized
+
+
+class Module(nn.Module, Parameterized, abc.ABC):
     @abc.abstractmethod
     def forward(self, *args, **kwargs):
         """
@@ -10,21 +13,8 @@ class Module(nn.Module, abc.ABC):
         """
         pass
 
-    @classmethod
-    @abc.abstractmethod
-    def get_config(cls, update_dict=None):
-        """
-        Provides configuration to allow Instantiation with
-        module = Module(**Module.get_config())
-        :param update_dict: dict with values to be modified w.r.t. defaults.
-        Sub-configurations are updated accordingly if top-level-keys are
-        changed. An Exception is raised if update_dict has unused entries.
-        :return: config
-        """
-        pass
 
-
-class Model(Module, abc.ABC):
+class Model(Module, Parameterized, abc.ABC):
     """
     Model that can be trained by padertorch.trainer.Trainer
     """
