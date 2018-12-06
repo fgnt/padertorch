@@ -1,45 +1,19 @@
-from pytorch_sanity.parameterized import Parameterized
-from pytorch_sanity.mapping import OPTIMIZER_MAP
 import torch
+from pytorch_sanity.parameterized import Parameterized
+from torch import optim
 
 
 class Optimizer(Parameterized):
-    def __init__(self,
-                 optimizer_name='adam',
-                 *,
-                 gradient_clipping=None,
-                 lr=1e-3,
-                 weight_decay=0,
-                 adam_kwargs=None,
-                 sdm_kwargs=None,
-                 adagrad_kwargs=None):
-        self.gradient_clipping = gradient_clipping
-        self.optimizer_name = optimizer_name
-        self.lr = lr
-        self.weight_decay = weight_decay
-        self.adam_kwargs = adam_kwargs
-        self.sdm_kwargs = sdm_kwargs
-        self.adagrad_kwargs = adagrad_kwargs
-        self.optimizer = None
+    optimizer_cls = None
+    optimizer = None
 
-    @classmethod
-    def get_signature(cls):
-        defaults = super().get_signature()
-        defaults['gradient_clipping'] = 1e10
-        defaults['adam_kwargs'] = dict(
-            betas=(0.9, 0.999), eps=1e-8, amsgrad=False
-        )
-        defaults['sdm_kwargs'] = dict(
-            momentum=0, dampening=0, nesterov=False
-        )
-        defaults['adagrad_kwargs'] = dict(
-            lr_decay=0, initial_accumulator_value=0
-        )
+    def __init__(self, gradient_clipping):
+        self.gradient_clipping = gradient_clipping
 
     def set_params(self, params):
-        self.optimizer = OPTIMIZER_MAP[self.optimizer_name](
-            params, lr=self.lr, weight_decay=self.weight_decay,
-            **getattr(self, self.optimizer_name + '_kwargs'))
+        self.optimizer = self.optimizer_cls(
+            params, **self.optimizer_kwargs
+        )
 
     def check_if_set(self):
         assert self.optimizer is not None, \
@@ -63,4 +37,68 @@ class Optimizer(Parameterized):
             grad_clips = self.gradient_clipping
         return torch.nn.utils.clip_grad_norm_(
             params, grad_clips
+        )
+
+
+class Adagrad(Optimizer):
+    optimizer_cls = optim.Adagrad
+
+    def __init__(
+            self,
+            gradient_clipping=1e10,
+            lr=1e-2,
+            lr_decay=0,
+            weight_decay=0,
+            initial_accumulator_value=0
+    ):
+        super().__init__(gradient_clipping)
+        self.optimizer_kwargs = dict(
+            lr=lr,
+            lr_decay=lr_decay,
+            weight_decay=weight_decay,
+            initial_accumulator_value=initial_accumulator_value
+        )
+
+
+class Adam(Optimizer):
+    optimizer_cls = optim.Adam
+
+    def __init__(
+            self,
+            gradient_clipping=1e10,
+            lr=1e-3,
+            betas=(0.9, 0.999),
+            eps=1e-8,
+            weight_decay=0,
+            amsgrad=False
+    ):
+        super().__init__(gradient_clipping)
+        self.optimizer_kwargs = dict(
+            lr=lr,
+            betas=betas,
+            eps=eps,
+            weight_decay=weight_decay,
+            amsgrad=amsgrad
+        )
+
+
+class SGD(Optimizer):
+    optimizer_cls = optim.SGD
+
+    def __init__(
+            self,
+            gradient_clipping=1e10,
+            lr=1e-3,
+            momentum=0,
+            dampening=0,
+            weight_decay=0,
+            nesterov=False
+    ):
+        super().__init__(gradient_clipping)
+        self.optimizer_kwargs = dict(
+            lr=lr,
+            momentum=momentum,
+            dampening=dampening,
+            weight_decay=weight_decay,
+            nesterov=nesterov
         )
