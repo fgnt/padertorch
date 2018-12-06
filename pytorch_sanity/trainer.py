@@ -18,12 +18,6 @@ __all__ = [
 ]
 
 
-OPTIMIZER_MAP = dict(
-    adam=torch.optim.Adam,
-    sgd=torch.optim.SGD
-)
-
-
 class Trainer:
     def __init__(
             self,
@@ -49,18 +43,7 @@ class Trainer:
     ):
         # self.config = config
         self.models = to_list(models)
-        optimizers = to_list(optimizers, len(self.models))
-        learning_rates = to_list(learning_rates, len(self.models))
-        weight_decays = to_list(weight_decays, len(self.models))
-        self.optimizers = [
-            OPTIMIZER_MAP[optimizers[i]](
-                m.parameters(),
-                lr=learning_rates[i],
-                weight_decay=weight_decays[i]
-            )
-            if len(list(m.parameters())) else None
-            for i, m in enumerate(self.models)
-        ]
+        self.optimizers = to_list(optimizers, len(self.models))
         self.train_iterator = train_iterator
         self.validation_iterator = validation_iterator
 
@@ -225,15 +208,12 @@ class Trainer:
             loss += weight * value
         loss.backward(retain_graph=retain_graph)
 
-    def clip_grad(self, prefix=''):
+    def clip_grad(self, prefix: str = None):
         # Todo: report clipped and unclipped
         # Todo: allow clip=None but still report grad_norm
-        prefix_ = f'{prefix}_' if prefix else ''
-        grad_clips = to_list(self.config[f'{prefix_}gradient_clips'], len(self.models))
         for i, model in enumerate(self.models):
-            grad_norm = torch.nn.utils.clip_grad_norm_(
-                model.parameters(),
-                grad_clips[i]
+            grad_norm = self.optimizers[i].clip_grad(
+                model.parameters(), prefix
             )
             self.summary['scalars'][f'{prefix_}grad_norm_{i}'].append(grad_norm)
             self.summary['histograms'][f'{prefix_}grad_norm_{i}_'].append(grad_norm)
