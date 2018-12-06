@@ -5,6 +5,7 @@ Example usage: see example in ...
 
 """
 import abc
+import json
 import inspect
 import importlib
 
@@ -37,10 +38,11 @@ class Parameterized(abc.ABC):
         :return: config
 
         """
-        defaults = cls.get_signature()
+        defaults = recursive_class_to_str(cls.get_signature())
         # if config is None:
         # config = defaults  # cls._get_defaults()
         # assert defaults is not None, (defaults, config, cls)
+
         try:
             update_config(defaults, updates)
         except ConfigUpdateException as e:
@@ -79,6 +81,47 @@ def import_class(name: str):
         )
         raise
     return getattr(module, splitted[-1])
+
+
+def class_to_str(cls):
+    """
+    >>> import pytorch_sanity
+    >>> class_to_str(pytorch_sanity.Model)
+    'pytorch_sanity.base.Model'
+    >>> class_to_str('pytorch_sanity.Model')
+    'pytorch_sanity.base.Model'
+    """
+    if isinstance(cls, str):
+        cls = import_class(cls)
+    module = cls.__module__
+    if module != '__main__':
+        return f'{module}.{cls.__qualname__}'
+    else:
+        return f'{cls.__qualname__}'
+
+
+def recursive_class_to_str(dictionary):
+    """
+    >>> recursive_class_to_str([{'cls': 'pytorch_sanity.Model'}])
+    [{'cls': 'pytorch_sanity.base.Model'}]
+    """
+    if isinstance(dictionary, dict):
+        if 'cls' in dictionary:
+            ret = dictionary.copy()
+            ret['cls'] = class_to_str(dictionary['cls'])
+            return ret
+        else:
+            return dictionary.__class__({
+                k: recursive_class_to_str(v)
+                for k, v in dictionary.items()
+            })
+    elif isinstance(dictionary, (tuple, list)):
+        return dictionary.__class__([
+            recursive_class_to_str(l)
+            for l in dictionary
+        ])
+    else:
+        return dictionary
 
 
 class ConfigUpdateException(Exception):
