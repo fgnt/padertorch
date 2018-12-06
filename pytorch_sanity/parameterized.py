@@ -128,7 +128,7 @@ class ConfigUpdateException(Exception):
     pass
 
 
-def update_config(config, updates=None, strict=True):
+def update_config(config, updates=None):
     """
     JensHeit: Never read the code of this function.
               Do not ask me questions.
@@ -146,7 +146,6 @@ def update_config(config, updates=None, strict=True):
             update_config(
                 config[key],
                 updates.pop(key) if updates and key in updates else dict(),
-                strict=strict
             )
         elif updates and key in updates:
             config[key] = updates.pop(key)
