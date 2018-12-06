@@ -42,7 +42,8 @@ class Parameterized(abc.ABC):
         # if config is None:
         # config = defaults  # cls._get_defaults()
         # assert defaults is not None, (defaults, config, cls)
-
+        if updates is None:
+            updates = dict()
         try:
             update_config(defaults, updates)
         except ConfigUpdateException as e:
@@ -65,6 +66,8 @@ class Parameterized(abc.ABC):
 
 
 def import_class(name: str):
+    if not isinstance(name, str):
+        return name
     splitted = name.split('.')
     module_name = '.'.join(splitted[:-1])
     try:
@@ -130,8 +133,6 @@ class ConfigUpdateException(Exception):
 
 def update_config(config, updates=None):
     """
-    JensHeit: Never read the code of this function.
-              Do not ask me questions.
 
     :param config: config dict
     :param updates: updates dict. Note that update entries which are not valid
