@@ -65,9 +65,9 @@ class Trainer(Parameterized):
             max_epochs is None,
         ), (max_iterations, max_epochs)
         if max_iterations is not None:
-            self.max_iterations = EndTrigger.new(max_iterations, unit='iteration')
+            self.max_iterations = EndTrigger(max_iterations, unit='iteration')
         elif max_epochs is not None:
-            self.max_iterations = EndTrigger.new(max_iterations, unit='epoch')
+            self.max_iterations = EndTrigger(max_iterations, unit='epoch')
         else:
             raise Exception(max_epochs, max_iterations)
 
@@ -161,14 +161,23 @@ class Trainer(Parameterized):
         print('Finished Validation')
 
     def batch_to_device(self, batch):
-        for key, value in batch.items():
-            if torch.is_tensor(value):
-                if self.use_cuda:
-                    value = value.cuda(self.gpu_device)
-                else:
-                    value = value.cpu()
-            batch[key] = value
-        return batch
+        if isinstance(batch, dict):
+            return batch.__class__({
+                key: self.batch_to_device(value)
+                for key, value in batch.items()
+            })
+        elif isinstance(batch, (tuple, list)):
+            return batch.__class__([
+                self.batch_to_device(element)
+                for element in batch
+            ])
+        elif torch.is_tensor(batch):
+            if self.use_cuda:
+                return batch.cuda(self.gpu_device)
+            else:
+                return batch.cpu()
+        else:
+            return batch
 
     def train_step(self, batch):
         assert len(self.models) == 1, (
