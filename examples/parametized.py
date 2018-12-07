@@ -64,11 +64,14 @@ class VAE(pts.parameterized.Parameterized):
         return defaults
 
     def __init__(self, encoder, vae_param=2):
-        pass
+        self.encoder = encoder
+        self.vae_param = vae_param
 
 
-from sacred import Experiment as Exp
-exp = Exp('vae')
+import sacred
+import sacred.run
+import sacred.commands
+exp = sacred.Experiment('vae')
 
 
 @exp.config
@@ -79,9 +82,6 @@ def config():
         dict(
             encoder={
                 'cls': RecurrentEncoder,
-                # "kwargs": dict(
-                #     recurrent_cls="pytorch_sanity.config_tg.LSTM"
-                # ),
                 RecurrentEncoder: dict(
                     recurrent={'cls': LSTM}
                 ),
@@ -92,8 +92,17 @@ def config():
 
 
 @exp.automain
-def main(_config):
+def main(_config, _run: sacred.run.Run):
     """
     python parametized.py print_config
     python parametized.py print_config with model.kwargs.encoder.cls=RecurrentEncoder model.kwargs.vae_param=10
     """
+    from IPython.lib.pretty import pprint
+    sacred.commands.print_config(_run)
+
+    model = VAE.from_config(_config['model'])
+
+    print('Model config')
+    pprint(model.config)
+    print('Encoder config')
+    pprint(model.encoder)

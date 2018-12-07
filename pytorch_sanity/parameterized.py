@@ -12,6 +12,34 @@ import importlib
 
 
 class Parameterized(abc.ABC):
+    _config = None
+
+    @property
+    def config(self):
+        if self._config is None:
+            p_name = f'{Parameterized.__module__}.{Parameterized.__qualname__}'
+            name = f'{self.__class__.__module__}.{self.__class__.__qualname__}'
+            raise Exception(
+                f'The config property of a {p_name} object\n'
+                f'is only available, when the object is '
+                f'produced from "from_config".\n'
+                f'You tried to get it for an instance of {name}.'
+            )
+        return self._config
+
+    @config.setter
+    def config(self, value):
+        if self._config is None:
+            self._config = value
+        else:
+            p_name = f'{Parameterized.__module__}.{Parameterized.__qualname__}'
+            name = f'{self.__class__.__module__}.{self.__class__.__qualname__}'
+            raise Exception(
+                f'The config property of a {p_name} object\n'
+                f'can only be set once.\n'
+                f'You tried to set it for an instance of {name}.'
+            )
+
     @classmethod
     def get_signature(cls):
         sig = inspect.signature(cls.__init__)
@@ -97,11 +125,11 @@ class Parameterized(abc.ABC):
     def from_config(
             cls,
             config,
-    ):
+    ) -> 'Parameterized':
         # assert do not use defaults
-        kwargs = config_to_kwargs(config)
-        new = cls(**kwargs)
-        new.config = config
+        assert config.get('cls', None) == class_to_str(cls), (config['cls'], class_to_str(cls))
+        new = config_to_instance(config)
+        # new.config = config
         return new
 
 
@@ -222,17 +250,19 @@ def update_config(config, updates=None):
             )
 
 
-def config_to_kwargs(config):
+def config_to_instance(config):
     if isinstance(config, dict):
         if 'cls' in config:
             assert 'kwargs' in config, config
             assert len(config) == 2, config
-            return import_class(config['cls'])(**config['kwargs'])
+            new = import_class(config['cls'])(**config['kwargs'])
+            new.config = config
+            return new
         else:
-            return {k: config_to_kwargs(v) for k, v in config.items()}
+            return {k: config_to_instance(v) for k, v in config.items()}
     elif isinstance(config, (tuple, list)):
         return config.__class__([
-            config_to_kwargs(l) for l in config
+            config_to_instance(l) for l in config
         ])
     else:
         return config
