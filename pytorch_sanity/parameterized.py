@@ -70,6 +70,8 @@ def import_class(name: str):
         return name
     splitted = name.split('.')
     module_name = '.'.join(splitted[:-1])
+    if module_name == '':
+        module_name = '__main__'
     try:
         module = importlib.import_module(module_name)
     except ModuleNotFoundError:
