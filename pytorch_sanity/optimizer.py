@@ -17,7 +17,7 @@ class Optimizer(Parameterized):
 
     def check_if_set(self):
         assert self.optimizer is not None, \
-            'The optimizer is not initialized, call set_params before' \
+            'The optimizer is not initialized, call set_parameter before' \
             ' using any of the optimizer functions'
 
     def zero_grad(self):
