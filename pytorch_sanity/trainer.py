@@ -45,9 +45,10 @@ class Trainer(Parameterized):
         if self.use_cuda:
             self.models = [m.cuda(self.gpu_device) for m in self.models]
         self.optimizers = to_list(optimizers)
-        [optimizer.set_params(self.models[i].parameters())
-         for i, optimizer in enumerate(self.optimizers)
-         if not optimizer is None]
+        assert len(self.optimizers) == len(self.models)
+        [optimizer.set_params(model.parameters())
+         for model, optimizer in zip(self.models, self.optimizers)
+         if optimizer is not None]
         self.storage_dir = Path(storage_dir).expanduser().absolute()
         self.reset_summary()
         self.iteration = 0
