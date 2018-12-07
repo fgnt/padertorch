@@ -74,9 +74,9 @@ class Trainer:
             max_epochs is None,
         ), (max_iterations, max_epochs)
         if max_iterations is not None:
-            self.max_iterations = EndTrigger.new(max_iterations, unit='iteration')
+            self.max_iterations = EndTrigger(max_iterations, unit='iteration')
         elif max_epochs is not None:
-            self.max_iterations = EndTrigger.new(max_iterations, unit='epoch')
+            self.max_iterations = EndTrigger(max_iterations, unit='epoch')
         else:
             raise Exception(max_epochs, max_iterations)
 
