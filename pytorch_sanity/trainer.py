@@ -256,7 +256,7 @@ class Trainer:
             )
         for key, audio in self.summary['audios'].items():
             self.writer.add_audio(
-                f'{prefix}/{key}', audio, self.iteration, sample_rate=16000
+                f'{prefix}/{key}', audio[1], self.iteration, sample_rate=audio[0]
             )
         for key, image in self.summary['images'].items():
             self.writer.add_image(f'{prefix}/{key}', image, self.iteration)
