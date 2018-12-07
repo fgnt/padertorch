@@ -46,9 +46,11 @@ class Trainer(Parameterized):
             self.models = [m.cuda(self.gpu_device) for m in self.models]
         self.optimizers = to_list(optimizers)
         assert len(self.optimizers) == len(self.models)
-        [optimizer.set_params(model.parameters())
-         for model, optimizer in zip(self.models, self.optimizers)
-         if optimizer is not None]
+        [
+            optimizer.set_params(model.parameters())
+            for model, optimizer in zip(self.models, self.optimizers)
+            if optimizer is not None
+        ]
         self.storage_dir = Path(storage_dir).expanduser().absolute()
         self.reset_summary()
         self.iteration = 0
@@ -286,7 +288,7 @@ class Trainer(Parameterized):
             checkpoint_path
         )
         if self.use_cuda:
-            self.cuda()
+            self.cuda(self.gpu_device)
         print(f"{datetime.now()}: Saved model and optimizer state at iteration "
               f"{self.iteration} to {checkpoint_path}")
 
@@ -303,13 +305,13 @@ class Trainer(Parameterized):
         print(f"Loaded checkpoint '{checkpoint_path}' (iteration {iteration})")
 
     def cpu(self):
-        self.models = [m.cpu() for m in self.models]
-        self.models = [o.cpu() if o is not None else None
-                       for o in self.optimizers]
-    def cuda(self):
-        self.models = [m.cuda(self.gpu_device) for m in self.models]
-        self.models = [o.cuda(self.gpu_device) if o is not None else None
-                       for o in self.optimizers]
+        [m.cpu() for m in self.models]
+        [o.cpu() if o is not None else None for o in self.optimizers]
+
+    def cuda(self, device):
+        [m.cuda(device) for m in self.models]
+        [o.cuda(device) if o is not None else None
+         for o in self.optimizers]
 
 
 class IntervallTrigger:
