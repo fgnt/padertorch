@@ -3,6 +3,7 @@ from . import (
     ops,
     parameterized,
     trainer,
+    optimizer,
 )
 
 from .ops import *
