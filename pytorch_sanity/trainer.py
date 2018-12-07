@@ -188,6 +188,12 @@ class Trainer(Parameterized):
                 return batch.cuda(self.gpu_device)
             else:
                 return batch.cpu()
+        elif isinstance(batch, np.ndarray):
+            if batch.dtype in [np.complex64, np.complex128]:
+                # complex is not supported
+                return batch
+            else:
+                return self.batch_to_device(torch.from_numpy(batch))
         else:
             return batch
 
