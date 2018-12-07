@@ -105,14 +105,20 @@ def class_to_str(cls):
 
 def recursive_class_to_str(dictionary):
     """
+    >>> from pytorch_sanity import Model
     >>> recursive_class_to_str([{'cls': 'pytorch_sanity.Model'}])
     [{'cls': 'pytorch_sanity.base.Model'}]
+    >>> recursive_class_to_str([{'cls': Model, Model: {}}])
+    [{'cls': 'pytorch_sanity.base.Model', 'pytorch_sanity.base.Model': {}}]
     """
     if isinstance(dictionary, dict):
         if 'cls' in dictionary:
-            ret = dictionary.copy()
-            ret['cls'] = class_to_str(dictionary['cls'])
-            return ret
+            return {
+                class_to_str(k) if not isinstance(k, str) else k
+                :
+                class_to_str(v) if k == 'cls' else recursive_class_to_str(v)
+                for k, v in dictionary.items()
+            }
         else:
             return dictionary.__class__({
                 k: recursive_class_to_str(v)
