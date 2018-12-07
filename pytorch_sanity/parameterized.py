@@ -78,12 +78,13 @@ class Parameterized(abc.ABC):
             config['cls'] = class_to_str(config['cls'])
 
         # This assert is for sacred that may change values in the config dict.
-        assert config['cls'] == class_to_str(cls), (
+        assert config['cls'] == class_to_str(cls) or cls is Parameterized, (
             config['cls'], class_to_str(cls)
         )
 
         config['kwargs'] = {
             **recursive_class_to_str(cls.get_signature()),
+            **config.get('kwargs', {}),
             **config.get(config['cls'], {}),
         }
 
@@ -103,7 +104,7 @@ class Parameterized(abc.ABC):
             )
 
         # Test if the kwargs are valid
-        sig = inspect.signature(cls.__init__)
+        sig = inspect.signature(import_class(config['cls']).__init__)
         try:
             bound_arguments: inspect.BoundArguments = sig.bind(
                 self=None, **config['kwargs']
@@ -116,8 +117,8 @@ class Parameterized(abc.ABC):
                 f'Where\n'
                 f'     kwargs: {config["kwargs"]}\n'
                 f'     signature: {sig}\n'
+                f'     updates: {updates}\n'
             ) from e
-
 
         return config
 
@@ -223,11 +224,20 @@ def update_config(config, updates=None):
             **updates.get(config['cls'], dict()),
         }
 
-        # inplace
-        import_class(config['cls']).get_config(
-            updates=sub_updates,
-            config=config,
-        )
+        cls = import_class(config['cls'])
+        try:
+            # inplace
+            cls.get_config(
+                updates=sub_updates,
+                config=config,
+            )
+        except AttributeError as e:
+            raise TypeError(
+                f'Expected a subclass of {Parameterized}, but got {cls}.\n'
+                f'config: {config}\n'
+                f'method resolution order: {inspect.getmro(cls)}'
+            )
+
     else:
         for key in sorted(list(config.keys())):
 
