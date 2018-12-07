@@ -47,7 +47,7 @@ class Trainer(Parameterized):
         self.optimizers = to_list(optimizers)
         assert len(self.optimizers) == len(self.models)
         [
-            optimizer.set_params(model.parameters())
+            optimizer.set_parameters(model.parameters())
             for model, optimizer in zip(self.models, self.optimizers)
             if optimizer is not None
         ]

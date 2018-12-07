@@ -10,7 +10,7 @@ class Optimizer(Parameterized):
     def __init__(self, gradient_clipping):
         self.gradient_clipping = gradient_clipping
 
-    def set_parameter(self, parameters):
+    def set_parameters(self, parameters):
         self.optimizer = self.optimizer_cls(
             parameters, **self.optimizer_kwargs
         )
