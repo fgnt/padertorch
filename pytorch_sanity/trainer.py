@@ -172,14 +172,23 @@ class Trainer:
         print('Finished Validation')
 
     def batch_to_device(self, batch):
-        for key, value in batch.items():
-            if torch.is_tensor(value):
-                if self.use_cuda:
-                    value = value.cuda(self.gpu_device)
-                else:
-                    value = value.cpu()
-            batch[key] = value
-        return batch
+        if isinstance(batch, dict):
+            return batch.__class__({
+                key: self.batch_to_device(value)
+                for key, value in batch.items()
+            })
+        elif isinstance(batch, (tuple, list)):
+            return batch.__class__([
+                self.batch_to_device(element)
+                for element in batch
+            ])
+        elif torch.is_tensor(batch):
+            if self.use_cuda:
+                return batch.cuda(self.gpu_device)
+            else:
+                return batch.cpu()
+        else:
+            return batch
 
     def train_step(self, batch):
         assert len(self.model) == 1, (
