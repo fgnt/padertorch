@@ -70,7 +70,7 @@ class Trainer(Parameterized):
         if max_iterations is not None:
             self.max_iterations = EndTrigger(max_iterations, unit='iteration')
         elif max_epochs is not None:
-            self.max_iterations = EndTrigger(max_iterations, unit='epoch')
+            self.max_iterations = EndTrigger(max_epochs, unit='epoch')
         else:
             raise Exception(max_epochs, max_iterations)
 
@@ -395,6 +395,7 @@ class IntervallTrigger:
         9 3 False
         """
         self.period = period
+        assert isinstance(self.period, int), (type(self.period), self.period)
         assert unit == 'epoch' or unit == 'iteration', unit
         self.unit = unit
         self.last = 0
