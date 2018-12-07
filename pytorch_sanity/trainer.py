@@ -110,17 +110,42 @@ class Trainer(Parameterized):
         max_iterations = self.max_iterations
         # Change model to train mode (e.g. activate dropout)
         [m.train() for m in self.models]
+
+        # For training continue set the correct last value
+        self.summary_trigger.set_last(self.iteration, self.epoch)
+        self.checkpoint_trigger.set_last(self.iteration, self.epoch)
+        self.validation_trigger.set_last(self.iteration, self.epoch)
+
         # ================ MAIN TRAINNIG LOOP! ===================
         try:
             for self.epoch in itertools.count(self.epoch):  # infinite loop
-                if self.max_iterations(
-                        iteration=self.iteration, epoch=self.epoch
-                ):
-                    return
-                for self.iteration, batch in enumerate(
-                        train_iterator,
-                        start=self.iteration
-                ):
+                data_iterator = iter(train_iterator)
+                for self.iteration in itertools.count(self.iteration):
+                    if self.max_iterations(
+                            iteration=self.iteration, epoch=self.epoch
+                    ):
+                        return
+                    if self.summary_trigger(
+                            iteration=self.iteration, epoch=self.epoch
+                    ) or self.iteration == 1:
+                        self.add_summary('training')
+                    if self.checkpoint_trigger(
+                            iteration=self.iteration, epoch=self.epoch
+                    ) or self.iteration == 1:
+                        self.save_checkpoint()
+                    if self.validation_trigger(
+                            iteration=self.iteration, epoch=self.epoch
+                    ):
+                        # Todo: allow continuous evaluation
+                        self.add_summary('training')
+                        self.validate(validation_iterator)
+                        [m.train() for m in self.models]
+
+                    try:
+                        batch = next(data_iterator)
+                    except StopIteration:
+                        break
+
                     batch = self.batch_to_device(batch)
                     if self.max_iterations(
                             iteration=self.iteration, epoch=self.epoch
@@ -130,22 +155,6 @@ class Trainer(Parameterized):
                     # Todo: backup OOM
                     self.train_step(batch)
 
-                    if self.summary_trigger(
-                            iteration=self.iteration, epoch=self.epoch
-                    ) or self.iteration == 0:
-                        self.add_summary('training')
-                    if self.checkpoint_trigger(
-                            iteration=self.iteration, epoch=self.epoch
-                    ) or self.iteration == 0:
-                        self.save_checkpoint()
-                    if self.validation_trigger(
-                            iteration=self.iteration, epoch=self.epoch
-                    ):
-                        # Todo: allow continuous evaluation
-                        self.add_summary('training')
-                        self.validate(validation_iterator)
-                        [m.train() for m in self.models]
-                    self.iteration += 1
         finally:
             self.add_summary('training')
             self.save_checkpoint()
@@ -197,7 +206,7 @@ class Trainer(Parameterized):
         self.update_summary(review)
 
     def validation_step(self, batch):
-        assert len(self.models), (
+        assert len(self.models) == 1, (
             self.models, 'Overwrite the train_step and validation_step, when you have multiple models.'
         )
         model_out = self.models[0](batch)
@@ -257,7 +266,7 @@ class Trainer(Parameterized):
             )
         for key, audio in self.summary['audios'].items():
             if isinstance(audio, (tuple, list)):
-                assert len(audio) == 2
+                assert len(audio) == 2, (len(audio), audio)
                 self.writer.add_audio(
                     f'{prefix}/{key}', audio[0],
                     self.iteration, sample_rate=audio[1]
@@ -363,11 +372,22 @@ class IntervallTrigger:
         >>> for i in range(10):
         ...     epoch = i // 3
         ...     print(i, epoch, trigger(i, epoch))
-        0 0 True
+        0 0 False
         1 0 False
         2 0 True
         3 1 False
         4 1 True
+        5 1 False
+        6 2 True
+        7 2 False
+        8 2 True
+        9 3 False
+        >>> trigger = IntervallTrigger(2, 'iteration')
+        >>> trigger.set_last(4, None)
+        >>> for i in range(4, 10):
+        ...     epoch = i // 3
+        ...     print(i, epoch, trigger(i, epoch))
+        4 1 False
         5 1 False
         6 2 True
         7 2 False
@@ -381,15 +401,27 @@ class IntervallTrigger:
 
     def __call__(self, iteration, epoch):
         if self.unit == 'epoch':
-            if self.last == epoch:
-                return False
-            else:
-                self.last = epoch
-                return (epoch % self.period) == 0
+            index = epoch
         elif self.unit == 'iteration':
-            return (iteration % self.period) == 0
+            index = iteration
         else:
             raise ValueError(self.unit, 'Expect epoch or iteration')
+
+        if self.last == index:
+            return False
+        else:
+            self.last = index
+            return (index % self.period) == 0
+
+    def set_last(self, iteration, epoch):
+        if self.unit == 'epoch':
+            self.last = epoch
+        elif self.unit == 'iteration':
+            self.last = iteration
+        else:
+            raise ValueError(self.unit, 'Expect epoch or iteration')
+
+
 
 class EndTrigger(IntervallTrigger):
     def __call__(self, iteration, epoch):
