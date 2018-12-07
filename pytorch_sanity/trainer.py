@@ -343,7 +343,7 @@ class IntervallTrigger:
         else:
             assert len(intervall_trigger) == 2, intervall_trigger
             return cls(
-                **intervall_trigger
+                *intervall_trigger
             )
 
     def __init__(self, period, unit):
