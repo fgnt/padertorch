@@ -43,7 +43,15 @@ class Trainer:
     ):
         # self.config = config
         self.models = to_list(models)
-        self.optimizers = to_list(optimizers, len(self.models))
+        self.optimizers = [
+            optimizer.set_params(
+                self.models[i].parameters(),
+                lr=learning_rates[i],
+                weight_decay=weight_decays[i]
+            )
+            if len(list(self.models[i].parameters())) else None
+            for i, optimizer in enumerate(to_list(optimizers, len(self.models)))
+        ]
         self.train_iterator = train_iterator
         self.validation_iterator = validation_iterator
 
