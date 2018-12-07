@@ -9,6 +9,8 @@ import numpy as np
 import torch
 from torch.utils.data.dataloader import default_collate
 from tensorboardX import SummaryWriter
+from pytorch_sanity.optimizer import Optimizer, Adam
+from pytorch_sanity.parameterized import Parameterized
 
 from pytorch_sanity.utils import to_list, nested_update
 
@@ -18,43 +20,34 @@ __all__ = [
 ]
 
 
-class Trainer:
+class Trainer(Parameterized):
     def __init__(
             self,
 
             models,
-            train_iterator,
-            validation_iterator,
-
-            optimizers,
-            learning_rates,
-            loss_weights,
-            batch_size,
-            summary_step,
-            checkpoint_step,
-            validation_step,
             storage_dir,
+            optimizers: Optimizer=Adam(),
+            loss_weights=None,
+            batch_size=None,
+            summary_step=(1, 'epoch'),
+            checkpoint_step=(1, 'epoch'),
+            validation_step=(1, 'epoch'),
             gpu=0 if torch.cuda.is_available() else None,
             max_epochs=None,
             max_iterations=None,
-            weight_decays=None,
             init_checkpoint=None,
             seed=0,
     ):
         # self.config = config
         self.models = to_list(models)
-        self.optimizers = [
-            optimizer.set_params(
-                self.models[i].parameters(),
-                lr=learning_rates[i],
-                weight_decay=weight_decays[i]
-            )
-            if len(list(self.models[i].parameters())) else None
-            for i, optimizer in enumerate(to_list(optimizers, len(self.models)))
-        ]
-        self.train_iterator = train_iterator
-        self.validation_iterator = validation_iterator
-
+        self.use_cuda = gpu is not None
+        self.gpu_device = int(gpu)
+        if self.use_cuda:
+            self.models = [m.cuda(self.gpu_device) for m in self.models]
+        self.optimizers = to_list(optimizers)
+        [optimizer.set_params(self.models[i].parameters())
+         for i, optimizer in enumerate(self.optimizers)
+         if not optimizer is None]
         self.storage_dir = Path(storage_dir).expanduser().absolute()
         self.reset_summary()
         self.iteration = 0
@@ -64,8 +57,6 @@ class Trainer:
             self.load_checkpoint(
                 Path(init_checkpoint).expanduser().absolute(),
             )
-        self.use_cuda = gpu is not None
-        self.gpu_device = int(gpu)
         self.seed = seed
         self.batch_size = batch_size
         # self.max_epochs = max_epochs
@@ -80,9 +71,9 @@ class Trainer:
         else:
             raise Exception(max_epochs, max_iterations)
 
-        self.summary_step = IntervallTrigger.new(summary_step)
-        self.checkpoint_step = IntervallTrigger.new(checkpoint_step)
-        self.validation_step = IntervallTrigger.new(validation_step)
+        self.summary_trigger = IntervallTrigger.new(summary_step)
+        self.checkpoint_trigger = IntervallTrigger.new(checkpoint_step)
+        self.validation_trigger = IntervallTrigger.new(validation_step)
 
         self.loss_weights = loss_weights
 
@@ -96,7 +87,7 @@ class Trainer:
             images=dict()
         )
 
-    def train(self):
+    def train(self, train_iterator, validation_iterator):
         os.makedirs(str(self.storage_dir / 'checkpoints'), exist_ok=True)
 
         torch.backends.cudnn.enabled = True
@@ -107,17 +98,13 @@ class Trainer:
 
         # Todo: batch outside of trainer
         if self.batch_size is not None:
-            train_iterator = self.train_iterator.batch(
+            train_iterator = train_iterator.batch(
                 self.batch_size, collate_fn=default_collate
             )
-        else:
-            train_iterator = self.train_iterator
         # train_iterator = train_iterator  # .tile(self.max_epochs)
 
         # Todo: unit(s) for steps?
         max_iterations = self.max_iterations
-        if self.use_cuda:
-            self.cuda(self.gpu_device)
         # Change model to train mode (e.g. activate dropout)
         [m.train() for m in self.models]
         # ================ MAIN TRAINNIG LOOP! ===================
@@ -128,9 +115,10 @@ class Trainer:
                 ):
                     return
                 for self.iteration, batch in enumerate(
-                        train_iterator.map(self.batch_to_device),
+                        train_iterator,
                         start=self.iteration
                 ):
+                    batch = self.batch_to_device(batch)
                     if self.max_iterations(
                             iteration=self.iteration, epoch=self.epoch
                     ):
@@ -139,34 +127,35 @@ class Trainer:
                     # Todo: backup OOM
                     self.train_step(batch)
 
-                    if self.summary_step(
+                    if self.summary_trigger(
                             iteration=self.iteration, epoch=self.epoch
                     ) or self.iteration == 0:
                         self.add_summary('training')
-                    if self.checkpoint_step(
+                    if self.checkpoint_trigger(
                             iteration=self.iteration, epoch=self.epoch
                     ) or self.iteration == 0:
                         self.save_checkpoint()
-                    if self.validation_step(
+                    if self.validation_trigger(
                             iteration=self.iteration, epoch=self.epoch
                     ):
                         # Todo: allow continuous evaluation
                         self.add_summary('training')
-                        self.validate()
+                        self.validate(validation_iterator)
                         [m.train() for m in self.models]
                     self.iteration += 1
         finally:
             self.add_summary('training')
             self.save_checkpoint()
 
-    def validate(self):
+    def validate(self, validation_iterator):
         print('Starting Validation')
         # Change model to eval mode (e.g. deactivate dropout)
         [m.eval() for m in self.models]
-        validation_iterator = self.validation_iterator.batch(
-            self.batch_size, collate_fn=default_collate)
-        for i, batch in enumerate(validation_iterator.map(
-                self.batch_to_device)):
+        if self.batch_size is not None:
+            validation_iterator = validation_iterator.batch(
+                self.batch_size, collate_fn=default_collate)
+        for i, batch in enumerate(validation_iterator):
+            batch = self.batch_to_device(batch)
             self.validation_step(batch)
         self.add_summary('validation')
         print('Finished Validation')
@@ -182,8 +171,8 @@ class Trainer:
         return batch
 
     def train_step(self, batch):
-        assert len(self.model) == 1, (
-            self.model, 'Overwrite the train_step and validation_step, when you have multiple models.'
+        assert len(self.models) == 1, (
+            self.models, 'Overwrite the train_step and validation_step, when you have multiple models.'
         )
         [opti and opti.zero_grad() for opti in self.optimizers]
         review = dict()
@@ -196,8 +185,8 @@ class Trainer:
         self.update_summary(review)
 
     def validation_step(self, batch):
-        assert len(self.model), (
-            self.model, 'Overwrite the train_step and validation_step, when you have multiple models.'
+        assert len(self.models), (
+            self.models, 'Overwrite the train_step and validation_step, when you have multiple models.'
         )
         model_out = self.models[0](batch)
         review = self.models[0].review(batch, model_out)
@@ -255,9 +244,17 @@ class Trainer:
                 # bins='doane'
             )
         for key, audio in self.summary['audios'].items():
-            self.writer.add_audio(
-                f'{prefix}/{key}', audio[1], self.iteration, sample_rate=audio[0]
-            )
+            if isinstance(audio, (tuple, list)):
+                assert len(audio) == 2
+                self.writer.add_audio(
+                    f'{prefix}/{key}', audio[0],
+                    self.iteration, sample_rate=audio[1]
+                )
+            else:
+                self.writer.add_audio(
+                    f'{prefix}/{key}', audio[0],
+                    self.iteration, sample_rate=16000
+                )
         for key, image in self.summary['images'].items():
             self.writer.add_image(f'{prefix}/{key}', image, self.iteration)
         self.reset_summary()
@@ -279,7 +276,7 @@ class Trainer:
             checkpoint_path
         )
         if self.use_cuda:
-            self.cuda(self.gpu_device)
+            self.cuda()
         print(f"{datetime.now()}: Saved model and optimizer state at iteration "
               f"{self.iteration} to {checkpoint_path}")
 
@@ -297,23 +294,12 @@ class Trainer:
 
     def cpu(self):
         self.models = [m.cpu() for m in self.models]
-        for opti in self.optimizers:
-            if opti is None:
-                continue
-            for state in opti.state.values():
-                for k, v in state.items():
-                    if torch.is_tensor(v):
-                        state[k] = v.cpu()
-
-    def cuda(self, device):
+        self.models = [o.cpu() if o is not None else None
+                       for o in self.optimizers]
+    def cuda(self):
         self.models = [m.cuda(self.gpu_device) for m in self.models]
-        for opti in self.optimizers:
-            if opti is None:
-                continue
-            for state in opti.state.values():
-                for k, v in state.items():
-                    if torch.is_tensor(v):
-                        state[k] = v.cuda(self.gpu_device)
+        self.models = [o.cuda(self.gpu_device) if o is not None else None
+                       for o in self.optimizers]
 
 
 class IntervallTrigger:
