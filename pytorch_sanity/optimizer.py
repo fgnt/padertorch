@@ -10,9 +10,9 @@ class Optimizer(Parameterized):
     def __init__(self, gradient_clipping):
         self.gradient_clipping = gradient_clipping
 
-    def set_params(self, params):
+    def set_parameter(self, parameters):
         self.optimizer = self.optimizer_cls(
-            params, **self.optimizer_kwargs
+            parameters, **self.optimizer_kwargs
         )
 
     def check_if_set(self):
@@ -29,6 +29,7 @@ class Optimizer(Parameterized):
         return self.optimizer.step()
 
     def clip_grad(self, params, prefix: str = None):
+        self.check_if_set()
         # Todo: report clipped and unclipped
         # Todo: allow clip=None but still report grad_norm
         if isinstance(self.gradient_clipping, dict):
@@ -39,25 +40,27 @@ class Optimizer(Parameterized):
             params, grad_clips
         )
 
+    def cuda(self, device):
+        self.check_if_set()
+        for state in self.optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.cuda(device)
 
-class Adagrad(Optimizer):
-    optimizer_cls = optim.Adagrad
+    def cpu(self):
+        self.check_if_set()
+        for state in self.optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.cpu()
 
-    def __init__(
-            self,
-            gradient_clipping=1e10,
-            lr=1e-2,
-            lr_decay=0,
-            weight_decay=0,
-            initial_accumulator_value=0
-    ):
-        super().__init__(gradient_clipping)
-        self.optimizer_kwargs = dict(
-            lr=lr,
-            lr_decay=lr_decay,
-            weight_decay=weight_decay,
-            initial_accumulator_value=initial_accumulator_value
-        )
+    def load_state_dict(self, key):
+        self.check_if_set()
+        return self.optimizer.load_state_dict(key)
+
+    def state_dict(self):
+        self.check_if_set()
+        return self.optimizer.state_dict()
 
 
 class Adam(Optimizer):
