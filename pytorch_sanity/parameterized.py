@@ -5,6 +5,7 @@ Example usage: see example in ...
 
 """
 import abc
+import sys
 import json
 import inspect
 import importlib
@@ -28,6 +29,7 @@ class Parameterized(abc.ABC):
     def get_config(
             cls,
             updates=None,
+            config=None,
     ):
         """
         Provides configuration to allow Instantiation with
@@ -38,20 +40,58 @@ class Parameterized(abc.ABC):
         :return: config
 
         """
-        defaults = recursive_class_to_str(cls.get_signature())
-        # if config is None:
-        # config = defaults  # cls._get_defaults()
-        # assert defaults is not None, (defaults, config, cls)
+        if config is None:
+            config = {
+                'cls': class_to_str(cls)
+            }
+        elif 'cls' not in config:
+            config['cls'] = class_to_str(cls)
+        elif not isinstance(config['cls'], str):
+            config['cls'] = class_to_str(config['cls'])
+
+        # This assert is for sacred that may change values in the config dict.
+        assert config['cls'] == class_to_str(cls), (
+            config['cls'], class_to_str(cls)
+        )
+
+        config['kwargs'] = {
+            **recursive_class_to_str(cls.get_signature()),
+            **config.get(config['cls'], {}),
+        }
+
+        for key in list(config.keys()):
+            if key not in ['cls', 'kwargs']:
+                del config[key]
+
         if updates is None:
             updates = dict()
+
         try:
-            update_config(defaults, updates)
+            update_config(config['kwargs'], updates)
         except ConfigUpdateException as e:
             raise Exception(
                 f'{cls.__module__}.{cls.__qualname__}: '
                 f'Updates that are not used anywhere: {e}'
             )
-        return defaults
+
+        # Test if the kwargs are valid
+        sig = inspect.signature(cls.__init__)
+        try:
+            bound_arguments: inspect.BoundArguments = sig.bind(
+                self=None, **config['kwargs']
+            )
+            bound_arguments.apply_defaults()
+        except TypeError as e:
+            raise Exception(
+                f'The test, if the call {config["cls"]}(**kwargs) would be '
+                f'succesfull, failed.\n'
+                f'Where\n'
+                f'     kwargs: {config["kwargs"]}\n'
+                f'     signature: {sig}\n'
+            ) from e
+
+
+        return config
 
     @classmethod
     def from_config(
@@ -147,54 +187,39 @@ def update_config(config, updates=None):
     for the current config are ignored.
     :return:
     """
-    blacklist = list()
-    for key in sorted(list(config.keys())):
-        if key in blacklist:
-            continue
-        if isinstance(config[key], dict):
-            update_config(
-                config[key],
-                updates.pop(key) if updates and key in updates else dict(),
-            )
-        elif updates and key in updates:
-            config[key] = updates.pop(key)
-        if key.endswith('cls'):
-            kwargs_key = f'{key[:-len("cls")]}kwargs'
-            kwargs_config = config.get(kwargs_key, {})
-            kwargs_specific_config = config.get(config[key], {})
-            if kwargs_config is None:
-                kwargs_config = {}
-            if kwargs_specific_config is None:
-                kwargs_specific_config = {}
+    if 'cls' in config:
+        if 'cls' in updates:
+            config['cls'] = updates['cls']
+        sub_updates = {
+            **updates.get('kwargs', dict()),
+            **updates.get(config['cls'], dict()),
+        }
 
-            config[kwargs_key] = import_class(config[key]).get_config(
-                {
-                    **kwargs_config,
-                    **kwargs_specific_config,
-                    **updates.pop(kwargs_key, dict()),
-                    **updates.pop(config[key], dict()),
-                }
-            )
-            blacklist.append(kwargs_key)
-
-            if key == 'cls':
-                for cfg_key in list(config.keys()):
-                    if cfg_key not in [key, kwargs_key]:
-                        del config[cfg_key]
-                for cfg_key in list(updates.keys()):
-                    if cfg_key not in [key, kwargs_key]:
-                        del updates[cfg_key]
-                break
-
-    if updates:
-        from IPython.lib.pretty import pretty
-        raise ConfigUpdateException(
-            '\n\n'
-            'updates:\n'
-            f'{pretty(updates)}\n\n'
-            'config:\n'
-            f'{pretty(config)}'
+        # inplace
+        import_class(config['cls']).get_config(
+            updates=sub_updates,
+            config=config,
         )
+    else:
+        for key in sorted(list(config.keys())):
+
+            if isinstance(config[key], dict):
+                update_config(
+                    config[key],
+                    updates.pop(key) if updates and key in updates else dict(),
+                )
+            elif updates and key in updates:
+                config[key] = updates.pop(key)
+
+        if updates:
+            from IPython.lib.pretty import pretty
+            raise ConfigUpdateException(
+                '\n\n'
+                'updates:\n'
+                f'{pretty(updates)}\n\n'
+                'config:\n'
+                f'{pretty(config)}'
+            )
 
 
 def config_to_kwargs(config):
