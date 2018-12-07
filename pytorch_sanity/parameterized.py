@@ -128,7 +128,8 @@ class Parameterized(abc.ABC):
             config,
     ) -> 'Parameterized':
         # assert do not use defaults
-        assert config.get('cls', None) == class_to_str(cls), (config['cls'], class_to_str(cls))
+        assert 'cls' in config, (cls, config)
+        assert issubclass(import_class(config['cls']), cls), (config['cls'], cls)
         new = config_to_instance(config)
         # new.config = config
         return new
