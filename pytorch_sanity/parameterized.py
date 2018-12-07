@@ -78,8 +78,8 @@ class Parameterized(abc.ABC):
             config['cls'] = class_to_str(config['cls'])
 
         # This assert is for sacred that may change values in the config dict.
-        assert config['cls'] == class_to_str(cls) or cls is Parameterized, (
-            config['cls'], class_to_str(cls)
+        assert issubclass(import_class(config['cls']), cls), (
+            config['cls'], cls
         )
 
         config['kwargs'] = {
@@ -265,7 +265,9 @@ def config_to_instance(config):
         if 'cls' in config:
             assert 'kwargs' in config, config
             assert len(config) == 2, config
-            new = import_class(config['cls'])(**config['kwargs'])
+            new = import_class(config['cls'])(
+                **config_to_instance(config['kwargs'])
+            )
             new.config = config
             return new
         else:
