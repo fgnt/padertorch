@@ -74,7 +74,7 @@ class Parameterized(abc.ABC):
             }
         elif 'cls' not in config:
             config['cls'] = class_to_str(cls)
-        elif not isinstance(config['cls'], str):
+        else:
             config['cls'] = class_to_str(config['cls'])
 
         # This assert is for sacred that may change values in the config dict.
@@ -105,20 +105,51 @@ class Parameterized(abc.ABC):
 
         # Test if the kwargs are valid
         sig = inspect.signature(import_class(config['cls']).__init__)
+
+        # Remove default -> force completely described
+        sig = sig.replace(
+            parameters=[p.replace(
+                default=inspect.Parameter.empty
+            ) for p in sig.parameters.values()]
+        )
         try:
             bound_arguments: inspect.BoundArguments = sig.bind(
                 self=None, **config['kwargs']
             )
             bound_arguments.apply_defaults()
         except TypeError as e:
-            raise Exception(
-                f'The test, if the call {config["cls"]}(**kwargs) would be '
-                f'succesfull, failed.\n'
-                f'Where\n'
-                f'     kwargs: {config["kwargs"]}\n'
-                f'     signature: {sig}\n'
-                f'     updates: {updates}\n'
-            ) from e
+            unexpected_keyword = 'got an unexpected keyword argument '
+            if unexpected_keyword in str(e):
+                func_name, keyword = str(e).split(unexpected_keyword)
+                keyword = keyword.strip().strip("'")
+                available_keys = sig.parameters.keys()
+
+                import difflib
+                suggestions = difflib.get_close_matches(
+                    keyword, available_keys,
+                )
+
+                # CB: Is it better to print with assigned values or without?
+                sig_wo_anno = sig.replace(
+                    parameters=[p.replace(
+                        annotation=inspect.Parameter.empty,
+                        default=config['kwargs'].get(p.name, inspect.Parameter.empty),
+                    ) for p in sig.parameters.values()]
+                )
+                raise TypeError(
+                    f'{config["cls"]} {e}\n'
+                    f'Did you mean one of these {suggestions}?\n'
+                    f'Call signature: {sig_wo_anno}'
+                ) from e
+            else:
+                raise Exception(
+                    f'The test, if the call {config["cls"]}(**kwargs) would be '
+                    f'succesfull, failed.\n'
+                    f'Where\n'
+                    f'     kwargs: {config["kwargs"]}\n'
+                    f'     signature: {sig}\n'
+                    f'     updates: {updates}\n'
+                ) from e
 
         return config
 
@@ -217,9 +248,9 @@ def update_config(config, updates=None):
     for the current config are ignored.
     :return:
     """
-    if 'cls' in config:
+    if 'cls' in config or 'cls' in updates:
         if 'cls' in updates:
-            config['cls'] = updates['cls']
+            config['cls'] = class_to_str(updates['cls'])
         sub_updates = {
             **updates.get('kwargs', dict()),
             **updates.get(config['cls'], dict()),
@@ -241,13 +272,30 @@ def update_config(config, updates=None):
 
     else:
         for key in sorted(list(config.keys())):
-
             if isinstance(config[key], dict):
                 update_config(
                     config[key],
                     updates.pop(key) if updates and key in updates else dict(),
                 )
             elif updates and key in updates:
+                new_value = updates.pop(key)
+                if isinstance(new_value, dict):
+                    config[key] = {}
+                    update_config(
+                        config[key],
+                        new_value,
+                    )
+                else:
+                    config[key] = new_value
+
+        for key in list(updates.keys()):
+            if isinstance(updates[key], dict):
+                config[key] = {}
+                update_config(
+                    config[key],
+                    updates.pop(key),
+                )
+            else:
                 config[key] = updates.pop(key)
 
         if updates:
