@@ -194,6 +194,13 @@ class Trainer(Parameterized):
                 return batch
             else:
                 return self.batch_to_device(torch.from_numpy(batch))
+        elif hasattr(batch, '__dataclass_fields__'):
+            return batch.__class__(
+                **{
+                    f: self.batch_to_device(getattr(batch, f))
+                    for f in batch.__dataclass_fields__
+                }
+            )
         else:
             return batch
 
