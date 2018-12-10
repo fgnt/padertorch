@@ -161,15 +161,16 @@ class Trainer(Parameterized):
 
     def validate(self, validation_iterator):
         print('Starting Validation')
-        # Change model to eval mode (e.g. deactivate dropout)
-        [m.eval() for m in self.models]
-        if self.batch_size is not None:
-            validation_iterator = validation_iterator.batch(
-                self.batch_size, collate_fn=default_collate)
-        for i, batch in enumerate(validation_iterator):
-            batch = self.batch_to_device(batch)
-            self.validation_step(batch)
-        self.add_summary('validation')
+        with torch.no_grad():
+            # Change model to eval mode (e.g. deactivate dropout)
+            [m.eval() for m in self.models]
+            if self.batch_size is not None:
+                validation_iterator = validation_iterator.batch(
+                    self.batch_size, collate_fn=default_collate)
+            for i, batch in enumerate(validation_iterator):
+                batch = self.batch_to_device(batch)
+                self.validation_step(batch)
+            self.add_summary('validation')
         print('Finished Validation')
 
     def batch_to_device(self, batch):
