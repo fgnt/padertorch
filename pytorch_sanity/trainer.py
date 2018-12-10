@@ -242,6 +242,10 @@ class Trainer(Parameterized):
     def clip_grad(self, prefix: str = None):
         # Todo: report clipped and unclipped
         # Todo: allow clip=None but still report grad_norm
+        if prefix is None:
+            prefix_ = ''
+        else:
+            prefix_ = f'{prefix}_'
         for i, model in enumerate(self.models):
             grad_norm = self.optimizers[i].clip_grad(
                 model.parameters(), prefix
