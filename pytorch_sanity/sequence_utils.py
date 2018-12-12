@@ -1,21 +1,27 @@
-import torch
-
-
-def normalize_axis(x, axis):
-    """Here, `axis` is always understood to reference the unpacked axes.
-
-    TODO: Do we need to assert, that the axes do not collide?
-
-    >>> normalize_axis(torch.zeros(2, 3, 4), -1)
-    (2,)
-
-    >>> normalize_axis(torch.zeros(2, 3, 4), (-3, -2, -1))
-    (0, 1, 2)
+def packed_batch_sizes_to_sequence_lengths(batch_sizes: list):
     """
-    if not isinstance(axis, (tuple, list)):
-        axis = (axis,)
-    if isinstance(x, torch.nn.utils.rnn.PackedSequence):
-        ndim = len(x.data.size()) + 1
-    else:
-        ndim = len(x.size())
-    return tuple(a % ndim for a in axis)
+
+    >>> packed_batch_sizes_to_sequence_lengths([2, 2, 1])
+    [3, 2]
+
+    >>> packed_batch_sizes_to_sequence_lengths([5, 3, 3, 2])
+    [4, 4, 3, 1, 1]
+
+    Args:
+        batch_sizes:
+
+    Returns:
+
+    """
+    # TODO: May need to respect batch_first argument.
+    # TODO: This is a good candidate for Cython.
+    # TODO: Neither we nor them support empty dimensions.
+    lengths = []
+    last_batch_size = 0
+    for length, batch_size in reversed(list(enumerate(batch_sizes, 1))):
+        if batch_size > last_batch_size:
+            lengths.extend((int(batch_size) - last_batch_size) * [length])
+            last_batch_size = int(batch_size)
+        else:
+            pass
+    return lengths

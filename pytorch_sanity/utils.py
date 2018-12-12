@@ -3,6 +3,27 @@ import torch
 
 from pytorch_sanity.parameterized import Parameterized
 
+
+def normalize_axis(x, axis):
+    """Here, `axis` is always understood to reference the unpacked axes.
+
+    TODO: Do we need to assert, that the axes do not collide?
+
+    >>> normalize_axis(torch.zeros(2, 3, 4), -1)
+    (2,)
+
+    >>> normalize_axis(torch.zeros(2, 3, 4), (-3, -2, -1))
+    (0, 1, 2)
+    """
+    if not isinstance(axis, (tuple, list)):
+        axis = (axis,)
+    if isinstance(x, torch.nn.utils.rnn.PackedSequence):
+        ndim = len(x.data.size()) + 1
+    else:
+        ndim = len(x.size())
+    return tuple(a % ndim for a in axis)
+
+
 def to_list(x, length=None):
     if not isinstance(x, list):
         x = [x] * (1 if length is None else length)
@@ -55,9 +76,10 @@ class Padder(Parameterized):
                 axis = [idx for idx, dim in enumerate(dims) if
                         not all(dim == dim[::-1])]
 
-                assert len(axis) in [0,
-                                     1], f'only one axis is allowed to differ,' \
-                                         f' axis={axis} and dims={dims}'
+                assert len(axis) in [0, 1], (
+                    f'only one axis is allowed to differ, '
+                    f'axis={axis} and dims={dims}'
+                )
                 if len(axis) == 1:
                     axis = axis[0]
                     if self.sort_by_length:
@@ -89,7 +111,7 @@ class Padder(Parameterized):
 
     def __call__(self, batch):
         # assumes batch to be a list of dicts
-        # ToDo: do we automaticaly sort by sequence length?
+        # ToDo: do we automatically sort by sequence length?
 
         def nested_batching(value, key, nested_batch):
             # recursively nesting the batch
@@ -114,8 +136,8 @@ class Padder(Parameterized):
             if self.padding_keys is None:
                 padding_keys = nested_batch.keys()
             else:
-                assert len(self.padding_keys) > 0, 'Empty padding key list was ' \
-                                                   'provided default should be None'
+                assert len(self.padding_keys) > 0, \
+                    'Empty padding key list was provided default should be None'
 
             def nested_padding(value, key):
                 if isinstance(value, dict):
@@ -130,8 +152,8 @@ class Padder(Parameterized):
                     nested_batch.items()}
         else:
             assert self.padding_keys is None or len(self.padding_keys) == 0, (
-                'Padding keys have to be None or empty if padding is set to False, '
-                'but they are:', self.padding_keys
+                'Padding keys have to be None or empty if padding is set to '
+                'False, but they are:', self.padding_keys
             )
             return nested_batch
 
