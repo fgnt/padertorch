@@ -21,6 +21,13 @@ __all__ = [
 
 
 class Trainer(Parameterized):
+
+    @classmethod
+    def get_signature(cls):
+        default_dict = super().get_signature()
+        default_dict['optimizer'] = {'cls': Adam}
+        return default_dict
+
     def __init__(
             self,
 
@@ -79,11 +86,6 @@ class Trainer(Parameterized):
         self.validation_trigger = IntervalTrigger.new(validation_step)
 
         self.loss_weights = loss_weights
-
-    def get_signature(cls):
-        default_dict = super().get_signature()
-        default_dict['optimizer'] = {'cls': Adam}
-        return default_dict
 
     def reset_summary(self):
         # Todo: add figures
