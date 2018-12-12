@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from pytorch_sanity.parameterized import Parameterized
+from pytorch_sanity.configurable import Configurable
 
 
 def normalize_axis(x, axis):
@@ -53,7 +53,7 @@ def nested_update(orig, update):
                 orig[key] = value
 
 
-class Padder(Parameterized):
+class Padder(Configurable):
     def __init__(
             self,
             to_torch: bool = True,

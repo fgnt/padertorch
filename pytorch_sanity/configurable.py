@@ -1,23 +1,46 @@
 """
 
-ToDo: Example
-Example usage: see example in ...
+Motivation of `Configurable` is to be able to serialize the configuration of
+an entire pytorch_sanity module tree into a JSON.
+
+You can instantiate a child of `Configurable` either with an `__init__`
+resulting in an unparameterized module. If you instantiate it with
+`from_config` you get a configured module.
+
+If modules contain modules, look out for examples how to overwrite
+`get_signature`. In most cases where you want to provide an instance as
+a parameter to the `__init__` you can provide the parameters which were
+used for that instance in your modified `get_signature`.
 
 """
 import abc
-import sys
 import json
 import inspect
 import importlib
 
 
-class Parameterized(abc.ABC):
+class Configurable(abc.ABC):
+    """
+
+    Example::
+
+        from pytorch_sanity.configurable import Configurable
+        class MyModule(Configurable):
+            def __init__(self, a=1):
+                pass
+        MyModule.get_config()
+
+    Results in::
+
+        {'cls': 'MyModule', 'kwargs': {'a': 1}}
+
+    """
     _config = None
 
     @property
     def config(self):
         if self._config is None:
-            p_name = f'{Parameterized.__module__}.{Parameterized.__qualname__}'
+            p_name = f'{Configurable.__module__}.{Configurable.__qualname__}'
             name = f'{self.__class__.__module__}.{self.__class__.__qualname__}'
             raise Exception(
                 f'The config property of a {p_name} object\n'
@@ -32,7 +55,7 @@ class Parameterized(abc.ABC):
         if self._config is None:
             self._config = value
         else:
-            p_name = f'{Parameterized.__module__}.{Parameterized.__qualname__}'
+            p_name = f'{Configurable.__module__}.{Configurable.__qualname__}'
             name = f'{self.__class__.__module__}.{self.__class__.__qualname__}'
             raise Exception(
                 f'The config property of a {p_name} object\n'
@@ -42,9 +65,17 @@ class Parameterized(abc.ABC):
 
     @classmethod
     def get_signature(cls):
+        """
+        Checks signature of __init__. If parameters have defaults, return
+        these in a dictionary.
+
+        Returns:
+
+        """
+
         sig = inspect.signature(cls.__init__)
         sig = sig.replace(
-            parameters=list(sig.parameters.values())[1:]  # drop self
+            parameters=list(sig.parameters.values())[1:]  # drop self argument
         )
         defaults = {}
         p: inspect.Parameter
@@ -151,13 +182,16 @@ class Parameterized(abc.ABC):
                     f'     updates: {updates}\n'
                 ) from e
 
+        # Guarantee that config is json serializable
+        config = json.loads(json.dumps(config))
+
         return config
 
     @classmethod
     def from_config(
             cls,
             config,
-    ) -> 'Parameterized':
+    ) -> 'Configurable':
         # assert do not use defaults
         assert 'cls' in config, (cls, config)
         assert issubclass(import_class(config['cls']), cls), (config['cls'], cls)
@@ -186,7 +220,12 @@ def import_class(name: str):
             f'\t4. You can import the module (and class) in ipython.\n'
         )
         raise
-    return getattr(module, splitted[-1])
+    try:
+        return getattr(module, splitted[-1])
+    except AttributeError as e:
+        raise AttributeError(
+            f'Module {module} has no attribute {splitted[-1]}.'
+        )
 
 
 def class_to_str(cls):
@@ -265,7 +304,7 @@ def update_config(config, updates=None):
             )
         except AttributeError as e:
             raise TypeError(
-                f'Expected a subclass of {Parameterized}, but got {cls}.\n'
+                f'Expected a subclass of {Configurable}, but got {cls}.\n'
                 f'config: {config}\n'
                 f'method resolution order: {inspect.getmro(cls)}'
             )

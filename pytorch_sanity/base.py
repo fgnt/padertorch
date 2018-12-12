@@ -2,7 +2,7 @@ import abc
 
 from torch import nn
 
-from pytorch_sanity.parameterized import Parameterized
+from pytorch_sanity.configurable import Configurable
 
 
 __all__ = [
@@ -11,7 +11,7 @@ __all__ = [
 ]
 
 
-class Module(nn.Module, Parameterized, abc.ABC):
+class Module(nn.Module, Configurable, abc.ABC):
     @abc.abstractmethod
     def forward(self, *args, **kwargs):
         """
@@ -20,7 +20,7 @@ class Module(nn.Module, Parameterized, abc.ABC):
         pass
 
 
-class Model(Module, Parameterized, abc.ABC):
+class Model(Module, Configurable, abc.ABC):
     """
     Model that can be trained by padertorch.trainer.Trainer
     """

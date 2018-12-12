@@ -10,7 +10,7 @@ import torch
 from torch.utils.data.dataloader import default_collate
 from tensorboardX import SummaryWriter
 from pytorch_sanity.optimizer import Optimizer, Adam
-from pytorch_sanity.parameterized import Parameterized
+from pytorch_sanity.configurable import Configurable
 
 from pytorch_sanity.utils import to_list, nested_update
 
@@ -20,7 +20,7 @@ __all__ = [
 ]
 
 
-class Trainer(Parameterized):
+class Trainer(Configurable):
 
     @classmethod
     def get_signature(cls):

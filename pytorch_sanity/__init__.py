@@ -1,7 +1,7 @@
 from . import (
     base,
     ops,
-    parameterized,
+    configurable,
     trainer,
     optimizer,
 )

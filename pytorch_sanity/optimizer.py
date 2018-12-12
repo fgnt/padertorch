@@ -1,9 +1,9 @@
 import torch
-from pytorch_sanity.parameterized import Parameterized
+from pytorch_sanity.configurable import Configurable
 from torch import optim
 
 
-class Optimizer(Parameterized):
+class Optimizer(Configurable):
     optimizer_cls = None
     optimizer = None
 

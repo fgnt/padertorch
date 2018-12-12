@@ -1,22 +1,22 @@
 import pytorch_sanity as pts
 
 
-class GRU(pts.parameterized.Parameterized):
+class GRU(pts.configurable.Configurable):
     def __init__(self, nonlinearity='tanh'):
         pass
 
 
-class LSTM(pts.parameterized.Parameterized):
+class LSTM(pts.configurable.Configurable):
     def __init__(self, peephole=False):
         pass
 
 
-class DenseEncoder(pts.parameterized.Parameterized):
+class DenseEncoder(pts.configurable.Configurable):
     def __init__(self, layers=2, nonlinearity='elu'):
         pass
 
 
-class RecurrentEncoder(pts.parameterized.Parameterized):
+class RecurrentEncoder(pts.configurable.Configurable):
 
     @classmethod
     def get_signature(self):
@@ -35,7 +35,7 @@ class RecurrentEncoder(pts.parameterized.Parameterized):
         pass
 
 
-class VAE(pts.parameterized.Parameterized):
+class VAE(pts.configurable.Configurable):
     """
     >>> from pprint import pprint
     >>> pprint(VAE.get_config({}))
