@@ -74,9 +74,9 @@ class Trainer(Parameterized):
         else:
             raise Exception(max_epochs, max_iterations)
 
-        self.summary_trigger = IntervallTrigger.new(summary_step)
-        self.checkpoint_trigger = IntervallTrigger.new(checkpoint_step)
-        self.validation_trigger = IntervallTrigger.new(validation_step)
+        self.summary_trigger = IntervalTrigger.new(summary_step)
+        self.checkpoint_trigger = IntervalTrigger.new(checkpoint_step)
+        self.validation_trigger = IntervalTrigger.new(validation_step)
 
         self.loss_weights = loss_weights
 
@@ -296,7 +296,7 @@ class Trainer(Parameterized):
                 )
             else:
                 self.writer.add_audio(
-                    f'{prefix}/{key}', audio[0],
+                    f'{prefix}/{key}', audio,
                     self.iteration, sample_rate=16000
                 )
         for key, image in self.summary['images'].items():
@@ -346,7 +346,7 @@ class Trainer(Parameterized):
          for o in self.optimizers]
 
 
-class IntervallTrigger:
+class IntervalTrigger:
     """
 
     https://www.cntk.ai/pythondocs/cntk.logging.progress_print.html
@@ -357,16 +357,16 @@ class IntervallTrigger:
     """
 
     @classmethod
-    def new(cls, intervall_trigger):
-        if isinstance(intervall_trigger, IntervallTrigger):
+    def new(cls, interval_trigger):
+        if isinstance(interval_trigger, IntervalTrigger):
             return cls(
-                intervall_trigger.period,
-                intervall_trigger.unit,
+                interval_trigger.period,
+                interval_trigger.unit,
             )
         else:
-            assert len(intervall_trigger) == 2, intervall_trigger
+            assert len(interval_trigger) == 2, interval_trigger
             return cls(
-                *intervall_trigger
+                *interval_trigger
             )
 
     def __init__(self, period, unit):
@@ -377,7 +377,7 @@ class IntervallTrigger:
             unit: 'epoch' or 'iteration' (i.e. number of minibatches)
 
 
-        >>> trigger = IntervallTrigger(2, 'epoch')
+        >>> trigger = IntervalTrigger(2, 'epoch')
         >>> for i in range(10):
         ...     epoch = i // 3
         ...     print(i, epoch, trigger(i, epoch))
@@ -391,7 +391,7 @@ class IntervallTrigger:
         7 2 False
         8 2 False
         9 3 False
-        >>> trigger = IntervallTrigger(2, 'iteration')
+        >>> trigger = IntervalTrigger(2, 'iteration')
         >>> for i in range(10):
         ...     epoch = i // 3
         ...     print(i, epoch, trigger(i, epoch))
@@ -405,7 +405,7 @@ class IntervallTrigger:
         7 2 False
         8 2 True
         9 3 False
-        >>> trigger = IntervallTrigger(2, 'iteration')
+        >>> trigger = IntervalTrigger(2, 'iteration')
         >>> trigger.set_last(4, None)
         >>> for i in range(4, 10):
         ...     epoch = i // 3
@@ -446,8 +446,7 @@ class IntervallTrigger:
             raise ValueError(self.unit, 'Expect epoch or iteration')
 
 
-
-class EndTrigger(IntervallTrigger):
+class EndTrigger(IntervalTrigger):
     def __call__(self, iteration, epoch):
         """
         >>> trigger = EndTrigger(2, 'epoch')
