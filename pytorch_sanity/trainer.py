@@ -41,8 +41,8 @@ class Trainer(Parameterized):
         # self.config = config
         self.models = to_list(models)
         self.use_cuda = gpu is not None
-        self.gpu_device = int(gpu)
         if self.use_cuda:
+            self.gpu_device = int(gpu)
             self.models = [m.cuda(self.gpu_device) for m in self.models]
         self.optimizers = to_list(optimizers)
         assert len(self.optimizers) == len(self.models)
