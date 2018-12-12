@@ -26,7 +26,7 @@ class Trainer(Parameterized):
 
             models,
             storage_dir,
-            optimizers: Optimizer=Adam(),
+            optimizers=None,
             loss_weights=None,
             batch_size=None,
             summary_step=(1, 'epoch'),
@@ -79,6 +79,11 @@ class Trainer(Parameterized):
         self.validation_trigger = IntervallTrigger.new(validation_step)
 
         self.loss_weights = loss_weights
+
+    def get_signature(cls):
+        default_dict = super().get_signature()
+        default_dict['optimizer'] = {'cls': Adam}
+        return default_dict
 
     def reset_summary(self):
         # Todo: add figures
