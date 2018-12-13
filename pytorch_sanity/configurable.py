@@ -183,7 +183,7 @@ class Configurable(abc.ABC):
                 ) from e
 
         # Guarantee that config is json serializable
-        config = json.loads(json.dumps(config))
+        _ = json.dumps(config)
 
         return config
 
