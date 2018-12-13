@@ -72,7 +72,7 @@ import sacred
 import sacred.run
 import sacred.commands
 exp = sacred.Experiment('vae')
-
+from pytorch_sanity.configurable_utils import deflatten
 
 @exp.config
 def config():
@@ -87,6 +87,20 @@ def config():
                 ),
             },
         ),
+        model,
+    )
+    VAE.get_config(  # alternative dict update
+        deflatten({
+            ('encoder', 'cls'): RecurrentEncoder,
+            ('encoder', RecurrentEncoder, 'recurrent', 'cls'): LSTM,
+        }, sep=None),
+        model,
+    )
+    VAE.get_config(  # second alternative update
+        deflatten({
+            'encoder.cls': 'RecurrentEncoder',
+            'encoder/RecurrentEncoder/recurrent/cls': LSTM,
+        }, sep='/'),
         model,
     )
 
@@ -106,3 +120,7 @@ def main(_config, _run: sacred.run.Run):
     pprint(model.config)
     print('Encoder config')
     pprint(model.encoder)
+
+
+if __name__ == '__main__':
+    pass
