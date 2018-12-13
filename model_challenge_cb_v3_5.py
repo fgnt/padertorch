@@ -4,7 +4,7 @@ Will be evaluated in terms of WTFs/min.
 """
 import collections
 import dataclasses
-from nt.utils.misc import merge_dict
+from paderbox.utils.misc import merge_dict
 from dataclasses import dataclass
 import inspect
 import json

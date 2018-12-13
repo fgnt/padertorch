@@ -352,7 +352,7 @@ def config_to_instance(config):
     if isinstance(config, dict):
         if 'cls' in config:
             assert 'kwargs' in config, config
-            assert len(config) == 2, config
+            assert len(config) == 2, (config.keys(), config)
             new = import_class(config['cls'])(
                 **config_to_instance(config['kwargs'])
             )

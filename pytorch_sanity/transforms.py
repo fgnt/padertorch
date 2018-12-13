@@ -7,8 +7,8 @@ import numpy as np
 from cached_property import cached_property
 from scipy import signal
 
-from nt.database import keys as NTKeys
-from nt.database.iterator import recursive_transform
+from paderbox.database import keys as NTKeys
+from paderbox.database.iterator import recursive_transform
 
 
 class Keys:
