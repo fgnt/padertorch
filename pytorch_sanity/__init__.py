@@ -2,6 +2,7 @@ from . import (
     base,
     ops,
     configurable,
+    configurable_utils,
     trainer,
     optimizer,
 )
