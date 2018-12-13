@@ -4,6 +4,10 @@ from pathlib import Path
 from datetime import datetime
 import itertools
 import operator
+import time
+import contextlib
+from typing import List
+
 
 import numpy as np
 import torch
@@ -18,6 +22,49 @@ from pytorch_sanity.utils import to_list
 __all__ = [
     'Trainer',
 ]
+
+
+class ContextTimerDict:
+    """
+    >>> np.set_printoptions(precision=2)
+    >>> timer = ContextTimerDict()
+    >>> with timer['test']:
+    ...     time.sleep(0.1)
+    >>> with timer['test']:
+    ...     time.sleep(0.1)
+    >>> with timer['test_2']:
+    ...     time.sleep(0.1)
+
+    Ignore timing, when an exception is raised
+    >>> with contextlib.suppress(Exception), timer['test_2']:
+    ...     raise Exception
+    >>> timer
+    ContextTimerDict: {'test': array([0.1, 0.1]), 'test_2': array([0.1])}
+    >>> timer.as_dict
+    {'test': array([0.1, 0.1]), 'test_2': array([0.1])}
+
+    """
+    def __init__(self):
+        self.timings = defaultdict(list)
+        self.timestamp = time.perf_counter  # time.process_time
+
+    @contextlib.contextmanager
+    def __getitem__(self, item):
+        assert isinstance(item, str)
+        start = self.timestamp()
+        yield
+        end = self.timestamp()
+        self.timings[item] += [end - start]
+
+    @property
+    def as_dict(self):
+        return {k: np.array(time) for k, time in self.timings.items()}
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}: ' + repr(self.as_dict)
+
+    def __str__(self):
+        return str(self.as_dict)
 
 
 class Trainer(Configurable):
@@ -44,7 +91,7 @@ class Trainer(Configurable):
             init_checkpoint=None,
             seed=0,
     ):
-        self.models = to_list(models)
+        self.models: List[torch.nn.Module] = to_list(models)
         self.use_cuda = gpu is not None
         if self.use_cuda:
             self.gpu_device = int(gpu)
@@ -92,6 +139,9 @@ class Trainer(Configurable):
             audios=dict(),
             images=dict()
         )
+        self.timer = ContextTimerDict()
+        self.timer_total = self.timer['time']
+        self.timer_total.__enter__()
 
     def train(self, train_iterator, validation_iterator):
         os.makedirs(str(self.storage_dir / 'checkpoints'), exist_ok=True)
@@ -135,19 +185,17 @@ class Trainer(Configurable):
                         self.validate(validation_iterator)
                         [m.train() for m in self.models]
 
-                    try:
-                        batch = next(data_iterator)
-                    except StopIteration:
-                        break
+                    with self.timer['time_per_step']:
+                        try:
+                            with self.timer['time_per_data_loading']:
+                                batch = next(data_iterator)
+                        except StopIteration:
+                            break
 
-                    batch = self.batch_to_device(batch)
-                    if self.max_iterations(
-                            iteration=self.iteration, epoch=self.epoch
-                    ):
-                        return
-
-                    # Todo: backup OOM
-                    self.train_step(batch)
+                        batch = self.batch_to_device(batch)
+                        # Todo: backup OOM
+                        with self.timer['time_per_train_step']:
+                            self.train_step(batch)
 
         finally:
             self.add_summary('training')
@@ -263,12 +311,22 @@ class Trainer(Configurable):
             self.summary['images'][key] = image  # snapshot
 
     def add_summary(self, prefix):
+        self.timer_total.__exit__(None, None, None)
         for key, loss in self.summary['losses'].items():
             self.writer.add_scalar(
                 f'{prefix}/{key}', np.mean(loss), self.iteration)
         for key, scalar in self.summary['scalars'].items():
             self.writer.add_scalar(
                 f'{prefix}/{key}', np.mean(scalar), self.iteration)
+        for key, scalar in self.timer.as_dict.items():
+            if key in ['time_per_data_loading', 'time_per_train_step']:
+                scalar = scalar.mean() / self.timer.as_dict['time_per_step'].mean()
+                if key == 'time_per_data_loading':
+                    key = 'time_rel_data_loading'
+                elif key == 'time_per_train_step':
+                    key = 'time_rel_train_step'
+            self.writer.add_scalar(
+                f'{prefix}/{key}', scalar.mean(), self.iteration)
         for key, histogram in self.summary['histograms'].items():
             self.writer.add_histogram(
                 f'{prefix}/{key}', np.array(histogram), self.iteration
