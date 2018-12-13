@@ -9,10 +9,10 @@ import numpy as np
 import torch
 from torch.utils.data.dataloader import default_collate
 from tensorboardX import SummaryWriter
-from pytorch_sanity.optimizer import Optimizer, Adam
+from pytorch_sanity.optimizer import Adam
 from pytorch_sanity.configurable import Configurable
 
-from pytorch_sanity.utils import to_list, nested_update
+from pytorch_sanity.utils import to_list
 
 
 __all__ = [
@@ -35,7 +35,6 @@ class Trainer(Configurable):
             storage_dir,
             optimizers=None,
             loss_weights=None,
-            batch_size=None,
             summary_step=(1, 'epoch'),
             checkpoint_step=(1, 'epoch'),
             validation_step=(1, 'epoch'),
@@ -45,7 +44,6 @@ class Trainer(Configurable):
             init_checkpoint=None,
             seed=0,
     ):
-        # self.config = config
         self.models = to_list(models)
         self.use_cuda = gpu is not None
         if self.use_cuda:
@@ -68,8 +66,6 @@ class Trainer(Configurable):
                 Path(init_checkpoint).expanduser().absolute(),
             )
         self.seed = seed
-        self.batch_size = batch_size
-        # self.max_epochs = max_epochs
         assert operator.xor(
             max_iterations is None,
             max_epochs is None,
@@ -106,15 +102,6 @@ class Trainer(Configurable):
         torch.manual_seed(self.seed)
         torch.cuda.manual_seed(self.seed)
 
-        # Todo: batch outside of trainer
-        if self.batch_size is not None:
-            train_iterator = train_iterator.batch(
-                self.batch_size, collate_fn=default_collate
-            )
-        # train_iterator = train_iterator  # .tile(self.max_epochs)
-
-        # Todo: unit(s) for steps?
-        max_iterations = self.max_iterations
         # Change model to train mode (e.g. activate dropout)
         [m.train() for m in self.models]
 
@@ -213,17 +200,15 @@ class Trainer(Configurable):
             return batch
 
     def train_step(self, batch):
-        assert len(self.models) == 1, (
+        assert len(self.models) == 1 and len(self.optimizers) == 1, (
             self.models, 'Overwrite the train_step and validation_step, when you have multiple models.'
         )
-        [opti and opti.zero_grad() for opti in self.optimizers]
-        review = dict()
-        for model in self.models:
-            model_out = model(batch)
-            nested_update(review, model.review(batch, model_out))
+        self.optimizers[0].zero_grad()
+        model_out = self.models[0](batch)
+        review = self.models[0].review(batch, model_out)
         self.backward(review)
         self.clip_grad()
-        [opti and opti.step() for opti in self.optimizers]
+        self.optimizers[0].step()
         self.update_summary(review)
 
     def validation_step(self, batch):
@@ -286,8 +271,7 @@ class Trainer(Configurable):
                 f'{prefix}/{key}', np.mean(scalar), self.iteration)
         for key, histogram in self.summary['histograms'].items():
             self.writer.add_histogram(
-                f'{prefix}/{key}', np.array(histogram), self.iteration,
-                # bins='doane'
+                f'{prefix}/{key}', np.array(histogram), self.iteration
             )
         for key, audio in self.summary['audios'].items():
             if isinstance(audio, (tuple, list)):
