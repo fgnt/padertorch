@@ -19,7 +19,7 @@ class DenseEncoder(pts.configurable.Configurable):
 class RecurrentEncoder(pts.configurable.Configurable):
 
     @classmethod
-    def get_signature(self):
+    def get_signature(cls):
         defaults = super().get_signature()
         defaults['recurrent'] = {
             'cls': GRU,
@@ -53,7 +53,7 @@ class VAE(pts.configurable.Configurable):
                 'vae_param': 2}}
     """
     @classmethod
-    def get_signature(self):
+    def get_signature(cls):
         defaults = super().get_signature()
         defaults['encoder'] = {
             'cls': DenseEncoder,

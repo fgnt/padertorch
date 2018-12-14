@@ -160,7 +160,7 @@ class Trainer(Configurable):
         self.checkpoint_trigger.set_last(self.iteration, self.epoch)
         self.validation_trigger.set_last(self.iteration, self.epoch)
 
-        # ================ MAIN TRAINNIG LOOP! ===================
+        # ================ MAIN TRAINING LOOP! ===================
         try:
             for self.epoch in itertools.count(self.epoch):  # infinite loop
                 data_iterator = iter(train_iterator)
