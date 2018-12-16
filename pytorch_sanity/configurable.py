@@ -19,7 +19,7 @@ import inspect
 import importlib
 
 
-class Configurable(abc.ABC):
+class Configurable:
     """
 
     Example::
@@ -73,10 +73,7 @@ class Configurable(abc.ABC):
 
         """
 
-        sig = inspect.signature(cls.__init__)
-        sig = sig.replace(
-            parameters=list(sig.parameters.values())[1:]  # drop self argument
-        )
+        sig = inspect.signature(cls)
         defaults = {}
         p: inspect.Parameter
         for name, p in sig.parameters.items():
@@ -109,12 +106,20 @@ class Configurable(abc.ABC):
             config['cls'] = class_to_str(config['cls'])
 
         # This assert is for sacred that may change values in the config dict.
-        assert issubclass(import_class(config['cls']), cls), (
-            config['cls'], cls
-        )
+        if inspect.isclass(import_class(config['cls'])) \
+                and issubclass(import_class(config['cls']), Configurable):
+            # When subclass of Configurable expect proper subclass
+            assert issubclass(import_class(config['cls']), cls), (
+                config['cls'], cls
+            )
+
+        if hasattr(cls, 'get_signature'):
+            defaults = cls.get_signature()
+        else:
+            defaults = Configurable.get_signature.__func__(cls)
 
         config['kwargs'] = {
-            **recursive_class_to_str(cls.get_signature()),
+            **recursive_class_to_str(defaults),
             **config.get('kwargs', {}),
             **config.get(config['cls'], {}),
         }
@@ -135,7 +140,7 @@ class Configurable(abc.ABC):
             )
 
         # Test if the kwargs are valid
-        sig = inspect.signature(import_class(config['cls']).__init__)
+        sig = inspect.signature(import_class(config['cls']))
 
         # Remove default -> force completely described
         sig = sig.replace(
@@ -145,7 +150,7 @@ class Configurable(abc.ABC):
         )
         try:
             bound_arguments: inspect.BoundArguments = sig.bind(
-                self=None, **config['kwargs']
+                **config['kwargs']
             )
             bound_arguments.apply_defaults()
         except TypeError as e:
@@ -173,13 +178,14 @@ class Configurable(abc.ABC):
                     f'Call signature: {sig_wo_anno}'
                 ) from e
             else:
-                raise Exception(
+                raise TypeError(
                     f'The test, if the call {config["cls"]}(**kwargs) would be '
                     f'succesfull, failed.\n'
                     f'Where\n'
                     f'     kwargs: {config["kwargs"]}\n'
                     f'     signature: {sig}\n'
                     f'     updates: {updates}\n'
+                    f'     error msg: {e}'
                 ) from e
 
         # Guarantee that config is json serializable
@@ -296,19 +302,18 @@ def update_config(config, updates=None):
         }
 
         cls = import_class(config['cls'])
-        try:
+        if hasattr(cls, 'get_config'):
             # inplace
             cls.get_config(
                 updates=sub_updates,
                 config=config,
             )
-        except AttributeError as e:
-            raise TypeError(
-                f'Expected a subclass of {Configurable}, but got {cls}.\n'
-                f'config: {config}\n'
-                f'method resolution order: {inspect.getmro(cls)}'
+        else:
+            Configurable.get_config.__func__(
+                cls,
+                updates=sub_updates,
+                config=config,
             )
-
     else:
         for key in sorted(list(config.keys())):
             if isinstance(config[key], dict):
