@@ -21,9 +21,9 @@ class TestPermutationInvariantTrainingLoss(unittest.TestCase):
                 np.abs(np.random.normal(size=(T, B, K, F))).astype(np.float32),
             'num_frames': [100, 90, 80, 70]
         }
-        mask = self.model.forward(inputs)
+        mask = self.model(inputs)
         np.testing.assert_allclose(mask.size(), (T, B, K, F))
 
-        review = self.model.review(inputs)
+        review = self.model.review(inputs, mask)
         assert 'losses' in review, review.keys()
         assert 'pit_mse_loss' in review['losses'], review['losses'].keys()

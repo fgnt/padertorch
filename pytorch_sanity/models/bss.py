@@ -1,5 +1,6 @@
 import torch
 import pytorch_sanity as pts
+import einops
 
 
 class PermutationInvariantTrainingModel(pts.base.Model):
@@ -9,24 +10,22 @@ class PermutationInvariantTrainingModel(pts.base.Model):
     TODO: Mask sensitive loss. See paderflow for more ideas
 
     """
-    def __init__(self):
+    def __init__(self, F=257, recurrent_layers=2, units=600, K=2):
         super().__init__()
-        self.F = 257
-        self.recurrent_layers = 2
-        self.units = 600
-        self.K = 2
+        self.K = K
+        self.F = F
         self.blstm = torch.nn.LSTM(
-            self.F, self.units, self.recurrent_layers, bidirectional=True
+            F, units, recurrent_layers, bidirectional=True
         )
-        self.linear = torch.nn.Linear(2 * self.units, self.F * self.K)
+        self.linear = torch.nn.Linear(2 * units, F * K)
 
-    def forward(self, inputs):
+    def forward(self, batch):
         """
         Parameters:
             inputs:
         """
-        h = inputs['observation_amplitude_spectrum']
-        num_frames = inputs['num_frames']
+        h = batch['observation_amplitude_spectrum']
+        num_frames = batch['num_frames']
 
         if not isinstance(h, torch.Tensor):
             h = torch.from_numpy(h)
@@ -35,7 +34,6 @@ class PermutationInvariantTrainingModel(pts.base.Model):
         assert F == self.F, f'self.F = {self.F} != F = {F}'
 
         h = torch.abs(h)
-        h = h + 1e-10
         h = torch.log(h + 1e-10)  # Why not mu-law?
 
         h = torch.nn.utils.rnn.pack_padded_sequence(h, lengths=num_frames)
@@ -45,8 +43,8 @@ class PermutationInvariantTrainingModel(pts.base.Model):
 
         h, num_frames = torch.nn.utils.rnn.pad_packed_sequence(h)
 
-        h = self.linear(h.view(-1, 2 * self.units))  # Independent dimension?
-        mask = torch.reshape(h, (T, B, self.K, self.F))
+        h = self.linear(h)  # Independent dimension?
+        mask = einops.rearrange(h, 't b (k f) -> t b k f', k=self.K)
         return mask
 
     def review(self, batch, model_out):
