@@ -1,7 +1,7 @@
 import torch
 from torch.nn.utils.rnn import PackedSequence
 from torch.nn.utils.rnn import pad_packed_sequence
-from torch.nn.utils.rnn import pack_padded_sequence
+import itertools
 
 from pytorch_sanity.ops.tensor import move_axis
 
@@ -86,3 +86,31 @@ def deep_clustering_loss(x, t):
         ]))
     else:
         raise ValueError(f'Incompatible types: {type(x)}, {type(t)}')
+
+
+def pit_mse_loss(estimate, target, num_frames):
+    """
+    Up to now we assume, that the number of sources `K` is constant within a
+    batch.
+
+    TODO: Allow to replace `mse_loss` with other functions.
+
+    Parameters:
+        estimate: Padded sequence with shape (T, B, K, F)
+        target: Padded sequence with shape (T, B, K, F)
+        num_frames: List of integers with length B
+    """
+    sources = 2
+    assert estimate.size() == target.size(), (
+        f'{estimate.size()} != target.size()'
+    )
+    losses = []
+    for b, num_frames_ in enumerate(num_frames):
+        candidates = []
+        for permutation in itertools.permutations(range(sources)):
+            candidates.append(torch.nn.functional.mse_loss(
+                estimate[:num_frames_, b, :, :],
+                target[:num_frames_, b, permutation, :]
+            ))
+        losses.append(torch.min(torch.stack(candidates)))
+    return torch.mean(torch.stack(losses))
