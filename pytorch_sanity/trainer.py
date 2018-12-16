@@ -190,7 +190,10 @@ class Trainer(Configurable):
                             with self.timer['time_per_data_loading']:
                                 batch = next(data_iterator)
                         except StopIteration:
-                            break
+                            if self.iteration > 0:
+                                break
+                            else:
+                                raise Exception('Zero length train iterator')
 
                         batch = self.batch_to_device(batch)
                         # Todo: backup OOM
