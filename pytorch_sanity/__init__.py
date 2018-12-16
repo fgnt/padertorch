@@ -1,12 +1,10 @@
-from . import (
-    base,
-    ops,
-    configurable,
-    configurable_utils,
-    trainer,
-    optimizer,
-)
-
-from .ops import *
+from . import base
+from . import configurable
+from . import configurable_utils
+from . import models
+from . import ops
+from . import optimizer
+from . import trainer
 from .base import *
+from .ops import *
 from .trainer import *
