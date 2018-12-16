@@ -29,7 +29,7 @@ class Model(Module, Configurable, abc.ABC):
         """
 
         :param inputs: whatever is required here (Probably dict or tuple).
-        :return: ouputs (dict,tuple,list,tensor,...)
+        :return: outputs (dict,tuple,list,tensor,...)
         """
         pass
 
