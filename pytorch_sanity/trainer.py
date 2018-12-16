@@ -72,7 +72,7 @@ class Trainer(Configurable):
     @classmethod
     def get_signature(cls):
         default_dict = super().get_signature()
-        default_dict['optimizer'] = {'cls': Adam}
+        default_dict['optimizers'] = {'cls': Adam}
         return default_dict
 
     def __init__(
