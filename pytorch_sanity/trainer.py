@@ -320,11 +320,15 @@ class Trainer(Configurable):
                 f'{prefix}/{key}', np.mean(scalar), self.iteration)
         for key, scalar in self.timer.as_dict.items():
             if key in ['time_per_data_loading', 'time_per_train_step']:
-                scalar = scalar.mean() / self.timer.as_dict['time_per_step'].mean()
-                if key == 'time_per_data_loading':
-                    key = 'time_rel_data_loading'
-                elif key == 'time_per_train_step':
-                    key = 'time_rel_train_step'
+                if 'time_per_step' in self.timer.as_dict.keys():
+                    scalar = scalar.mean() / self.timer.as_dict['time_per_step'].mean()
+                    if key == 'time_per_data_loading':
+                        key = 'time_rel_data_loading'
+                    elif key == 'time_per_train_step':
+                        key = 'time_rel_train_step'
+                else:
+                    # Something went wrong, most likely an exception.
+                    pass
             self.writer.add_scalar(
                 f'{prefix}/{key}', scalar.mean(), self.iteration)
         for key, histogram in self.summary['histograms'].items():
