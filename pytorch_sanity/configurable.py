@@ -175,7 +175,10 @@ class Configurable:
                 raise TypeError(
                     f'{config["cls"]} {e}\n'
                     f'Did you mean one of these {suggestions}?\n'
-                    f'Call signature: {sig_wo_anno}'
+                    f'Call signature: {sig_wo_anno}\n'
+                    f'Where\n'
+                    f'     kwargs.keys(): {config["kwargs"].keys()}\n'
+                    f'     error msg: {e}'
                 ) from e
             else:
                 raise TypeError(
