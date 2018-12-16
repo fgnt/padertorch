@@ -107,7 +107,7 @@ class Trainer(Configurable):
         self.reset_summary()
         self.iteration = 0
         self.epoch = 0
-        self.writer = SummaryWriter(self.storage_dir)
+        self.writer = SummaryWriter(str(self.storage_dir))
         if init_checkpoint is not None:
             self.load_checkpoint(
                 Path(init_checkpoint).expanduser().absolute(),
@@ -206,9 +206,6 @@ class Trainer(Configurable):
         with torch.no_grad():
             # Change model to eval mode (e.g. deactivate dropout)
             [m.eval() for m in self.models]
-            if self.batch_size is not None:
-                validation_iterator = validation_iterator.batch(
-                    self.batch_size, collate_fn=default_collate)
             for i, batch in enumerate(validation_iterator):
                 batch = self.batch_to_device(batch)
                 self.validation_step(batch)
