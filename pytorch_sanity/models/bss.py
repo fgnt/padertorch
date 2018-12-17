@@ -22,7 +22,7 @@ class PermutationInvariantTrainingModel(pts.base.Model):
     def forward(self, batch):
         """
         Parameters:
-            inputs:
+            batch: Dictionary
         """
         h = batch['observation_amplitude_spectrum']
         num_frames = batch['num_frames']
