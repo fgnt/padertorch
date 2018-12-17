@@ -120,6 +120,7 @@ def pit_mse_loss(estimate, target, num_frames):
 
 def kl_normal_multivariatenormals(q, p):
     """
+    TODO: Please rename to `kl_normal_multivariate_normal`.
 
     p: (B1, ..., BN, D)
     q: (K1, ..., KN, D)
