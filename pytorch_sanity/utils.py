@@ -33,6 +33,7 @@ def to_list(x, length=None):
 
 
 def nested_update(orig, update):
+    # Todo:
     assert isinstance(update, type(orig))
     if isinstance(orig, list):
         for i, value in enumerate(update):
@@ -51,6 +52,49 @@ def nested_update(orig, update):
                 nested_update(orig[key], value)
             else:
                 orig[key] = value
+
+
+def nested_op(func, nested_args):
+    is_dict = [isinstance(arg, dict) for arg in nested_args]
+    is_list = [isinstance(arg, (list, tuple)) for arg in nested_args]
+    if any(is_dict):
+        assert not any(is_list)
+        keys = None
+        for i, arg in enumerate(nested_args):
+            if is_dict[i]:
+                keys = arg.keys() if keys is None else keys & arg.keys()
+        return {
+            key: nested_op(
+                func,
+                [nested_arg[key] if is_dict[i] else nested_arg
+                 for i, nested_arg in enumerate(nested_args)],
+            )
+            for key in keys}
+    if isinstance(nested_args[0], (list, tuple)):
+        assert not any(is_dict)
+        min_len = max([len(arg) for i, arg in enumerate(nested_args)
+                       if is_list[i]])
+        return [
+            nested_op(
+                func,
+                [nested_arg[j] if is_list[i] else nested_arg
+                 for i, nested_arg in enumerate(nested_args)]
+            )
+            for j in range(min_len)]
+    return func(*nested_args)
+
+
+def squeeze_nested(orig):
+    if isinstance(orig, (dict, list)):
+        keys = list(orig.keys() if isinstance(orig, dict) else range(len(orig)))
+        squeezed = True
+        for key in keys:
+            orig[key] = squeeze_nested(orig[key])
+            if isinstance(orig[key], (list, dict)):
+                squeezed = False
+        if squeezed and all([orig[key] == orig[keys[0]] for key in keys]):
+            return orig[keys[0]]
+    return orig
 
 
 class Padder(Configurable):
