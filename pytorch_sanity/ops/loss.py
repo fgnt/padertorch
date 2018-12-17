@@ -1,9 +1,11 @@
 import torch
 from torch.nn.utils.rnn import PackedSequence
 from torch.nn.utils.rnn import pad_packed_sequence
+from torch.distributions.kl import _batch_diag, _batch_inverse
 import itertools
 
 from pytorch_sanity.ops.tensor import move_axis
+from pytorch_sanity.ops.einsum import einsum
 
 
 __all__ = [
@@ -114,3 +116,31 @@ def pit_mse_loss(estimate, target, num_frames):
             ))
         losses.append(torch.min(torch.stack(candidates)))
     return torch.mean(torch.stack(losses))
+
+
+def kl_normal_multivariatenormals(q, p):
+    """
+
+    p: (B1, ..., BN, D)
+    q: (K1, ..., KN, D)
+    output: (B1, ..., BN, K1, ..., KN)
+    :param q: Normal posterior distributions (B1, ..., BN, D)
+    :param p: multivariate Gaussian prior distributions (K1, ..., KN, D)
+    :return: kl between all posteriors in batch and all components (B1, ..., BN, K1, ..., KN)
+    """
+    batch_shape = q.loc.shape[:-1]
+    D = q.loc.shape[-1]
+    component_shape = p.loc.shape[:-1]
+    assert p.loc.shape[-1] == D
+
+    q_loc = q.loc.view(-1, D)
+    q_scale = q.scale.view(-1, D)
+    p_loc = p.loc.view(-1, D)
+    p_scale_tril = p.scale_tril.view(-1, D, D)
+
+    term1 = _batch_diag(p_scale_tril).log().sum(-1)[:, None] - q_scale.log().sum(-1)
+    L = _batch_inverse(p_scale_tril)
+    term2 = (L.pow(2).sum(-2)[:, None, :] * q_scale.pow(2)).sum(-1)
+    term3 = ((p_loc[:, None, :] - q_loc) @ L.transpose(1, 2)).pow(2.0).sum(-1)
+    kl = (term1 + 0.5 * (term2 + term3 - D)).transpose(0, 1)
+    return kl.view(*batch_shape, *component_shape)

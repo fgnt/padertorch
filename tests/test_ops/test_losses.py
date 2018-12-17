@@ -5,6 +5,9 @@ from torch.nn.utils.rnn import pack_padded_sequence
 import pytorch_sanity as pts
 import numpy as np
 
+from torch.distributions import Normal, MultivariateNormal, kl_divergence
+from torch.distributions.kl import _batch_diag
+
 
 class TestSoftmaxCrossEntropy(unittest.TestCase):
     def setUp(self):
@@ -103,4 +106,56 @@ class TestPermutationInvariantTrainingLoss(unittest.TestCase):
             ))
         reference_loss = torch.mean(torch.stack(reference_loss))
 
+        np.testing.assert_allclose(actual_loss, reference_loss, rtol=1e-4)
+
+
+class TestKLLoss(unittest.TestCase):
+    def test_against_multivariate_multivariate(self):
+        B = 500
+        K = 100
+        D = 16
+
+        scale = torch.randn((K, D, D))
+        cov = scale @ scale.transpose(1, 2) + torch.diag(0.1*torch.ones(D))
+        p = MultivariateNormal(torch.randn((K, D)), covariance_matrix=cov)
+
+        q = MultivariateNormal(
+            loc=torch.randn((B, 1, D)),
+            scale_tril=torch.Tensor(
+                np.broadcast_to(np.diag(np.random.rand(D)), (B, 1, D, D))
+            )
+        )
+        q_ = Normal(loc=q.loc[:, 0], scale=_batch_diag(q.scale_tril[:, 0]))
+
+        actual_loss = pts.ops.loss.kl_normal_multivariatenormals(q_, p)
+        reference_loss = kl_divergence(q, p)
+        np.testing.assert_allclose(actual_loss, reference_loss, rtol=1e-4)
+
+    def test_shapes(self):
+        B1 = 100
+        B2 = 50
+        K1 = 20
+        K2 = 4
+        D = 16
+
+        scale = torch.randn((K1, K2, D, D))
+        cov = scale @ scale.transpose(-2, -1) + torch.diag(0.1*torch.ones(D))
+        p = MultivariateNormal(torch.randn((K1, K2, D)), covariance_matrix=cov)
+        p_ = MultivariateNormal(
+            loc=p.loc.view(-1, D),
+            scale_tril=p.scale_tril.view(-1, D, D)
+        )
+
+        q = Normal(
+            loc=torch.randn((B1, B2, D)),
+            scale=torch.rand((B1, B2, D))
+        )
+        q_ = Normal(
+            loc=q.loc.view(-1, D),
+            scale=q.scale.view(-1, D)
+        )
+
+        actual_loss = pts.ops.loss.kl_normal_multivariatenormals(q, p)
+        reference_loss = pts.ops.loss.kl_normal_multivariatenormals(
+            q_, p_).view(B1, B2, K1, K2)
         np.testing.assert_allclose(actual_loss, reference_loss, rtol=1e-4)
