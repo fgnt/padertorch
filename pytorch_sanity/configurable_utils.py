@@ -1,7 +1,10 @@
 def flatten(d, sep='.', flat_type=dict):
-    """
+    """Flatten a nested dict using a specific separator.
+
     :param sep: When None, return dict with tuple keys (guaranties inversion of
                 flatten) else join the keys with sep
+    :param flat_type: Allow other mappings instead of flat_type to be
+                flattened, e.g. using an isinstance check.
 
     import collections
     flat_type=collections.MutableMapping
@@ -46,7 +49,7 @@ def flatten(d, sep='.', flat_type=dict):
 
 
 def deflatten(d, sep='.'):
-    """
+    """Build a nested dict from a flat dict respecting a separator.
 
     >>> d_in = {'a': 1, 'c': {'a': 2, 'b': {'x': 5, 'y' : 10}}, 'd': [1, 2, 3]}
     >>> d = flatten(d_in)

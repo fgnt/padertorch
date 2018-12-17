@@ -85,17 +85,25 @@ class Configurable:
     def get_config(
             cls,
             updates=None,
-            config=None,
+            out_config=None,
     ):
         """
-        Provides configuration to allow Instantiation with
+        Provides configuration to allow instantiation with
         module = Module.from_config(Module.get_config())
-        :param update_dict: dict with values to be modified w.r.t. defaults.
-        Sub-configurations are updated accordingly if top-level-keys are
-        changed. An Exception is raised if update_dict has unused entries.
-        :return: config
+
+        Args:
+            updates: dict with values to be modified w.r.t. defaults.
+                Sub-configurations are updated accordingly if top-level-keys
+                are changed. An Exception is raised if update_dict has unused
+                entries.
+            out_config: Provide an empty dict which is a Sacred config local
+                variable. This allow Sacred to influence dependent parameters.
+
+        Returns: Config
 
         """
+        config = out_config
+
         if config is None:
             config = {
                 'cls': class_to_str(cls)
@@ -182,8 +190,8 @@ class Configurable:
                 ) from e
             else:
                 raise TypeError(
-                    f'The test, if the call {config["cls"]}(**kwargs) would be '
-                    f'succesfull, failed.\n'
+                    f'The test, if the call {config["cls"]}(**kwargs) would '
+                    f'be successful, failed.\n'
                     f'Where\n'
                     f'     kwargs: {config["kwargs"]}\n'
                     f'     signature: {sig}\n'
@@ -309,13 +317,13 @@ def update_config(config, updates=None):
             # inplace
             cls.get_config(
                 updates=sub_updates,
-                config=config,
+                out_config=config,
             )
         else:
             Configurable.get_config.__func__(
                 cls,
                 updates=sub_updates,
-                config=config,
+                out_config=config,
             )
     else:
         for key in sorted(list(config.keys())):
