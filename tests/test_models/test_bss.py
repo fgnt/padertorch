@@ -1,6 +1,5 @@
 import unittest
 import pytorch_sanity as pts
-from pytorch_sanity.models import bss
 import numpy as np
 
 
