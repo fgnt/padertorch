@@ -77,7 +77,6 @@ class Trainer(Configurable):
 
     def __init__(
             self,
-
             models,
             storage_dir,
             optimizers=None,
@@ -373,6 +372,17 @@ class Trainer(Configurable):
               f"{self.iteration} to {checkpoint_path}")
 
     def load_checkpoint(self, checkpoint_path):
+        """
+        Function should not be modified to accept a folder alone to avoid
+        a confusion between best snapshot (for test) and last snapshot
+        (resume).
+
+        Args:
+            checkpoint_path:
+
+        Returns:
+
+        """
         assert os.path.isfile(checkpoint_path), checkpoint_path
         checkpoint_dict = torch.load(str(checkpoint_path), map_location='cpu')
         [m.load_state_dict(d) for m, d in zip(
