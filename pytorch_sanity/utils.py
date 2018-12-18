@@ -119,12 +119,12 @@ def collate_fn(batch):
     def nested_batching(value, key, nested_batch):
         # recursively nesting the batch
         if isinstance(value, dict):
-            if not key in nested_batch:
+            if key not in nested_batch:
                 nested_batch[key] = dict()
             return {k: nested_batching(v, k, nested_batch[key])
                     for k, v in value.items()}
         else:
-            if not key in nested_batch:
+            if key not in nested_batch:
                 nested_batch[key] = []
             nested_batch[key].append(value)
         return nested_batch[key]
@@ -141,15 +141,15 @@ class Padder(Configurable):
     def __init__(
             self,
             to_torch: bool = True,
-            sort_by_length: bool = True,
+            sort_by_key: str = None,
             padding: bool = True,
             padding_keys: list = None
     ):
         assert not to_torch ^ (padding and to_torch)
         self.to_torch = to_torch
-        self.sort_by_length = sort_by_length
         self.padding = padding
         self.padding_keys = padding_keys
+        self.sort_by_key = sort_by_key
 
     def pad_batch(self, batch):
         if isinstance(batch[0], np.ndarray):
@@ -166,9 +166,6 @@ class Padder(Configurable):
                 )
                 if len(axis) == 1:
                     axis = axis[0]
-                    if self.sort_by_length:
-                        batch = sorted(batch, key=lambda x: x.shape[axis],
-                                       reverse=True)
                     pad = max(dims[axis])
                     array = np.stack([pad_tensor(vec, pad, axis)
                                       for vec in batch], axis=0)
@@ -180,22 +177,24 @@ class Padder(Configurable):
                     return array
             else:
                 # sort num_samples / num_frames to fit the sorted batches
-                if self.sort_by_length:
-                    return np.array(sorted(batch, reverse=True))
-                else:
-                    return np.array(batch)
+                return np.array(batch)
         elif isinstance(batch[0], int):
             # sort num_samples / num_frames to fit the sorted batches
-            if self.sort_by_length:
-                return np.array(sorted(batch, reverse=True))
-            else:
-                return np.array(batch)
+            return np.array(batch)
         else:
             return batch
 
-    def __call__(self, batch):
+    def sort(self, batch):
+        return sorted(batch, key=lambda x: x[self.sort_by_key], reverse=True)
+
+    def __call__(self, unsorted_batch):
         # assumes batch to be a list of dicts
         # ToDo: do we automatically sort by sequence length?
+
+        if self.sort_by_key:
+            batch = self.sort(unsorted_batch)
+        else:
+            batch = unsorted_batch
 
         nested_batch = collate_fn(batch)
 
