@@ -114,6 +114,8 @@ def pad_tensor(vec, pad, axis):
 
 
 def collate_fn(batch):
+    # moves list inside of dict
+    # can be used as input to batch iterator
     def nested_batching(value, key, nested_batch):
         # recursively nesting the batch
         if isinstance(value, dict):
@@ -132,6 +134,7 @@ def collate_fn(batch):
         assert isinstance(elem, dict)
         nested_batch = {key: nested_batching(value, key, nested_batch)
                         for key, value in elem.items()}
+    return nested_batch
 
 
 class Padder(Configurable):
