@@ -6,17 +6,17 @@ import itertools
 import operator
 import time
 import contextlib
-from typing import List
 
 
 import numpy as np
 import torch
 from tensorboardX import SummaryWriter
-from pytorch_sanity.optimizer import Adam
+from pytorch_sanity.optimizer import Optimizer, Adam
 from pytorch_sanity.configurable import Configurable
+from pytorch_sanity.configurable_utils import flatten
 
-from pytorch_sanity.utils import to_list
 import pytorch_sanity as pts
+from pytorch_sanity.utils import nested_op
 
 
 __all__ = [
@@ -72,14 +72,14 @@ class Trainer(Configurable):
     @classmethod
     def get_signature(cls):
         default_dict = super().get_signature()
-        default_dict['optimizers'] = {'cls': Adam}
+        default_dict['optimizer'] = {'cls': Adam}
         return default_dict
 
     def __init__(
             self,
-            models,
+            model,
             storage_dir,
-            optimizers=None,
+            optimizer=None,
             loss_weights=None,
             summary_step=(1, 'epoch'),
             checkpoint_step=(1, 'epoch'),
@@ -90,18 +90,21 @@ class Trainer(Configurable):
             init_checkpoint=None,
             seed=0,
     ):
-        self.models: List[torch.nn.Module] = to_list(models)
+        self.model = model
         self.use_cuda = gpu is not None
         if self.use_cuda:
             self.gpu_device = int(gpu)
-            self.models = [m.cuda(self.gpu_device) for m in self.models]
-        self.optimizers = to_list(optimizers)
-        assert len(self.optimizers) == len(self.models)
-        [
-            optimizer.set_parameters(model.parameters())
-            for model, optimizer in zip(self.models, self.optimizers)
-            if optimizer is not None
-        ]
+            self.model = nested_op(
+                lambda m: m.cuda(self.gpu_device), self.model
+            )
+        self.optimizer = optimizer
+
+        nested_op(
+            lambda model, opti: opti.set_parameters(model.parameters())
+            if opti is not None else None,
+            self.model, self.optimizer
+        )
+
         self.storage_dir = Path(storage_dir).expanduser().absolute()
         self.reset_summary()
         self.iteration = 0
@@ -152,7 +155,7 @@ class Trainer(Configurable):
         torch.cuda.manual_seed(self.seed)
 
         # Change model to train mode (e.g. activate dropout)
-        [m.train() for m in self.models]
+        nested_op(lambda m: m.train(), self.model)
 
         # For training continue set the correct last value
         self.summary_trigger.set_last(self.iteration, self.epoch)
@@ -182,7 +185,7 @@ class Trainer(Configurable):
                         # Todo: allow continuous evaluation
                         self.add_summary('training')
                         self.validate(validation_iterator)
-                        [m.train() for m in self.models]
+                        nested_op(lambda m: m.train(), self.model)
 
                     with self.timer['time_per_step']:
                         try:
@@ -209,7 +212,7 @@ class Trainer(Configurable):
         print('Starting Validation')
         with torch.no_grad():
             # Change model to eval mode (e.g. deactivate dropout)
-            [m.eval() for m in self.models]
+            nested_op(lambda m: m.eval(), self.model)
             for i, batch in enumerate(validation_iterator):
                 batch = pts.data.batch_to_device(
                     batch, self.use_cuda, self.gpu_device
@@ -219,23 +222,24 @@ class Trainer(Configurable):
         print('Finished Validation')
 
     def train_step(self, batch):
-        assert len(self.models) == 1 and len(self.optimizers) == 1, (
-            self.models, 'Overwrite the train_step and validation_step, when you have multiple models.'
+        assert isinstance(self.model, torch.nn.Module) \
+               and isinstance(self.optimizer, Optimizer), (
+            self.model, 'Overwrite the train_step and validation_step, when you have multiple models.'
         )
-        self.optimizers[0].zero_grad()
-        model_out = self.models[0](batch)
-        review = self.models[0].review(batch, model_out)
+        self.optimizer.zero_grad()
+        model_out = self.model(batch)
+        review = self.model.review(batch, model_out)
         self.backward(review)
         self.clip_grad()
-        self.optimizers[0].step()
+        self.optimizer.step()
         self.update_summary(review)
 
     def validation_step(self, batch):
-        assert len(self.models) == 1, (
-            self.models, 'Overwrite the train_step and validation_step, when you have multiple models.'
+        assert isinstance(self.model, torch.nn.Module), (
+            self.model, 'Overwrite the train_step and validation_step, when you have multiple models.'
         )
-        model_out = self.models[0](batch)
-        review = self.models[0].review(batch, model_out)
+        model_out = self.model(batch)
+        review = self.model.review(batch, model_out)
         self.update_summary(review)
 
     def backward(self, review, retain_graph=False):
@@ -258,12 +262,28 @@ class Trainer(Configurable):
             prefix_ = ''
         else:
             prefix_ = f'{prefix}_'
-        for i, model in enumerate(self.models):
-            grad_norm = self.optimizers[i].clip_grad(
-                model.parameters(), prefix
-            )
-            self.summary['scalars'][f'{prefix_}grad_norm_{i}'].append(grad_norm)
-            self.summary['histograms'][f'{prefix_}grad_norm_{i}_'].append(grad_norm)
+        grad_norm = nested_op(
+            lambda model, opti: opti.clip_grad(model.parameters(), prefix),
+            self.model, self.optimizer
+        )
+        if isinstance(grad_norm, dict):
+            for key, value in flatten(grad_norm).items():
+                self.summary['scalars'][f'{prefix_}grad_norm_{key}'].append(
+                    value)
+                # underscore was necessary to obtain unique keys to prevent
+                # tensorboard error
+                self.summary['histograms'][
+                    f'{prefix_}grad_norm_{key}_'].append(value)
+        if isinstance(grad_norm, (list, tuple)):
+            for i, value in enumerate(grad_norm):
+                self.summary['scalars'][f'{prefix_}grad_norm_{i}'].append(
+                    value)
+                self.summary['histograms'][f'{prefix_}grad_norm_{i}_'].append(
+                    value)
+        else:
+            self.summary['scalars'][f'{prefix_}grad_norm'].append(grad_norm)
+            self.summary['histograms'][f'{prefix_}grad_norm_'].append(
+                grad_norm)
 
     def update_summary(self, review):
         for key, loss in review.get('losses', dict()).items():
@@ -292,7 +312,10 @@ class Trainer(Configurable):
         for key, scalar in self.timer.as_dict.items():
             if key in ['time_per_data_loading', 'time_per_train_step']:
                 if 'time_per_step' in self.timer.as_dict.keys():
-                    scalar = scalar.mean() / self.timer.as_dict['time_per_step'].mean()
+                    scalar = (
+                        scalar.mean()
+                        / self.timer.as_dict['time_per_step'].mean()
+                    )
                     if key == 'time_per_data_loading':
                         key = 'time_rel_data_loading'
                     elif key == 'time_per_train_step':
@@ -329,12 +352,11 @@ class Trainer(Configurable):
             self.cpu()
         torch.save(
             dict(
-                models=[m.state_dict() for m in self.models],
+                model=nested_op(lambda m: m.state_dict(), self.model),
                 iteration=self.iteration,
                 epoch=self.epoch,
-                optimizers=[
-                    opti and opti.state_dict() for opti in self.optimizers
-                ]
+                optimizer=nested_op(
+                    lambda opti: opti and opti.state_dict(), self.optimizer)
             ),
             checkpoint_path
         )
@@ -357,23 +379,33 @@ class Trainer(Configurable):
         """
         assert os.path.isfile(checkpoint_path), checkpoint_path
         checkpoint_dict = torch.load(str(checkpoint_path), map_location='cpu')
-        [m.load_state_dict(d) for m, d in zip(
-            self.models, checkpoint_dict['models'])]
+        nested_op(
+            lambda m, d: m.load_state_dict(d),
+            self.model, checkpoint_dict['model']
+        )
         iteration = checkpoint_dict['iteration']
         self.iteration = iteration + 1
         self.epoch = checkpoint_dict['epoch']
-        [opti.load_state_dict(d) if opti is not None else None
-         for opti, d in zip(self.optimizers, checkpoint_dict['optimizers'])]
+        nested_op(
+            lambda opti, d: opti.load_state_dict(d)
+            if opti is not None else None,
+            self.model, checkpoint_dict['optimizer']
+        )
         print(f"Loaded checkpoint '{checkpoint_path}' (iteration {iteration})")
 
     def cpu(self):
-        [m.cpu() for m in self.models]
-        [o.cpu() if o is not None else None for o in self.optimizers]
+        nested_op(lambda m: m.cpu(), self.model)
+        nested_op(
+            lambda opti: opti.cpu() if opti is not None else None,
+            self.optimizer
+        )
 
     def cuda(self, device):
-        [m.cuda(device) for m in self.models]
-        [o.cuda(device) if o is not None else None
-         for o in self.optimizers]
+        nested_op(lambda m: m.cuda(device), self.model)
+        nested_op(
+            lambda opti: opti.cuda(device) if opti is not None else None,
+            self.optimizer
+        )
 
 
 class IntervalTrigger:

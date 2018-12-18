@@ -54,34 +54,68 @@ def nested_update(orig, update):
                 orig[key] = value
 
 
-def nested_op(func, nested_args):
-    is_dict = [isinstance(arg, dict) for arg in nested_args]
-    is_list = [isinstance(arg, (list, tuple)) for arg in nested_args]
-    if any(is_dict):
-        assert not any(is_list)
-        keys = None
-        for i, arg in enumerate(nested_args):
-            if is_dict[i]:
-                keys = arg.keys() if keys is None else keys & arg.keys()
-        return {
+def nested_op(func, arg1, *args, broadcast=False):
+    """
+    >>> nested_op(\
+    lambda x, y: x + 3*y, dict(a=[1], b=dict(c=4)), dict(a=[0], b=dict(c=1)))
+    {'a': [1], 'b': {'c': 7}}
+    >>> nested_op(\
+    lambda x, y: x + 3*y, dict(a=1, b=dict(c=[1,1])), dict(a=0, b=[1,3]))
+    Traceback (most recent call last):
+    ...
+    AssertionError: ([1, 3],)
+    >>> nested_op(\
+    lambda x, y: x + 3*y, dict(a=1, b=dict(c=[1,1])), dict(a=0, b=[1,3]), broadcast=True)
+    {'a': 1, 'b': {'c': [4, 10]}}
+
+    :param func:
+    :param arg1:
+    :param args:
+    :param broadcast:
+    :return:
+    """
+    if isinstance(arg1, dict):
+        if not broadcast:
+            assert all(
+                [isinstance(arg, dict) and arg.keys() == arg1.keys()
+                 for arg in args]), (arg1, args)
+        else:
+            assert all(
+                [not isinstance(arg, dict) or arg.keys() == arg1.keys()
+                 for arg in args]), (arg1, args)
+        keys = arg1.keys()
+        return arg1.__class__({
             key: nested_op(
                 func,
-                [nested_arg[key] if is_dict[i] else nested_arg
-                 for i, nested_arg in enumerate(nested_args)],
+                arg1[key],
+                *[arg[key] if isinstance(arg, dict) else arg
+                  for arg in args],
+                broadcast=broadcast
             )
-            for key in keys}
-    if isinstance(nested_args[0], (list, tuple)):
-        assert not any(is_dict)
-        min_len = max([len(arg) for i, arg in enumerate(nested_args)
-                       if is_list[i]])
-        return [
+            for key in keys
+        })
+    if isinstance(arg1, (list, tuple)):
+        if not broadcast:
+            assert all([
+                isinstance(arg, (list, tuple)) and len(arg) == len(arg1)
+                for arg in args
+            ]), (arg1, args)
+        else:
+            assert all([
+                not isinstance(arg, (list, tuple)) or len(arg) == len(arg1)
+                for arg in args
+            ]), (arg1, args)
+        return arg1.__class__([
             nested_op(
                 func,
-                [nested_arg[j] if is_list[i] else nested_arg
-                 for i, nested_arg in enumerate(nested_args)]
+                arg1[j],
+                *[arg[j] if isinstance(arg, list) else arg
+                  for arg in args],
+                broadcast=broadcast
             )
-            for j in range(min_len)]
-    return func(*nested_args)
+            for j in range(len(arg1))]
+        )
+    return func(arg1, *args)
 
 
 def squeeze_nested(orig):
