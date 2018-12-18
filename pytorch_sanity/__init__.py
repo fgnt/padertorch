@@ -10,3 +10,4 @@ from . import utils
 from .base import *
 from .ops import *
 from .trainer import *
+from .configurable import Configurable
