@@ -11,6 +11,8 @@ from pytorch_sanity.ops.einsum import einsum
 __all__ = [
     'softmax_cross_entropy',
     'deep_clustering_loss',
+    'pit_mse_loss',
+    'kl_normal_multivariatenormals'
 ]
 
 
@@ -90,32 +92,26 @@ def deep_clustering_loss(x, t):
         raise ValueError(f'Incompatible types: {type(x)}, {type(t)}')
 
 
-def pit_mse_loss(estimate, target, num_frames):
-    """
-    Up to now we assume, that the number of sources `K` is constant within a
-    batch.
+def pit_mse_loss(estimate, target):
+    """Does not support batch dimension. Does not support PackedSequence.
 
     TODO: Allow to replace `mse_loss` with other functions.
 
     Parameters:
-        estimate: Padded sequence with shape (T, B, K, F)
-        target: Padded sequence with shape (T, B, K, F)
-        num_frames: List of integers with length B
+        estimate: Padded sequence with shape (T, K, F)
+        target: Padded sequence with shape (T, K, F)
     """
-    sources = 2
+    sources = 2  # Replace this later, when you gained more confidence.
     assert estimate.size() == target.size(), (
-        f'{estimate.size()} != target.size()'
+        f'{estimate.size()} != {target.size()}'
     )
-    losses = []
-    for b, num_frames_ in enumerate(num_frames):
-        candidates = []
-        for permutation in itertools.permutations(range(sources)):
-            candidates.append(torch.nn.functional.mse_loss(
-                estimate[:num_frames_, b, :, :],
-                target[:num_frames_, b, permutation, :]
-            ))
-        losses.append(torch.min(torch.stack(candidates)))
-    return torch.mean(torch.stack(losses))
+    candidates = []
+    for permutation in itertools.permutations(range(sources)):
+        candidates.append(torch.nn.functional.mse_loss(
+            estimate,
+            target[:, permutation, :]
+        ))
+    return torch.min(torch.stack(candidates))
 
 
 def kl_normal_multivariatenormals(q, p):
