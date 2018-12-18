@@ -18,7 +18,7 @@ ACTIVATION_FN_MAP = Dispatcher(
     tanh=F.tanh,
     sigmoid=torch.sigmoid,
     softmax=F.softmax,  # Defaults to softmax along last dimension
-    identity=lambda x:x,
+    identity=lambda x: x,
 )
 
 POOLING_FN_MAP = Dispatcher(
