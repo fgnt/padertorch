@@ -16,22 +16,25 @@ class TestPermutationInvariantTrainingLoss(unittest.TestCase):
 
         self.packed = PackedSequence(
             torch.stack([self.sequence[0][0],
-                       self.sequence[1][0],
-                       self.sequence[0][1],
-                       self.sequence[1][1],
-                       self.sequence[0][2],
-                       self.sequence[1][2],
-                       self.sequence[0][3],
-                       self.sequence[1][3],
-                       self.sequence[0][4]
-                       ], dim=0),
-            torch.LongTensor(4*[2]+ 1*[1])
+                         self.sequence[1][0],
+                         self.sequence[0][1],
+                         self.sequence[1][1],
+                         self.sequence[0][2],
+                         self.sequence[1][2],
+                         self.sequence[0][3],
+                         self.sequence[1][3],
+                         self.sequence[0][4],
+                         ], dim=0),
+            torch.LongTensor(4 * [2] + 1 * [1])
         )
 
     def test_pack_sequence(self):
         actual = pts.ops.pack_sequence(self.sequence)
         assert isinstance(actual, type(self.packed))
-        np.testing.assert_equal(actual[0].data.numpy(), self.packed.data.numpy())
+        np.testing.assert_equal(
+            actual[0].data.numpy(),
+            self.packed.data.numpy(),
+        )
 
     def test_unpack_sequence(self):
         actual = pts.ops.unpack_sequence(self.packed)
