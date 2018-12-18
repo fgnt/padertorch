@@ -1,7 +1,6 @@
 import torch
 from torch.nn.utils.rnn import PackedSequence
 from torch.nn.utils.rnn import pad_packed_sequence
-from torch.distributions.kl import _batch_diag, _batch_inverse
 import itertools
 
 from pytorch_sanity.ops.tensor import move_axis
@@ -114,6 +113,23 @@ def pit_mse_loss(estimate, target):
     return torch.min(torch.stack(candidates))
 
 
+def _batch_diag(bmat):
+    r"""
+    Returns the diagonals of a batch of square matrices.
+    """
+    return bmat.reshape(bmat.shape[:-2] + (-1,))[..., ::bmat.size(-1) + 1]
+
+
+def _batch_inverse(bmat):
+    r"""
+    Returns the inverses of a batch of square matrices.
+    """
+    n = bmat.size(-1)
+    flat_bmat = bmat.reshape(-1, n, n)
+    flat_inv_bmat = torch.stack([m.inverse() for m in flat_bmat], 0)
+    return flat_inv_bmat.view(bmat.shape)
+
+
 def kl_normal_multivariatenormals(q, p):
     """
     TODO: Please rename to `kl_normal_multivariate_normal`.
@@ -130,10 +146,10 @@ def kl_normal_multivariatenormals(q, p):
     component_shape = p.loc.shape[:-1]
     assert p.loc.shape[-1] == D
 
-    q_loc = q.loc.view(-1, D)
-    q_scale = q.scale.view(-1, D)
-    p_loc = p.loc.view(-1, D)
-    p_scale_tril = p.scale_tril.view(-1, D, D)
+    q_loc = q.loc.contiguous().view(-1, D)
+    q_scale = q.scale.contiguous().view(-1, D)
+    p_loc = p.loc.contiguous().view(-1, D)
+    p_scale_tril = p.scale_tril.contiguous().view(-1, D, D)
 
     term1 = _batch_diag(p_scale_tril).log().sum(-1)[:, None] - q_scale.log().sum(-1)
     L = _batch_inverse(p_scale_tril)
