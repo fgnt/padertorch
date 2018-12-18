@@ -121,10 +121,12 @@ class Configurable:
                 config['cls'], cls
             )
 
-        if hasattr(cls, 'get_signature'):
-            defaults = cls.get_signature()
+        if hasattr(import_class(config['cls']), 'get_signature'):
+            defaults = import_class(config['cls']).get_signature()
         else:
-            defaults = Configurable.get_signature.__func__(cls)
+            defaults = Configurable.get_signature.__func__(
+                import_class(config['cls'])
+            )
 
         config['kwargs'] = {
             **recursive_class_to_str(defaults),
