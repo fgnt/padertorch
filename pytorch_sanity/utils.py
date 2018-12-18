@@ -97,21 +97,56 @@ def squeeze_nested(orig):
     return orig
 
 
+def pad_tensor(vec, pad, axis):
+    """
+    args:
+        vec - tensor to pad
+        pad - the size to pad to
+        axis - dimension to pad
+
+    return:
+        a new tensor padded to 'pad' in dimension 'dim'
+    """
+
+    pad_size = list(vec.shape)
+    pad_size[axis] = pad - vec.shape[axis]
+    return np.concatenate([vec, np.zeros(pad_size)], axis=axis)
+
+
+def collate_fn(batch):
+    def nested_batching(value, key, nested_batch):
+        # recursively nesting the batch
+        if isinstance(value, dict):
+            if not key in nested_batch:
+                nested_batch[key] = dict()
+            return {k: nested_batching(v, k, nested_batch[key])
+                    for k, v in value.items()}
+        else:
+            if not key in nested_batch:
+                nested_batch[key] = []
+            nested_batch[key].append(value)
+        return nested_batch[key]
+
+    nested_batch = {}
+    for elem in batch:
+        assert isinstance(elem, dict)
+        nested_batch = {key: nested_batching(value, key, nested_batch)
+                        for key, value in elem.items()}
+
+
 class Padder(Configurable):
     def __init__(
             self,
             to_torch: bool = True,
             sort_by_length: bool = True,
             padding: bool = True,
-            padding_keys: list = None,
-            collate_fn=collate_fn
+            padding_keys: list = None
     ):
         assert not to_torch ^ (padding and to_torch)
         self.to_torch = to_torch
         self.sort_by_length = sort_by_length
         self.padding = padding
         self.padding_keys = padding_keys
-        self.collate_fn = collate_fn
 
     def pad_batch(self, batch):
         if isinstance(batch[0], np.ndarray):
@@ -159,7 +194,7 @@ class Padder(Configurable):
         # assumes batch to be a list of dicts
         # ToDo: do we automatically sort by sequence length?
 
-        nested_batch = self.collate_fn(batch)
+        nested_batch = collate_fn(batch)
 
 
         if self.padding:
@@ -186,40 +221,3 @@ class Padder(Configurable):
                 'False, but they are:', self.padding_keys
             )
             return nested_batch
-
-
-def pad_tensor(vec, pad, axis):
-    """
-    args:
-        vec - tensor to pad
-        pad - the size to pad to
-        axis - dimension to pad
-
-    return:
-        a new tensor padded to 'pad' in dimension 'dim'
-    """
-
-    pad_size = list(vec.shape)
-    pad_size[axis] = pad - vec.shape[axis]
-    return np.concatenate([vec, np.zeros(pad_size)], axis=axis)
-
-
-def collate_fn(batch):
-    def nested_batching(value, key, nested_batch):
-        # recursively nesting the batch
-        if isinstance(value, dict):
-            if not key in nested_batch:
-                nested_batch[key] = dict()
-            return {k: nested_batching(v, k, nested_batch[key])
-                    for k, v in value.items()}
-        else:
-            if not key in nested_batch:
-                nested_batch[key] = []
-            nested_batch[key].append(value)
-        return nested_batch[key]
-
-    nested_batch = {}
-    for elem in batch:
-        assert isinstance(elem, dict)
-        nested_batch = {key: nested_batching(value, key, nested_batch)
-                        for key, value in elem.items()}
