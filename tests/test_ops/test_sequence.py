@@ -5,7 +5,7 @@ import torch
 from torch.nn.utils.rnn import PackedSequence
 
 
-class TestPermutationInvariantTrainingLoss(unittest.TestCase):
+class TestPackModule(unittest.TestCase):
     def setUp(self):
         self.sequence = [torch.zeros(5, 3), torch.ones(4, 3)]
 
