@@ -1,6 +1,11 @@
 import torch
 import pytorch_sanity as pts
 import einops
+from paderbox.transform import stft
+import numpy as np
+from paderbox.database.keys import *
+from paderbox.database.iterator import AudioReader
+from torch.nn.utils.rnn import PackedSequence
 
 
 class PermutationInvariantTrainingModel(pts.base.Model):
@@ -19,54 +24,98 @@ class PermutationInvariantTrainingModel(pts.base.Model):
         )
         self.linear = torch.nn.Linear(2 * units, F * K)
 
+    def prepare_iterable(self, db, dataset_names, batch_size):
+        audio_keys = [OBSERVATION, SPEECH_SOURCE]
+        audio_reader = AudioReader(audio_keys=audio_keys, read_fn=db.read_fn)
+        return (
+            db.get_iterator_by_names(dataset_names=dataset_names)
+            .map(audio_reader)
+            .map(self.pre_batch_transform)
+            .batch(batch_size)
+            .map(lambda batch: sorted(
+                batch,
+                key=lambda example: example["num_frames"],
+                reverse=True,
+            ))
+            .map(pts.utils.collate_fn)
+            .map(self.post_batch_transform)
+            .prefetch(4, 8)
+        )
+
+    def pre_batch_transform(self, inputs):
+        """
+        This simplistic version already does the batching to B=1.
+        Args:
+            inputs:
+
+        Returns:
+
+        """
+        Y = stft(inputs['audio_data']['observation'], 512, 128)
+        S = stft(inputs['audio_data']['speech_source'], 512, 128)
+        Y = einops.rearrange(Y, 't f -> t f')
+        S = einops.rearrange(S, 'k t f -> t k f')
+        num_frames = Y.shape[0]
+
+        return {
+            'observation_amplitude_spectrum':
+                np.ascontiguousarray(np.abs(Y), np.float32),
+            'target_amplitude_spectrum':
+                np.ascontiguousarray(np.abs(S), np.float32),
+            'num_frames': num_frames
+        }
+
+    def post_batch_transform(self, batch):
+        """
+
+        Args:
+            batch:
+
+        Returns:
+
+        """
+        return batch
+
     def forward(self, batch):
         """
         Parameters:
-            batch: Dictionary
+            batch: Dictionary with lists of tensors
         """
-        h = batch['observation_amplitude_spectrum']
-        num_frames = batch['num_frames']
 
-        if not isinstance(h, torch.Tensor):
-            h = torch.from_numpy(h)
+        h = pts.ops.pack_sequence(batch['observation_amplitude_spectrum'])
 
-        T, B, F = h.size()
+        _, F = h.data.size()
         assert F == self.F, f'self.F = {self.F} != F = {F}'
 
-        h = torch.abs(h)
-        h = torch.log(h + 1e-10)  # Why not mu-law?
+        # Why not mu-law?
+        h = pts.ops.pointwise.abs(h)
+        h = PackedSequence(h.data + 1e-10, h.batch_sizes)
 
-        h = torch.nn.utils.rnn.pack_padded_sequence(h, lengths=num_frames)
-
-        # Returns (seq_len, batch, num_directions * hidden_size)
+        # Returns tensor with shape (t, b, num_directions * hidden_size)
         h, _ = self.blstm(h)
 
-        h, num_frames = torch.nn.utils.rnn.pad_packed_sequence(h)
+        h = PackedSequence(self.linear(h.data), h.batch_sizes)
 
-        h = self.linear(h)  # Independent dimension?
-        mask = einops.rearrange(h, 't b (k f) -> t b k f', k=self.K)
-        return mask
+        mask = PackedSequence(
+            einops.rearrange(h.data, 'tb (k f) -> tb k f', k=self.K),
+            h.batch_sizes,
+        )
+        return pts.ops.unpack_sequence(mask)
 
     def review(self, batch, model_out):
-        observation_amplitude_spectrum \
-            = batch['observation_amplitude_spectrum']
-        target_amplitude_spectrum = batch['target_amplitude_spectrum']
-        num_frames = batch['num_frames']
-        mask = model_out
-
-        if not isinstance(observation_amplitude_spectrum, torch.Tensor):
-            observation_amplitude_spectrum \
-                = torch.from_numpy(observation_amplitude_spectrum)
-        if not isinstance(target_amplitude_spectrum, torch.Tensor):
-            target_amplitude_spectrum \
-                = torch.from_numpy(target_amplitude_spectrum)
+        pit_mse_loss = list()
+        for mask, observation, target in zip(
+                model_out,
+                batch['observation_amplitude_spectrum'],
+                batch['target_amplitude_spectrum']
+        ):
+            pit_mse_loss.append(pts.ops.loss.pit_mse_loss(
+                mask * observation[:, None, :],
+                target
+            ))
 
         return {
             'losses': {
-                'pit_mse_loss': pts.ops.loss.pit_mse_loss(
-                    mask * observation_amplitude_spectrum[:, :, None, :],
-                    target_amplitude_spectrum,
-                    num_frames
-                )
+                'pit_mse_loss': torch.mean(torch.stack(pit_mse_loss))
             }
         }
