@@ -11,12 +11,12 @@ from typing import List
 
 import numpy as np
 import torch
-from torch.utils.data.dataloader import default_collate
 from tensorboardX import SummaryWriter
 from pytorch_sanity.optimizer import Adam
 from pytorch_sanity.configurable import Configurable
 
 from pytorch_sanity.utils import to_list
+import pytorch_sanity as pts
 
 
 __all__ = [
@@ -194,7 +194,9 @@ class Trainer(Configurable):
                             else:
                                 raise Exception('Zero length train iterator')
 
-                        batch = self.batch_to_device(batch)
+                        batch = pts.data.batch_to_device(
+                            batch, self.use_cuda, self.gpu_device
+                        )
                         # Todo: backup OOM
                         with self.timer['time_per_train_step']:
                             self.train_step(batch)
@@ -209,42 +211,12 @@ class Trainer(Configurable):
             # Change model to eval mode (e.g. deactivate dropout)
             [m.eval() for m in self.models]
             for i, batch in enumerate(validation_iterator):
-                batch = self.batch_to_device(batch)
+                batch = pts.data.batch_to_device(
+                    batch, self.use_cuda, self.gpu_device
+                )
                 self.validation_step(batch)
             self.add_summary('validation')
         print('Finished Validation')
-
-    def batch_to_device(self, batch):
-        if isinstance(batch, dict):
-            return batch.__class__({
-                key: self.batch_to_device(value)
-                for key, value in batch.items()
-            })
-        elif isinstance(batch, (tuple, list)):
-            return batch.__class__([
-                self.batch_to_device(element)
-                for element in batch
-            ])
-        elif torch.is_tensor(batch):
-            if self.use_cuda:
-                return batch.cuda(self.gpu_device)
-            else:
-                return batch.cpu()
-        elif isinstance(batch, np.ndarray):
-            if batch.dtype in [np.complex64, np.complex128]:
-                # complex is not supported
-                return batch
-            else:
-                return self.batch_to_device(torch.from_numpy(batch))
-        elif hasattr(batch, '__dataclass_fields__'):
-            return batch.__class__(
-                **{
-                    f: self.batch_to_device(getattr(batch, f))
-                    for f in batch.__dataclass_fields__
-                }
-            )
-        else:
-            return batch
 
     def train_step(self, batch):
         assert len(self.models) == 1 and len(self.optimizers) == 1, (
