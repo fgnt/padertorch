@@ -41,4 +41,5 @@ def pad_packed_sequence(
 def pack_padded_sequence(
         padded_sequence: torch.Tensor, lengths: torch.LongTensor
 ) -> PackedSequence:
+    # ToDo add contiguous if needed
     return pack_padded_sequence_(padded_sequence, lengths)
