@@ -311,12 +311,11 @@ class ConfigUpdateException(Exception):
     pass
 
 
-def update_config(config, updates=None):
+def update_config(config, updates):
     """
 
     :param config: config dict
-    :param updates: updates dict. Note that update entries which are not valid
-    for the current config are ignored.
+    :param updates: updates dict.
     :return:
     """
     # ToDo: tuple and lists (e.g. Trainer models and optimizers)
@@ -368,16 +367,6 @@ def update_config(config, updates=None):
                 )
             else:
                 config[key] = updates.pop(key)
-
-        if updates:
-            from IPython.lib.pretty import pretty
-            raise ConfigUpdateException(
-                '\n\n'
-                'updates:\n'
-                f'{pretty(updates)}\n\n'
-                'config:\n'
-                f'{pretty(config)}'
-            )
 
 
 def config_to_instance(config):
