@@ -26,6 +26,9 @@ __all__ = [
 
 class ContextTimerDict:
     """
+    To be able to keep the measurements, we need to create the object before.
+    Then each measurement can be started with a context manager.
+
     >>> np.set_printoptions(precision=2)
     >>> timer = ContextTimerDict()
     >>> with timer['test']:
