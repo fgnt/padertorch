@@ -13,10 +13,12 @@ a parameter to the `__init__` you can provide the parameters which were
 used for that instance in your modified `get_signature`.
 
 """
-import abc
 import json
 import inspect
 import importlib
+
+from pathlib import Path
+
 
 
 class Configurable:
@@ -273,6 +275,8 @@ def class_to_str(cls):
 
 def recursive_class_to_str(dictionary):
     """
+    changes Configurable Objects to import path string
+    changes Path to str
     >>> from pytorch_sanity import Model
     >>> recursive_class_to_str([{'cls': 'pytorch_sanity.Model'}])
     [{'cls': 'pytorch_sanity.base.Model'}]
@@ -297,6 +301,8 @@ def recursive_class_to_str(dictionary):
             recursive_class_to_str(l)
             for l in dictionary
         ])
+    elif isinstance(dictionary, Path):
+        return str(dictionary)
     else:
         return dictionary
 
