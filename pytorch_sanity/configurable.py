@@ -202,7 +202,14 @@ class Configurable:
                 ) from e
 
         # Guarantee that config is json serializable
-        _ = json.dumps(config)
+        try:
+            _ = json.dumps(config)
+        except TypeError as e:
+            from IPython.lib.pretty import pprint
+            print('#' * 20, 'JSON Failure config', '#' * 20)
+            pprint(config)
+            print('#' * 60)
+            raise
 
         return config
 
@@ -306,6 +313,7 @@ def update_config(config, updates=None):
     for the current config are ignored.
     :return:
     """
+    # ToDo: tuple and lists (e.g. Trainer models and optimizers)
     if 'cls' in config or 'cls' in updates:
         if 'cls' in updates:
             config['cls'] = class_to_str(updates['cls'])
