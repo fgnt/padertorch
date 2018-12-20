@@ -8,6 +8,12 @@ class PermutationInvariantTrainingModel(pt.base.Model):
     """
     Implements a variant of Permutation Invariant Training [1].
 
+    An example notebook can be found here:
+    /net/vol/ldrude/share/2018-12-14_pytorch.ipynb
+
+    Check out this repository to see example code:
+    git clone git@ntgit.upb.de:scratch/ldrude/pth_bss
+
     [1] Kolbaek 2017, https://arxiv.org/pdf/1703.06284.pdf
 
     TODO: Input normalization
