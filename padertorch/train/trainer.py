@@ -8,11 +8,11 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-import pytorch_sanity as pts
+import padertorch as pts
 import torch
-from pytorch_sanity.configurable import Configurable
+from padertorch.configurable import Configurable
 from paderbox.utils.nested import flatten, nested_op
-from pytorch_sanity.train.optimizer import Optimizer, Adam
+from padertorch.train.optimizer import Optimizer, Adam
 from tensorboardX import SummaryWriter
 
 __all__ = [

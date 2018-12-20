@@ -10,8 +10,8 @@ from cached_property import cached_property
 from paderbox.database import keys as NTKeys
 from paderbox.io.audioread import audioread
 from paderbox.utils.nested import squeeze_nested, nested_op, nested_update
-from pytorch_sanity.configurable import Configurable
-from pytorch_sanity.utils import to_list
+from padertorch.configurable import Configurable
+from padertorch.utils import to_list
 from scipy import signal
 from tqdm import tqdm
 

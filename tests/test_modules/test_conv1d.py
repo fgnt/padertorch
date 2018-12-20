@@ -1,6 +1,6 @@
 import unittest
 import torch
-from pytorch_sanity.modules.conv1d import MSTCN
+from padertorch.modules.conv1d import MSTCN
 
 
 class TestMSTCN(unittest.TestCase):

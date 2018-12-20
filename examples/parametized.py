@@ -1,4 +1,4 @@
-import pytorch_sanity as pts
+import padertorch as pts
 
 
 class GRU(pts.configurable.Configurable):
@@ -72,7 +72,7 @@ import sacred
 import sacred.run
 import sacred.commands
 exp = sacred.Experiment('vae')
-from pytorch_sanity.configurable_utils import deflatten
+from padertorch.configurable_utils import deflatten
 
 @exp.config
 def config():

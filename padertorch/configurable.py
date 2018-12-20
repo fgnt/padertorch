@@ -258,8 +258,8 @@ def import_class(name: str):
 
 def class_to_str(cls):
     """
-    >>> import pytorch_sanity
-    >>> class_to_str(pytorch_sanity.Model)
+    >>> import padertorch
+    >>> class_to_str(padertorch.Model)
     'pytorch_sanity.base.Model'
     >>> class_to_str('pytorch_sanity.Model')
     'pytorch_sanity.base.Model'
@@ -277,7 +277,7 @@ def recursive_class_to_str(dictionary):
     """
     changes Configurable Objects to import path string
     changes Path to str
-    >>> from pytorch_sanity import Model
+    >>> from padertorch import Model
     >>> recursive_class_to_str([{'cls': 'pytorch_sanity.Model'}])
     [{'cls': 'pytorch_sanity.base.Model'}]
     >>> recursive_class_to_str([{'cls': Model, Model: {}}])

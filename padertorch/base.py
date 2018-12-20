@@ -2,7 +2,7 @@ import abc
 
 from torch import nn
 
-from pytorch_sanity.configurable import Configurable
+from padertorch.configurable import Configurable
 
 
 __all__ = [

@@ -1,4 +1,4 @@
-import pytorch_sanity as pts
+import padertorch as pts
 import numpy as np
 
 

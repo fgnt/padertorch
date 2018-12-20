@@ -1,6 +1,6 @@
-from pytorch_sanity import utils
-from pytorch_sanity.train import trainer, optimizer
-from pytorch_sanity.train.trainer import *
+from padertorch import utils
+from padertorch.train import trainer, optimizer
+from padertorch.train.trainer import *
 
 from . import base
 from . import configurable

@@ -1,7 +1,7 @@
 import unittest
 
 import numpy as np
-import pytorch_sanity as pts
+import padertorch as pts
 import torch
 from torch.distributions import Normal, MultivariateNormal, kl_divergence
 from torch.distributions.kl import _batch_diag

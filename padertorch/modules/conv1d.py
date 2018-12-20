@@ -3,9 +3,9 @@ import math
 import numpy as np
 import torch
 import torch.nn.functional as F
-from pytorch_sanity.base import Module
-from pytorch_sanity.ops.mappings import ACTIVATION_FN_MAP
-from pytorch_sanity.utils import to_list
+from padertorch.base import Module
+from padertorch.ops.mappings import ACTIVATION_FN_MAP
+from padertorch.utils import to_list
 from torch import nn
 
 

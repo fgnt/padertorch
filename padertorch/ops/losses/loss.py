@@ -3,8 +3,8 @@ from torch.nn.utils.rnn import PackedSequence
 from torch.nn.utils.rnn import pad_packed_sequence
 import itertools
 
-from pytorch_sanity.ops.tensor import move_axis
-from pytorch_sanity.ops.einsum import einsum
+from padertorch.ops.tensor import move_axis
+from padertorch.ops.einsum import einsum
 
 
 __all__ = [

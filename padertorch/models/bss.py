@@ -2,7 +2,7 @@ from functools import partial
 
 import einops
 import numpy as np
-import pytorch_sanity as pts
+import padertorch as pts
 import torch
 from paderbox.database.iterator import AudioReader
 from paderbox.database.keys import *

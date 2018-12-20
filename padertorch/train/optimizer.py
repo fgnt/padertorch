@@ -1,5 +1,5 @@
 import torch
-from pytorch_sanity.configurable import Configurable
+from padertorch.configurable import Configurable
 from torch import optim
 
 

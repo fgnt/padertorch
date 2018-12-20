@@ -1,6 +1,6 @@
 
 import numpy as np
-from pytorch_sanity.configurable import Configurable
+from padertorch.configurable import Configurable
 
 
 def pad_tensor(vec, pad, axis):

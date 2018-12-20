@@ -1,9 +1,9 @@
-import pytorch_sanity
+import padertorch
 from sacred import Experiment as Exp
 exp = Exp('Timit Classifier')
 
 
-class Classifier(pytorch_sanity.Module):
+class Classifier(padertorch.Module):
     @classmethod
     def get_defaults_from_init_signature(self):
         defaults = super().get_defaults_from_init_signature()

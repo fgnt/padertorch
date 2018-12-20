@@ -1,5 +1,5 @@
 import torch
-from pytorch_sanity.utils import normalize_axis
+from padertorch.utils import normalize_axis
 
 
 def sequence_reduction(function, x, *args, axis=None, keepdims=False, **kwargs):

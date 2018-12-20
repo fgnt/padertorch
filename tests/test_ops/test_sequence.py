@@ -1,5 +1,5 @@
 import unittest
-import pytorch_sanity as pts
+import padertorch as pts
 import numpy as np
 import torch
 from torch.nn.utils.rnn import PackedSequence

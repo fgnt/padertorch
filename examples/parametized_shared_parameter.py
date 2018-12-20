@@ -1,6 +1,6 @@
-import pytorch_sanity as pts
+import padertorch as pts
 from IPython.lib.pretty import pprint
-from pytorch_sanity.configurable_utils import deflatten
+from padertorch.configurable_utils import deflatten
 
 class Load(pts.configurable.Configurable):
     def __init__(self, sample_rate=16000):
