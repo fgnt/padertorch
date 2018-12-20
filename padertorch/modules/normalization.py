@@ -1,12 +1,13 @@
 import torch
 import padertorch as pt
+
+
 class Normalization(pt.Module):
     """ Computes lp-statistics of a sequence
-
-    :param inputs: Tensor with the sequence
-    :param statistics_axis: axis along which to compute the statics.
+    :param num_features: number of features of weight and bias
     :param order: Order of the normalization. Can be l1 or l2. For l1, the
         tensor is normalized by \\(\\frac{\\gamma(x-\\mu)}{}\\)
+    :param statistics_axis: axis along which to compute the statics.
     :param norm_epsilon: prevents division by 0
     :param keep_dims: keep the number of dimensions
     :param momentum: the value used for the running_mean and running_var
@@ -19,16 +20,14 @@ class Normalization(pt.Module):
             and always uses batch statistics in both training and eval modes.
     :return: tuple of lp-statistics
     """
-    def __init__(self, num_features=None, order='l2', statistics_axis=0,
-                 norm_epsilon=1e-5, keep_dims=False,
-                 momentum=0.1, affine=True, track_running_stats=False):
+    def __init__(self, num_features=None, order='l2', data_format='tbf',
+                 statistics_axis='t',
+                 norm_epsilon=1e-5, keep_dims=False, affine=True):
         assert num_features is not None
         super().__init__()
         self.num_features = num_features
         self.norm_epsilon = norm_epsilon
-        self.momentum = momentum
         self.affine = affine
-        self.track_running_stats = track_running_stats
         self.statistics_axis = statistics_axis
         self.norm_epsilon = norm_epsilon
         self.keep_dims = keep_dims
@@ -65,17 +64,22 @@ class Normalization(pt.Module):
             torch.nn.init.uniform_(self.weight)
             torch.nn.init.zeros_(self.bias)
 
-    def forward(self, batch):
-
-        if isinstance(batch, torch.nn.utils.rnn.PackedSequence):
-            batch = pt.ops.unpack_sequence(batch)
-        elif isinstance(batch, torch.Tensor):
-            batch = [batch]
+    def forward(self, tensor):
+        # expects last dimension of to be the feature dimension
+        if isinstance(tensor, torch.nn.utils.rnn.PackedSequence):
+            inputs = pt.ops.unpack_sequence(tensor)
+            packed = True
+        elif isinstance(tensor, torch.Tensor):
+            input = [tensor]
+            packed = False
         else:
             raise ValueError()
-        ndim = len(batch[0].ndim)
+        ndim = len(tensor[0].ndim)
         assert ndim <= self.statistics_axis, f'ndim {ndim} <= len("{self.statistics_axis}")'
-        return [self.normalize(x) for x in batch]
+        output =  [self.normalize(x) for x in tensor]
+        if packed:
+            output = pt.ops.pack_sequence(output)
+        return output
 
     def get_statistics(self, tensor):
         if self.opts.order == 'l1':
@@ -107,5 +111,7 @@ class Normalization(pt.Module):
         if norm is not None:
             tensor /= norm
         if self.affine:
-            tensor = (tensor + self.bias) * self.weight
+            dims = (tensor.ndim - 1) * [1]
+            tensor = (tensor + self.bias.view(*dims,-1)
+                      ) * self.weight.view((*dims,-1))
         return tensor
