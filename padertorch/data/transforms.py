@@ -26,12 +26,20 @@ LABEL_KEYS = [NTKeys.PHONES, NTKeys.WORDS, NTKeys.EVENTS, NTKeys.SCENE]
 
 
 class Transform(Configurable, abc.ABC):
+    """
+    Base class for callable transformations. Not intended to be instantiated.
+    """
     @abc.abstractmethod
     def __call__(self, example):
         raise NotImplementedError
 
 
 class Compose(object):
+    """
+    Accepts an ordered iterable of Transform objects and performs a
+    transformation composition by succesively applying them in the given order.
+    Inspired by a torchvision class with the same name.
+    """
     def __init__(self, *transforms):
         self.transforms = transforms
 
