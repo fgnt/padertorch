@@ -14,13 +14,13 @@ class TestPermutationInvariantTrainingLoss(unittest.TestCase):
         self.F = 257
         self.num_frames = [100, 90, 80, 70]
         self.inputs = {
-            'observation_amplitude_spectrum': [
+            'Y_abs': [
                 np.abs(np.random.normal(
                     size=(num_frames_, self.F)
                 )).astype(np.float32)
                 for num_frames_ in self.num_frames
             ],
-            'target_amplitude_spectrum': [
+            'X_abs': [
                 np.abs(np.random.normal(
                     size=(num_frames_, self.K, self.F)
                 )).astype(np.float32)
@@ -36,7 +36,7 @@ class TestPermutationInvariantTrainingLoss(unittest.TestCase):
         inputs = pts.data.batch_to_device(self.inputs)
         mask = self.model(inputs)
 
-        for m, t in zip(mask, inputs['target_amplitude_spectrum']):
+        for m, t in zip(mask, inputs['X_abs']):
             np.testing.assert_equal(m.size(), t.size())
 
     def test_review(self):
@@ -55,12 +55,12 @@ class TestPermutationInvariantTrainingLoss(unittest.TestCase):
 
         reference_loss = list()
         for observation, target in zip(
-            self.inputs['observation_amplitude_spectrum'],
-            self.inputs['target_amplitude_spectrum'],
+            self.inputs['Y_abs'],
+            self.inputs['X_abs'],
         ):
             inputs = {
-                'observation_amplitude_spectrum': [observation],
-                'target_amplitude_spectrum': [target],
+                'Y_abs': [observation],
+                'X_abs': [target],
             }
             inputs = pts.data.batch_to_device(inputs)
             mask = self.model(inputs)
