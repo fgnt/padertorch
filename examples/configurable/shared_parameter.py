@@ -1,6 +1,7 @@
 import padertorch as pts
 from IPython.lib.pretty import pprint
-from padertorch.configurable_utils import deflatten
+from paderbox.utils.nested import deflatten
+
 
 class Load(pts.configurable.Configurable):
     def __init__(self, sample_rate=16000):
