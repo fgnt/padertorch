@@ -12,6 +12,9 @@ __all__ = [
 
 
 class Module(nn.Module, Configurable, abc.ABC):
+    """
+    Abstract base class for configurable Modules.
+    """
     @abc.abstractmethod
     def forward(self, *args, **kwargs):
         """
@@ -22,7 +25,8 @@ class Module(nn.Module, Configurable, abc.ABC):
 
 class Model(Module, Configurable, abc.ABC):
     """
-    Model that can be trained by padertorch.trainer.Trainer
+    Abstract base class for configurable Models which can be trained by
+    padertorch.trainer.Trainer.
     """
     @abc.abstractmethod
     def forward(self, inputs):

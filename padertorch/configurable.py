@@ -1,15 +1,15 @@
-"""
+"""Provide nested pytorch modules with JSON-serializable configuration.
 
-Motivation of `Configurable` is to be able to serialize the configuration of
-an entire pytorch_sanity module tree into a JSON.
+An exemplary use-case is a compound module which consists of multiple modules
+itself, e.g. a structured variational autoencoder or a farfield speech enhancer.
 
 You can instantiate a child of `Configurable` either with an `__init__`
 resulting in an unparameterized module. If you instantiate it with
 `from_config` you get a configured module.
 
-If modules contain modules, look out for examples how to overwrite
-`get_signature`. In most cases where you want to provide an instance as
-a parameter to the `__init__` you can provide the parameters which were
+If modules contain modules, look out for examples on how to override
+`get_signature`. In most cases, when you want to provide an instance as
+a parameter to the `__init__` you can instead provide the parameters which were
 used for that instance in your modified `get_signature`.
 
 """
