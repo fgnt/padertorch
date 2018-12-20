@@ -5,7 +5,6 @@ from warnings import warn
 
 import librosa
 import numpy as np
-import samplerate
 from cached_property import cached_property
 from paderbox.database import keys as NTKeys
 from paderbox.io.audioread import audioread
@@ -53,6 +52,7 @@ class ReadAudio(Transform):
     def read(self, audio_path):
         x, sr = audioread(audio_path)
         if sr != self.sample_rate:
+            import samplerate
             warn('Sample rate mismatch -> Resample.')
             x = x.T
             x = samplerate.resample(
