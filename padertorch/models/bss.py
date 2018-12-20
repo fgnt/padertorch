@@ -6,7 +6,11 @@ from torch.nn.utils.rnn import PackedSequence
 
 class PermutationInvariantTrainingModel(pt.base.Model):
     """
+    Implements a variant of Permutation Invariant Training [1].
 
+    [1] Kolbaek 2017, https://arxiv.org/pdf/1703.06284.pdf
+
+    TODO: Input normalization
     TODO: Mu-Law as input transform/ at least a logarithm
     TODO: Dropout
     TODO: Mask sensitive loss. See paderflow for more ideas
