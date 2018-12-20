@@ -318,9 +318,10 @@ class GlobalNormalize(Configurable):
     >>> norm(ex)
     {'spectrogram': array([0., 0., 0., 0., 0., 0., 0., 0., 0., 0.])}
     """
-    def __init__(self, keys=Keys.SPECTROGRAM):
+    def __init__(self, keys=Keys.SPECTROGRAM, show_progress=False):
         self.keys = to_list(keys)
         self.moments = None
+        self._show_progress = show_progress
 
     def init_moments(self, iterator=None, storage_dir=None):
         storage_dir = storage_dir or ""
@@ -358,7 +359,7 @@ class GlobalNormalize(Configurable):
         means = {key: 0 for key in self.keys}
         energies = {key: 0 for key in self.keys}
         counts = {key: 0 for key in self.keys}
-        for example in tqdm(iterator):
+        for example in tqdm(iterator, disable=not(self._show_progress)):
             example = {key: example[key] for key in self.keys}
             means = nested_op(
                 lambda x, y: y + np.sum(x, axis=-1, keepdims=True),
