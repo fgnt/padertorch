@@ -6,6 +6,7 @@ import numpy as np
 from paderbox.database.keys import *
 from paderbox.database.iterator import AudioReader
 from torch.nn.utils.rnn import PackedSequence
+from functools import partial
 
 
 class PermutationInvariantTrainingModel(pts.base.Model):
@@ -24,13 +25,13 @@ class PermutationInvariantTrainingModel(pts.base.Model):
         )
         self.linear = torch.nn.Linear(2 * units, F * K)
 
-    def prepare_iterable(self, db, dataset_names, batch_size):
+    def prepare_iterable(self, db, dataset: str, batch_size, return_keys=None):
         audio_keys = [OBSERVATION, SPEECH_SOURCE]
         audio_reader = AudioReader(audio_keys=audio_keys, read_fn=db.read_fn)
         return (
-            db.get_iterator_by_names(dataset_names=dataset_names)
+            db.get_iterator_by_names(dataset)
             .map(audio_reader)
-            .map(self.pre_batch_transform)
+            .map(partial(self.pre_batch_transform, return_keys=return_keys))
             .batch(batch_size)
             .map(lambda batch: sorted(
                 batch,
@@ -42,38 +43,32 @@ class PermutationInvariantTrainingModel(pts.base.Model):
             .prefetch(4, 8)
         )
 
-    def pre_batch_transform(self, inputs):
-        """
-        This simplistic version already does the batching to B=1.
-        Args:
-            inputs:
-
-        Returns:
-
-        """
-        Y = stft(inputs['audio_data']['observation'], 512, 128)
-        S = stft(inputs['audio_data']['speech_source'], 512, 128)
+    def pre_batch_transform(self, inputs, return_keys=None):
+        s = inputs['audio_data']['speech_source']
+        y = inputs['audio_data']['observation']
+        S = stft(s, 512, 128)
+        Y = stft(y, 512, 128)
         Y = einops.rearrange(Y, 't f -> t f')
         S = einops.rearrange(S, 'k t f -> t k f')
         num_frames = Y.shape[0]
 
-        return {
-            'observation_amplitude_spectrum':
-                np.ascontiguousarray(np.abs(Y), np.float32),
-            'target_amplitude_spectrum':
-                np.ascontiguousarray(np.abs(S), np.float32),
-            'num_frames': num_frames
-        }
+        return_dict = dict()
+
+        def maybe_add(key, value):
+            if return_keys is None or key in return_keys:
+                return_dict[key] = value
+
+        maybe_add('example_id', inputs['example_id'])
+        maybe_add('s', np.ascontiguousarray(s, np.float32))
+        maybe_add('y', np.ascontiguousarray(y, np.float32))
+        maybe_add('Y_stft', np.ascontiguousarray(Y, np.complex64))
+        maybe_add('S_abs', np.ascontiguousarray(np.abs(S), np.float32))
+        maybe_add('Y_abs', np.ascontiguousarray(np.abs(Y), np.float32))
+        maybe_add('num_frames', num_frames)
+
+        return return_dict
 
     def post_batch_transform(self, batch):
-        """
-
-        Args:
-            batch:
-
-        Returns:
-
-        """
         return batch
 
     def forward(self, batch):
@@ -82,7 +77,7 @@ class PermutationInvariantTrainingModel(pts.base.Model):
             batch: Dictionary with lists of tensors
         """
 
-        h = pts.ops.pack_sequence(batch['observation_amplitude_spectrum'])
+        h = pts.ops.pack_sequence(batch['Y_abs'])
 
         _, F = h.data.size()
         assert F == self.F, f'self.F = {self.F} != F = {F}'
@@ -106,8 +101,8 @@ class PermutationInvariantTrainingModel(pts.base.Model):
         pit_mse_loss = list()
         for mask, observation, target in zip(
                 model_out,
-                batch['observation_amplitude_spectrum'],
-                batch['target_amplitude_spectrum']
+                batch['Y_abs'],
+                batch['S_abs']
         ):
             pit_mse_loss.append(pts.ops.loss.pit_mse_loss(
                 mask * observation[:, None, :],
