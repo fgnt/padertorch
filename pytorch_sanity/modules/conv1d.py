@@ -8,6 +8,7 @@ from pytorch_sanity.base import Module
 from pytorch_sanity.utils import to_list
 
 
+# TODO: Already in mapping, spelling mistake
 ACTIVATON_MAP = dict(
     linear=None,
     tanh=torch.nn.Tanh(),
