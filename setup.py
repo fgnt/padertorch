@@ -22,14 +22,16 @@ with open(path.join(here, 'DESCRIPTION.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
-    name='pytorch_sanity',
+    name='padertorch',
 
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
     version='0.0.0',
 
-    description='Collection of PyTorch wrappers.',
+    description='A collection of common functionality to simplify the design, '
+    'training and evaluation of machine learning models based on pytorch '
+    'with an emphasis on speech processing .',
     long_description=long_description,
 
     # The project's main homepage.

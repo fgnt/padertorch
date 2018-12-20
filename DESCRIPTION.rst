@@ -1,7 +1,7 @@
 Shallow wrapper functions around PyTorch
 ========================================
 
-This module contains functions and classes, where the vanilla API is messed up.
+This module contains functions and classes where the vanilla API is messed up.
 
 The general idea is to move all independent axis to the left if possible. The
 exception to this rule of thumb are sequences. It is computational more
