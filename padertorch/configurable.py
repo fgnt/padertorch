@@ -20,7 +20,6 @@ import importlib
 from pathlib import Path
 
 
-
 class Configurable:
     """
 
@@ -181,7 +180,9 @@ class Configurable:
                 sig_wo_anno = sig.replace(
                     parameters=[p.replace(
                         annotation=inspect.Parameter.empty,
-                        default=config['kwargs'].get(p.name, inspect.Parameter.empty),
+                        default=config['kwargs'].get(
+                            p.name, inspect.Parameter.empty
+                        ),
                     ) for p in sig.parameters.values()]
                 )
                 raise TypeError(

@@ -3,13 +3,11 @@ import torch
 from torch import optim
 from paderbox.utils.mapping import Dispatcher
 import numpy as np
-from scipy import signal
 
 __all__ = [
     'ACTIVATION_FN_MAP',
     'POOLING_FN_MAP',
     'DTYPE_MAP',
-    'WINDOW_MAP',
 ]
 
 ACTIVATION_FN_MAP = Dispatcher(
@@ -41,10 +39,3 @@ OPTIMIZER_MAP = Dispatcher(
     adam=optim.Adam,
     adagrad=optim.Adagrad
 )
-
-WINDOW_MAP = Dispatcher(
-    blackman=signal.blackman,
-    hamming=signal.hamming,
-    hann=signal.hann
-)
-
