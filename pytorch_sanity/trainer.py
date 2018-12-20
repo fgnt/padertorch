@@ -100,6 +100,8 @@ class Trainer(Configurable):
             self.model = nested_op(
                 lambda m: m.cuda(self.gpu_device), self.model
             )
+        else:
+            self.gpu_device = None
         self.optimizer = optimizer
 
         nested_op(
@@ -266,7 +268,8 @@ class Trainer(Configurable):
         else:
             prefix_ = f'{prefix}_'
         grad_norm = nested_op(
-            lambda model, opti: opti.clip_grad(model.parameters(), prefix),
+            lambda model, opti: opti.clip_grad(model.parameters(), prefix)
+            if opti is not None else 0.,
             self.model, self.optimizer
         )
         if isinstance(grad_norm, dict):
