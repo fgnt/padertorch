@@ -223,7 +223,7 @@ class TCN(Module):
         convs = list()
         for i in range(depth):
             if i == depth - 1:
-                activation = 'linear'
+                activation = 'identity'
                 hidden_dim = output_dim
             convs.append(Conv1d(
                 in_channels=input_dim, out_channels=hidden_dim,
@@ -322,7 +322,7 @@ class MSTCN(Module):
         convs = list()
         for i in range(depth):
             if i == depth - 1:
-                activation = 'linear'
+                activation = 'identity'
                 hidden_dim = output_dim
                 n_scales = 1
             else:
