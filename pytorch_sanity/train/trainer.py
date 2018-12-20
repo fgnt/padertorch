@@ -1,23 +1,19 @@
-import os
-from collections import defaultdict
-from pathlib import Path
-from datetime import datetime
+import contextlib
 import itertools
 import operator
+import os
 import time
-import contextlib
-
+from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
 
 import numpy as np
-import torch
-from tensorboardX import SummaryWriter
-from pytorch_sanity.optimizer import Optimizer, Adam
-from pytorch_sanity.configurable import Configurable
-from pytorch_sanity.configurable_utils import flatten
-
 import pytorch_sanity as pts
-from pytorch_sanity.utils import nested_op
-
+import torch
+from pytorch_sanity.configurable import Configurable
+from paderbox.utils.nested import flatten, nested_op
+from pytorch_sanity.train.optimizer import Optimizer, Adam
+from tensorboardX import SummaryWriter
 
 __all__ = [
     'Trainer',
@@ -395,7 +391,7 @@ class Trainer(Configurable):
         nested_op(
             lambda opti, d: opti.load_state_dict(d)
             if opti is not None else None,
-            self.model, checkpoint_dict['optimizer']
+            self.optimizer, checkpoint_dict['optimizer']
         )
         print(f"Loaded checkpoint '{checkpoint_path}' (iteration {iteration})")
 

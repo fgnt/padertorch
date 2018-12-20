@@ -1,12 +1,13 @@
-import torch
-import pytorch_sanity as pts
-import einops
-from paderbox.transform import stft
-import numpy as np
-from paderbox.database.keys import *
-from paderbox.database.iterator import AudioReader
-from torch.nn.utils.rnn import PackedSequence
 from functools import partial
+
+import einops
+import numpy as np
+import pytorch_sanity as pts
+import torch
+from paderbox.database.iterator import AudioReader
+from paderbox.database.keys import *
+from paderbox.transform import stft
+from torch.nn.utils.rnn import PackedSequence
 
 
 class PermutationInvariantTrainingModel(pts.base.Model):
@@ -38,7 +39,7 @@ class PermutationInvariantTrainingModel(pts.base.Model):
                 key=lambda example: example["num_frames"],
                 reverse=True,
             ))
-            .map(pts.utils.collate_fn)
+            .map(pytorch_sanity.data.utils.collate_fn)
             .map(self.post_batch_transform)
             .prefetch(4, 8)
         )
@@ -104,7 +105,7 @@ class PermutationInvariantTrainingModel(pts.base.Model):
                 batch['Y_abs'],
                 batch['S_abs']
         ):
-            pit_mse_loss.append(pts.ops.loss.pit_mse_loss(
+            pit_mse_loss.append(pytorch_sanity.ops.losses.loss.pit_mse_loss(
                 mask * observation[:, None, :],
                 target
             ))

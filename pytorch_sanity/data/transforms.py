@@ -1,21 +1,19 @@
+import abc
 import json
 from pathlib import Path
 from warnings import warn
 
 import librosa
 import numpy as np
-from cached_property import cached_property
-from scipy import signal
 import samplerate
-from tqdm import tqdm
-
+from cached_property import cached_property
 from paderbox.database import keys as NTKeys
 from paderbox.io.audioread import audioread
-
-from pytorch_sanity.utils import to_list, squeeze_nested, nested_op, nested_update
+from paderbox.utils.nested import squeeze_nested, nested_op, nested_update
 from pytorch_sanity.configurable import Configurable
-
-import abc
+from pytorch_sanity.utils import to_list
+from scipy import signal
+from tqdm import tqdm
 
 
 class Keys:

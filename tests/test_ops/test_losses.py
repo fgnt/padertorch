@@ -1,12 +1,12 @@
 import unittest
-import torch
-from torch.nn.utils.rnn import pad_packed_sequence
-from torch.nn.utils.rnn import pack_padded_sequence
-import pytorch_sanity as pts
-import numpy as np
 
+import numpy as np
+import pytorch_sanity as pts
+import torch
 from torch.distributions import Normal, MultivariateNormal, kl_divergence
 from torch.distributions.kl import _batch_diag
+from torch.nn.utils.rnn import pack_padded_sequence
+from torch.nn.utils.rnn import pad_packed_sequence
 
 
 class TestSoftmaxCrossEntropy(unittest.TestCase):
@@ -70,7 +70,7 @@ class TestPermutationInvariantTrainingLoss(unittest.TestCase):
     def check_toy_example(self, estimate, target, reference_loss):
         estimate = torch.from_numpy(np.array(estimate, dtype=np.float32))
         target = torch.from_numpy(np.array(target, dtype=np.float32))
-        actual_loss = pts.ops.loss.pit_mse_loss(estimate, target)
+        actual_loss = pts.ops.losses.loss.pit_mse_loss(estimate, target)
         np.testing.assert_allclose(actual_loss, reference_loss, rtol=1e-4)
 
     def test_toy_example_1(self):
@@ -107,7 +107,7 @@ class TestKLLoss(unittest.TestCase):
         )
         q_ = Normal(loc=q.loc[:, 0], scale=_batch_diag(q.scale_tril[:, 0]))
 
-        actual_loss = pts.ops.loss.kl_normal_multivariatenormals(q_, p)
+        actual_loss = pts.ops.losses.loss.kl_normal_multivariatenormals(q_, p)
         reference_loss = kl_divergence(q, p)
         np.testing.assert_allclose(actual_loss, reference_loss, rtol=1e-4)
 
@@ -135,7 +135,7 @@ class TestKLLoss(unittest.TestCase):
             scale=q.scale.view(-1, D)
         )
 
-        actual_loss = pts.ops.loss.kl_normal_multivariatenormals(q, p)
-        reference_loss = pts.ops.loss.kl_normal_multivariatenormals(
+        actual_loss = pts.ops.losses.loss.kl_normal_multivariatenormals(q, p)
+        reference_loss = pts.ops.losses.loss.kl_normal_multivariatenormals(
             q_, p_).view(B1, B2, K1, K2)
         np.testing.assert_allclose(actual_loss, reference_loss, rtol=1e-4)

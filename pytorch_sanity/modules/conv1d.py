@@ -1,12 +1,12 @@
-import torch
-from torch import nn
-import torch.nn.functional as F
 import math
-import numpy as np
 
+import numpy as np
+import torch
+import torch.nn.functional as F
 from pytorch_sanity.base import Module
+from pytorch_sanity.ops.mappings import ACTIVATION_FN_MAP
 from pytorch_sanity.utils import to_list
-from pytorch_sanity.mapping import ACTIVATION_FN_MAP
+from torch import nn
 
 
 class Pad(Module):

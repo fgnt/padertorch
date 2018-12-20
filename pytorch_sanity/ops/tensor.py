@@ -4,6 +4,7 @@ __all__ = [
     'move_axis'
 ]
 
+
 def move_axis(a: torch.Tensor, source: int, destination: int):
     """Move an axis from source location to destination location.
 
