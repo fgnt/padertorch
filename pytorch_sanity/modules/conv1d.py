@@ -6,17 +6,7 @@ import numpy as np
 
 from pytorch_sanity.base import Module
 from pytorch_sanity.utils import to_list
-
-
-# TODO: Already in mapping, spelling mistake
-ACTIVATON_MAP = dict(
-    linear=None,
-    tanh=torch.nn.Tanh(),
-    relu=torch.nn.ReLU(),
-    leaky_relu=torch.nn.LeakyReLU(.1),
-    elu=torch.nn.ELU(),
-    sigmoid=torch.nn.Sigmoid()
-)
+from pytorch_sanity.mapping import ACTIVATION_FN_MAP
 
 
 class Pad(Module):
@@ -156,7 +146,7 @@ class Conv1d(Module):
         self.padding = padding
         self.batch_norm = batch_norm
         self.dropout = dropout
-        self.activation = ACTIVATON_MAP[activation]
+        self.activation = ACTIVATION_FN_MAP[activation]
         self.gated = gated
 
         if batch_norm:
@@ -211,7 +201,7 @@ class Conv1d(Module):
 
 class TCN(Module):
     def __init__(
-            self, input_dim=None, hidden_dim=None, output_dim=None,
+            self, input_dim=None, output_dim=None, hidden_dim=256,
             condition_dim=0, depth=5, kernel_sizes=3, dilations=1, strides=1,
             transpose=False, pool_sizes=1, padding='both', batch_norm=False,
             dropout=0., activation='leaky_relu', gated=False, groups=1
@@ -310,7 +300,7 @@ class MultiScaleConv1d(Module):
 
 class MSTCN(Module):
     def __init__(
-            self, input_dim=None, hidden_dim=None, output_dim=None,
+            self, input_dim=None, output_dim=None, hidden_dim=256,
             condition_dim=0, depth=5, kernel_sizes=3, n_scales=1, dilated=False,
             strides=1, transpose=False, pool_sizes=1, padding='both',
             batch_norm=False, dropout=0., activation='leaky_relu', gated=False
