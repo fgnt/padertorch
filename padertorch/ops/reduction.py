@@ -118,6 +118,8 @@ def sequence_reduction(function, x, *args, axis=None, keepdims=False, **kwargs):
                         torch.cat(results), [1 for b in x.batch_sizes]
                     )
                 else:
+                    # PackedSequence is not necessary here, since
+                    # the sequence dimension is not kept
                     return torch.stack(results)
         else:
             if batch_axis in axis:
