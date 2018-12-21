@@ -38,7 +38,6 @@ class MaskEstimatorModel(pt.Model):
 
     def forward(self, batch):
         obs = batch[M_K.OBSERVATION_ABS]
-        assert isinstance(obs[0], list)
         num_channels = obs[0].shape[0]
         if num_channels == 1:
             obs = [tensor[0] for tensor in obs]
@@ -52,7 +51,7 @@ class MaskEstimatorModel(pt.Model):
     def review(self, batch, output):
         losses = self.add_losses(batch, output)
         return dict(losses={'loss': losses[MaskLossKeys.MASK]},
-                    scalars=dict(self.add_scalars(batch, output), **losses),
+                    scalars=losses,
                     audios=self.add_audios(batch, output),
                     images=self.add_images(batch, output)
                     )
@@ -126,14 +125,14 @@ class MaskEstimatorModel(pt.Model):
             if noise_mask_target is not None and noise_mask_logits is not None:
                 sample_loss = get_loss(noise_mask_target, noise_mask_logits)
                 noise_loss.append(
-                    POOLING_FN_MAP[self.opts.reduction](sample_loss))
+                    POOLING_FN_MAP[self.reduction](sample_loss))
                 weighted_noise_loss.append(
                     weight_loss(sample_loss, power_weights))
             # Speech mask
             if speech_mask_target is not None and speech_mask_logits is not None:
                 sample_loss = get_loss(speech_mask_target, speech_mask_logits)
                 speech_loss.append(
-                    POOLING_FN_MAP[self.opts.reduction](sample_loss))
+                    POOLING_FN_MAP[self.reduction](sample_loss))
                 weighted_speech_loss.append(
                     weight_loss(sample_loss, power_weights))
             # VAD
