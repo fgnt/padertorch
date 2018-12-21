@@ -17,7 +17,8 @@ used for that instance in your modified `get_signature`.
 import json
 import inspect
 import importlib
-
+from numbers import Number
+from typing import Union
 from pathlib import Path
 
 
@@ -277,38 +278,51 @@ def class_to_str(cls):
         return f'{cls.__qualname__}'
 
 
-def recursive_class_to_str(dictionary):
+def recursive_class_to_str(
+        config: Union[str, Number, dict, list, tuple, Path]
+) -> Union[str, Number, dict, list, tuple]:
     """
+    Recursively traverses a config and transforms all class or
+    Path instances into their string representation while passing allowed data
+    types and failing otherwise.
+
     changes Configurable Objects to import path string
     changes Path to str
+
+    :param config: The raw config, maybe containing class types and Path
+        instances.
+    :return: a JSON serializable version of the config.
     >>> from padertorch import Model
     >>> recursive_class_to_str([{'cls': 'padertorch.Model'}])
     [{'cls': 'padertorch.base.Model'}]
     >>> recursive_class_to_str([{'cls': Model, Model: {}}])
     [{'cls': 'padertorch.base.Model', 'padertorch.base.Model': {}}]
     """
-    if isinstance(dictionary, dict):
-        if 'cls' in dictionary:
+    if isinstance(config, (str, Number)):
+        return config
+    elif isinstance(config, dict):
+        if 'cls' in config:
             return {
-                class_to_str(k) if not isinstance(k, str) else k
-                :
+                k if isinstance(k, str) else class_to_str(k):
                 class_to_str(v) if k == 'cls' else recursive_class_to_str(v)
-                for k, v in dictionary.items()
+                for k, v in config.items()
             }
         else:
-            return dictionary.__class__({
+            return config.__class__({
                 k: recursive_class_to_str(v)
-                for k, v in dictionary.items()
+                for k, v in config.items()
             })
-    elif isinstance(dictionary, (tuple, list)):
-        return dictionary.__class__([
+    elif isinstance(config, (list, tuple)):
+        return config.__class__([
             recursive_class_to_str(l)
-            for l in dictionary
+            for l in config
         ])
-    elif isinstance(dictionary, Path):
-        return str(dictionary)
+    elif isinstance(config, Path):
+        return str(config)
     else:
-        return dictionary
+        raise TypeError('config is of unusable type'
+                        f' {type(config)}.\n'
+                        f' config:\n{config!r}')
 
 
 class ConfigUpdateException(Exception):
