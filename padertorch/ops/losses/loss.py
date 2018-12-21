@@ -54,10 +54,9 @@ def softmax_cross_entropy(x, t):
 
 
 def deep_clustering_loss(x, t):
-    """Allows `PackedSequence`.
+    """Deep clustering loss as in Hershey 2016 paper.
 
-    The trick to access x.data as in e.g. CE loss does not work, because this
-    loss combines knowledge across all time frequency slots.
+    yields losses in the range 0.01 to 1 due to the normalization with N^2.
 
     Args:
         x: Shape (N, E), where it is assumed that each embedding vector
@@ -69,26 +68,12 @@ def deep_clustering_loss(x, t):
     Returns:
 
     """
-    if isinstance(x, torch.Tensor) and isinstance(t, torch.Tensor):
-        # This yields losses in the range 10^-2 to 10^0.
-        N = x.size()[0]
-        return (
-            torch.sum(einsum('ne,nE->eE', x, x) ** 2)
-            - 2 * torch.sum(einsum('ne,nK->eK', x, t) ** 2)
-            + torch.sum(einsum('nk,nK->kK', t, t) ** 2)
-        ) // N ** 2
-    elif isinstance(x, PackedSequence) and isinstance(t, PackedSequence):
-        x, _ = pad_packed_sequence(x)
-        t, num_frames = pad_packed_sequence(t)
-        return torch.mean(torch.stack([
-            deep_clustering_loss(
-                x[:num_frames_, b, :, :].view(-1, x.size()[-1]),
-                t[:num_frames_, b, :, :].view(-1, t.size()[-1])
-            )
-            for b, num_frames_ in enumerate(num_frames)
-        ]))
-    else:
-        raise ValueError(f'Incompatible types: {type(x)}, {type(t)}')
+    N = x.size()[0]
+    return (
+        torch.sum(einsum('ne,nE->eE', x, x) ** 2)
+        - 2 * torch.sum(einsum('ne,nK->eK', x, t) ** 2)
+        + torch.sum(einsum('nk,nK->kK', t, t) ** 2)
+    ) / N ** 2
 
 
 def pit_mse_loss(estimate, target):
