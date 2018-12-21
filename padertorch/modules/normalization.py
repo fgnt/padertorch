@@ -3,6 +3,7 @@ import padertorch as pt
 from padertorch.ops.reduction import sequence_reduction
 from torch.nn.utils.rnn import PackedSequence
 
+# ToDo at the moment only works with pytorch 1.0 since it uses mean over multiple axis
 class Normalization(pt.Module):
     """ Computes lp-statistics of a sequence
     :param num_features: number of features of weight and bias
@@ -27,6 +28,8 @@ class Normalization(pt.Module):
         self.norm_epsilon = norm_epsilon
         self.affine = affine
         self.statistics_axis = statistics_axis
+        if not isinstance(independent_axis, (list, tuple)):
+            independent_axis = (independent_axis, )
         self.independent_axis = independent_axis
         self.norm_epsilon = norm_epsilon
         self.order = order
@@ -94,7 +97,8 @@ class Normalization(pt.Module):
         if norm is not None:
             tensor /= norm
         if self.affine:
-            dims = tensor.ndim * [1]
-            dims[self.independent_axis] = -1
+            dims = tensor.dim() * [1]
+            for axis in self.independent_axis:
+                dims[axis] = -1
             tensor = (tensor + self.bias.view(dims)) * self.weight.view(dims)
         return tensor
