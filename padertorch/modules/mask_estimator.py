@@ -3,9 +3,9 @@ import torch
 from paderbox.database.keys import *
 from padertorch.modules.normalization import Normalization
 from padertorch.ops import pack_sequence, pad_packed_sequence
+from padertorch.ops.mappings import ACTIVATION_FN_MAP
 from padertorch.modules.dense import DenseStack
 from padertorch.modules.recurrent import LSTM
-from pl_torch.ops.mapping import ACTIVATION_FN_MAP
 from torch.nn.utils.rnn import PackedSequence
 
 __all__ = [
