@@ -279,7 +279,7 @@ def class_to_str(cls):
 
 
 def recursive_class_to_str(
-        config: Union[str, Number, dict, list, tuple, Path]
+        config: Union[str, Number, None, dict, list, tuple, Path]
 ) -> Union[str, Number, dict, list, tuple]:
     """
     Recursively traverses a config and transforms all class or
@@ -298,7 +298,7 @@ def recursive_class_to_str(
     >>> recursive_class_to_str([{'cls': Model, Model: {}}])
     [{'cls': 'padertorch.base.Model', 'padertorch.base.Model': {}}]
     """
-    if isinstance(config, (str, Number)):
+    if isinstance(config, (str, Number, None)):
         return config
     elif isinstance(config, dict):
         if 'cls' in config:
