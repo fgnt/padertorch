@@ -1,7 +1,7 @@
 import abc
 import json
 from pathlib import Path
-from typing import Optinal
+from typing import Optional
 from warnings import warn
 
 import librosa
@@ -111,17 +111,18 @@ class Spectrogram(Transform):
     >>> print(ex["phones_end_frames"])
     [75.0, 100.0]
     """
-    def __init__(self,
-            sample_rate=16000:int,
-            frame_length=400:int,
-			frame_step=160:int,
-			fft_length=512:int,
-			window="hann":str,
-			padded=True:bool,
-            n_mels=40:Optinal[int],
-			fmin=20:Optinal[int],
-			fmax=None:Optinal[int],
-			log=True:bool
+    def __init__(
+            self,
+            sample_rate: int = 16000,
+            frame_length: int = 400,
+            frame_step: int = 160,
+            fft_length:int = 512,
+            window: str = "hann",
+            padded: bool = True,
+            n_mels: Optional[int] = 40,
+            fmin: Optional[int] = 20,
+            fmax: Optional[int] = None,
+            log: bool = True
     ):
         self.sample_rate = sample_rate
         self.padded = padded
