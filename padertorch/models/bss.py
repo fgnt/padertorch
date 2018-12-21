@@ -93,7 +93,7 @@ class DeepClusteringModel(pt.base.Model):
         """
 
         TODO: Dropout
-        TODO: ...
+        TODO: Loss mask to avoid to assign embeddings to silent regions
 
         Args:
             F: Number of frequency bins, fft_size / 2 + 1
@@ -131,14 +131,14 @@ class DeepClusteringModel(pt.base.Model):
         h, _ = self.blstm(h)
 
         h = PackedSequence(self.linear(h.data), h.batch_sizes)
+        h_data = einops.rearrange(h.data, 'tb (e f) -> tb e f', e=self.E)
 
-        # TODO: Normalize embedding vectors to unit norm
+        # Hershey 2016 page 2 top right paragraph: Unit norm
+        h_data = torch.nn.functional.normalize(h_data, dim=-2)
 
-        mask = PackedSequence(
-            einops.rearrange(h.data, 'tb (e f) -> tb e f', e=self.E),
-            h.batch_sizes,
-        )
-        return pt.ops.unpack_sequence(mask)
+        embedding = PackedSequence(h_data, h.batch_sizes,)
+        embedding = pt.ops.unpack_sequence(embedding)
+        return embedding
 
     def review(self, batch, model_out):
         dc_loss = list()
