@@ -40,7 +40,7 @@ class MaskEstimatorModel(pt.Model):
         obs = batch[M_K.OBSERVATION_ABS]
         num_channels = obs[0].shape[0]
         if num_channels == 1:
-            obs = [tensor[0] for tensor in obs]
+            obs = pt.pack_sequence([tensor[0] for tensor in obs])
             out = {key: [v.unsqueeze(0) for v in value]
                    for key, value in self.estimator(obs).items()}
         else:
