@@ -25,7 +25,7 @@ class Configurable:
 
     Example::
 
-        from pytorch_sanity.configurable import Configurable
+        from padertorch.configurable import Configurable
         class MyModule(Configurable):
             def __init__(self, a=1):
                 pass
@@ -261,9 +261,9 @@ def class_to_str(cls):
     """
     >>> import padertorch
     >>> class_to_str(padertorch.Model)
-    'pytorch_sanity.base.Model'
-    >>> class_to_str('pytorch_sanity.Model')
-    'pytorch_sanity.base.Model'
+    'padertorch.base.Model'
+    >>> class_to_str('padertorch.Model')
+    'padertorch.base.Model'
     """
     if isinstance(cls, str):
         cls = import_class(cls)
@@ -279,10 +279,10 @@ def recursive_class_to_str(dictionary):
     changes Configurable Objects to import path string
     changes Path to str
     >>> from padertorch import Model
-    >>> recursive_class_to_str([{'cls': 'pytorch_sanity.Model'}])
-    [{'cls': 'pytorch_sanity.base.Model'}]
+    >>> recursive_class_to_str([{'cls': 'padertorch.Model'}])
+    [{'cls': 'padertorch.base.Model'}]
     >>> recursive_class_to_str([{'cls': Model, Model: {}}])
-    [{'cls': 'pytorch_sanity.base.Model', 'pytorch_sanity.base.Model': {}}]
+    [{'cls': 'padertorch.base.Model', 'padertorch.base.Model': {}}]
     """
     if isinstance(dictionary, dict):
         if 'cls' in dictionary:
