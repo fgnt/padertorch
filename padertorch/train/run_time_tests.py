@@ -1,7 +1,10 @@
 import os
+import copy
 import inspect
+import tempfile
 import itertools
 import contextlib
+from pathlib import Path
 from unittest import mock
 
 import numpy as np
@@ -20,6 +23,7 @@ def test_run(trainer, train_iterator, validation_iterator):
      - simple review dict test
 
     """
+    print('Start test run')
     with contextlib.ExitStack() as exit_stack:
         save_checkpoint = exit_stack.enter_context(mock.patch.object(
             pt.Trainer,
@@ -126,7 +130,40 @@ def test_run(trainer, train_iterator, validation_iterator):
             np.testing.assert_allclose, dt2['review'], dt4['review']
         )
         assert 'losses' in dt1['review'], dt1['review']
-        assert len(set(dt1['review'].keys()) - set(trainer.summary.keys())), (
-        dt1['review'].keys(), trainer.summary.keys())
+        if 0 != len(set(dt1['review'].keys()) - set(trainer.summary.keys())):
+            got = set(dt1['review'].keys())
+            allowed = set(trainer.summary.keys())
+            raise ValueError(
+                f'Found keys: {got}\n'
+                f'Allowed: {allowed}\n'
+                f'Delta: {got - allowed}'
+            )
 
         trainer.reset_summary()
+
+    print('Successfully finished test run')
+
+
+def test_run_from_config(
+        trainer_config,
+        train_iterator,
+        validation_iterator,
+):
+    trainer_config = copy.deepcopy(trainer_config)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        trainer_config['kwargs']['storage_dir'] = tmp_dir
+
+        tmp_dir = Path(tmp_dir)
+        t = pt.Trainer.from_config(trainer_config)
+
+        files_before = tuple(tmp_dir.glob('*'))
+        if len(files_before) != 1:
+            # One event file
+            raise Exception(files_before)
+
+        t.test_run(train_iterator, validation_iterator)
+
+        files_after = tuple(tmp_dir.glob('*'))
+        if files_after != files_before:
+            raise Exception(files_after, files_before)
