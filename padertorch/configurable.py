@@ -1,7 +1,8 @@
 """Provide nested pytorch modules with JSON-serializable configuration.
 
 An exemplary use-case is a compound module which consists of multiple modules
-itself, e.g. a structured variational autoencoder or a farfield speech enhancer.
+itself, e.g. a structured variational autoencoder or a farfield speech
+enhancer.
 
 You can instantiate a child of `Configurable` either with an `__init__`
 resulting in an unparameterized module. If you instantiate it with
@@ -76,10 +77,10 @@ class Configurable:
 
         sig = inspect.signature(cls)
         defaults = {}
-        p: inspect.Parameter
-        for name, p in sig.parameters.items():
-            if p.default is not inspect.Parameter.empty:
-                defaults[name] = p.default
+        param: inspect.Parameter
+        for name, param in sig.parameters.items():
+            if param.default is not inspect.Parameter.empty:
+                defaults[name] = param.default
         return defaults
 
     @classmethod
@@ -144,10 +145,10 @@ class Configurable:
 
         try:
             update_config(config['kwargs'], updates)
-        except ConfigUpdateException as e:
+        except ConfigUpdateException as ex:
             raise Exception(
                 f'{cls.__module__}.{cls.__qualname__}: '
-                f'Updates that are not used anywhere: {e}'
+                f'Updates that are not used anywhere: {ex}'
             )
 
         # Test if the kwargs are valid
@@ -164,10 +165,10 @@ class Configurable:
                 **config['kwargs']
             )
             bound_arguments.apply_defaults()
-        except TypeError as e:
+        except TypeError as ex:
             unexpected_keyword = 'got an unexpected keyword argument '
-            if unexpected_keyword in str(e):
-                func_name, keyword = str(e).split(unexpected_keyword)
+            if unexpected_keyword in str(ex):
+                _, keyword = str(ex).split(unexpected_keyword)
                 keyword = keyword.strip().strip("'")
                 available_keys = sig.parameters.keys()
 
@@ -186,13 +187,13 @@ class Configurable:
                     ) for p in sig.parameters.values()]
                 )
                 raise TypeError(
-                    f'{config["cls"]} {e}\n'
+                    f'{config["cls"]} {ex}\n'
                     f'Did you mean one of these {suggestions}?\n'
                     f'Call signature: {sig_wo_anno}\n'
                     f'Where\n'
                     f'     kwargs.keys(): {config["kwargs"].keys()}\n'
-                    f'     error msg: {e}'
-                ) from e
+                    f'     error msg: {ex}'
+                ) from ex
             else:
                 raise TypeError(
                     f'The test, if the call {config["cls"]}(**kwargs) would '
@@ -201,13 +202,13 @@ class Configurable:
                     f'     kwargs: {config["kwargs"]}\n'
                     f'     signature: {sig}\n'
                     f'     updates: {updates}\n'
-                    f'     error msg: {e}'
-                ) from e
+                    f'     error msg: {ex}'
+                ) from ex
 
         # Guarantee that config is json serializable
         try:
             _ = json.dumps(config)
-        except TypeError as e:
+        except TypeError as ex:
             from IPython.lib.pretty import pprint
             print('#' * 20, 'JSON Failure config', '#' * 20)
             pprint(config)
@@ -223,7 +224,8 @@ class Configurable:
     ) -> 'Configurable':
         # assert do not use defaults
         assert 'cls' in config, (cls, config)
-        assert issubclass(import_class(config['cls']), cls), (config['cls'], cls)
+        assert issubclass(import_class(config['cls']), cls), \
+            (config['cls'], cls)
         new = config_to_instance(config)
         # new.config = config
         return new
@@ -251,9 +253,10 @@ def import_class(name: str):
         raise
     try:
         return getattr(module, splitted[-1])
-    except AttributeError as e:
+    except AttributeError as ex:
         raise AttributeError(
             f'Module {module} has no attribute {splitted[-1]}.'
+            f' Original: {ex!r}'
         )
 
 
@@ -319,7 +322,7 @@ def update_config(config, updates):
     :param updates: updates dict.
     :return:
     """
-    # ToDo: tuple and lists (e.g. Trainer models and optimizers)
+    # TODO: tuple and lists (e.g. Trainer models and optimizers)
     if 'cls' in config or 'cls' in updates:
         if 'cls' in updates:
             config['cls'] = class_to_str(updates['cls'])
