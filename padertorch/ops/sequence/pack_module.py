@@ -1,3 +1,9 @@
+'''
+This module allows to switch between three types of tensors:
+packed: PackedSequence
+padded
+list of tensor
+'''
 import torch
 from torch.nn.utils.rnn import pad_packed_sequence as pad_packed_sequence_
 from torch.nn.utils.rnn import pack_padded_sequence as pack_padded_sequence_
