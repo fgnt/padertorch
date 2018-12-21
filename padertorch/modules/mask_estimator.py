@@ -71,8 +71,15 @@ class MaskEstimator(pt.Module):
         self.normalization = normalization
         self.recurrent = recurrent
 
+        # ToDo implement log and powerspectrum
+        if use_log or use_powerspectrum:
+            raise NotImplementedError
+        self.use_log = use_log
+        self.use_powerspectrum = use_powerspectrum
+        self.separate_masks = separate_masks
+        self.output_activation = output_activation
         self.classifier = torch.nn.Linear(
-            self.dense.opts.num_units[-1],
+            self.dense.num_units[-1],
             num_features
         )
         if self.separate_masks:
@@ -80,13 +87,6 @@ class MaskEstimator(pt.Module):
                 self.dense.num_units[-1],
                 num_features
             )
-        # ToDo implement log and powerspectrum
-        if not use_log or not use_powerspectrum:
-            raise NotImplementedError
-        self.use_log = use_log
-        self.use_powerspectrum = use_powerspectrum
-        self.separate_masks = separate_masks
-        self.output_activation = output_activation
 
     def forward(self, x):
         '''
@@ -100,7 +100,7 @@ class MaskEstimator(pt.Module):
         h = PackedSequence(self.dense(h.data), h.batch_sizes)
         target_logits = PackedSequence(self.classifier(h.data), h.batch_sizes)
         target_logits = pad_packed_sequence(target_logits)[0].permute(1, 0, 2)
-        if self.opts.separate_masks:
+        if self.separate_masks:
             noise_logits = PackedSequence(self.classifier_noise(h.data),
                                           h.batch_sizes)
             noise_logits = pad_packed_sequence(noise_logits)[0].permute(1, 0,
@@ -108,17 +108,17 @@ class MaskEstimator(pt.Module):
 
             return {
                 M_K.SPEECH_MASK_PRED: ACTIVATION_FN_MAP[
-                    self.opts.output_activation](target_logits),
+                    self.output_activation](target_logits),
                 M_K.SPEECH_MASK_LOGITS: target_logits,
                 M_K.NOISE_MASK_PRED: ACTIVATION_FN_MAP[
-                    self.opts.output_activation](noise_logits),
+                    self.output_activation](noise_logits),
                 M_K.NOISE_MASK_LOGITS: noise_logits,
                 M_K.MASK_ESTIMATOR_STATE: states
             }
         else:
             return {
                 M_K.SPEECH_MASK_PRED: ACTIVATION_FN_MAP[
-                    self.opts.output_activation](target_logits),
+                    self.output_activation](target_logits),
                 M_K.SPEECH_MASK_LOGITS: target_logits,
                 M_K.MASK_ESTIMATOR_STATE: states
             }

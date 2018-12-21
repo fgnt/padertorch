@@ -19,15 +19,15 @@ class DenseStack(pt.Module):
         self.input_size = input_size
 
     def build(self):
-        l_n_units = [self.opts.input_size] + self.opts.num_units
-        for l_idx, n_units in enumerate(self.opts.num_units):
+        l_n_units = [self.input_size] + self.num_units
+        for l_idx, n_units in enumerate(self.num_units):
             self.__setattr__(f'linear_{l_idx}',
                      nn.Linear(l_n_units[l_idx], n_units))
 
     def forward(self, x):
-        for l_idx in range(len(self.opts.num_units)):
-            x = ACTIVATION_FN_MAP[self.opts.activation_fn](
+        for l_idx in range(len(self.num_units)):
+            x = ACTIVATION_FN_MAP[self.activation_fn](
                 self.__getattr__(f'linear_{l_idx}')(
-                    F.dropout(x, self.opts.dropout, self.training))
+                    F.dropout(x, self.dropout, self.training))
             )
         return x
