@@ -13,6 +13,7 @@ import torch
 from padertorch.configurable import Configurable
 from paderbox.utils.nested import flatten, nested_op
 from padertorch.train.optimizer import Optimizer, Adam
+from padertorch.train.run_time_tests import test_run
 from tensorboardX import SummaryWriter
 
 __all__ = [
@@ -91,6 +92,7 @@ class Trainer(Configurable):
     ):
         self.model = model
         self.use_cuda = gpu is not None
+        self.gpu_device = None
         if self.use_cuda:
             self.gpu_device = int(gpu)
             self.model = nested_op(
@@ -144,6 +146,22 @@ class Trainer(Configurable):
         )
         self.timer = ContextTimerDict()
 
+    def test_run(self, train_iterator, validation_iterator):
+        """
+        Run a test on the trainer instance (i.e. model test).
+
+        Tests:
+         - forward (train and validate)
+         - deterministic output in eval
+         - simple review dict test
+
+        """
+        test_run(
+            self,
+            train_iterator,
+            validation_iterator,
+        )
+
     def train(self, train_iterator, validation_iterator):
         os.makedirs(str(self.storage_dir / 'checkpoints'), exist_ok=True)
 
@@ -166,6 +184,15 @@ class Trainer(Configurable):
             for self.epoch in itertools.count(self.epoch):  # infinite loop
                 data_iterator = iter(train_iterator)
                 for self.iteration in itertools.count(self.iteration):
+                    # Because of last validation, validation must be before
+                    # "max_iterations".
+                    if self.validation_trigger(
+                            iteration=self.iteration, epoch=self.epoch
+                    ):
+                        # Todo: allow continuous evaluation
+                        self.add_summary('training')
+                        self.validate(validation_iterator)
+                        nested_op(lambda m: m.train(), self.model)
                     if self.max_iterations(
                             iteration=self.iteration, epoch=self.epoch
                     ):
@@ -178,13 +205,6 @@ class Trainer(Configurable):
                             iteration=self.iteration, epoch=self.epoch
                     ) or self.iteration == 1:
                         self.save_checkpoint()
-                    if self.validation_trigger(
-                            iteration=self.iteration, epoch=self.epoch
-                    ):
-                        # Todo: allow continuous evaluation
-                        self.add_summary('training')
-                        self.validate(validation_iterator)
-                        nested_op(lambda m: m.train(), self.model)
 
                     with self.timer['time_per_step']:
                         try:
@@ -232,10 +252,11 @@ class Trainer(Configurable):
         print('Finished Validation')
 
     def train_step(self, batch):
-        assert isinstance(self.model, torch.nn.Module) \
-               and isinstance(self.optimizer, Optimizer), (
-            self.model, 'Overwrite the train_step and validation_step, when you have multiple models.'
-        )
+        msg = 'Overwrite the train_step and validation_step, ' \
+              'when you have multiple models.'
+        assert isinstance(self.model, torch.nn.Module), (self.model, msg)
+        assert isinstance(self.optimizer, Optimizer), (self.optimizer, msg)
+
         self.optimizer.zero_grad()
         model_out = self.model(batch)
         review = self.model.review(batch, model_out)
