@@ -1,6 +1,6 @@
 import torch
 import padertorch as pt
-from padertorch.ops.reduction import sequence_reduction
+from padertorch.ops.sequence.reduction import sequence_reduction
 from torch.nn.utils.rnn import PackedSequence
 
 # ToDo at the moment only works with pytorch 1.0 since it uses mean over multiple axis
