@@ -297,8 +297,10 @@ def recursive_class_to_str(
     [{'cls': 'padertorch.base.Model'}]
     >>> recursive_class_to_str([{'cls': Model, Model: {}}])
     [{'cls': 'padertorch.base.Model', 'padertorch.base.Model': {}}]
+    >>> recursive_class_to_str([None])
+    [None]
     """
-    if isinstance(config, (str, Number, None)):
+    if config is None or isinstance(config, (str, Number)):
         return config
     elif isinstance(config, dict):
         if 'cls' in config:
