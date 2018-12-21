@@ -17,8 +17,6 @@ class DenseStack(pt.Module):
         self.activation_fn = activation_fn
         self.dropout = dropout
         self.input_size = input_size
-
-    def build(self):
         l_n_units = [self.input_size] + self.num_units
         for l_idx, n_units in enumerate(self.num_units):
             self.__setattr__(f'linear_{l_idx}',
