@@ -143,8 +143,6 @@ class Trainer(Configurable):
             images=dict()
         )
         self.timer = ContextTimerDict()
-        self.timer_total = self.timer['time']
-        self.timer_total.__enter__()
 
     def train(self, train_iterator, validation_iterator):
         os.makedirs(str(self.storage_dir / 'checkpoints'), exist_ok=True)
@@ -211,7 +209,15 @@ class Trainer(Configurable):
 
     def validate(self, validation_iterator):
         print('Starting Validation')
-        with torch.no_grad():
+
+        train_end_time = self.timer.timestamp()
+
+        if hasattr(self, '_train_start_time'):
+            self.timer.timings['non_validation_time'].append(
+                train_end_time - self._train_start_time
+            )
+
+        with self.timer['validation_time'], torch.no_grad():
             # Change model to eval mode (e.g. deactivate dropout)
             nested_op(lambda m: m.eval(), self.model)
             for i, batch in enumerate(validation_iterator):
@@ -219,7 +225,10 @@ class Trainer(Configurable):
                     batch, self.use_cuda, self.gpu_device
                 )
                 self.validation_step(batch)
-            self.add_summary('validation')
+
+        self._train_start_time = self.timer.timestamp()
+
+        self.add_summary('validation')
         print('Finished Validation')
 
     def train_step(self, batch):
@@ -304,7 +313,6 @@ class Trainer(Configurable):
             self.summary['images'][key] = image  # snapshot
 
     def add_summary(self, prefix):
-        self.timer_total.__exit__(None, None, None)
         for key, loss in self.summary['losses'].items():
             self.writer.add_scalar(
                 f'{prefix}/{key}', np.mean(loss), self.iteration)
