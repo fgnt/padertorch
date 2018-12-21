@@ -1,10 +1,7 @@
 import torch
 from torch.nn.utils.rnn import PackedSequence
-from torch.nn.utils.rnn import pad_packed_sequence
 import itertools
-
-from padertorch.ops.tensor import move_axis
-from padertorch.ops.einsum import einsum
+import padertorch as pt
 
 
 __all__ = [
@@ -50,7 +47,7 @@ def softmax_cross_entropy(x, t):
 
     assert x.size()[:-1] == t.size(), f'{x.size()}, {t.size()}'
     loss_fn = torch.nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
-    return loss_fn(move_axis(x, -1, 1), t)
+    return loss_fn(pt.ops.move_axis(x, -1, 1), t)
 
 
 def deep_clustering_loss(x, t):
@@ -70,9 +67,9 @@ def deep_clustering_loss(x, t):
     """
     N = x.size()[0]
     return (
-        torch.sum(einsum('ne,nE->eE', x, x) ** 2)
-        - 2 * torch.sum(einsum('ne,nK->eK', x, t) ** 2)
-        + torch.sum(einsum('nk,nK->kK', t, t) ** 2)
+        torch.sum(pt.ops.einsum('ne,nE->eE', x, x) ** 2)
+        - 2 * torch.sum(pt.ops.einsum('ne,nK->eK', x, t) ** 2)
+        + torch.sum(pt.ops.einsum('nk,nK->kK', t, t) ** 2)
     ) / N ** 2
 
 
@@ -125,7 +122,8 @@ def kl_normal_multivariate_normal(q, p):
     output: (B1, ..., BN, K1, ..., KN)
     :param q: Normal posterior distributions (B1, ..., BN, D)
     :param p: multivariate Gaussian prior distributions (K1, ..., KN, D)
-    :return: kl between all posteriors in batch and all components (B1, ..., BN, K1, ..., KN)
+    :return: kl between all posteriors in batch and all components
+        (B1, ..., BN, K1, ..., KN)
     """
     batch_shape = q.loc.shape[:-1]
     D = q.loc.shape[-1]
@@ -137,7 +135,10 @@ def kl_normal_multivariate_normal(q, p):
     p_loc = p.loc.contiguous().view(-1, D)
     p_scale_tril = p.scale_tril.contiguous().view(-1, D, D)
 
-    term1 = _batch_diag(p_scale_tril).log().sum(-1)[:, None] - q_scale.log().sum(-1)
+    term1 = (
+        _batch_diag(p_scale_tril).log().sum(-1)[:, None]
+        - q_scale.log().sum(-1)
+    )
     L = _batch_inverse(p_scale_tril)
     term2 = (L.pow(2).sum(-2)[:, None, :] * q_scale.pow(2)).sum(-1)
     term3 = ((p_loc[:, None, :] - q_loc) @ L.transpose(1, 2)).pow(2.0).sum(-1)
