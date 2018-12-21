@@ -58,7 +58,7 @@ class PermutationInvariantTrainingModel(pt.base.Model):
         assert F == self.F, f'self.F = {self.F} != F = {F}'
 
         # Why not mu-law?
-        h = pt.ops.pointwise.abs(h)
+        h = pt.ops.sequence.abs(h)
         h = PackedSequence(h.data + 1e-10, h.batch_sizes)
 
         # Returns tensor with shape (t, b, num_directions * hidden_size)
