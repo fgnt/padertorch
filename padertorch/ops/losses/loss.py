@@ -58,9 +58,7 @@ def deep_clustering_loss(x, t):
     Args:
         x: Shape (N, E), where it is assumed that each embedding vector
             is normalized to unit norm.
-            Alternatively, packed sequence with data shape (sum_T, F, E).
         t: Target mask with shape (N, K).
-            Alternatively, packed sequence with data shape (sum_T, F, K).
 
     Returns:
 
