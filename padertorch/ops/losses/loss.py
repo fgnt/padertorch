@@ -11,7 +11,7 @@ __all__ = [
     'softmax_cross_entropy',
     'deep_clustering_loss',
     'pit_mse_loss',
-    'kl_normal_multivariatenormals'
+    'kl_normal_multivariate_normal',
 ]
 
 
@@ -114,15 +114,17 @@ def pit_mse_loss(estimate, target):
 
 
 def _batch_diag(bmat):
-    r"""
+    """
     Returns the diagonals of a batch of square matrices.
     """
     return bmat.reshape(bmat.shape[:-2] + (-1,))[..., ::bmat.size(-1) + 1]
 
 
 def _batch_inverse(bmat):
-    r"""
+    """
     Returns the inverses of a batch of square matrices.
+
+    TODO: Results might be more stable with least squares solve?
     """
     n = bmat.size(-1)
     flat_bmat = bmat.reshape(-1, n, n)
@@ -130,9 +132,8 @@ def _batch_inverse(bmat):
     return flat_inv_bmat.view(bmat.shape)
 
 
-def kl_normal_multivariatenormals(q, p):
+def kl_normal_multivariate_normal(q, p):
     """
-    TODO: Please rename to `kl_normal_multivariate_normal`.
 
     p: (B1, ..., BN, D)
     q: (K1, ..., KN, D)
