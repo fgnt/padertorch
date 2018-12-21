@@ -1,7 +1,7 @@
 import unittest
 
 import numpy as np
-import padertorch as pts
+import padertorch as pt
 import torch
 from torch.distributions import Normal, MultivariateNormal, kl_divergence
 from torch.distributions.kl import _batch_diag
@@ -47,30 +47,92 @@ class TestSoftmaxCrossEntropy(unittest.TestCase):
         np.testing.assert_allclose(actual, self.reference_loss, rtol=1e-4)
 
     def test_loss_when_padded_correctly(self):
-        actual = pts.softmax_cross_entropy(self.logits, self.targets).numpy()
+        actual = pt.softmax_cross_entropy(self.logits, self.targets).numpy()
         np.testing.assert_allclose(actual, self.reference_loss, rtol=1e-4)
 
     def test_loss_with_packed_sequence(self):
-        actual = pts.softmax_cross_entropy(
+        actual = pt.softmax_cross_entropy(
             self.packed_logits, self.packet_targets
         ).numpy()
         np.testing.assert_allclose(actual, self.reference_loss, rtol=1e-4)
 
 
 class TestDeepClusteringLoss(unittest.TestCase):
-    def setUp(self):
-        T, B, F = 100, 2, 257
-        K = 3
-        E = 20
-        embedding = torch.randn(T, B, F, E)
-        target_mask = ...  # Needs one-hot mask
+    """First tests the reference implementation. Then tests against it."""
+    embedding = np.asarray([
+        [
+            [[1, 0]],
+            [[0, 1]],
+            [[0, 1]]
+        ],
+        [
+            [[1, 0]],
+            [[0, 1]],
+            [[0, 1]]
+        ]
+    ])
+    target_mask = np.asarray([
+        [
+            [[1, 0]],
+            [[0, 1]],
+            [[0, 1]]
+        ],
+        [
+            [[1, 0]],
+            [[0, 1]],
+            [[1, 0]]
+        ]
+    ])
+
+    @staticmethod
+    def numpy_reference_loss(embedding, target_mask):
+        """Numpy reference implementation
+
+        :param embedding: Shape (N, E)
+        :param target_mask: Shape (N, F)
+        :return: Scalar
+        """
+        assert embedding.ndim == 2, embedding.shape
+        assert target_mask.ndim == 2, target_mask.shape
+        N = embedding.shape[0]
+        embedding = embedding / np.sqrt(N)
+        target_mask = target_mask / np.sqrt(N)
+        return (
+            np.sum(np.einsum('ne,nE->eE', embedding, embedding) ** 2)
+            - 2 * np.sum(np.einsum('ne,nE->eE', embedding, target_mask) ** 2)
+            + np.sum(np.einsum('ne,nE->eE', target_mask, target_mask) ** 2)
+        )
+
+    def test_equal(self):
+        loss = self.numpy_reference_loss(
+            self.embedding[0, :, 0, :],
+            self.target_mask[0, :, 0, :]
+        )
+        np.testing.assert_allclose(loss, 0, atol=1e-6)
+
+    def test_different(self):
+        e = self.embedding[1, :, 0, :]
+        t = self.target_mask[1, :, 0, :]
+        loss = self.numpy_reference_loss(e, t)
+        np.testing.assert_allclose(loss, 4 / e.shape[0] ** 2, atol=1e-6)
+
+    def test_dc_loss_against_reference(self):
+        embedding = np.random.normal(size=(100, 20))
+        target_mask = np.random.choice([0, 1], size=(100, 3))
+        loss_ref = self.numpy_reference_loss(embedding, target_mask)
+
+        loss = pt.ops.loss.deep_clustering_loss(
+            torch.Tensor(embedding.astype(np.float32)),
+            torch.Tensor(target_mask.astype(np.float32)),
+        )
+        np.testing.assert_allclose(loss, loss_ref, atol=1e-6)
 
 
 class TestPermutationInvariantTrainingLoss(unittest.TestCase):
     def check_toy_example(self, estimate, target, reference_loss):
         estimate = torch.from_numpy(np.array(estimate, dtype=np.float32))
         target = torch.from_numpy(np.array(target, dtype=np.float32))
-        actual_loss = pts.ops.losses.loss.pit_mse_loss(estimate, target)
+        actual_loss = pt.ops.losses.loss.pit_mse_loss(estimate, target)
         np.testing.assert_allclose(actual_loss, reference_loss, rtol=1e-4)
 
     def test_toy_example_1(self):
@@ -107,7 +169,7 @@ class TestKLLoss(unittest.TestCase):
         )
         q_ = Normal(loc=q.loc[:, 0], scale=_batch_diag(q.scale_tril[:, 0]))
 
-        actual_loss = pts.ops.losses.loss.kl_normal_multivariate_normal(q_, p)
+        actual_loss = pt.ops.losses.loss.kl_normal_multivariate_normal(q_, p)
         reference_loss = kl_divergence(q, p)
         np.testing.assert_allclose(actual_loss, reference_loss, rtol=1e-4)
 
@@ -135,7 +197,7 @@ class TestKLLoss(unittest.TestCase):
             scale=q.scale.view(-1, D)
         )
 
-        actual_loss = pts.ops.losses.loss.kl_normal_multivariate_normal(q, p)
-        reference_loss = pts.ops.losses.loss.kl_normal_multivariate_normal(
+        actual_loss = pt.ops.losses.loss.kl_normal_multivariate_normal(q, p)
+        reference_loss = pt.ops.losses.loss.kl_normal_multivariate_normal(
             q_, p_).view(B1, B2, K1, K2)
         np.testing.assert_allclose(actual_loss, reference_loss, rtol=1e-4)
