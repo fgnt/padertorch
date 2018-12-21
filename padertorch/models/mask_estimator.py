@@ -21,6 +21,21 @@ class MaskLossKeys:
 
 
 class MaskEstimatorModel(pt.Model):
+    """
+    Implements a mask estimator [1].
+
+    Check out this repository to see example code:
+    git clone git@ntgit.upb.de:scratch/jensheit/padertorch_mask_example
+
+    [1] Heymann 2016, https://groups.uni-paderborn.de/nt/pubs/2016/icassp_2016_heymann_paper.pdf
+
+
+    ToDo: normalization
+    ToDo: input transform/ at least a logarithm or spectrogram
+    ToDo: Add vad estimation?
+
+    """
+
     @classmethod
     def get_signature(cls):
         default_dict = super().get_signature()
@@ -37,6 +52,11 @@ class MaskEstimatorModel(pt.Model):
         self.reduction = reduction
 
     def forward(self, batch):
+        '''
+        :param batch: dict of lists with key observation_abs
+                observation_abs is a list of tensors with shape C,T,F
+        :return:
+        '''
         obs = batch[M_K.OBSERVATION_ABS]
         num_channels = obs[0].shape[0]
         if num_channels == 1:
@@ -49,6 +69,11 @@ class MaskEstimatorModel(pt.Model):
         return out
 
     def review(self, batch, output):
+        '''
+        :param batch: dict of lists
+        :param output: output of the forward step
+        :return:
+        '''
         losses = self.add_losses(batch, output)
         return dict(losses={'loss': losses[MaskLossKeys.MASK]},
                     scalars=losses,
@@ -166,7 +191,7 @@ class MaskEstimatorModel(pt.Model):
         return losses
 
 
-def masks_to_images(masks, mask_format='tbf'):
+def masks_to_images(masks):
     """
     For more details of the output shape, see the tensorboardx docs.
 
