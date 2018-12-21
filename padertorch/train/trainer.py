@@ -49,11 +49,11 @@ class ContextTimerDict:
 
     @contextlib.contextmanager
     def __getitem__(self, item):
-        assert isinstance(item, str)
+        assert isinstance(item, str), item
         start = self.timestamp()
         yield
         end = self.timestamp()
-        self.timings[item] += [end - start]
+        self.timings[item].append(end - start)
 
     @property
     def as_dict(self):
