@@ -57,6 +57,7 @@ class MaskEstimator(pt.Module):
                            order='l2',
                            statistics_axis=1)
         }
+        return default_dict
 
     def __init__(self, dense, normalization, recurrent,
                  num_features: int = 513,
