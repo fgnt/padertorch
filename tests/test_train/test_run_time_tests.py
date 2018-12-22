@@ -31,7 +31,8 @@ class Model(pt.Model):
         digits = inputs['digits']
 
         target = torch.tensor(
-            np.array(inputs['digits']).astype(np.int64)
+            np.array(inputs['digits']).astype(np.int64),
+            device=output.device,
         )[None]
         ce = torch.nn.CrossEntropyLoss()(output[None, :], target)
         return {
