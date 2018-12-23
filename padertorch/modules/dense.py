@@ -4,14 +4,26 @@ from torch import nn
 import torch.nn.functional as F
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 
+
 class DenseStack(pt.Module):
     def __init__(
             self,
             input_size: int = 513,
-            num_units: List[int] = 3*[1024],
+            num_units: List[int] = 3 * [1024],
             activation_fn: str = 'relu',
             dropout: int = 0.5
     ):
+        """
+
+        TODO: Please add a reference, why dropout is in this order.
+        TODO: Please discuss, if "dense" is the correct name in Torch.
+
+        Args:
+            input_size:
+            num_units:
+            activation_fn:
+            dropout: Dropout forget ratio (opposite to TensorFlow)
+        """
         super().__init__()
         self.num_units = num_units
         self.activation_fn = activation_fn
