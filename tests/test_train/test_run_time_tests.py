@@ -21,22 +21,15 @@ class Model(pt.Model):
         if isinstance(clean, np.ndarray):
             clean = torch.tensor(clean)
 
-        img = torch.reshape(
-            clean, [-1]
-        )
+        image = torch.reshape(clean, [-1])
 
-        return self.l(img)
+        return self.l(image)
 
     def review(self, inputs, output):
         digits = inputs['digits']
-
-        target = torch.tensor(
-            np.array(inputs['digits']).astype(np.int64)
-        )[None]
+        target = torch.tensor(np.array(digits).astype(np.int64))[None]
         ce = torch.nn.CrossEntropyLoss()(output[None, :], target)
-        return {
-            'losses': {'ce': ce}
-        }
+        return {'losses': {'ce': ce}}
 
 
 def get_iterator(mode):
