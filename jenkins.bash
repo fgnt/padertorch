@@ -7,6 +7,9 @@ git clone git@ntgit.upb.de:python/toolbox
 # include common stuff (installation of toolbox, paths, traps, nice level...)
 source toolbox/jenkins_common.bash
 
+# Cuda
+source toolbox/bash/cuda.bash
+
 pip install --user -e .
 
 # Unittets
