@@ -4,7 +4,7 @@ import torch
 from torch.nn.utils.rnn import PackedSequence
 
 
-class PermutationInvariantTrainingModel(pt.base.Model):
+class PermutationInvariantTrainingModel(pt.Model):
     """
     Implements a variant of Permutation Invariant Training [1].
 
@@ -25,7 +25,16 @@ class PermutationInvariantTrainingModel(pt.base.Model):
     TODO: Phase discounted MSE loss
 
     """
-    def __init__(self, F=257, recurrent_layers=2, units=600, K=2):
+    def __init__(
+            self,
+            F=257,
+            recurrent_layers=2,
+            units=600,
+            K=2,
+            dropout_input=0.,
+            dropout_hidden=0.,
+            dropout_linear=0.,
+    ):
         """
 
         Args:
@@ -33,13 +42,30 @@ class PermutationInvariantTrainingModel(pt.base.Model):
             recurrent_layers:
             units: results in `units` forward and `units` backward units
             K: Number of output streams/ speakers
+            dropout_input: Dropout forget ratio before first recurrent layer
+            dropout_hidden: Vertical forget ratio dropout between each
+                recurrent layer
+            dropout_linear: Dropout forget ratio before first linear layer
         """
         super().__init__()
+
         self.K = K
         self.F = F
+
+        assert dropout_input <= 0.5, dropout_input
+        self.dropout_input = torch.nn.Dropout(dropout_input)
+
+        assert dropout_hidden <= 0.5, dropout_hidden
         self.blstm = torch.nn.LSTM(
-            F, units, recurrent_layers, bidirectional=True
+            F,
+            units,
+            recurrent_layers,
+            bidirectional=True,
+            dropout=dropout_hidden,
         )
+
+        assert dropout_linear <= 0.5, dropout_linear
+        self.dropout_linear = torch.nn.Dropout(dropout_linear)
         self.linear = torch.nn.Linear(2 * units, F * K)
 
     def forward(self, batch):
@@ -57,13 +83,17 @@ class PermutationInvariantTrainingModel(pt.base.Model):
         _, F = h.data.size()
         assert F == self.F, f'self.F = {self.F} != F = {F}'
 
+        h_data = self.dropout_input(h.data)
+
         # Why not mu-law?
-        h = PackedSequence(h.data + 1e-10, h.batch_sizes)
+        h = PackedSequence(h_data, h.batch_sizes)
 
         # Returns tensor with shape (t, b, num_directions * hidden_size)
         h, _ = self.blstm(h)
 
-        h = PackedSequence(self.linear(h.data), h.batch_sizes)
+        h_data = self.dropout_linear(h.data)
+        h_data = self.linear(h_data)
+        h = PackedSequence(h_data, h.batch_sizes)
 
         mask = PackedSequence(
             einops.rearrange(h.data, 'tb (k f) -> tb k f', k=self.K),
@@ -88,8 +118,15 @@ class PermutationInvariantTrainingModel(pt.base.Model):
         }
 
 
-class DeepClusteringModel(pt.base.Model):
-    def __init__(self, F=257, recurrent_layers=2, units=600, E=20):
+class DeepClusteringModel(pt.Model):
+    def __init__(
+            self,
+            F=257,
+            recurrent_layers=2,
+            units=600,
+            E=20,
+            input_feature_transform='identity'
+    ):
         """
 
         TODO: Dropout
@@ -104,6 +141,7 @@ class DeepClusteringModel(pt.base.Model):
         super().__init__()
         self.E = E
         self.F = F
+        self.input_feature_transform = input_feature_transform
         self.blstm = torch.nn.LSTM(
             F, units, recurrent_layers, bidirectional=True
         )
@@ -121,11 +159,19 @@ class DeepClusteringModel(pt.base.Model):
 
         h = pt.ops.pack_sequence(batch['Y_abs'])
 
+        if self.input_feature_transform == 'identity':
+            pass
+        elif self.input_feature_transform == 'log1p':
+            # This is equal to the mu-law for mu=1.
+            h = pt.ops.sequence.log1p(h)
+        elif self.input_feature_transform == 'log':
+            h = PackedSequence(h.data + 1e-10, h.batch_sizes)
+            h = pt.ops.sequence.log(h)
+        else:
+            raise NotImplementedError(self.input_feature_transform)
+
         _, F = h.data.size()
         assert F == self.F, f'self.F = {self.F} != F = {F}'
-
-        # Why not mu-law?
-        h = PackedSequence(h.data + 1e-10, h.batch_sizes)
 
         # Returns tensor with shape (t, b, num_directions * hidden_size)
         h, _ = self.blstm(h)

@@ -5,6 +5,8 @@ import torch
 
 
 class TestDeepClusteringModel(unittest.TestCase):
+    # TODO: Test forward deterministic if not train
+
     def setUp(self):
         self.model = pt.models.bss.DeepClusteringModel()
 
@@ -80,6 +82,8 @@ class TestDeepClusteringModel(unittest.TestCase):
 
 
 class TestPermutationInvariantTrainingModel(unittest.TestCase):
+    # TODO: Test forward deterministic if not train
+
     def setUp(self):
         self.model = pt.models.bss.PermutationInvariantTrainingModel()
 
