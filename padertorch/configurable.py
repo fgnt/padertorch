@@ -14,6 +14,7 @@ a parameter to the `__init__` you can instead provide the parameters which were
 used for that instance in your modified `get_signature`.
 
 """
+import sys
 import json
 import inspect
 import importlib
@@ -107,6 +108,14 @@ class Configurable:
         """
         config = out_config
 
+        if cls.__module__ == '__main__':
+            # When a class is defined in the main script, it will be
+            # __main__.<ModelName>, but it should be <script>.<ModelName>.
+            # This fix it, when the script is called with
+            # "python -m <script> ..."
+            # but not when it is called with "python <script>.py ..."
+            cls = import_class(class_to_str(cls))
+
         if config is None:
             config = {
                 'cls': class_to_str(cls)
@@ -120,9 +129,7 @@ class Configurable:
         if inspect.isclass(import_class(config['cls'])) \
                 and issubclass(import_class(config['cls']), Configurable):
             # When subclass of Configurable expect proper subclass
-            assert issubclass(import_class(config['cls']), cls), (
-                config['cls'], cls
-            )
+            assert issubclass(import_class(config['cls']), cls), (config['cls'], cls)
 
         if hasattr(import_class(config['cls']), 'get_signature'):
             defaults = import_class(config['cls']).get_signature()
@@ -268,10 +275,20 @@ def class_to_str(cls):
     'padertorch.base.Model'
     >>> class_to_str('padertorch.Model')
     'padertorch.base.Model'
+
+    ToDo: fix __main__ for scripts in packages that are called with shell
+          path (path/to/script.py) and not python path (path.to.script).
     """
+
     if isinstance(cls, str):
         cls = import_class(cls)
     module = cls.__module__
+
+    if module == '__main__':
+        # Try to figure out the module.
+        # Could be done, when the script is started with "python -m ..."
+        module = getattr(sys.modules[module].__spec__, 'name', module)
+
     if module != '__main__':
         return f'{module}.{cls.__qualname__}'
     else:
