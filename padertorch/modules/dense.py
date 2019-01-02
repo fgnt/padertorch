@@ -15,7 +15,8 @@ class DenseStack(pt.Module):
     ):
         """
 
-        TODO: Please add a reference, why dropout is in this order.
+        dropout describes the forget-probability.
+        More information to dropout: https://arxiv.org/pdf/1207.0580.pdf
         TODO: Please discuss, if "dense" is the correct name in Torch.
 
         Args:
