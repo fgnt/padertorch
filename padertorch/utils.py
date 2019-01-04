@@ -1,4 +1,4 @@
-
+import numpy as np
 import torch
 
 
@@ -28,3 +28,18 @@ def to_list(x, length=None):
     if length is not None:
         assert len(x) == length
     return x
+
+
+def to_numpy(array):
+    """
+    >>> t = torch.zeros(2)
+    >>> t
+    tensor([0., 0.])
+    >>> as_numpy(t), np.zeros(2, dtype=np.float32)
+    (array([0., 0.], dtype=float32), array([0., 0.], dtype=float32))
+    """
+    if isinstance(array, torch.Tensor):
+        array = array.cpu()
+
+    # torch only supports np.asarray for cpu tensors
+    return np.asarray(array)

@@ -117,19 +117,25 @@ def test_run(trainer, train_iterator, validation_iterator):
                 review_mock
             )
 
-        pb.utils.nested.nested_op(
-            np.testing.assert_allclose, dt1['output'], dt3['output']
-        )
-        pb.utils.nested.nested_op(
-            np.testing.assert_allclose, dt2['output'], dt4['output']
-        )
-        pb.utils.nested.nested_op(
-            np.testing.assert_allclose, dt1['review'], dt3['review']
-        )
-        pb.utils.nested.nested_op(
-            np.testing.assert_allclose, dt2['review'], dt4['review']
-        )
+        def nested_test_assert_allclose(struct1, struct2):
+            def assert_func(array1, array2):
+                array1 = pt.utils.to_numpy(array1)
+                array2 = pt.utils.to_numpy(array2)
+                np.testing.assert_allclose(array1, array2)
+
+            pb.utils.nested.nested_op(
+                assert_func,
+                struct1, struct2,
+                handle_dataclass=True,
+            )
+
+        nested_test_assert_allclose(dt1['output'], dt3['output'])
+        nested_test_assert_allclose(dt2['output'], dt4['output'])
+        nested_test_assert_allclose(dt1['review'], dt3['review'])
+        nested_test_assert_allclose(dt2['review'], dt4['review'])
+
         assert 'losses' in dt1['review'], dt1['review']
+        
         if 0 != len(set(dt1['review'].keys()) - set(trainer.summary.keys())):
             got = set(dt1['review'].keys())
             allowed = set(trainer.summary.keys())
