@@ -20,6 +20,16 @@ ACTIVATION_FN_MAP = Dispatcher(
     identity=lambda x: x,
 )
 
+ACTIVATION_NN_MAP = Dispatcher(
+    relu=torch.nn.ReLU,
+    leaky_relu=torch.nn.LeakyReLU,
+    elu=torch.nn.ELU,
+    tanh=torch.nn.Tanh,
+    sigmoid=torch.nn.Sigmoid,
+    softmax=torch.nn.Softmax,  # Defaults to softmax along last dimension
+    # identity=torch.nn.Sequential,  # https://github.com/pytorch/pytorch/issues/9160
+)
+
 POOLING_FN_MAP = Dispatcher(
     median=np.median,
     average=np.mean,
