@@ -34,19 +34,37 @@ class Transform(Configurable, abc.ABC):
         raise NotImplementedError
 
 
-class Compose(object):
+class Compose:
     """
     Accepts an ordered iterable of Transform objects and performs a
-    transformation composition by succesively applying them in the given order.
-    Inspired by a torchvision class with the same name.
+    transformation composition by successively applying them in the given
+    order. Inspired by a torchvision class with the same name.
+
+    `Compose(operator.neg, abs)(data)` is equal to `abs(-data)`.
+
+    See
+    https://stackoverflow.com/questions/16739290/composing-functions-in-python
+    for alternatives.
     """
     def __init__(self, *transforms):
+        # Wouldn't "functions" instead of transforms not a better name=
         self.transforms = transforms
 
     def __call__(self, example):
         for transform in self.transforms:
             example = transform(example)
         return example
+
+    def __repr__(self):
+        """
+        >>> import operator
+        >>> Compose(operator.neg, abs)
+        Compose(<built-in function neg>, <built-in function abs>)
+        >>> Compose(operator.neg, abs)(1)
+        1
+        """
+        s = ', '.join([repr(t) for t in self.transforms])
+        return f'{self.__class__.__name__}({s})'
 
 
 class ReadAudio(Transform):
