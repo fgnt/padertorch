@@ -217,11 +217,14 @@ class Configurable:
         try:
             _ = json.dumps(config)
         except TypeError as ex:
-            from IPython.lib.pretty import pprint
-            print('#' * 20, 'JSON Failure config', '#' * 20)
-            pprint(config)
-            print('#' * 60)
-            raise
+            from IPython.lib.pretty import pretty
+            pretty_config = pretty(config)
+            raise ValueError(
+                'Invalid config.\n'
+                'See above exception msg from json.dumps and '
+                'below the sub config:\n'
+                f'{pretty_config}'
+            )
 
         return config
 
@@ -360,8 +363,9 @@ def update_config(config, updates):
         if 'cls' in updates:
             config['cls'] = class_to_str(updates['cls'])
         sub_updates = {
-            **updates.get('kwargs', dict()),
-            **updates.get(config['cls'], dict()),
+            **updates.get('kwargs', {}),
+            **updates.get(config['cls'], {}),
+            **updates.get(import_class(config['cls']), {}),
         }
 
         cls = import_class(config['cls'])
