@@ -343,9 +343,15 @@ class Trainer(Configurable):
         for key, scalar in self.timer.as_dict.items():
             if key in ['time_per_data_loading', 'time_per_train_step']:
                 if 'time_per_step' in self.timer.as_dict.keys():
+                    time_per_step = self.timer.as_dict['time_per_step']
+                    if len(time_per_step) != len(scalar):
+                        print(
+                            'Warning: padertorch.Trainer timing bug.'
+                            f'len(time_per_step) == {len(time_per_step)} '
+                            f'!= len(scalar) == {len(scalar)}'
+                        )
                     scalar = (
-                        scalar.mean()
-                        / self.timer.as_dict['time_per_step'].mean()
+                        scalar.sum() / time_per_step.sum()
                     )
                     if key == 'time_per_data_loading':
                         key = 'time_rel_data_loading'
