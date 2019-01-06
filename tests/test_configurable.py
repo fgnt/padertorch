@@ -63,3 +63,20 @@ class Test:
             }
         }
         np.testing.assert_equal(config, expect)
+
+        config = A.get_config({'e': {'cls': bar, bar: {'a': 10}}})
+        expect = {
+            'cls': 'tests.test_configurable.A',
+            'kwargs': {
+                'f': 0,
+                'e': {
+                    'cls': 'tests.test_configurable.bar',
+                    'kwargs': {
+                        'b': 5,
+                        'd': 7,
+                        'a': 10
+                    }
+                }
+            }
+        }
+        np.testing.assert_equal(config, expect)
