@@ -11,23 +11,13 @@ __all__ = [
 ]
 
 ACTIVATION_FN_MAP = Dispatcher(
-    relu=F.relu,
-    leaky_relu=torch.nn.LeakyReLU(.1),
-    elu=F.elu,
-    tanh=F.tanh,
-    sigmoid=torch.sigmoid,
-    softmax=F.softmax,  # Defaults to softmax along last dimension
-    identity=lambda x: x,
-)
-
-ACTIVATION_NN_MAP = Dispatcher(
     relu=torch.nn.ReLU,
     leaky_relu=torch.nn.LeakyReLU,
     elu=torch.nn.ELU,
     tanh=torch.nn.Tanh,
     sigmoid=torch.nn.Sigmoid,
     softmax=torch.nn.Softmax,  # Defaults to softmax along last dimension
-    # identity=torch.nn.Sequential,  # https://github.com/pytorch/pytorch/issues/9160
+    identity=torch.nn.Sequential,  # https://github.com/pytorch/pytorch/issues/9160
 )
 
 POOLING_FN_MAP = Dispatcher(
