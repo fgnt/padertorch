@@ -115,9 +115,27 @@ class PermutationInvariantTrainingModel(pt.Model):
                 target
             ))
 
+        pit_ips_loss = list()
+        for mask, observation, target, cos_phase_diff in zip(
+            model_out,
+            batch['Y_abs'],
+            batch['X_abs'],
+            batch['cos_phase_difference']
+        ):
+            pit_ips_loss.append(pt.ops.losses.loss.pit_mse_loss(
+                mask * observation[:, None, :],
+                target * cos_phase_diff
+            ))
+
         return {
-            'losses': {'pit_mse_loss': torch.mean(torch.stack(pit_mse_loss))}
+            'losses': {
+                'pit_mse_loss': torch.mean(torch.stack(pit_mse_loss)),
+                'pit_ips_loss': torch.mean(torch.stack(pit_ips_loss)),
+
+            }
         }
+
+
 
 
 class DeepClusteringModel(pt.Model):
