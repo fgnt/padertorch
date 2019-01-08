@@ -8,18 +8,18 @@ class TestMSTCN(unittest.TestCase):
         batch_size = 100
         n_frames = 64
 
-        input_dim = 40
-        conditional_dim = 39
+        input_size = 40
+        condition_size = 39
         latent_dim = 16
 
-        x = torch.ones(batch_size, input_dim, n_frames)
-        h = torch.ones(batch_size, conditional_dim, n_frames)
+        x = torch.ones(batch_size, input_size, n_frames)
+        h = torch.ones(batch_size, condition_size, n_frames)
 
         enc = MSTCN(
             **MSTCN.get_config(
                 updates=dict(
-                    input_dim=input_dim, hidden_dim=256, output_dim=latent_dim,
-                    condition_dim=conditional_dim
+                    input_size=input_size, hidden_sizes=256,
+                    output_size=latent_dim, condition_size=condition_size
                 )
             )['kwargs']
         )
@@ -28,19 +28,21 @@ class TestMSTCN(unittest.TestCase):
         dec = MSTCN(
             **MSTCN.get_config(
                 updates=dict(
-                    input_dim=latent_dim, hidden_dim=256, output_dim=input_dim,
-                    condition_dim=conditional_dim, transpose=True
+                    input_size=latent_dim, hidden_sizes=256,
+                    output_size=input_size, condition_size=condition_size,
+                    transpose=True
                 )
             )['kwargs']
         )
         x_hat = dec(z, h, pool_indices=pool_indices[::-1])
-        self.assertEquals(x_hat.shape, (batch_size, input_dim, n_frames))
+        self.assertEquals(x_hat.shape, (batch_size, input_size, n_frames))
 
         enc = MSTCN(
             **MSTCN.get_config(
                 updates=dict(
-                    input_dim=input_dim, hidden_dim=256, output_dim=latent_dim,
-                    condition_dim=conditional_dim, n_scales=2, pool_sizes=2)
+                    input_size=input_size, hidden_sizes=256,
+                    output_size=latent_dim, condition_size=condition_size,
+                    n_scales=2, pool_sizes=2)
             )['kwargs']
         )
         y, pool_indices = enc(x, h)
@@ -48,11 +50,33 @@ class TestMSTCN(unittest.TestCase):
         dec = MSTCN(
             **MSTCN.get_config(
                 updates=dict(
-                    input_dim=latent_dim, hidden_dim=256, output_dim=input_dim,
-                    condition_dim=conditional_dim, transpose=True, n_scales=2,
-                    pool_sizes=2
+                    input_size=latent_dim, hidden_sizes=256,
+                    output_size=input_size, condition_size=condition_size,
+                    transpose=True, n_scales=2, pool_sizes=2
                 )
             )['kwargs']
         )
         x_hat = dec(z, h, pool_indices=pool_indices[::-1])
-        self.assertEquals(x_hat.shape, (batch_size, input_dim, n_frames))
+        self.assertEquals(x_hat.shape, (batch_size, input_size, n_frames))
+
+        enc = MSTCN(
+            **MSTCN.get_config(
+                updates=dict(
+                    input_size=input_size, hidden_sizes=[256, 128, 64, 32],
+                    output_size=latent_dim, condition_size=condition_size,
+                    n_scales=2, pool_sizes=2)
+            )['kwargs']
+        )
+        y, pool_indices = enc(x, h)
+        self.assertEquals(y.shape, (batch_size, latent_dim, n_frames//(2**5)))
+        dec = MSTCN(
+            **MSTCN.get_config(
+                updates=dict(
+                    input_size=latent_dim, hidden_sizes=[32, 64, 128, 256],
+                    output_size=input_size, condition_size=condition_size,
+                    transpose=True, n_scales=2, pool_sizes=2
+                )
+            )['kwargs']
+        )
+        x_hat = dec(z, h, pool_indices=pool_indices[::-1])
+        self.assertEquals(x_hat.shape, (batch_size, input_size, n_frames))

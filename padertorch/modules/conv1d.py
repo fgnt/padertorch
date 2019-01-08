@@ -133,7 +133,7 @@ class MaxUnpool1d(Module):
 
 class Conv1d(Module):
     def __init__(
-            self, in_channels=None, out_channels=None, condition_channels=0,
+            self, input_size=None, output_size=None, condition_size=0,
             kernel_size=5, dilation=1, stride=1, transpose=False,
             padding='both', bias=True, groups=1, batch_norm=False, dropout=0.,
             activation='leaky_relu', gated=False
@@ -146,14 +146,14 @@ class Conv1d(Module):
         self.padding = padding
         self.batch_norm = batch_norm
         self.dropout = dropout
-        self.activation = ACTIVATION_FN_MAP[activation]
+        self.activation = ACTIVATION_FN_MAP[activation]()
         self.gated = gated
 
         if batch_norm:
-            self.bn = nn.BatchNorm1d(in_channels)
+            self.bn = nn.BatchNorm1d(input_size)
         conv_cls = nn.ConvTranspose1d if transpose else nn.Conv1d
         self.conv = conv_cls(
-            in_channels + condition_channels, out_channels,
+            input_size + condition_size, output_size,
             kernel_size=kernel_size, dilation=dilation, stride=stride,
             bias=bias, groups=groups)
         torch.nn.init.xavier_uniform_(self.conv.weight)
@@ -161,7 +161,7 @@ class Conv1d(Module):
             torch.nn.init.zeros_(self.conv.bias)
         if self.gated:
             self.gate_conv = conv_cls(
-                in_channels + condition_channels, out_channels,
+                input_size + condition_size, output_size,
                 kernel_size=kernel_size, dilation=dilation, stride=stride,
                 bias=bias, groups=groups)
             torch.nn.init.xavier_uniform_(self.gate_conv.weight)
@@ -185,9 +185,7 @@ class Conv1d(Module):
                 side=self.padding
             )(x)
 
-        y = self.conv(x)
-        if self.activation is not None:
-            y = self.activation(y)
+        y = self.activation(self.conv(x))
 
         if self.gated:
             g = self.gate_conv(x)
@@ -201,16 +199,16 @@ class Conv1d(Module):
 
 class TCN(Module):
     def __init__(
-            self, input_dim=None, output_dim=None, hidden_dim=256,
-            condition_dim=0, depth=5, kernel_sizes=3, dilations=1, strides=1,
+            self, input_size=None, output_size=None, hidden_sizes=256,
+            condition_size=0, depth=5, kernel_sizes=3, dilations=1, strides=1,
             transpose=False, pool_sizes=1, padding='both', batch_norm=False,
             dropout=0., activation='leaky_relu', gated=False, groups=1
     ):
         super().__init__()
 
-        self.in_channels = input_dim
-        self.hidden_channels = hidden_dim
-        self.out_channels = output_dim
+        self.input_size = input_size
+        self.hidden_sizes = to_list(hidden_sizes, depth - 1)
+        self.output_size = output_size
         self.depth = depth
         self.kernel_sizes = to_list(kernel_sizes, depth)
         self.dilations = to_list(dilations, depth)
@@ -224,17 +222,19 @@ class TCN(Module):
         for i in range(depth):
             if i == depth - 1:
                 activation = 'identity'
-                hidden_dim = output_dim
+                hidden_sizes = output_size
+            else:
+                hidden_sizes = self.hidden_sizes[i]
             convs.append(Conv1d(
-                in_channels=input_dim, out_channels=hidden_dim,
-                condition_channels=condition_dim,
+                input_size=input_size, output_size=hidden_sizes,
+                condition_size=condition_size,
                 kernel_size=self.kernel_sizes[i], dilation=self.dilations[i],
                 stride=self.strides[i], transpose=transpose, padding=padding,
                 batch_norm=batch_norm_, dropout=dropout, activation=activation,
                 gated=gated, groups=groups
             ))
             batch_norm_ = batch_norm
-            input_dim = hidden_dim
+            input_size = hidden_sizes
         self.convs = nn.ModuleList(convs)
 
     def forward(self, x, h=None, pool_indices=None):
@@ -255,20 +255,20 @@ class TCN(Module):
 
 class MultiScaleConv1d(Module):
     def __init__(
-            self, in_channels=None, out_channels=None, condition_channels=0,
+            self, input_size=None, output_size=None, condition_size=0,
             kernel_size=3, n_scales=1, dilated=False, stride=1, transpose=False,
             padding='both', batch_norm=False, dropout=0.,
             activation='leaky_relu', gated=False
     ):
-        assert out_channels % n_scales == 0
+        assert output_size % n_scales == 0
         super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
+        self.input_size = input_size
+        self.output_size = output_size
         self.n_scales = n_scales
         self.stride = stride
         self.transpose = transpose
         self.padding = padding
-        self.condition_channels = condition_channels
+        self.condition_size = condition_size
         self.activation = activation
         self.gated = gated
         self.dropout = dropout
@@ -283,9 +283,9 @@ class MultiScaleConv1d(Module):
             dilations = n_scales * [1]
         self.convs = nn.ModuleList([
             Conv1d(
-                in_channels=in_channels,
-                out_channels=out_channels // n_scales,
-                condition_channels=condition_channels,
+                input_size=input_size,
+                output_size=output_size // n_scales,
+                condition_size=condition_size,
                 kernel_size=kernel_sizes[i], dilation=dilations[i],
                 stride=stride, transpose=transpose, padding=padding,
                 batch_norm=batch_norm, dropout=dropout, activation=activation,
@@ -300,16 +300,17 @@ class MultiScaleConv1d(Module):
 
 class MSTCN(Module):
     def __init__(
-            self, input_dim=None, output_dim=None, hidden_dim=256,
-            condition_dim=0, depth=5, kernel_sizes=3, n_scales=1, dilated=False,
-            strides=1, transpose=False, pool_sizes=1, padding='both',
-            batch_norm=False, dropout=0., activation='leaky_relu', gated=False
+            self, input_size=None, output_size=None, hidden_sizes=256,
+            condition_size=0, depth=5, kernel_sizes=3, n_scales=1,
+            dilated=False, strides=1, transpose=False, pool_sizes=1,
+            padding='both', batch_norm=False, dropout=0.,
+            activation='leaky_relu', gated=False
     ):
         super().__init__()
 
-        self.in_channels = input_dim
-        self.hidden_channels = hidden_dim
-        self.out_channels = output_dim
+        self.input_size = input_size
+        self.hidden_sizes = to_list(hidden_sizes, depth - 1)
+        self.output_size = output_size
         self.depth = depth
         self.kernel_sizes = to_list(kernel_sizes, depth)
         self.n_scales = to_list(n_scales, depth - 1)
@@ -323,20 +324,21 @@ class MSTCN(Module):
         for i in range(depth):
             if i == depth - 1:
                 activation = 'identity'
-                hidden_dim = output_dim
+                hidden_size = output_size
                 n_scales = 1
             else:
+                hidden_size = self.hidden_sizes[i]
                 n_scales = self.n_scales[i]
             convs.append(MultiScaleConv1d(
-                in_channels=input_dim, out_channels=hidden_dim,
-                condition_channels=condition_dim,
+                input_size=input_size, output_size=hidden_size,
+                condition_size=condition_size,
                 kernel_size=self.kernel_sizes[i], n_scales=n_scales,
                 dilated=dilated, stride=self.strides[i], transpose=transpose,
                 padding=padding, batch_norm=batch_norm_, dropout=dropout,
                 activation=activation, gated=gated
             ))
             batch_norm_ = batch_norm
-            input_dim = hidden_dim
+            input_size = hidden_size
         self.convs = nn.ModuleList(convs)
 
     def forward(self, x, h=None, pool_indices=None):
