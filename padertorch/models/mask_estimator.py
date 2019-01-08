@@ -2,7 +2,6 @@ import numpy as np
 import padertorch as pt
 import torch
 import torch.nn.functional as F
-from paderbox.database.keys import *
 from padertorch.data.utils import collate_fn
 from padertorch.modules.mask_estimator import MaskEstimator
 from padertorch.modules.mask_estimator import MaskKeys as M_K
@@ -45,18 +44,17 @@ class MaskEstimatorModel(pt.Model):
         }
         return default_dict
 
-
     def __init__(self, estimator, reduction: str = 'mean'):
         super().__init__()
         self.estimator = estimator
         self.reduction = reduction
 
     def forward(self, batch):
-        '''
+        """
         :param batch: dict of lists with key observation_abs
                 observation_abs is a list of tensors with shape C,T,F
         :return:
-        '''
+        """
         obs = batch[M_K.OBSERVATION_ABS]
         num_channels = obs[0].shape[0]
         if num_channels == 1:
@@ -69,11 +67,11 @@ class MaskEstimatorModel(pt.Model):
         return out
 
     def review(self, batch, output):
-        '''
+        """
         :param batch: dict of lists
         :param output: output of the forward step
         :return:
-        '''
+        """
         losses = self.add_losses(batch, output)
         return dict(losses={'loss': losses[MaskLossKeys.MASK]},
                     scalars=losses,
@@ -104,8 +102,8 @@ class MaskEstimatorModel(pt.Model):
 
     def add_audios(self, batch, output):
         audio_dict = {
-            OBSERVATION: batch[OBSERVATION][0][0],
-            SPEECH_IMAGE: batch[SPEECH_IMAGE][0][0]
+            M_K.OBSERVATION: batch[M_K.OBSERVATION][0][0],
+            M_K.SPEECH_IMAGE: batch[M_K.SPEECH_IMAGE][0][0]
         }
         return audio_dict
 
@@ -135,7 +133,7 @@ class MaskEstimatorModel(pt.Model):
             else:
                 speech_mask_logits = None
 
-            power_weights = batch[OBSERVATION][0].new(power_weights)
+            power_weights = batch[M_K.OBSERVATION][0].new(power_weights)
 
             def get_loss(target, logits):
                 return F.binary_cross_entropy_with_logits(
@@ -154,14 +152,15 @@ class MaskEstimatorModel(pt.Model):
                 weighted_noise_loss.append(
                     weight_loss(sample_loss, power_weights))
             # Speech mask
-            if speech_mask_target is not None and speech_mask_logits is not None:
+            if speech_mask_target is not None\
+                    and speech_mask_logits is not None:
                 sample_loss = get_loss(speech_mask_target, speech_mask_logits)
                 speech_loss.append(
                     POOLING_FN_MAP[self.reduction](sample_loss))
                 weighted_speech_loss.append(
                     weight_loss(sample_loss, power_weights))
             # VAD
-            if (M_K.VAD in batch and M_K.VAD in output):
+            if M_K.VAD in batch and M_K.VAD in output:
                 vad_target = batch[M_K.VAD][idx]
                 vad_logits = output[M_K.VAD_LOGITS][idx]
                 vad_loss.append(get_loss(
