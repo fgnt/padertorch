@@ -1,4 +1,4 @@
-from paderbox.database.keys import *
+from paderbox.database import keys
 from torch.nn.utils.rnn import PackedSequence
 
 import padertorch as pt
@@ -15,7 +15,7 @@ __all__ = [
 ]
 
 
-class MaskKeys:
+class MaskKeys(keys):
     SPEECH_MASK_PRED = 'speech_mask_prediction'
     NOISE_MASK_PRED = 'noise_mask_prediction'
     SPEECH_MASK_LOGITS = 'speech_mask_logits'
@@ -24,7 +24,6 @@ class MaskKeys:
     NOISE_MASK_TARGET = 'noise_mask_target'
     OBSERVATION_STFT = 'observation_stft'
     OBSERVATION_ABS = 'observation_abs'
-    NUM_FRAMES = NUM_FRAMES
     MASK_ESTIMATOR_STATE = 'mask_estimator_state'
     SPEECH_PRED = 'speech_prediction'
     VAD = 'vad'
