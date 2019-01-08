@@ -1,12 +1,12 @@
-import padertorch as pt
-import torch
 from paderbox.database.keys import *
+from torch.nn.utils.rnn import PackedSequence
+
+import padertorch as pt
+from padertorch.modules import fully_connected_stack
 from padertorch.modules.normalization import Normalization
+from padertorch.modules.recurrent import LSTM
 from padertorch.ops import pack_sequence, pad_packed_sequence
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
-from padertorch.modules.dense import DenseStack
-from padertorch.modules.recurrent import LSTM
-from torch.nn.utils.rnn import PackedSequence
 
 __all__ = [
     "MaskKeys",
@@ -40,72 +40,78 @@ class MaskEstimator(pt.Module):
     @classmethod
     def get_signature(cls):
         default_dict = super().get_signature()
+        num_features = 513
         default_dict['recurrent'] = {
-            'kwargs': dict(input_size=513,
+            'kwargs': dict(input_size=num_features,
                            output_states=True),
             'cls': LSTM,
             LSTM: dict()
         }
-        default_dict['dense'] = {
-            'kwargs': dict(input_size=512),
-            'cls': DenseStack,
-            DenseStack: dict()
+        default_dict['fully_connected'] = {
+            'kwargs': dict(input_size=512, hiden_size=[1024]*3,
+                           output_size=num_features*2),
+            'cls': fully_connected_stack,
+            fully_connected_stack: dict()
         }
         default_dict['normalization'] = {
             'cls': Normalization,
-            'kwargs': dict(num_features=513,
+            'kwargs': dict(num_features=num_features,
                            order='l2',
                            statistics_axis=1)
         }
         return default_dict
 
-    def __init__(self, dense, normalization, recurrent,
-                 num_features: int = 513,
+    @classmethod
+    def get_config(
+            cls,
+            updates=None,
+            out_config=None,
+    ):
+        super().get_config(updates=updates, out_config=out_config)
+        num_features = out_config['kwargs']['num_features']
+        recu_in = out_config['kwargs']['recurrent']['kwargs']['num_features']
+        assert recu_in == num_features, (recu_in, num_features)
+        fc = out_config['kwargs']['fully_connected']['kwargs']['output_size']
+        assert fc == 2*num_features, (fc, num_features)
+        n_in = out_config['kwargs']['normalization']['kwargs']['num_features']
+        assert n_in == num_features, (n_in, num_features)
+        return out_config
+
+    def __init__(self, fully_connected, normalization, recurrent,
+                 num_features=513,
                  use_log: bool = False,
                  use_powerspectrum: bool = False,
                  separate_masks: bool = True,
                  output_activation: str = 'sigmoid'
                  ):
         super().__init__()
-        self.dense = dense
+        self.fully_connected = fully_connected
         self.normalization = normalization
         self.recurrent = recurrent
-
         # ToDo implement log and powerspectrum
         if use_log or use_powerspectrum:
             raise NotImplementedError
+        self.num_features = num_features
         self.use_log = use_log
         self.use_powerspectrum = use_powerspectrum
         self.separate_masks = separate_masks
         self.output_activation = output_activation
-        self.classifier = torch.nn.Linear(
-            self.dense.num_units[-1],
-            num_features
-        )
-        if self.separate_masks:
-            self.classifier_noise = torch.nn.Linear(
-                self.dense.num_units[-1],
-                num_features
-            )
 
     def forward(self, x):
-        '''
+        """
         :param x: Tensor of shape(C,T,F)
         :return:
-        '''
+        """
         if not isinstance(x, PackedSequence):
-            x = self.normalization(x)  # ToDo allow PackedSequence
+            # x = self.normalization(x)  # ToDo allow PackedSequence
             x = pack_sequence(x)
         h, states = self.recurrent(x)
-        h = PackedSequence(self.dense(h.data), h.batch_sizes)
-        target_logits = PackedSequence(self.classifier(h.data), h.batch_sizes)
-        target_logits = pad_packed_sequence(target_logits)[0].permute(1, 0, 2)
+        h = PackedSequence(self.fully_connected(h.data), h.batch_sizes)
+        out = PackedSequence(self.classifier(h.data), h.batch_sizes)
+        out = pad_packed_sequence(out)[0].permute(1, 0, 2)
+        target_logits = out[..., :self.num_features]
         if self.separate_masks:
-            noise_logits = PackedSequence(self.classifier_noise(h.data),
-                                          h.batch_sizes)
-            noise_logits = pad_packed_sequence(noise_logits)[0].permute(1, 0,
-                                                                        2)
-
+            noise_logits = out[..., self.num_features:]
             return {
                 M_K.SPEECH_MASK_PRED: ACTIVATION_FN_MAP[
                     self.output_activation](target_logits),
