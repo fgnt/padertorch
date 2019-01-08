@@ -1,4 +1,3 @@
-from paderbox.database import keys
 from torch.nn.utils.rnn import PackedSequence
 
 import padertorch as pt
@@ -15,7 +14,7 @@ __all__ = [
 ]
 
 
-class MaskKeys(keys):
+class MaskKeys:
     SPEECH_MASK_PRED = 'speech_mask_prediction'
     NOISE_MASK_PRED = 'noise_mask_prediction'
     SPEECH_MASK_LOGITS = 'speech_mask_logits'
@@ -28,7 +27,6 @@ class MaskKeys(keys):
     SPEECH_PRED = 'speech_prediction'
     VAD = 'vad'
     VAD_LOGITS = 'vad_logits'
-
 
 # ToDo: Add vad estimation?
 

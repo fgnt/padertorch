@@ -6,7 +6,7 @@ from padertorch.data.utils import collate_fn
 from padertorch.modules.mask_estimator import MaskEstimator
 from padertorch.modules.mask_estimator import MaskKeys as M_K
 from padertorch.ops.mappings import POOLING_FN_MAP
-
+from paderbox.database import keys as K
 
 class MaskLossKeys:
     NOISE_MASK = 'noise_mask_loss'
@@ -102,8 +102,8 @@ class MaskEstimatorModel(pt.Model):
 
     def add_audios(self, batch, output):
         audio_dict = {
-            M_K.OBSERVATION: batch[M_K.OBSERVATION][0][0],
-            M_K.SPEECH_IMAGE: batch[M_K.SPEECH_IMAGE][0][0]
+            K.OBSERVATION: batch[K.OBSERVATION][0][0],
+            K.SPEECH_IMAGE: batch[K.SPEECH_IMAGE][0][0]
         }
         return audio_dict
 
@@ -133,7 +133,7 @@ class MaskEstimatorModel(pt.Model):
             else:
                 speech_mask_logits = None
 
-            power_weights = batch[M_K.OBSERVATION][0].new(power_weights)
+            power_weights = batch[K.OBSERVATION][0].new(power_weights)
 
             def get_loss(target, logits):
                 return F.binary_cross_entropy_with_logits(
