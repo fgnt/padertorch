@@ -97,6 +97,7 @@ class PermutationInvariantTrainingModel(pt.Model):
 
         h_data = self.dropout_linear(h.data)
         h_data = self.linear(h_data)
+        h_data = pt.sigmoid(h_data)
         h = PackedSequence(h_data, h.batch_sizes)
         h_data = self.output_activation(h.data)
         h_data = einops.rearrange(h_data, 'tb (k f) -> tb k f', k=self.K)
