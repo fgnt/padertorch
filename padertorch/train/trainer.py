@@ -110,10 +110,9 @@ class Trainer(Configurable):
         )
 
         self.storage_dir = Path(storage_dir).expanduser().absolute()
-        self.timer = ContextTimerDict()
+        self.reset_timer()
         self.iteration = 0
         self.epoch = 0
-        self.writer = SummaryWriter(str(self.storage_dir))
         if init_checkpoint is not None:
             self.load_checkpoint(
                 Path(init_checkpoint).expanduser().absolute(),
@@ -126,6 +125,9 @@ class Trainer(Configurable):
         self.max_step = max_step
 
         self.loss_weights = loss_weights
+
+    def reset_timer(self):
+        self.timer = ContextTimerDict()
 
     def test_run(self, train_iterator, validation_iterator):
         """
@@ -174,9 +176,6 @@ class Trainer(Configurable):
                             iteration=self.iteration, epoch=self.epoch
                     ) or self.iteration == 1:
                         self.save_checkpoint()
-
-                    if not hasattr(self, '_train_start_time'):
-                        self._train_start_time = self.timer.timestamp()
                     with self.timer['time_per_step']:
                         try:
                             with self.timer['time_per_data_loading']:
@@ -197,8 +196,11 @@ class Trainer(Configurable):
                             hook.post_function(
                                 self, example, model_output, review
                             )
+
         except StopTraining:
-            summary_hook.dump_summary(self.iteration, self.timer)
+            pass
+        finally:
+            summary_hook.dump_summary(self)
             self.save_checkpoint()
 
     def train_step(self, example):
@@ -218,19 +220,23 @@ class Trainer(Configurable):
     def validate(self, validation_iterator):
         train_end_time = self.timer.timestamp()
 
-        if hasattr(self, '_train_start_time'):
+        if hasattr(self, '_start_non_validation_time'):
             self.timer.timings['non_validation_time'].append(
-                train_end_time - self._train_start_time
+                train_end_time - self._start_non_validation_time
             )
 
         with self.timer['validation_time'], torch.no_grad():
             # Change model to eval mode (e.g. deactivate dropout)
             nested_op(lambda m: m.eval(), self.model)
-            for i, example in enumerate(validation_iterator):
-                example = pt.data.batch_to_device(
-                    example, self.use_cuda, self.gpu_device
-                )
-                yield self.validation_step(example)
+            try:
+                for i, example in enumerate(validation_iterator):
+                    example = pt.data.batch_to_device(
+                        example, self.use_cuda, self.gpu_device
+                    )
+                    yield self.validation_step(example)
+            finally:
+                nested_op(lambda m: m.train(), self.model)
+                self._start_non_validation_time = self.timer.timestamp()
 
     def validation_step(self, example):
         assert isinstance(self.model, torch.nn.Module), (
@@ -256,7 +262,7 @@ class Trainer(Configurable):
         if hooks is None:
             hooks = []
         hooks = pt.utils.to_list(hooks)
-        summary_hook = SummaryHook(self.summary_step)
+        summary_hook = SummaryHook(self.summary_step, self.validate_step)
         hooks.append(summary_hook)
         hooks.append(ValidationHook(self.validate_step, validation_iterator))
         hooks.append(StopTrainingHook(self.max_step))

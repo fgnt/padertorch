@@ -5,7 +5,8 @@ import torch
 from cached_property import cached_property
 from tensorboardX import SummaryWriter
 
-from padertorch.train.trigger import IntervalTrigger, EndTrigger
+import padertorch as pt
+from padertorch.train.trigger import IntervalTrigger, EndTrigger, OrTrigger
 
 __all__ = [
     'SummaryHook',
@@ -19,9 +20,23 @@ class BaseHook:
     def __init__(self, trigger_step=None):
         if trigger_step is not None:
             self.trigger = IntervalTrigger.new(trigger_step)
-        assert self.priority <= 50
 
-    def pre_function(self, trainer):
+    @property
+    def priority(self):
+        """
+        Summary 50
+        Print 40 NotImplemented
+        ProgressBar(TQDM) 30 NotImplemented
+        Validation / Checkpoint 20
+        End 10
+
+        End has to be the last one
+        Summary before Validation, clears timer information
+        Print and ProgressBar may access Summary
+        """
+        return 15
+
+    def pre_function(self, trainer: 'pt.Trainer'):
         """
         function is called before each iteration of the train iterator
         :param trainer:
@@ -29,7 +44,8 @@ class BaseHook:
         """
         pass
 
-    def post_function(self, trainer, example, model_output, review):
+    def post_function(self, trainer: 'pt.Trainer', example, model_output,
+                      review):
         """
         function is called after each train step
         :param trainer:
@@ -40,22 +56,32 @@ class BaseHook:
         """
         pass
 
-    @property
-    def priority(self):
-        return 0
-
 
 class SummaryHook(BaseHook):
-    def __init__(self, trigger_step, summary_prefix='training'):
-        super().__init__(trigger_step)
+    def __init__(self, trigger_step, validate_step=None,
+                 summary_prefix='training'):
+        super().__init__()
+
+        if validate_step is None:
+            super().__init__(trigger_step)
+        else:
+            super().__init__(OrTrigger(
+                IntervalTrigger.new(trigger_step),
+                IntervalTrigger.new(validate_step),
+            ))
         self.reset_summary()
         self.summary_prefix = summary_prefix
         self.storage_dir = None
+
+    @property
+    def priority(self):
+        return 50
 
     @cached_property
     def writer(self):
         return SummaryWriter(str(self.storage_dir),
                              filename_suffix=self.summary_prefix)
+
     @staticmethod
     def empty_summary_dict():
         return dict(
@@ -86,7 +112,9 @@ class SummaryHook(BaseHook):
         for key, image in review.get('images', dict()).items():
             self.summary['images'][key] = image  # snapshot
 
-    def dump_summary(self, iteration, timer):
+    def dump_summary(self, trainer):
+        iteration = trainer.iteration
+        timer = trainer.timer
         prefix = self.summary_prefix
         for key, loss in self.summary['losses'].items():
             self.writer.add_scalar(
@@ -135,49 +163,51 @@ class SummaryHook(BaseHook):
         for key, image in self.summary['images'].items():
             self.writer.add_image(f'{prefix}/{key}', image, iteration)
         self.reset_summary()
+        trainer.reset_timer()
 
-    def post_function(self, trainer, example, model_out, review):
+    def pre_function(self, trainer: 'pt.Trainer'):
+        if (
+                self.trigger(iteration=trainer.iteration, epoch=trainer.epoch)
+                or trainer.iteration == 1
+        ):
+            self.dump_summary(trainer)
+
+    def post_function(self, trainer: 'pt.Trainer', example, model_out, review):
         if self.storage_dir is None:
             self.storage_dir = trainer.storage_dir
         else:
             assert self.storage_dir == trainer.storage_dir
         self.update_summary(review)
-        if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch) \
-                or trainer.iteration == 1:
-            self.dump_summary(trainer.iteration, trainer.timer)
-
-    @property
-    def priority(self):
-        return 10
 
 
 class ValidationHook(SummaryHook):
     def __init__(self, trigger_step, iterator):
-        super().__init__(trigger_step, 'validation')
+        super().__init__(trigger_step, summary_prefix='validation')
         self.iterator = iterator
-
-    def pre_function(self, trainer):
-        if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
-            print('Starting Validation')
-            evaluation = trainer.validate(self.iterator)
-            [self.update_summary(review) for review in evaluation]
-            self.dump_summary(trainer.iteration, trainer.timer)
-            print('Finished Validation')
 
     @property
     def priority(self):
-        return 50
+        return 20
+
+    def pre_function(self, trainer: 'pt.Trainer'):
+        if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
+            assert len(trainer.timer.timings) == 0, trainer.timer
+            print('Starting Validation')
+            evaluation = trainer.validate(self.iterator)
+            [self.update_summary(review) for review in evaluation]
+            self.dump_summary(trainer)
+            assert len(trainer.timer.timings) == 0, trainer.timer
+            print('Finished Validation')
 
 
 class StopTrainingHook(BaseHook):
     def __init__(self, trigger_step):
         super().__init__()
         self.trigger = EndTrigger.new(trigger_step)
-        assert self.priority <= 50
 
     @property
     def priority(self):
-        return 40
+        return 10
 
     def pre_function(self, trainer):
         if self.trigger(trainer.iteration, trainer.epoch):

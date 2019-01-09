@@ -1,5 +1,10 @@
+import copy
 
-class IntervalTrigger:
+class Trigger:
+    pass
+
+
+class IntervalTrigger(Trigger):
     """
 
     https://www.cntk.ai/pythondocs/cntk.logging.progress_print.html
@@ -11,11 +16,8 @@ class IntervalTrigger:
 
     @classmethod
     def new(cls, interval_trigger):
-        if isinstance(interval_trigger, IntervalTrigger):
-            return cls(
-                interval_trigger.period,
-                interval_trigger.unit,
-            )
+        if isinstance(interval_trigger, Trigger):
+            return copy.deepcopy(interval_trigger)
         else:
             assert len(interval_trigger) == 2, interval_trigger
             return cls(
@@ -137,3 +139,29 @@ class EndTrigger(IntervalTrigger):
             return iteration >= self.period
         else:
             raise ValueError(self.unit, 'Expect epoch or iteration')
+
+
+class OrTrigger(Trigger):
+
+    def __init__(self, *triggers):
+        self.triggers = triggers
+
+    def __call__(self, iteration, epoch):
+        return any(
+            [t(iteration, epoch) for t in self.triggers]
+        )
+
+    def set_last(self, iteration, epoch):
+        for t in self.triggers:
+            t.set_last(
+                iteration=iteration,
+                epoch=epoch,
+            )
+
+
+
+class AndTrigger(OrTrigger):
+    def __call__(self, iteration, epoch):
+        return all(
+            t(iteration, epoch) for t in self.triggers
+        )
