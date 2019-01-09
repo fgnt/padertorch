@@ -169,6 +169,8 @@ class Trainer(Configurable):
 
         hooks, summary_hook = self.get_hooks(hooks, validation_iterator)
         # For training continue set the correct last value
+        for hook in hooks:
+            hook.trigger.set_last(self.iteration, self.epoch)
         self.checkpoint_trigger.set_last(self.iteration, self.epoch)
 
         # ================ MAIN TRAINING LOOP! ===================
