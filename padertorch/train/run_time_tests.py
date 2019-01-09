@@ -105,7 +105,7 @@ def test_run(trainer, train_iterator, validation_iterator):
 
         assert optimizer_step.call_count == 4, optimizer_step.call_count
         assert save_checkpoint.call_count == 3, save_checkpoint.call_count
-        assert dump_summary.call_count == 6, add_summary.call_count
+        assert dump_summary.call_count == 6, dump_summary.call_count
         assert validate_mock.call_count == 2, validate_mock.call_count
         assert review_mock.call_count == 8, review_mock.call_count
 
@@ -144,7 +144,8 @@ def test_run(trainer, train_iterator, validation_iterator):
 
         assert 'losses' in dt1['review'], dt1['review']
         
-        if 0 != len(set(dt1['review'].keys()) - set(trainer.summary.keys())):
+        if 0 != len(set(dt1['review'].keys()) - set(
+                pt.trainer.SummaryHook.empty_summary_dict().keys())):
             got = set(dt1['review'].keys())
             allowed = set(trainer.summary.keys())
             raise ValueError(
@@ -152,8 +153,6 @@ def test_run(trainer, train_iterator, validation_iterator):
                 f'Allowed: {allowed}\n'
                 f'Delta: {got - allowed}'
             )
-
-        trainer.reset_summary()
 
     print('Successfully finished test run')
 

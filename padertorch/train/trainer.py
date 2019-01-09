@@ -1,6 +1,5 @@
 import contextlib
 import itertools
-import operator
 import os
 import time
 from collections import defaultdict
@@ -11,7 +10,7 @@ import numpy as np
 import padertorch as pt
 import torch
 from padertorch.configurable import Configurable
-from paderbox.utils.nested import flatten, nested_op
+from paderbox.utils.nested import flatten, nested_op, nested_update
 from padertorch.train.optimizer import Optimizer, Adam
 from padertorch.train.run_time_tests import test_run
 from padertorch.train.hooks import *
@@ -111,7 +110,7 @@ class Trainer(Configurable):
         )
 
         self.storage_dir = Path(storage_dir).expanduser().absolute()
-        self.reset_summary()
+        self.timer = ContextTimerDict()
         self.iteration = 0
         self.epoch = 0
         self.writer = SummaryWriter(str(self.storage_dir))
@@ -127,17 +126,6 @@ class Trainer(Configurable):
         self.max_step = max_step
 
         self.loss_weights = loss_weights
-
-    def reset_summary(self):
-        # Todo: add figures
-        self.summary = dict(
-            losses=defaultdict(list),
-            scalars=defaultdict(list),
-            histograms=defaultdict(list),
-            audios=dict(),
-            images=dict()
-        )
-        self.timer = ContextTimerDict()
 
     def test_run(self, train_iterator, validation_iterator):
         """
@@ -222,8 +210,9 @@ class Trainer(Configurable):
         model_out = self.model(example)
         review = self.model.review(example, model_out)
         self.backward(review)
-        self.clip_grad()
+        grad_summary = self.clip_grad()
         self.optimizer.step()
+        nested_update(review, grad_summary)
         return model_out, review
 
     def validate(self, validation_iterator):
@@ -286,24 +275,24 @@ class Trainer(Configurable):
             if opti is not None else 0.,
             self.model, self.optimizer
         )
+        summary = dict(scalars=dict(), histograms=dict())
         if isinstance(grad_norm, dict):
             for key, value in flatten(grad_norm).items():
-                self.summary['scalars'][f'{prefix_}grad_norm_{key}'].append(
-                    value)
+                summary['scalars'][f'{prefix_}grad_norm_{key}'] = value
                 # underscore was necessary to obtain unique keys to prevent
                 # tensorboard error
-                self.summary['histograms'][
-                    f'{prefix_}grad_norm_{key}_'].append(value)
+                summary['histograms'][
+                    f'{prefix_}grad_norm_{key}_']= torch.Tensor([value])
         if isinstance(grad_norm, (list, tuple)):
             for i, value in enumerate(grad_norm):
-                self.summary['scalars'][f'{prefix_}grad_norm_{i}'].append(
-                    value)
-                self.summary['histograms'][f'{prefix_}grad_norm_{i}_'].append(
-                    value)
+                summary['scalars'][f'{prefix_}grad_norm_{i}'] = value
+                summary['histograms'][f'{prefix_}grad_norm_{i}_'] = \
+                    torch.Tensor([value])
         else:
-            self.summary['scalars'][f'{prefix_}grad_norm'].append(grad_norm)
-            self.summary['histograms'][f'{prefix_}grad_norm_'].append(
-                grad_norm)
+            summary['scalars'][f'{prefix_}grad_norm'] = grad_norm
+            summary['histograms'][f'{prefix_}grad_norm_'] = \
+                torch.Tensor([grad_norm])
+        return summary
 
     def save_checkpoint(self):
         checkpoint_path = str(

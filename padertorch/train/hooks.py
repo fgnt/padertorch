@@ -56,16 +56,19 @@ class SummaryHook(BaseHook):
     def writer(self):
         return SummaryWriter(str(self.storage_dir),
                              filename_suffix=self.summary_prefix)
-
-    def reset_summary(self):
-        # Todo: add figures
-        self.summary = dict(
+    @staticmethod
+    def empty_summary_dict():
+        return dict(
             losses=defaultdict(list),
             scalars=defaultdict(list),
             histograms=defaultdict(list),
             audios=dict(),
             images=dict()
         )
+
+    def reset_summary(self):
+        # Todo: add figures
+        self.summary = self.empty_summary_dict()
 
     def update_summary(self, review):
         for key, loss in review.get('losses', dict()).items():
