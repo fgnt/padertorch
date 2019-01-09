@@ -30,9 +30,9 @@ def test_run(trainer, train_iterator, validation_iterator):
             'save_checkpoint',
             new_callable=mock.MagicMock,
         ))
-        add_summary = exit_stack.enter_context(mock.patch.object(
-            pt.Trainer,
-            'add_summary',
+        dump_summary = exit_stack.enter_context(mock.patch.object(
+            pt.trainer.SummaryHook,
+            'dump_summary',
             new_callable=mock.MagicMock,
         ))
         optimizer_step = exit_stack.enter_context(mock.patch.object(
@@ -41,23 +41,23 @@ def test_run(trainer, train_iterator, validation_iterator):
         ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
-            'summary_trigger',
-            new=pt.train.trainer.IntervalTrigger(1, 'epoch'),
+            'summary_step',
+            new=(1, 'epoch'),
         ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
-            'validation_trigger',
-            new=pt.train.trainer.IntervalTrigger(1, 'epoch'),
+            'validate_step',
+            new=(1, 'epoch'),
         ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
             'checkpoint_trigger',
-            new=pt.train.trainer.IntervalTrigger(1, 'epoch'),
+            new=pt.train.trigger.IntervalTrigger(1, 'epoch'),
         ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
             'max_iterations',
-            new=pt.train.trainer.EndTrigger(2, 'epoch'),
+            new=pt.train.trigger.EndTrigger(2, 'epoch'),
         ))
         exit_stack.enter_context(mock.patch.object(
             os,
@@ -91,6 +91,13 @@ def test_run(trainer, train_iterator, validation_iterator):
             new_callable=SpyMagicMock,
         ))
 
+        validate_mock = exit_stack.enter_context(mock.patch.object(
+            trainer,
+            'validate',
+            wraps=trainer.validate,
+            new_callable=SpyMagicMock,
+        ))
+
         trainer.train(
             list(itertools.islice(train_iterator, 2)),
             list(itertools.islice(validation_iterator, 2)),
@@ -98,11 +105,12 @@ def test_run(trainer, train_iterator, validation_iterator):
 
         assert optimizer_step.call_count == 4, optimizer_step.call_count
         assert save_checkpoint.call_count == 3, save_checkpoint.call_count
-        assert add_summary.call_count == 7, add_summary.call_count
+        assert dump_summary.call_count == 6, add_summary.call_count
+        assert validate_mock.call_count == 2, validate_mock.call_count
         assert review_mock.call_count == 8, review_mock.call_count
 
         save_checkpoint.assert_called()
-        add_summary.assert_called()
+        dump_summary.assert_called()
 
         def review_mock_to_inputs_output_review(review_mock):
             sig = inspect.signature(review_mock._mock_wraps)
@@ -164,9 +172,9 @@ def test_run_from_config(
         t = pt.Trainer.from_config(trainer_config)
 
         files_before = tuple(tmp_dir.glob('*'))
-        if len(files_before) != 1:
-            # One event file
-            raise Exception(files_before)
+        # if len(files_before) != 1:
+        #     # One event file
+        #     raise Exception(files_before)
 
         t.test_run(train_iterator, validation_iterator)
 
