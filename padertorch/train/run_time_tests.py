@@ -11,7 +11,7 @@ import numpy as np
 
 import paderbox as pb
 import padertorch as pt
-
+import tensorboardX
 
 def test_run(trainer, train_iterator, validation_iterator):
     """
@@ -31,8 +31,8 @@ def test_run(trainer, train_iterator, validation_iterator):
             new_callable=mock.MagicMock,
         ))
         dump_summary = exit_stack.enter_context(mock.patch.object(
-            pt.trainer.SummaryHook,
-            'dump_summary',
+            pt.train.hooks.SummaryHook,
+            'writer',
             new_callable=mock.MagicMock,
         ))
         optimizer_step = exit_stack.enter_context(mock.patch.object(
@@ -105,12 +105,11 @@ def test_run(trainer, train_iterator, validation_iterator):
 
         assert optimizer_step.call_count == 4, optimizer_step.call_count
         assert save_checkpoint.call_count == 3, save_checkpoint.call_count
-        assert dump_summary.call_count == 6, dump_summary.call_count
+        assert dump_summary.add_scalar.call_count >= 8, dump_summary.add_scalar.call_count
         assert validate_mock.call_count == 2, validate_mock.call_count
         assert review_mock.call_count == 8, review_mock.call_count
 
         save_checkpoint.assert_called()
-        dump_summary.assert_called()
 
         def review_mock_to_inputs_output_review(review_mock):
             sig = inspect.signature(review_mock._mock_wraps)
@@ -171,9 +170,9 @@ def test_run_from_config(
         t = pt.Trainer.from_config(trainer_config)
 
         files_before = tuple(tmp_dir.glob('*'))
-        # if len(files_before) != 1:
-        #     # One event file
-        #     raise Exception(files_before)
+        if len(files_before) != 0:
+            # no event file
+            raise Exception(files_before)
 
         t.test_run(train_iterator, validation_iterator)
 

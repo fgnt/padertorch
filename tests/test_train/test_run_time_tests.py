@@ -89,9 +89,9 @@ def test_2():
         )
 
         files_before = tuple(tmp_dir.glob('*'))
-        # if len(files_before) != 1:
-        #     # One event file
-        #     raise Exception(files_before)
+        if len(files_before) != 0:
+            # no event files
+            raise Exception(files_before)
 
         t.test_run(it_tr, it_dt)
 
