@@ -179,7 +179,7 @@ class StopTrainingHook(BaseHook):
     def pre_function(self, trainer):
         if self.trigger(trainer.iteration, trainer.epoch):
             print(f'Training ended after {trainer.epoch} epochs and'
-                  f'{trainer.iteration} iterations')
+                  f' {trainer.iteration} iterations')
             raise StopTraining
 
 
