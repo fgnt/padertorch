@@ -17,7 +17,7 @@ from padertorch.train.run_time_tests import test_run
 from padertorch.train.hooks import *
 from tensorboardX import SummaryWriter
 
-from padertorch.train.trigger import EndTrigger, IntervalTrigger
+from padertorch.train.trigger import IntervalTrigger
 
 __all__ = [
     'Trainer',
@@ -87,9 +87,8 @@ class Trainer(Configurable):
             summary_step=(1, 'epoch'),
             checkpoint_step=(1, 'epoch'),
             validate_step=(1, 'epoch'),
+            max_step=(1, 'epoch'),
             gpu=0 if torch.cuda.is_available() else None,
-            max_epochs=None,
-            max_iterations=None,
             init_checkpoint=None,
             seed=0,
     ):
@@ -121,20 +120,11 @@ class Trainer(Configurable):
                 Path(init_checkpoint).expanduser().absolute(),
             )
         self.seed = seed
-        assert operator.xor(
-            max_iterations is None,
-            max_epochs is None,
-        ), (max_iterations, max_epochs)
-        if max_iterations is not None:
-            self.max_iterations = EndTrigger(max_iterations, unit='iteration')
-        elif max_epochs is not None:
-            self.max_iterations = EndTrigger(max_epochs, unit='epoch')
-        else:
-            raise Exception(max_epochs, max_iterations)
 
         self.summary_step = summary_step
         self.checkpoint_trigger = IntervalTrigger.new(checkpoint_step)
         self.validate_step = validate_step
+        self.max_step = max_step
 
         self.loss_weights = loss_weights
 
@@ -176,13 +166,8 @@ class Trainer(Configurable):
 
         # Change model to train mode (e.g. activate dropout)
         nested_op(lambda m: m.train(), self.model)
-        if hooks is None:
-            hooks = []
-        hooks = pt.utils.to_list(hooks)
-        summary_hook = SummaryHook(self.summary_step)
-        hooks.append(summary_hook)
-        hooks.append(ValidationHook(self.validate_step, validation_iterator))
-        hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
+
+        hooks, summary_hook = self.get_hooks(hooks, validation_iterator)
         # For training continue set the correct last value
         self.checkpoint_trigger.set_last(self.iteration, self.epoch)
 
@@ -195,10 +180,6 @@ class Trainer(Configurable):
                     # "max_iterations".
                     for hook in hooks:
                         hook.pre_function(self)
-                    if self.max_iterations(
-                            iteration=self.iteration, epoch=self.epoch
-                    ):
-                        return
                     if self.checkpoint_trigger(
                             iteration=self.iteration, epoch=self.epoch
                     ) or self.iteration == 1:
@@ -226,8 +207,7 @@ class Trainer(Configurable):
                             hook.post_function(
                                 self, example, model_output, review
                             )
-
-        finally:
+        except StopTraining:
             summary_hook.dump_summary(self.iteration, self.timer)
             self.save_checkpoint()
 
@@ -245,7 +225,6 @@ class Trainer(Configurable):
         return model_out, review
 
     def validate(self, validation_iterator):
-
         train_end_time = self.timer.timestamp()
 
         if hasattr(self, '_train_start_time'):
@@ -281,6 +260,17 @@ class Trainer(Configurable):
             weight = loss_weights[key] if loss_weights is not None else 1.
             loss += weight * value
         loss.backward(retain_graph=retain_graph)
+
+    def get_hooks(self, hooks, validation_iterator):
+        if hooks is None:
+            hooks = []
+        hooks = pt.utils.to_list(hooks)
+        summary_hook = SummaryHook(self.summary_step)
+        hooks.append(summary_hook)
+        hooks.append(ValidationHook(self.validate_step, validation_iterator))
+        hooks.append(StopTrainingHook(self.max_step))
+        hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
+        return hooks, summary_hook
 
     def clip_grad(self, prefix: str = None):
         # Todo: report clipped and unclipped

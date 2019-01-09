@@ -56,8 +56,8 @@ def test_run(trainer, train_iterator, validation_iterator):
         ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
-            'max_iterations',
-            new=pt.train.trigger.EndTrigger(2, 'epoch'),
+            'max_step',
+            new=(2, 'epoch'),
         ))
         exit_stack.enter_context(mock.patch.object(
             os,

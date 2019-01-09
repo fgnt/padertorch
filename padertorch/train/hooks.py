@@ -1,19 +1,24 @@
-import padertorch as pt
-from paderbox.utils.nested import nested_op
 from collections import defaultdict
-from padertorch.train.trigger import IntervalTrigger
-from tensorboardX import SummaryWriter
+
 import numpy as np
 import torch
 from cached_property import cached_property
+from tensorboardX import SummaryWriter
+
+from padertorch.train.trigger import IntervalTrigger, EndTrigger
 
 __all__ = [
     'SummaryHook',
     'ValidationHook',
+    'StopTrainingHook',
+    'StopTraining'
 ]
+
+
 class BaseHook:
-    def __init__(self, trigger_step):
-        self.trigger = IntervalTrigger.new(trigger_step)
+    def __init__(self, trigger_step=None):
+        if trigger_step is not None:
+            self.trigger = IntervalTrigger.new(trigger_step)
         assert self.priority <= 50
 
     def pre_function(self, trainer):
@@ -39,13 +44,13 @@ class BaseHook:
     def priority(self):
         return 0
 
+
 class SummaryHook(BaseHook):
     def __init__(self, trigger_step, summary_prefix='training'):
         super().__init__(trigger_step)
         self.reset_summary()
         self.summary_prefix = summary_prefix
         self.storage_dir = None
-
 
     @cached_property
     def writer(self):
@@ -134,14 +139,13 @@ class SummaryHook(BaseHook):
         else:
             assert self.storage_dir == trainer.storage_dir
         self.update_summary(review)
-        if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch)\
+        if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch) \
                 or trainer.iteration == 1:
             self.dump_summary(trainer.iteration, trainer.timer)
 
     @property
     def priority(self):
         return 10
-
 
 
 class ValidationHook(SummaryHook):
@@ -159,4 +163,25 @@ class ValidationHook(SummaryHook):
 
     @property
     def priority(self):
+        return 50
+
+
+class StopTrainingHook(BaseHook):
+    def __init__(self, trigger_step):
+        super().__init__()
+        self.trigger = EndTrigger.new(trigger_step)
+        assert self.priority <= 50
+
+    @property
+    def priority(self):
         return 40
+
+    def pre_function(self, trainer):
+        if self.trigger(trainer.iteration, trainer.epoch):
+            print(f'Training ended after {trainer.epoch} epochs and'
+                  f'{trainer.iteration} iterations')
+            raise StopTraining
+
+
+class StopTraining(Exception):
+    pass
