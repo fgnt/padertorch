@@ -67,7 +67,7 @@ def test_1():
         updates=pb.utils.nested.deflatten({
             'model.cls': Model,
             'storage_dir': None,  # will be overwritten
-            'max_step': (10, 'epoch')
+            'max_trigger': (10, 'epoch')
         })
     )
 
@@ -85,7 +85,7 @@ def test_2():
         tmp_dir = Path(tmp_dir)
         t = pt.Trainer(
             model, optimizer=pt.optimizer.Adam(),
-            storage_dir=tmp_dir, max_step=(2., 'epoch')
+            storage_dir=tmp_dir, max_trigger=(2., 'epoch')
         )
 
         files_before = tuple(tmp_dir.glob('*'))
