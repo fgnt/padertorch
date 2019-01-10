@@ -313,35 +313,41 @@ class LabelEncoder(object):
         self.label2idx = {label: i for i, label in enumerate(labels)}
         self.idx2label = {i: label for label, i in self.label2idx.items()}
 
+    def encode(self, labels):
+        def encode_label(label):
+            if self.input_mapping is not None:
+                label = self.input_mapping[label]
+            return self.label2idx[label]
+        return nested_op(encode_label, labels)
+
     def __call__(self, example):
-        raise NotImplementedError
-
-    def invert(self, labels):
-        raise NotImplementedError
-
-    def _read_labels_from_iterator(self, iterator):
-        labels = set()
-        for example in iterator:
-            entry = example[self.key]
-            if isinstance(entry, (str, int)):
-                labels.add(entry)
-            elif isinstance(entry, (list, tuple)):
-                if isinstance(entry[0], (list, tuple)):
-                    entry = [element[0] for element in entry]
-                labels.update(entry)
-        return sorted(labels)
-
-
-class SequenceLabelEncoder(LabelEncoder):
-    def __call__(self, example):
-        label = example[self.key]
-        if self.input_mapping is not None:
-            label = self.input_mapping[label]
-        example[self.key] = self.label2idx[label]
+        example[self.key] = self.encode(example[self.key])
         return example
 
-    def invert(self, label):
-        return self.idx2label[label]
+    def decode(self, labels):
+        def decode_label(idx):
+            return self.idx2label[idx]
+        return nested_op(decode_label, labels)
+
+    def _read_labels_from_iterator(self, iterator):
+        def _read_labels(val_or_nested):
+            labels = set()
+            if isinstance(val_or_nested, (str, int)):
+                labels.add(val_or_nested)
+            elif isinstance(val_or_nested, (list, tuple)):
+                for val_or_nested_ in val_or_nested:
+                    labels.update(_read_labels(val_or_nested_))
+            elif isinstance(val_or_nested, dict):
+                for val_or_nested_ in val_or_nested.values():
+                    labels.update(_read_labels(val_or_nested_))
+            else:
+                raise ValueError
+            return labels
+
+        labels = set()
+        for example in iterator:
+            labels.update(_read_labels(example[self.key]))
+        return sorted(labels)
 
 
 class GlobalNormalize(Configurable):
