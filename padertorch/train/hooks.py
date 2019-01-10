@@ -1,25 +1,32 @@
 from collections import defaultdict
 
+import sys
 import numpy as np
 import torch
 from cached_property import cached_property
 from tensorboardX import SummaryWriter
 
+import datetime
 import padertorch as pt
 from padertorch.train.trigger import IntervalTrigger, EndTrigger, OrTrigger
 
 __all__ = [
     'SummaryHook',
     'ValidationHook',
+    # 'ProgressBarHook',
     'StopTrainingHook',
     'StopTraining'
 ]
 
 
 class BaseHook:
-    def __init__(self, trigger_step=None):
-        if trigger_step is not None:
-            self.trigger = IntervalTrigger.new(trigger_step)
+    def __init__(self, trigger=None):
+        """
+        :param trigger: Length of step between occurences or Trigger.
+            It consists of an integer and either 'epoch' or 'iteration'
+        """
+        if trigger is not None:
+            self.trigger = IntervalTrigger.new(trigger)
 
     @property
     def priority(self):
@@ -36,7 +43,7 @@ class BaseHook:
         """
         return 15
 
-    def pre_function(self, trainer: 'pt.Trainer'):
+    def pre_step(self, trainer: 'pt.Trainer'):
         """
         function is called before each iteration of the train iterator
         :param trainer:
@@ -44,7 +51,7 @@ class BaseHook:
         """
         pass
 
-    def post_function(self, trainer: 'pt.Trainer', example, model_output,
+    def post_step(self, trainer: 'pt.Trainer', example, model_output,
                       review):
         """
         function is called after each train step
@@ -54,6 +61,9 @@ class BaseHook:
         :param review:
         :return:
         """
+        pass
+
+    def close(self, trainer: 'pt.Trainer'):
         pass
 
 
@@ -165,19 +175,22 @@ class SummaryHook(BaseHook):
         self.reset_summary()
         trainer.reset_timer()
 
-    def pre_function(self, trainer: 'pt.Trainer'):
+    def pre_step(self, trainer: 'pt.Trainer'):
         if (
                 self.trigger(iteration=trainer.iteration, epoch=trainer.epoch)
                 or trainer.iteration == 1
         ):
             self.dump_summary(trainer)
 
-    def post_function(self, trainer: 'pt.Trainer', example, model_out, review):
+    def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
         if self.storage_dir is None:
             self.storage_dir = trainer.storage_dir
         else:
             assert self.storage_dir == trainer.storage_dir
         self.update_summary(review)
+
+    def close(self, trainer: 'pt.Trainer'):
+        self.dump_summary(trainer)
 
 
 class ValidationHook(SummaryHook):
@@ -189,7 +202,7 @@ class ValidationHook(SummaryHook):
     def priority(self):
         return 20
 
-    def pre_function(self, trainer: 'pt.Trainer'):
+    def pre_step(self, trainer: 'pt.Trainer'):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
             assert len(trainer.timer.timings) == 0, trainer.timer
             print('Starting Validation')
@@ -198,6 +211,59 @@ class ValidationHook(SummaryHook):
             self.dump_summary(trainer)
             assert len(trainer.timer.timings) == 0, trainer.timer
             print('Finished Validation')
+
+# class ProgressBarHook(BaseHook):
+#     def __init__(self, max_step, max_iteration=None,
+#                  update_intervall=10, bar_length=100, disable=False):
+#         """
+#         :param max_step:
+#         :param max_iteration: has to be defined if max_steps unit is session
+#             integer with the length of the iterator
+#         :param update_interval (int): Number of iterations to skip printing the
+#             progress bar.
+#         :param bar_length (int): Length of the progress bar in characters.
+#         :param disable: bool use to disable the entire progressbar wrapper
+#         """
+#         from tqdm import tqdm
+#         super().__init__((update_intervall, 'iteration'))
+#         self.update_intervall = update_intervall
+#         self.end_trigger = EndTrigger.new(max_step)
+#         length, unit = max_step
+#         self.unit = unit
+#         if unit == 'epoch':
+#             self.ep_pbar = tqdm(total=max_step[0], ncols=bar_length,
+#                                 disable=disable)
+#             if max_iteration is not None:
+#                 self.it_pbar = tqdm(total=max_iteration, ncols=bar_length)
+#             self.ep_trigger = IntervalTrigger(1, 'epoch')
+#         elif unit == 'iteration':
+#             self.it_pbar = tqdm(total=max_step[0], ncols=bar_length)
+#         else:
+#             raise ValueError(f'Unknown unit {unit}')
+#
+#     def update_timer(self, iteration, epoch):
+#         self.end_trigger.set_last(iteration, epoch)
+#         self.it_pbar.pos = iteration
+#         if self.unit == 'epoch':
+#             self.ep_pbar.pos = epoch
+#             self.ep_trigger.set_last(iteration, epoch)
+#
+#     def post_step(self, trainer: 'pt.Trainer', example,
+#                       model_output, review):
+#         iteration = trainer.iteration
+#         epoch = trainer.epoch
+#         if self.trigger(iteration, epoch):
+#             self.it_pbar.update(self.update_intervall)
+#             if self.unit == 'session' and self.ep_trigger(iteration, epoch):
+#                 self.ep_pbar.update()
+#         if self.end_trigger(iteration, epoch):
+#             self.it_pbar.close()
+#             self.ep_pbar.close()
+#
+#
+#     @property
+#     def priority(self):
+#         return 13
 
 
 class StopTrainingHook(BaseHook):
@@ -209,7 +275,7 @@ class StopTrainingHook(BaseHook):
     def priority(self):
         return 10
 
-    def pre_function(self, trainer):
+    def pre_step(self, trainer):
         if self.trigger(trainer.iteration, trainer.epoch):
             print(f'Training ended after {trainer.epoch} epochs and'
                   f' {trainer.iteration} iterations')
