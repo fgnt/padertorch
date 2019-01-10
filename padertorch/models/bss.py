@@ -46,7 +46,6 @@ class PermutationInvariantTrainingModel(pt.Model):
             dropout_hidden: Vertical forget ratio dropout between each
                 recurrent layer
             dropout_linear: Dropout forget ratio before first linear layer
-            output_activation:
         """
         super().__init__()
 
@@ -97,9 +96,9 @@ class PermutationInvariantTrainingModel(pt.Model):
 
         h_data = self.dropout_linear(h.data)
         h_data = self.linear1(h_data)
-        h_data = pt.clamp(h_data, min=0)
+        h_data = pt.relu(h_data)
         h_data = self.linear2(h_data)
-        h_data = pt.clamp(h_data, min=0)
+        h_data = pt.relu(h_data)
         h = PackedSequence(h_data, h.batch_sizes)
 
         mask = PackedSequence(
