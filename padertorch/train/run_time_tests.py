@@ -6,7 +6,6 @@ import itertools
 import contextlib
 from pathlib import Path
 from unittest import mock
-import json
 
 import numpy as np
 
@@ -97,9 +96,9 @@ def test_run(trainer, train_iterator, validation_iterator):
             wraps=trainer.validate,
             new_callable=SpyMagicMock,
         ))
-        get_hooks_mock = exit_stack.enter_context(mock.patch.object(
+        get_default_hooks_mock = exit_stack.enter_context(mock.patch.object(
             trainer,
-            'get_hooks',
+            'get_default_hooks',
             wraps=trainer.get_default_hooks,
             new_callable=SpyMagicMock,
         ))
@@ -114,7 +113,7 @@ def test_run(trainer, train_iterator, validation_iterator):
         assert dump_summary.add_scalar.call_count >= 8, dump_summary.add_scalar.call_count
         assert validate_mock.call_count == 2, validate_mock.call_count
         assert review_mock.call_count == 8, review_mock.call_count
-        assert get_hooks_mock.call_count == 1, get_hooks_mock.call_count
+        assert get_default_hooks_mock.call_count == 1, get_default_hooks_mock.call_count
 
         save_checkpoint.assert_called()
 
@@ -163,12 +162,14 @@ def test_run(trainer, train_iterator, validation_iterator):
                 f'Delta: {got - allowed}'
             )
 
-        hooks, = get_hooks_mock.spyed_return_values[0]
+
+        hooks, = get_default_hooks_mock.spyed_return_values[0]
         for hook in hooks:
             summary = getattr(hook, 'summary', {})
             assert all([
                 len(s) == 0 for s in summary.values()
             ]), (hook, summary)
+
     print('Successfully finished test run')
 
 
