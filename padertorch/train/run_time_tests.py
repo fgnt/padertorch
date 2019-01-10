@@ -134,7 +134,11 @@ def test_run(trainer, train_iterator, validation_iterator):
             def assert_func(array1, array2):
                 array1 = pt.utils.to_numpy(array1)
                 array2 = pt.utils.to_numpy(array2)
-                np.testing.assert_allclose(array1, array2)
+                np.testing.assert_allclose(
+                    array1, array2,
+                    rtol=1e-5,
+                    atol=1e-5,
+                )
 
             pb.utils.nested.nested_op(
                 assert_func,
@@ -159,10 +163,12 @@ def test_run(trainer, train_iterator, validation_iterator):
                 f'Delta: {got - allowed}'
             )
 
-        summary = get_hooks_mock.spyed_return_values[0][1].summary
-        assert all([
-               len(s) == 0 for s in summary.values()
-            ])
+        hooks, = get_hooks_mock.spyed_return_values[0]
+        for hook in hooks:
+            summary = getattr(hook, 'summary', {})
+            assert all([
+                len(s) == 0 for s in summary.values()
+            ]), (hook, summary)
     print('Successfully finished test run')
 
 
