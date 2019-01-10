@@ -173,7 +173,6 @@ class Trainer(Configurable):
                     # Because of last validation, validation must be before
                     # "max_iterations".
                     for hook in hooks:
-                        print(type(hook), '176')
                         hook.pre_step(self)
                     if self.checkpoint_trigger(
                             iteration=self.iteration, epoch=self.epoch
