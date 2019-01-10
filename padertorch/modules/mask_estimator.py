@@ -39,13 +39,12 @@ class MaskEstimator(pt.Module):
         default_dict = super().get_signature()
         num_features = 513
         default_dict['recurrent'] = {
-            'kwargs': dict(input_size=num_features,
-                           output_states=True),
+            'kwargs': dict(input_size=num_features),
             'cls': LSTM,
             LSTM: dict()
         }
         default_dict['fully_connected'] = {
-            'kwargs': dict(input_size=512, hiden_size=[1024]*3,
+            'kwargs': dict(input_size=512, hidden_size=[1024]*3,
                            output_size=num_features*2),
             'cls': fully_connected_stack,
             fully_connected_stack: dict()
@@ -66,7 +65,7 @@ class MaskEstimator(pt.Module):
     ):
         super().get_config(updates=updates, out_config=out_config)
         num_features = out_config['kwargs']['num_features']
-        recu_in = out_config['kwargs']['recurrent']['kwargs']['num_features']
+        recu_in = out_config['kwargs']['recurrent']['kwargs']['input_size']
         assert recu_in == num_features, (recu_in, num_features)
         fc = out_config['kwargs']['fully_connected']['kwargs']['output_size']
         assert fc == 2*num_features, (fc, num_features)
@@ -74,12 +73,13 @@ class MaskEstimator(pt.Module):
         assert n_in == num_features, (n_in, num_features)
         return out_config
 
-    def __init__(self, fully_connected, normalization, recurrent,
+    def __init__(self, fully_connected, normalization, recurrent:LSTM,
                  num_features=513,
                  use_log: bool = False,
                  use_powerspectrum: bool = False,
                  separate_masks: bool = True,
-                 output_activation: str = 'sigmoid'
+                 output_activation: str = 'sigmoid',
+                 fix_states: bool = False
                  ):
         super().__init__()
         self.fully_connected = fully_connected
@@ -93,6 +93,7 @@ class MaskEstimator(pt.Module):
         self.use_powerspectrum = use_powerspectrum
         self.separate_masks = separate_masks
         self.output_activation = output_activation
+        self.fix_states = fix_states
 
     def forward(self, x):
         """
@@ -102,26 +103,25 @@ class MaskEstimator(pt.Module):
         if not isinstance(x, PackedSequence):
             # x = self.normalization(x)  # ToDo allow PackedSequence
             x = pack_sequence(x)
-        h, states = self.recurrent(x)
+        if not self.fix_states:
+            self.recurrent.reset_states(x)
+        h = self.recurrent(x)
         h = PackedSequence(self.fully_connected(h.data), h.batch_sizes)
-        out = PackedSequence(self.classifier(h.data), h.batch_sizes)
-        out = pad_packed_sequence(out)[0].permute(1, 0, 2)
+        out = pad_packed_sequence(h)[0].permute(1, 0, 2)
         target_logits = out[..., :self.num_features]
         if self.separate_masks:
             noise_logits = out[..., self.num_features:]
             return {
                 M_K.SPEECH_MASK_PRED: ACTIVATION_FN_MAP[
-                    self.output_activation](target_logits),
+                    self.output_activation]()(target_logits),
                 M_K.SPEECH_MASK_LOGITS: target_logits,
                 M_K.NOISE_MASK_PRED: ACTIVATION_FN_MAP[
-                    self.output_activation](noise_logits),
-                M_K.NOISE_MASK_LOGITS: noise_logits,
-                M_K.MASK_ESTIMATOR_STATE: states
+                    self.output_activation]()(noise_logits),
+                M_K.NOISE_MASK_LOGITS: noise_logits
             }
         else:
             return {
                 M_K.SPEECH_MASK_PRED: ACTIVATION_FN_MAP[
-                    self.output_activation](target_logits),
-                M_K.SPEECH_MASK_LOGITS: target_logits,
-                M_K.MASK_ESTIMATOR_STATE: states
+                    self.output_activation]()(target_logits),
+                M_K.SPEECH_MASK_LOGITS: target_logits
             }

@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from padertorch.data.utils import collate_fn
 from padertorch.modules.mask_estimator import MaskEstimator
 from padertorch.modules.mask_estimator import MaskKeys as M_K
-from padertorch.ops.mappings import POOLING_FN_MAP
+from padertorch.ops.mappings import TORCH_POOLING_FN_MAP
 from paderbox.database import keys as K
 
 class MaskLossKeys:
@@ -44,7 +44,7 @@ class MaskEstimatorModel(pt.Model):
         }
         return default_dict
 
-    def __init__(self, estimator, reduction: str = 'mean'):
+    def __init__(self, estimator, reduction: str = 'average'):
         super().__init__()
         self.estimator = estimator
         self.reduction = reduction
@@ -58,9 +58,13 @@ class MaskEstimatorModel(pt.Model):
         obs = batch[M_K.OBSERVATION_ABS]
         num_channels = obs[0].shape[0]
         if num_channels == 1:
+            num_frames = [tensor.shape[1] for tensor in obs]
             obs = pt.pack_sequence([tensor[0] for tensor in obs])
-            out = {key: [v.unsqueeze(0) for v in value]
-                   for key, value in self.estimator(obs).items()}
+            out = {
+                key: [v[:frames].unsqueeze(0)
+                      for v, frames in zip(value, num_frames)]
+                for key, value in self.estimator(obs).items()
+            }
         else:
             out = collate_fn([self.estimator(x) for x in obs])
         assert isinstance(out, dict)
@@ -101,10 +105,15 @@ class MaskEstimatorModel(pt.Model):
     # ToDo: add scalar review
 
     def add_audios(self, batch, output):
-        audio_dict = {
-            K.OBSERVATION: batch[K.OBSERVATION][0][0],
+        audio_dict = dict()
+        if K.OBSERVATION in batch:
+            audio_dict.update({
+            K.OBSERVATION: batch[K.OBSERVATION][0][0]
+        })
+        if K.SPEECH_IMAGE in batch:
+            audio_dict.update({
             K.SPEECH_IMAGE: batch[K.SPEECH_IMAGE][0][0]
-        }
+        })
         return audio_dict
 
     def add_losses(self, batch, output):
@@ -113,8 +122,11 @@ class MaskEstimatorModel(pt.Model):
         vad_loss = list()
         weighted_noise_loss = list()
         weighted_speech_loss = list()
-        for idx, observation_stft in enumerate(batch[M_K.OBSERVATION_STFT]):
-            power_weights = np.abs(observation_stft) ** 2
+        power_weights = None
+        for idx, observation_abs in enumerate(batch[M_K.OBSERVATION_ABS]):
+            if M_K.OBSERVATION_STFT in batch:
+                power_weights = np.abs(batch[M_K.OBSERVATION_STFT][idx]) ** 2
+                power_weights = observation_abs.new(power_weights)
             if M_K.SPEECH_MASK_TARGET in batch:
                 speech_mask_target = batch[M_K.SPEECH_MASK_TARGET][idx]
             else:
@@ -133,8 +145,6 @@ class MaskEstimatorModel(pt.Model):
             else:
                 speech_mask_logits = None
 
-            power_weights = batch[K.OBSERVATION][0].new(power_weights)
-
             def get_loss(target, logits):
                 return F.binary_cross_entropy_with_logits(
                     input=logits, target=target,
@@ -148,17 +158,19 @@ class MaskEstimatorModel(pt.Model):
             if noise_mask_target is not None and noise_mask_logits is not None:
                 sample_loss = get_loss(noise_mask_target, noise_mask_logits)
                 noise_loss.append(
-                    POOLING_FN_MAP[self.reduction](sample_loss))
-                weighted_noise_loss.append(
-                    weight_loss(sample_loss, power_weights))
+                    TORCH_POOLING_FN_MAP[self.reduction](sample_loss))
+                if power_weights is not None:
+                    weighted_noise_loss.append(
+                        weight_loss(sample_loss, power_weights))
             # Speech mask
             if speech_mask_target is not None\
                     and speech_mask_logits is not None:
                 sample_loss = get_loss(speech_mask_target, speech_mask_logits)
                 speech_loss.append(
-                    POOLING_FN_MAP[self.reduction](sample_loss))
-                weighted_speech_loss.append(
-                    weight_loss(sample_loss, power_weights))
+                    TORCH_POOLING_FN_MAP[self.reduction](sample_loss))
+                if power_weights is not None:
+                    weighted_speech_loss.append(
+                        weight_loss(sample_loss, power_weights))
             # VAD
             if M_K.VAD in batch and M_K.VAD in output:
                 vad_target = batch[M_K.VAD][idx]
@@ -174,19 +186,22 @@ class MaskEstimatorModel(pt.Model):
             noise_loss = sum(loss)
             loss.append(noise_loss)
             losses[MaskLossKeys.NOISE_MASK] = noise_loss
-            weighted_loss.append(sum(weighted_noise_loss))
+            if power_weights is not None:
+                weighted_loss.append(sum(weighted_noise_loss))
         if len(speech_loss) > 0:
             speech_loss = sum(speech_loss)
             loss.append(speech_loss)
             losses[MaskLossKeys.SPEECH_MASK] = speech_loss
-            weighted_loss.append(sum(weighted_speech_loss))
+            if power_weights is not None:
+                weighted_loss.append(sum(weighted_speech_loss))
         if len(vad_loss) > 0:
             losses[MaskLossKeys.VAD] = sum(vad_loss)
         if len(loss) > 0:
             loss = sum(loss)
-            weighted_loss = sum(weighted_loss)
+            if power_weights is not None:
+                weighted_loss = sum(weighted_loss)
+                losses[MaskLossKeys.WEIGHTED_MASK] = weighted_loss
             losses[MaskLossKeys.MASK] = loss
-            losses[MaskLossKeys.WEIGHTED_MASK] = weighted_loss
         return losses
 
 

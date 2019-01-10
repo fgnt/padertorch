@@ -11,8 +11,7 @@ class LSTM(Module):
             num_layers: int = 1,
             bidirectional: bool = False,
             dropout: bool = 0,
-            batch_first: bool = True,
-            output_states: bool = False
+            batch_first: bool = True
     ):
         super().__init__()
         self.lstm = torch.nn.LSTM(input_size=input_size,
@@ -25,7 +24,6 @@ class LSTM(Module):
         self.bidirectional = bidirectional
         self.num_layers = num_layers
         self.batch_first = batch_first
-        self.output_states = output_states
         self.states = None
 
     def reset_states(self, x):
@@ -49,9 +47,6 @@ class LSTM(Module):
     def forward(self, x):
         if self.states is None:
             self.reset_states(x)
-        h, states = self.lstm(x, self.states)
-        if self.output_states:
-            return h, states
-        else:
-            return h
+        h, _ = self.lstm(x, self.states)
+        return h
 
