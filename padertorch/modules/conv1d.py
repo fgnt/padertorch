@@ -198,6 +198,9 @@ class Conv1d(Module):
 
 
 class TCN(Module):
+    """
+    Temporal Convolutional Network
+    """
     def __init__(
             self, input_size=None, output_size=None, hidden_sizes=256,
             condition_size=0, depth=5, kernel_sizes=3, dilations=1, strides=1,
@@ -299,6 +302,9 @@ class MultiScaleConv1d(Module):
 
 
 class MSTCN(Module):
+    """
+    Multi-Scale Temporal Convolutional Network
+    """
     def __init__(
             self, input_size=None, output_size=None, hidden_sizes=256,
             condition_size=0, depth=5, kernel_sizes=3, n_scales=1,
