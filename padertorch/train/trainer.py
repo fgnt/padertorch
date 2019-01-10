@@ -14,7 +14,6 @@ from paderbox.utils.nested import flatten, nested_op, nested_update
 from padertorch.train.optimizer import Optimizer, Adam
 from padertorch.train.run_time_tests import test_run
 from padertorch.train.hooks import *
-from tensorboardX import SummaryWriter
 
 from padertorch.train.trigger import IntervalTrigger
 
@@ -158,9 +157,12 @@ class Trainer(Configurable):
         nested_op(lambda m: m.train(), self.model)
 
         hooks = self.get_default_hooks(hooks, validation_iterator)
+
         # For training continue set the correct last value
         for hook in hooks:
             hook.trigger.set_last(self.iteration, self.epoch)
+            if hasattr(hook, 'update_timer'):
+                hook.update_timer(self.iteration, self.epoch)
         self.checkpoint_trigger.set_last(self.iteration, self.epoch)
 
         # ================ MAIN TRAINING LOOP! ===================
@@ -171,6 +173,7 @@ class Trainer(Configurable):
                     # Because of last validation, validation must be before
                     # "max_iterations".
                     for hook in hooks:
+                        print(type(hook), '176')
                         hook.pre_step(self)
                     if self.checkpoint_trigger(
                             iteration=self.iteration, epoch=self.epoch
@@ -201,7 +204,7 @@ class Trainer(Configurable):
             pass
         finally:
             for hook in hooks:
-                hook.post_final_step(self)
+                hook.close(self)
             self.save_checkpoint()
 
     def train_step(self, example):
@@ -262,8 +265,13 @@ class Trainer(Configurable):
     def get_default_hooks(self, hooks, validation_iterator):
         if hooks is None:
             hooks = []
+        # if hasattr(train_iterator, '__len__'):
+        #     max_it_len = len(train_iterator)
+        # else:
+        #     max_it_len = None
         hooks = pt.utils.to_list(hooks)
         hooks.append(SummaryHook(self.summary_step, self.validate_step))
+        # hooks.append(ProgressBarHook(self.max_step, max_it_len))
         hooks.append(ValidationHook(self.validate_step, validation_iterator))
         hooks.append(StopTrainingHook(self.max_step))
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
