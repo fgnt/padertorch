@@ -100,7 +100,7 @@ def test_run(trainer, train_iterator, validation_iterator):
         get_hooks_mock = exit_stack.enter_context(mock.patch.object(
             trainer,
             'get_hooks',
-            wraps=trainer.get_hooks,
+            wraps=trainer.get_default_hooks,
             new_callable=SpyMagicMock,
         ))
 

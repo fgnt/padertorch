@@ -157,7 +157,7 @@ class Trainer(Configurable):
         # Change model to train mode (e.g. activate dropout)
         nested_op(lambda m: m.train(), self.model)
 
-        hooks, summary_hook = self.get_hooks(hooks, validation_iterator)
+        hooks = self.get_default_hooks(hooks, validation_iterator)
         # For training continue set the correct last value
         for hook in hooks:
             hook.trigger.set_last(self.iteration, self.epoch)
@@ -171,7 +171,7 @@ class Trainer(Configurable):
                     # Because of last validation, validation must be before
                     # "max_iterations".
                     for hook in hooks:
-                        hook.pre_function(self)
+                        hook.pre_step(self)
                     if self.checkpoint_trigger(
                             iteration=self.iteration, epoch=self.epoch
                     ) or self.iteration == 1:
@@ -193,14 +193,15 @@ class Trainer(Configurable):
                         with self.timer['time_per_train_step']:
                             model_output, review = self.train_step(example)
                         for hook in hooks:
-                            hook.post_function(
+                            hook.post_step(
                                 self, example, model_output, review
                             )
 
         except StopTraining:
             pass
         finally:
-            summary_hook.dump_summary(self)
+            for hook in hooks:
+                hook.post_final_step(self)
             self.save_checkpoint()
 
     def train_step(self, example):
@@ -258,16 +259,15 @@ class Trainer(Configurable):
             loss += weight * value
         loss.backward(retain_graph=retain_graph)
 
-    def get_hooks(self, hooks, validation_iterator):
+    def get_default_hooks(self, hooks, validation_iterator):
         if hooks is None:
             hooks = []
         hooks = pt.utils.to_list(hooks)
-        summary_hook = SummaryHook(self.summary_step, self.validate_step)
-        hooks.append(summary_hook)
+        hooks.append(SummaryHook(self.summary_step, self.validate_step))
         hooks.append(ValidationHook(self.validate_step, validation_iterator))
         hooks.append(StopTrainingHook(self.max_step))
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
-        return hooks, summary_hook
+        return hooks
 
     def clip_grad(self, prefix: str = None):
         # Todo: report clipped and unclipped
