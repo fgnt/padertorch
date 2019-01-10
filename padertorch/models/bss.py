@@ -137,8 +137,6 @@ class PermutationInvariantTrainingModel(pt.Model):
         }
 
 
-
-
 class DeepClusteringModel(pt.Model):
     def __init__(
             self,
