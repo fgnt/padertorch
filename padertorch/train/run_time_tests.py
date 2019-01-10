@@ -6,12 +6,12 @@ import itertools
 import contextlib
 from pathlib import Path
 from unittest import mock
+import json
 
 import numpy as np
 
 import paderbox as pb
 import padertorch as pt
-import tensorboardX
 
 def test_run(trainer, train_iterator, validation_iterator):
     """
@@ -97,6 +97,12 @@ def test_run(trainer, train_iterator, validation_iterator):
             wraps=trainer.validate,
             new_callable=SpyMagicMock,
         ))
+        get_hooks_mock = exit_stack.enter_context(mock.patch.object(
+            trainer,
+            'get_hooks',
+            wraps=trainer.get_hooks,
+            new_callable=SpyMagicMock,
+        ))
 
         trainer.train(
             list(itertools.islice(train_iterator, 2)),
@@ -108,6 +114,7 @@ def test_run(trainer, train_iterator, validation_iterator):
         assert dump_summary.add_scalar.call_count >= 8, dump_summary.add_scalar.call_count
         assert validate_mock.call_count == 2, validate_mock.call_count
         assert review_mock.call_count == 8, review_mock.call_count
+        assert get_hooks_mock.call_count == 1, get_hooks_mock.call_count
 
         save_checkpoint.assert_called()
 
@@ -123,7 +130,6 @@ def test_run(trainer, train_iterator, validation_iterator):
             review_mock_to_inputs_output_review(
                 review_mock
             )
-
         def nested_test_assert_allclose(struct1, struct2):
             def assert_func(array1, array2):
                 array1 = pt.utils.to_numpy(array1)
@@ -153,6 +159,10 @@ def test_run(trainer, train_iterator, validation_iterator):
                 f'Delta: {got - allowed}'
             )
 
+        summary = get_hooks_mock.spyed_return_values[0][1].summary
+        assert all([
+               len(s) == 0 for s in summary.values()
+            ])
     print('Successfully finished test run')
 
 
