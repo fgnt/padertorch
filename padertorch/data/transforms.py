@@ -376,7 +376,7 @@ class GlobalNormalize(Configurable):
         means, std = self.moments
         nested_update(
             example,
-            nested_op(lambda x, y, z: (x-y)/(z+1e-18), example_, means, std)
+            nested_op(lambda x, y, z: ((x-y)/(z+1e-18)).astype(np.float32), example_, means, std)
         )
         return example
 
