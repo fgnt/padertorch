@@ -27,6 +27,13 @@ POOLING_FN_MAP = Dispatcher(
     max=np.max,
 )
 
+TORCH_POOLING_FN_MAP = Dispatcher(
+    median=torch.median,
+    average=torch.mean,
+    min=torch.min,
+    max=torch.max,
+)
+
 DTYPE_MAP = Dispatcher(
     float32=np.float32,
     float64=np.float64,
