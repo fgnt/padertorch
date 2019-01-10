@@ -40,12 +40,12 @@ def test_run(trainer, train_iterator, validation_iterator):
         ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
-            'summary_step',
+            'summary_trigger',
             new=(1, 'epoch'),
         ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
-            'validate_step',
+            'validate_trigger',
             new=(1, 'epoch'),
         ))
         exit_stack.enter_context(mock.patch.object(

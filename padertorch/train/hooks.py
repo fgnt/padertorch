@@ -68,16 +68,16 @@ class BaseHook:
 
 
 class SummaryHook(BaseHook):
-    def __init__(self, trigger_step, validate_step=None,
+    def __init__(self, trigger, validate=None,
                  summary_prefix='training'):
         super().__init__()
 
-        if validate_step is None:
-            super().__init__(trigger_step)
+        if validate is None:
+            super().__init__(trigger)
         else:
             super().__init__(OrTrigger(
-                IntervalTrigger.new(trigger_step),
-                IntervalTrigger.new(validate_step),
+                IntervalTrigger.new(trigger),
+                IntervalTrigger.new(validate),
             ))
         self.reset_summary()
         self.summary_prefix = summary_prefix
@@ -194,8 +194,8 @@ class SummaryHook(BaseHook):
 
 
 class ValidationHook(SummaryHook):
-    def __init__(self, trigger_step, iterator):
-        super().__init__(trigger_step, summary_prefix='validation')
+    def __init__(self, trigger, iterator):
+        super().__init__(trigger, summary_prefix='validation')
         self.iterator = iterator
 
     @property
@@ -267,9 +267,9 @@ class ValidationHook(SummaryHook):
 
 
 class StopTrainingHook(BaseHook):
-    def __init__(self, trigger_step):
+    def __init__(self, trigger):
         super().__init__()
-        self.trigger = EndTrigger.new(trigger_step)
+        self.trigger = EndTrigger.new(trigger)
 
     @property
     def priority(self):

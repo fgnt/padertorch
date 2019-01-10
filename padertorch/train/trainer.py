@@ -82,10 +82,10 @@ class Trainer(Configurable):
             storage_dir,
             optimizer=None,
             loss_weights=None,
-            summary_step=(1, 'epoch'),
-            checkpoint_step=(1, 'epoch'),
-            validate_step=(1, 'epoch'),
-            max_step=(1, 'epoch'),
+            summary_trigger=(1, 'epoch'),
+            checkpoint_trigger=(1, 'epoch'),
+            validate_trigger=(1, 'epoch'),
+            max_trigger=(1, 'epoch'),
             gpu=0 if torch.cuda.is_available() else None,
             init_checkpoint=None,
             seed=0,
@@ -118,10 +118,10 @@ class Trainer(Configurable):
             )
         self.seed = seed
 
-        self.summary_step = summary_step
-        self.checkpoint_trigger = IntervalTrigger.new(checkpoint_step)
-        self.validate_step = validate_step
-        self.max_step = max_step
+        self.summary_trigger = summary_trigger
+        self.checkpoint_trigger = IntervalTrigger.new(checkpoint_trigger)
+        self.validate_trigger = validate_trigger
+        self.max_step = max_trigger
 
         self.loss_weights = loss_weights
 
@@ -270,9 +270,9 @@ class Trainer(Configurable):
         # else:
         #     max_it_len = None
         hooks = pt.utils.to_list(hooks)
-        hooks.append(SummaryHook(self.summary_step, self.validate_step))
+        hooks.append(SummaryHook(self.summary_trigger, self.validate_trigger))
         # hooks.append(ProgressBarHook(self.max_step, max_it_len))
-        hooks.append(ValidationHook(self.validate_step, validation_iterator))
+        hooks.append(ValidationHook(self.validate_trigger, validation_iterator))
         hooks.append(StopTrainingHook(self.max_step))
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
         return hooks
