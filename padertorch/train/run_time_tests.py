@@ -163,7 +163,7 @@ def test_run(trainer, train_iterator, validation_iterator):
             )
 
 
-        hooks, = get_default_hooks_mock.spyed_return_values[0]
+        hooks, = get_default_hooks_mock.spyed_return_values
         for hook in hooks:
             summary = getattr(hook, 'summary', {})
             assert all([
