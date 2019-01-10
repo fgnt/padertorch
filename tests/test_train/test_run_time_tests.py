@@ -2,7 +2,6 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-import tensorflow as tf
 import torch
 
 import padertorch as pt
@@ -16,7 +15,7 @@ class Model(pt.Model):
         self.l = torch.nn.Linear(28 * 28, 10)
 
     def forward(self, inputs):
-        clean = inputs['clean']
+        clean = inputs['image']
 
         if isinstance(clean, np.ndarray):
             clean = torch.tensor(clean)
@@ -26,7 +25,7 @@ class Model(pt.Model):
         return self.l(image)
 
     def review(self, inputs, output):
-        digits = inputs['digits']
+        digits = inputs['digit']
 
         target = torch.tensor(
             np.array(digits).astype(np.int64),
@@ -36,32 +35,16 @@ class Model(pt.Model):
         return {'losses': {'ce': ce}}
 
 
-def get_iterator(mode):
-    # ToDo: remove tf dependency
-    data = tf.keras.datasets.mnist.load_data()
-
-    if mode == tf.estimator.ModeKeys.TRAIN:
-        images = (data[0][0] / 255.0).astype(np.float32)
-        digits = data[0][1].astype(np.int32)
-    elif mode == tf.estimator.ModeKeys.EVAL:
-        images = (data[1][0] / 255.0).astype(np.float32)
-        digits = data[1][1].astype(np.int32)
-    else:
-        raise ValueError(mode, (
-        tf.estimator.ModeKeys.TRAIN, tf.estimator.ModeKeys.EVAL))
-
-    examples = {
-        f'example_{idx}':
-            {'clean': example[0], 'digits': example[1]}
-        for idx, example in enumerate(zip(images, digits))
-    }
-
-    return pb.database.iterator.ExamplesIterator(examples, name='mnist')
+def get_iterators():
+    db = pb.database.mnist.MnistDatabase()
+    return (
+        db.get_iterator_by_names('train'),
+        db.get_iterator_by_names('test'),
+    )
 
 
 def test_1():
-    it_tr = get_iterator('train')
-    it_dt = get_iterator('eval')
+    it_tr, it_dt = get_iterators()
 
     config = pt.Trainer.get_config(
         updates=pb.utils.nested.deflatten({
@@ -77,8 +60,7 @@ def test_1():
 
 
 def test_2():
-    it_tr = get_iterator('train')
-    it_dt = get_iterator('eval')
+    it_tr, it_dt = get_iterators()
     model = Model()
 
     with tempfile.TemporaryDirectory() as tmp_dir:
