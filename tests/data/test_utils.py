@@ -27,6 +27,10 @@ class TestPadderBase(unittest.TestCase):
                  np.abs(np.random.normal(
                      size=(num_frames_, self.F)
                  )).astype(np.float32),
+             'Y_stft': (
+                 np.random.normal(size=(num_frames_, self.F)) +
+                 1j* np.random.normal(size=(num_frames_, self.F))
+                 ).astype(np.complex128),
              'target_mask':
                  np.abs(np.random.choice(
                      [0, 1],
@@ -61,6 +65,11 @@ class TestPadderBase(unittest.TestCase):
                 self.padded['Y_abs'].shape,
                 (len(self.num_frames), max(self.num_frames), self.F)
             )
+        if 'Y_stft' in self.padding_keys_:
+            np.testing.assert_equal(
+                self.padded['Y_stft'].shape,
+                (len(self.num_frames), max(self.num_frames), self.F)
+            )
         if 'target_mask' in self.padding_keys_:
             np.testing.assert_equal(
                 self.padded['target_mask'].shape,
@@ -80,10 +89,16 @@ class TestPadderBase(unittest.TestCase):
         if not self.to_torch:
             return
         for key in self.padding_keys_:
-            array = self.padded[key]
+            array = self.inputs[0][key]
             if isinstance(array, np.ndarray) and\
-                    not array.dtype.kind in {'U', 'S'}:
-                self.assertTrue([isinstance(array, torch.Tensor)])
+                    not array.dtype.kind in {'U', 'S'} and\
+                    not array.dtype in [np.complex64, np.complex128]:
+                self.assertTrue([isinstance(self.padded[key], torch.Tensor)])
+            elif isinstance(array, np.ndarray) and (
+                    array.dtype.kind in {'U', 'S'} or
+                            array.dtype in [np.complex64, np.complex128]
+            ):
+                self.assertTrue([isinstance(self.padded[key], np.ndarray)])
 
     def test_asserts(self):
         if self.to_torch:

@@ -60,6 +60,17 @@ class Padder(Configurable):
             padding: bool = True,
             padding_keys: list = None
     ):
+        """
+
+        :param to_torch: if true converts numpy arrays to torch.Tensor
+            if they are not strings or complex
+        :param sort_by_key: sort the batch by a key from the batch
+            packed_sequence needs sorted batch with decreasing sequence_length
+        :param padding: if False only collates the batch,
+            if True all numpy arrays with one variable dim size are padded
+        :param padding_keys: list of keys, if no keys are specified all
+            keys from the batch are used
+        """
         assert not to_torch ^ (padding and to_torch)
         self.to_torch = to_torch
         self.padding = padding
@@ -86,15 +97,15 @@ class Padder(Configurable):
                                       for vec in batch], axis=0)
                 else:
                     array = np.stack(batch, axis=0)
-                if self.to_torch:
+                complex_dtypes = [np.complex64, np.complex128]
+                if self.to_torch and not array.dtype.kind in {'U', 'S'}\
+                        and not array.dtype in complex_dtypes:
                     return torch.from_numpy(array)
                 else:
                     return array
             else:
-                # sort num_samples / num_frames to fit the sorted batches
                 return np.array(batch)
         elif isinstance(batch[0], int):
-            # sort num_samples / num_frames to fit the sorted batches
             return np.array(batch)
         else:
             return batch
