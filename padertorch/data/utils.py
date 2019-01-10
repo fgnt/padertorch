@@ -1,6 +1,7 @@
 
 import numpy as np
 from padertorch.configurable import Configurable
+import torch
 
 
 def pad_tensor(vec, pad, axis):
@@ -112,13 +113,13 @@ class Padder(Configurable):
 
         nested_batch = collate_fn(batch)
 
-
         if self.padding:
             if self.padding_keys is None:
                 padding_keys = nested_batch.keys()
             else:
                 assert len(self.padding_keys) > 0, \
                     'Empty padding key list was provided default should be None'
+                padding_keys = self.padding_keys
 
             def nested_padding(value, key):
                 if isinstance(value, dict):
