@@ -324,9 +324,11 @@ class Trainer(Configurable):
                 torch.Tensor([grad_norm])
         return summary
 
-    def save_checkpoint(self):
-        checkpoint_path = str(
-            self.storage_dir / 'checkpoints' / f'ckpt_{self.iteration}')
+    def default_checkpoint_path(self):
+        return str(self.storage_dir / 'checkpoints' / f'ckpt_{self.iteration}')
+
+    def save_checkpoint(self, checkpoint_path=None):
+        checkpoint_path = checkpoint_path or self.default_checkpoint_path()
         if self.use_cuda:
             self.cpu()
         torch.save(
