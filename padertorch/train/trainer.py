@@ -156,8 +156,11 @@ class Trainer(Configurable):
         # Change model to train mode (e.g. activate dropout)
         nested_op(lambda m: m.train(), self.model)
 
-        hooks = self.get_default_hooks(hooks, validation_iterator,
-                                       train_iterator)
+        hooks = self.get_default_hooks(
+            hooks,
+            train_iterator=train_iterator,
+            validation_iterator=validation_iterator,
+        )
 
         # For training continue set the correct last value
         for hook in hooks:
@@ -255,7 +258,7 @@ class Trainer(Configurable):
         return self.step(example)
 
     def step(self, example):
-        msg = 'Overwrite the train_step and validation_step, ' \
+        msg = 'Overwrite the step function of the trainer, ' \
               'when you have multiple models.'
         assert isinstance(self.model, torch.nn.Module), (self.model, msg)
         assert isinstance(self.optimizer, Optimizer), (self.optimizer, msg)
@@ -275,7 +278,7 @@ class Trainer(Configurable):
             loss += weight * value
         loss.backward(retain_graph=retain_graph)
 
-    def get_default_hooks(self, hooks, train_iterator, validation_iterator):
+    def get_default_hooks(self, hooks, *, train_iterator, validation_iterator):
         if hooks is None:
             hooks = []
         if hasattr(train_iterator, '__len__'):
