@@ -1,3 +1,5 @@
+""" This module contains various hooks which perform actions during training.
+"""
 from collections import defaultdict
 
 import numpy as np
@@ -5,8 +7,8 @@ import torch
 from cached_property import cached_property
 from tensorboardX import SummaryWriter
 
-import padertorch as pt
 from padertorch.train.trigger import IntervalTrigger, EndTrigger, OrTrigger
+
 
 __all__ = [
     'SummaryHook',
@@ -18,6 +20,7 @@ __all__ = [
 
 
 class BaseHook:
+
     def __init__(self, trigger=None):
         """
         :param trigger: Length of step between occurences or Trigger.
@@ -177,11 +180,8 @@ class SummaryHook(BaseHook):
         trainer.reset_timer()
 
     def pre_step(self, trainer: 'pt.Trainer'):
-        if (
-                    self.trigger(iteration=trainer.iteration,
-                                 epoch=trainer.epoch)
-                or trainer.iteration == 1
-        ):
+        if(self.trigger(iteration=trainer.iteration, epoch=trainer.epoch)
+           or trainer.iteration == 1):
             self.dump_summary(trainer)
 
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):

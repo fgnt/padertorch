@@ -1,3 +1,7 @@
+"""
+    This module contains the Trainer class which can be used to train
+    configurable padertorch models.
+"""
 import contextlib
 import itertools
 import os
@@ -7,14 +11,14 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-import padertorch as pt
 import torch
-from padertorch.configurable import Configurable
+
 from paderbox.utils.nested import flatten, nested_op, nested_update
+import padertorch as pt
+from padertorch.configurable import Configurable
 from padertorch.train.optimizer import Optimizer, Adam
 from padertorch.train.run_time_tests import test_run
 from padertorch.train.hooks import *
-
 from padertorch.train.trigger import IntervalTrigger
 
 __all__ = [
@@ -36,7 +40,7 @@ class ContextTimerDict:
     >>> with timer['test_2']:
     ...     time.sleep(0.1)
 
-    Ignore timing, when an exception is raised
+    Ignore timing when an exception is raised
     >>> with contextlib.suppress(Exception), timer['test_2']:
     ...     raise Exception
     >>> timer
@@ -283,7 +287,8 @@ class Trainer(Configurable):
         hooks = pt.utils.to_list(hooks)
         hooks.append(SummaryHook(self.summary_trigger, self.validate_trigger))
         hooks.append(ProgressBarHook(self.max_trigger, max_it_len))
-        hooks.append(ValidationHook(self.validate_trigger, validation_iterator))
+        hooks.append(ValidationHook(self.validate_trigger,
+                                    validation_iterator))
         hooks.append(StopTrainingHook(self.max_trigger))
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
         return hooks
@@ -307,7 +312,7 @@ class Trainer(Configurable):
                 # underscore was necessary to obtain unique keys to prevent
                 # tensorboard error
                 summary['histograms'][
-                    f'{prefix_}grad_norm_{key}_']= torch.Tensor([value])
+                    f'{prefix_}grad_norm_{key}_'] = torch.Tensor([value])
         elif isinstance(grad_norm, (list, tuple)):
             for i, value in enumerate(grad_norm):
                 summary['scalars'][f'{prefix_}grad_norm_{i}'] = value
@@ -336,8 +341,8 @@ class Trainer(Configurable):
         )
         if self.use_cuda:
             self.cuda(self.gpu_device)
-        print(f"{datetime.now()}: Saved model and optimizer state at iteration "
-              f"{self.iteration} to {checkpoint_path}")
+        print(f"{datetime.datetime.now()}: Saved model and optimizer state "
+              f"at iteration {self.iteration} to {checkpoint_path}")
 
     def load_checkpoint(self, checkpoint_path):
         """
