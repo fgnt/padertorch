@@ -12,6 +12,7 @@ import paderbox as pb
 import tqdm
 
 import padertorch as pt
+import paderbox as pb
 
 
 def test_run(trainer, train_iterator, validation_iterator):
@@ -41,10 +42,11 @@ def test_run(trainer, train_iterator, validation_iterator):
             'tqdm',
             new_callable=mock.MagicMock,
         ))
-        optimizer_step = exit_stack.enter_context(mock.patch.object(
-            trainer.optimizer.optimizer,
-            'step',
-        ))
+        optimizer_step = pb.utils.nested.nested_op(
+            lambda x: (exit_stack.enter_context(mock.patch.object(
+                x,
+                'step',
+            )) if x is not None else None), trainer.optimizer)
         exit_stack.enter_context(mock.patch.object(
             trainer,
             'summary_trigger',
@@ -90,12 +92,13 @@ def test_run(trainer, train_iterator, validation_iterator):
                 self.spyed_return_values += [ret]
                 return ret
 
-        review_mock = exit_stack.enter_context(mock.patch.object(
-            trainer.model,
-            'review',
-            wraps=trainer.model.review,
-            new_callable=SpyMagicMock,
-        ))
+        review_mock = pb.utils.nested.nested_op(
+            lambda x: exit_stack.enter_context(mock.patch.object(
+                x,
+                'review',
+                wraps=x.review,
+                new_callable=SpyMagicMock,
+            )), trainer.model)
 
         validate_mock = exit_stack.enter_context(mock.patch.object(
             trainer,
@@ -115,11 +118,18 @@ def test_run(trainer, train_iterator, validation_iterator):
             list(itertools.islice(validation_iterator, 2)),
         )
 
-        assert optimizer_step.call_count == 4, optimizer_step.call_count
+        def assert_step(x):
+            if x is not None:
+                assert x.call_count == 4, x.call_count
+
+        pb.utils.nested.nested_op(assert_step, optimizer_step)
         assert save_checkpoint.call_count == 3, save_checkpoint.call_count
         assert dump_summary.add_scalar.call_count >= 8, dump_summary.add_scalar.call_count
         assert validate_mock.call_count == 2, validate_mock.call_count
-        assert review_mock.call_count == 8, review_mock.call_count
+
+        def assert_review(x):
+            assert x.call_count == 8, x.call_count
+        pb.utils.nested.nested_op(assert_review, review_mock)
         assert get_default_hooks_mock.call_count == 1, get_default_hooks_mock.call_count
 
         save_checkpoint.assert_called()
@@ -131,11 +141,6 @@ def test_run(trainer, train_iterator, validation_iterator):
                 args, kwargs = tuple(call)
                 inputs, output = sig.bind(*args, **kwargs).arguments.values()
                 yield dict(inputs=inputs, output=output, review=review)
-
-        tr1, tr2, dt1, dt2, tr3, tr4, dt3, dt4 = \
-            review_mock_to_inputs_output_review(
-                review_mock
-            )
 
         def nested_test_assert_allclose(struct1, struct2):
             def assert_func(array1, array2):
@@ -153,22 +158,30 @@ def test_run(trainer, train_iterator, validation_iterator):
                 handle_dataclass=True,
             )
 
-        nested_test_assert_allclose(dt1['output'], dt3['output'])
-        nested_test_assert_allclose(dt2['output'], dt4['output'])
-        nested_test_assert_allclose(dt1['review'], dt3['review'])
-        nested_test_assert_allclose(dt2['review'], dt4['review'])
+        def test_review(review_mock):
+            tr1, tr2, dt1, dt2, tr3, tr4, dt3, dt4 = \
+                review_mock_to_inputs_output_review(
+                    review_mock
+                )
 
-        assert 'losses' in dt1['review'], dt1['review']
+            nested_test_assert_allclose(dt1['output'], dt3['output'])
+            nested_test_assert_allclose(dt2['output'], dt4['output'])
+            nested_test_assert_allclose(dt1['review'], dt3['review'])
+            nested_test_assert_allclose(dt2['review'], dt4['review'])
 
-        if 0 != len(set(dt1['review'].keys()) - set(
-                pt.trainer.SummaryHook.empty_summary_dict().keys())):
-            got = set(dt1['review'].keys())
-            allowed = set(trainer.summary.keys())
-            raise ValueError(
-                f'Found keys: {got}\n'
-                f'Allowed: {allowed}\n'
-                f'Delta: {got - allowed}'
-            )
+            assert 'losses' in dt1['review'], dt1['review']
+
+            if 0 != len(set(dt1['review'].keys()) - set(
+                    pt.trainer.SummaryHook.empty_summary_dict().keys())):
+                got = set(dt1['review'].keys())
+                allowed = set(trainer.summary.keys())
+                raise ValueError(
+                    f'Found keys: {got}\n'
+                    f'Allowed: {allowed}\n'
+                    f'Delta: {got - allowed}'
+                )
+
+        pb.utils.nested.nested_op(test_review, review_mock)
 
         hooks, = get_default_hooks_mock.spyed_return_values
         for hook in hooks:

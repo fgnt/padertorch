@@ -250,11 +250,6 @@ class Trainer(Configurable):
         return model_out, review
 
     def validation_step(self, example):
-        assert isinstance(self.model, torch.nn.Module), (
-            self.model,
-            'Overwrite the train_step and validation_step, '
-            'when you have multiple models.'
-        )
         return self.step(example)
 
     def step(self, example):
@@ -313,7 +308,7 @@ class Trainer(Configurable):
                 # tensorboard error
                 summary['histograms'][
                     f'{prefix_}grad_norm_{key}_']= torch.Tensor([value])
-        if isinstance(grad_norm, (list, tuple)):
+        elif isinstance(grad_norm, (list, tuple)):
             for i, value in enumerate(grad_norm):
                 summary['scalars'][f'{prefix_}grad_norm_{i}'] = value
                 summary['histograms'][f'{prefix_}grad_norm_{i}_'] = \

@@ -80,3 +80,112 @@ def test_2():
         files_after = tuple(tmp_dir.glob('*'))
         if files_after != files_before:
             raise Exception(files_after, files_before)
+
+
+class VAE(pt.Model):
+
+    def __init__(self):
+        super().__init__()
+        self.enc = torch.nn.Linear(28 * 28, 32)
+        self.dec = torch.nn.Linear(16, 28 * 28)
+
+    def forward(self, inputs):
+        clean = inputs['image']
+
+        if isinstance(clean, np.ndarray):
+            clean = torch.tensor(clean)
+
+        image = torch.reshape(clean, [-1])
+
+        h = self.enc(image)
+        mu, logvar = torch.split(h, h.shape[-1]//2, dim=-1)
+        qz = torch.distributions.Normal(loc=mu, scale=torch.exp(0.5 * logvar))
+        if self.training:
+            z = qz.rsample()
+        else:
+            z = mu
+        x_hat = self.dec(z)
+        return x_hat, mu, logvar
+
+    def review(self, inputs, outputs):
+        clean = inputs['image']
+
+        if isinstance(clean, np.ndarray):
+            clean = torch.tensor(clean)
+
+        image = torch.reshape(clean, [-1])
+
+        mse = (image - outputs[0]).pow(2).sum()
+        return {'losses': {'mse': mse}}
+
+
+class StandardNormal(Model):
+    def forward(self, inputs):
+        return ()
+
+    def review(self, inputs, outputs):
+        mean, logvar = inputs
+        kld = -0.5 * (
+            1 + logvar - mean.pow(2) - torch.exp(logvar)
+        ).sum()
+        return dict(
+            losses=dict(
+                kld=kld
+            )
+        )
+
+
+class ListTrainer(pt.trainer.Trainer):
+    def step(self, example):
+        review = dict()
+        vae_out = self.model[0](example)
+        pb.utils.nested.nested_update(review, self.model[0].review(
+            example, vae_out))
+        latent_out = self.model[1](vae_out[1:])
+        pb.utils.nested.nested_update(review, self.model[1].review(
+            vae_out[1:], latent_out))
+        return (vae_out, latent_out), review
+
+
+def test_3():
+    it_tr, it_dt = get_iterators()
+
+    models = [VAE(), StandardNormal()]
+    optimizers = [pt.optimizer.Adam(), None]
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        trainer = ListTrainer(
+            models, storage_dir=tmp_dir, optimizer=optimizers,
+            loss_weights={'mse': 1., 'kld': 1.}
+        )
+
+        pt.train.run_time_tests.test_run(
+            trainer, it_tr, it_dt
+        )
+
+
+class DictTrainer(pt.trainer.Trainer):
+    def step(self, example):
+        review = dict()
+        vae_out = self.model['vae'](example)
+        pb.utils.nested.nested_update(review, self.model['vae'].review(
+            example, vae_out))
+        latent_out = self.model['latent'](vae_out[1:])
+        pb.utils.nested.nested_update(review, self.model['latent'].review(
+            vae_out[1:], latent_out))
+        return (vae_out, latent_out), review
+
+
+def test_4():
+    it_tr, it_dt = get_iterators()
+
+    models = {'vae': VAE(), 'latent': StandardNormal()}
+    optimizers = {'vae': pt.optimizer.Adam(), 'latent': None}
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        trainer = DictTrainer(
+            models, storage_dir=tmp_dir, optimizer=optimizers,
+            loss_weights={'mse': 1., 'kld': 1.}
+        )
+
+        pt.train.run_time_tests.test_run(
+            trainer, it_tr, it_dt
+        )
