@@ -1,16 +1,18 @@
-import os
+import contextlib
 import copy
 import inspect
-import tempfile
 import itertools
-import contextlib
+import os
+import tempfile
 from pathlib import Path
 from unittest import mock
 
 import numpy as np
-
 import paderbox as pb
+import tqdm
+
 import padertorch as pt
+
 
 def test_run(trainer, train_iterator, validation_iterator):
     """
@@ -34,6 +36,11 @@ def test_run(trainer, train_iterator, validation_iterator):
             'writer',
             new_callable=mock.MagicMock,
         ))
+        exit_stack.enter_context(mock.patch.object(
+            tqdm,
+            'tqdm',
+            new_callable=mock.MagicMock,
+        ))
         optimizer_step = exit_stack.enter_context(mock.patch.object(
             trainer.optimizer.optimizer,
             'step',
@@ -55,7 +62,7 @@ def test_run(trainer, train_iterator, validation_iterator):
         ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
-            'max_step',
+            'max_trigger',
             new=(2, 'epoch'),
         ))
         exit_stack.enter_context(mock.patch.object(
@@ -129,6 +136,7 @@ def test_run(trainer, train_iterator, validation_iterator):
             review_mock_to_inputs_output_review(
                 review_mock
             )
+
         def nested_test_assert_allclose(struct1, struct2):
             def assert_func(array1, array2):
                 array1 = pt.utils.to_numpy(array1)
@@ -151,7 +159,7 @@ def test_run(trainer, train_iterator, validation_iterator):
         nested_test_assert_allclose(dt2['review'], dt4['review'])
 
         assert 'losses' in dt1['review'], dt1['review']
-        
+
         if 0 != len(set(dt1['review'].keys()) - set(
                 pt.trainer.SummaryHook.empty_summary_dict().keys())):
             got = set(dt1['review'].keys())
@@ -161,7 +169,6 @@ def test_run(trainer, train_iterator, validation_iterator):
                 f'Allowed: {allowed}\n'
                 f'Delta: {got - allowed}'
             )
-
 
         hooks, = get_default_hooks_mock.spyed_return_values
         for hook in hooks:

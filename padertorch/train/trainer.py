@@ -121,7 +121,7 @@ class Trainer(Configurable):
         self.summary_trigger = summary_trigger
         self.checkpoint_trigger = IntervalTrigger.new(checkpoint_trigger)
         self.validate_trigger = validate_trigger
-        self.max_step = max_trigger
+        self.max_trigger = max_trigger
 
         self.loss_weights = loss_weights
 
@@ -156,13 +156,12 @@ class Trainer(Configurable):
         # Change model to train mode (e.g. activate dropout)
         nested_op(lambda m: m.train(), self.model)
 
-        hooks = self.get_default_hooks(hooks, validation_iterator)
+        hooks = self.get_default_hooks(hooks, validation_iterator,
+                                       train_iterator)
 
         # For training continue set the correct last value
         for hook in hooks:
-            hook.trigger.set_last(self.iteration, self.epoch)
-            if hasattr(hook, 'update_timer'):
-                hook.update_timer(self.iteration, self.epoch)
+            hook.set_last(self.iteration, self.epoch)
         self.checkpoint_trigger.set_last(self.iteration, self.epoch)
 
         # ================ MAIN TRAINING LOOP! ===================
@@ -261,18 +260,18 @@ class Trainer(Configurable):
             loss += weight * value
         loss.backward(retain_graph=retain_graph)
 
-    def get_default_hooks(self, hooks, validation_iterator):
+    def get_default_hooks(self, hooks, train_iterator, validation_iterator):
         if hooks is None:
             hooks = []
-        # if hasattr(train_iterator, '__len__'):
-        #     max_it_len = len(train_iterator)
-        # else:
-        #     max_it_len = None
+        if hasattr(train_iterator, '__len__'):
+            max_it_len = len(train_iterator)
+        else:
+            max_it_len = None
         hooks = pt.utils.to_list(hooks)
         hooks.append(SummaryHook(self.summary_trigger, self.validate_trigger))
-        # hooks.append(ProgressBarHook(self.max_step, max_it_len))
+        hooks.append(ProgressBarHook(self.max_trigger, max_it_len))
         hooks.append(ValidationHook(self.validate_trigger, validation_iterator))
-        hooks.append(StopTrainingHook(self.max_step))
+        hooks.append(StopTrainingHook(self.max_trigger))
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
         return hooks
 

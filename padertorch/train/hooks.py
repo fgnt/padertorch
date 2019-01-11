@@ -1,19 +1,17 @@
 from collections import defaultdict
 
-import sys
 import numpy as np
 import torch
 from cached_property import cached_property
 from tensorboardX import SummaryWriter
 
-import datetime
 import padertorch as pt
 from padertorch.train.trigger import IntervalTrigger, EndTrigger, OrTrigger
 
 __all__ = [
     'SummaryHook',
     'ValidationHook',
-    # 'ProgressBarHook',
+    'ProgressBarHook',
     'StopTrainingHook',
     'StopTraining'
 ]
@@ -52,7 +50,7 @@ class BaseHook:
         pass
 
     def post_step(self, trainer: 'pt.Trainer', example, model_output,
-                      review):
+                  review):
         """
         function is called after each train step
         :param trainer:
@@ -65,6 +63,9 @@ class BaseHook:
 
     def close(self, trainer: 'pt.Trainer'):
         pass
+
+    def set_last(self, iteration, epoch):
+        self.trigger.set_last(iteration, epoch)
 
 
 class SummaryHook(BaseHook):
@@ -177,7 +178,8 @@ class SummaryHook(BaseHook):
 
     def pre_step(self, trainer: 'pt.Trainer'):
         if (
-                self.trigger(iteration=trainer.iteration, epoch=trainer.epoch)
+                    self.trigger(iteration=trainer.iteration,
+                                 epoch=trainer.epoch)
                 or trainer.iteration == 1
         ):
             self.dump_summary(trainer)
@@ -212,58 +214,66 @@ class ValidationHook(SummaryHook):
             assert len(trainer.timer.timings) == 0, trainer.timer
             print('Finished Validation')
 
-# class ProgressBarHook(BaseHook):
-#     def __init__(self, max_step, max_iteration=None,
-#                  update_intervall=10, bar_length=100, disable=False):
-#         """
-#         :param max_step:
-#         :param max_iteration: has to be defined if max_steps unit is session
-#             integer with the length of the iterator
-#         :param update_interval (int): Number of iterations to skip printing the
-#             progress bar.
-#         :param bar_length (int): Length of the progress bar in characters.
-#         :param disable: bool use to disable the entire progressbar wrapper
-#         """
-#         from tqdm import tqdm
-#         super().__init__((update_intervall, 'iteration'))
-#         self.update_intervall = update_intervall
-#         self.end_trigger = EndTrigger.new(max_step)
-#         length, unit = max_step
-#         self.unit = unit
-#         if unit == 'epoch':
-#             self.ep_pbar = tqdm(total=max_step[0], ncols=bar_length,
-#                                 disable=disable)
-#             if max_iteration is not None:
-#                 self.it_pbar = tqdm(total=max_iteration, ncols=bar_length)
-#             self.ep_trigger = IntervalTrigger(1, 'epoch')
-#         elif unit == 'iteration':
-#             self.it_pbar = tqdm(total=max_step[0], ncols=bar_length)
-#         else:
-#             raise ValueError(f'Unknown unit {unit}')
-#
-#     def update_timer(self, iteration, epoch):
-#         self.end_trigger.set_last(iteration, epoch)
-#         self.it_pbar.pos = iteration
-#         if self.unit == 'epoch':
-#             self.ep_pbar.pos = epoch
-#             self.ep_trigger.set_last(iteration, epoch)
-#
-#     def post_step(self, trainer: 'pt.Trainer', example,
-#                       model_output, review):
-#         iteration = trainer.iteration
-#         epoch = trainer.epoch
-#         if self.trigger(iteration, epoch):
-#             self.it_pbar.update(self.update_intervall)
-#             if self.unit == 'session' and self.ep_trigger(iteration, epoch):
-#                 self.ep_pbar.update()
-#         if self.end_trigger(iteration, epoch):
-#             self.it_pbar.close()
-#             self.ep_pbar.close()
-#
-#
-#     @property
-#     def priority(self):
-#         return 13
+
+class ProgressBarHook(BaseHook):
+    def __init__(self, max_trigger, max_iteration=None,
+                 update_intervall=10, bar_length=100, disable=False):
+        """
+        :param max_iteration: has to be defined if max_trigger unit is session
+            integer with the length of the iterator
+        :param update_interval (int): Number of iterations to skip printing the
+            progress bar.
+        :param bar_length (int): Length of the progress bar in characters.
+        :param disable: bool use to disable the entire progressbar wrapper
+        """
+        from tqdm import tqdm
+        super().__init__((update_intervall, 'iteration'))
+        self.ep_trigger = IntervalTrigger(1, 'epoch')
+        self.update_intervall = update_intervall
+        if isinstance(max_trigger, EndTrigger):
+            length, unit = max_trigger.period, max_trigger.unit
+        elif isinstance(max_trigger, (tuple, list)):
+            length, unit = max_trigger
+        else:
+            raise ValueError(f'max_trigger is expected to be either a trigger'
+                             f'or a list or tuple, but is {type(max_trigger)},'
+                             f'{max_trigger}')
+        if unit == 'iteration':
+            max_iteration = length
+        elif unit == 'epoch':
+            self.ep_pbar = tqdm(total=length, ncols=bar_length,
+                                disable=disable)
+        else:
+            raise ValueError(f'unit {unit} is unknown,'
+                             f' choose iteration or epoch')
+        self.it_pbar = tqdm(total=max_iteration, ncols=bar_length,
+                            disable=disable)
+
+    @property
+    def priority(self):
+        return 13
+
+    def set_last(self, iteration, epoch):
+        super().set_last(iteration, epoch)
+        self.ep_trigger.set_last(iteration, epoch)
+        self.it_pbar.pos = iteration
+        if hasattr(self, 'ep_pbar'):
+            self.ep_pbar.pos = epoch
+
+    def post_step(self, trainer: 'pt.Trainer', example,
+                  model_output, review):
+        iteration = trainer.iteration
+        epoch = trainer.epoch
+        if self.trigger(iteration, epoch):
+            self.it_pbar.update(self.update_intervall)
+        if self.ep_trigger(iteration, epoch) and hasattr(self, 'ep_pbar'):
+            self.ep_pbar.update()
+
+    def close(self, trainer: 'pt.Trainer'):
+        if hasattr(self, 'ep_pbar'):
+            self.ep_pbar.close()
+        if hasattr(self, 'it_pbar'):
+            self.it_pbar.close()
 
 
 class StopTrainingHook(BaseHook):
