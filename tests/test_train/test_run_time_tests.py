@@ -1,5 +1,6 @@
 import tempfile
 from pathlib import Path
+import contextlib
 
 import numpy as np
 import torch
@@ -43,7 +44,7 @@ def get_iterators():
     )
 
 
-def test_1():
+def test_single_model():
     it_tr, it_dt = get_iterators()
 
     config = pt.Trainer.get_config(
@@ -59,7 +60,22 @@ def test_1():
     )
 
 
-def test_2():
+@contextlib.contextmanager
+def assert_dir_unchanged_after_context(tmp_dir):
+    tmp_dir = Path(tmp_dir)
+    files_before = tuple(tmp_dir.glob('*'))
+    if len(files_before) != 0:
+        # no event files
+        raise Exception(files_before)
+
+    yield
+
+    files_after = tuple(tmp_dir.glob('*'))
+    if files_after != files_before:
+        raise Exception(files_after, files_before)
+
+
+def test_single_model_2():
     it_tr, it_dt = get_iterators()
     model = Model()
 
@@ -69,17 +85,8 @@ def test_2():
             model, optimizer=pt.optimizer.Adam(),
             storage_dir=tmp_dir, max_trigger=(2., 'epoch')
         )
-
-        files_before = tuple(tmp_dir.glob('*'))
-        if len(files_before) != 0:
-            # no event files
-            raise Exception(files_before)
-
-        t.test_run(it_tr, it_dt)
-
-        files_after = tuple(tmp_dir.glob('*'))
-        if files_after != files_before:
-            raise Exception(files_after, files_before)
+        with assert_dir_unchanged_after_context(tmp_dir):
+            t.test_run(it_tr, it_dt)
 
 
 class VAE(pt.Model):
@@ -147,7 +154,7 @@ class ListTrainer(pt.trainer.Trainer):
         return (vae_out, latent_out), review
 
 
-def test_3():
+def test_list_of_models():
     it_tr, it_dt = get_iterators()
 
     models = [VAE(), StandardNormal()]
@@ -158,9 +165,8 @@ def test_3():
             loss_weights={'mse': 1., 'kld': 1.}
         )
 
-        pt.train.run_time_tests.test_run(
-            trainer, it_tr, it_dt
-        )
+        with assert_dir_unchanged_after_context(tmp_dir):
+            trainer.test_run(it_tr, it_dt)
 
 
 class DictTrainer(pt.trainer.Trainer):
@@ -175,7 +181,7 @@ class DictTrainer(pt.trainer.Trainer):
         return (vae_out, latent_out), review
 
 
-def test_4():
+def test_dict_of_models():
     it_tr, it_dt = get_iterators()
 
     models = {'vae': VAE(), 'latent': StandardNormal()}
@@ -186,6 +192,5 @@ def test_4():
             loss_weights={'mse': 1., 'kld': 1.}
         )
 
-        pt.train.run_time_tests.test_run(
-            trainer, it_tr, it_dt
-        )
+        with assert_dir_unchanged_after_context(tmp_dir):
+            trainer.test_run(it_tr, it_dt)
