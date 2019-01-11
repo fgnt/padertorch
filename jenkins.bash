@@ -19,6 +19,9 @@ pip install --user -e .
 pytest --junitxml='test_results.xml' --cov=padertorch  \
   --doctest-modules --doctest-continue-on-failure --cov-report term -v "tests/" # --processes=-1
 # Use as many processes as you have cores: --processes=-1
+# Acording to https://gist.github.com/hangtwenty/1aeb36ee85f4bdce0899
+# `--cov-report term` solves the problem that doctests are not included
+# in coverage
 
 # Export coverage
 python -m coverage xml --include="padertorch*"
