@@ -1,6 +1,7 @@
 """ This module contains various hooks which perform actions during training.
 """
 from collections import defaultdict
+from enum import IntEnum
 
 import numpy as np
 import torch
@@ -19,6 +20,28 @@ __all__ = [
 ]
 
 
+class Priority(IntEnum):
+    """
+    Summary 50
+    Print 40 NotImplemented
+    ProgressBar(TQDM) 30 NotImplemented
+    Validation 25
+    Checkpoint 20
+    End 10
+
+    End has to be the last one
+    Summary before Validation, clears timer information
+    Print and ProgressBar may access Summary
+    """
+    END = 10
+    DEFAULT = 15
+    VALIDATION = 20
+    CHECKPOINT = 25
+    PROGRESS = 30
+    PRINT = 40
+    SUMMARY = 50
+
+
 class BaseHook:
 
     def __init__(self, trigger=None):
@@ -31,18 +54,7 @@ class BaseHook:
 
     @property
     def priority(self):
-        """
-        Summary 50
-        Print 40 NotImplemented
-        ProgressBar(TQDM) 30 NotImplemented
-        Validation / Checkpoint 20
-        End 10
-
-        End has to be the last one
-        Summary before Validation, clears timer information
-        Print and ProgressBar may access Summary
-        """
-        return 15
+        return Priority.DEFAULT
 
     def pre_step(self, trainer: 'pt.Trainer'):
         """
@@ -89,7 +101,7 @@ class SummaryHook(BaseHook):
 
     @property
     def priority(self):
-        return 50
+        return Priority.SUMMARY
 
     @cached_property
     def writer(self):
@@ -202,7 +214,7 @@ class ValidationHook(SummaryHook):
 
     @property
     def priority(self):
-        return 20
+        return Priority.VALIDATION
 
     def pre_step(self, trainer: 'pt.Trainer'):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
@@ -251,7 +263,7 @@ class ProgressBarHook(BaseHook):
 
     @property
     def priority(self):
-        return 13
+        return Priority.PROGRESS
 
     def set_last(self, iteration, epoch):
         super().set_last(iteration, epoch)
@@ -283,7 +295,7 @@ class StopTrainingHook(BaseHook):
 
     @property
     def priority(self):
-        return 10
+        return Priority.END
 
     def pre_step(self, trainer):
         if self.trigger(trainer.iteration, trainer.epoch):
