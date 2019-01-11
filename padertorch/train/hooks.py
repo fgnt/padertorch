@@ -208,8 +208,8 @@ class ValidationHook(SummaryHook):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
             assert len(trainer.timer.timings) == 0, trainer.timer
             print('Starting Validation')
-            evaluation = trainer.validate(self.iterator)
-            [self.update_summary(review) for review in evaluation]
+            for model_out, review in trainer.validate(self.iterator):
+                self.update_summary(review)
             self.dump_summary(trainer)
             assert len(trainer.timer.timings) == 0, trainer.timer
             print('Finished Validation')

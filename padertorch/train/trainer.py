@@ -211,8 +211,7 @@ class Trainer(Configurable):
         assert isinstance(self.model, torch.nn.Module), (self.model, msg)
         assert isinstance(self.optimizer, Optimizer), (self.optimizer, msg)
         self.optimizer.zero_grad()
-        model_out = self.model(example)
-        review = self.model.review(example, model_out)
+        model_out, review = self.step(example)
         self.backward(review)
         grad_summary = self.clip_grad()
         self.optimizer.step()
@@ -220,6 +219,11 @@ class Trainer(Configurable):
         return model_out, review
 
     def validate(self, validation_iterator):
+        """
+        used by ValidationHook
+        :param validation_iterator:
+        :return:
+        """
         train_end_time = self.timer.timestamp()
 
         if hasattr(self, '_start_non_validation_time'):
@@ -242,10 +246,15 @@ class Trainer(Configurable):
 
     def validation_step(self, example):
         assert isinstance(self.model, torch.nn.Module), (
-            self.model, 'Overwrite the train_step and validation_step, when you have multiple models.'
+            self.model,
+            'Overwrite the train_step and validation_step, '
+            'when you have multiple models.'
         )
+        return self.step(example)
+
+    def step(self, example):
         model_out = self.model(example)
-        return self.model.review(example, model_out)
+        return model_out, self.model.review(example, model_out)
 
     def backward(self, review, retain_graph=False):
         loss = 0.
