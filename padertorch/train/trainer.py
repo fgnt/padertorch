@@ -205,18 +205,7 @@ class Trainer(Configurable):
                 hook.close(self)
             self.save_checkpoint()
 
-    def train_step(self, example):
-        msg = 'Overwrite the train_step and validation_step, ' \
-              'when you have multiple models.'
-        assert isinstance(self.model, torch.nn.Module), (self.model, msg)
-        assert isinstance(self.optimizer, Optimizer), (self.optimizer, msg)
-        self.optimizer.zero_grad()
-        model_out, review = self.step(example)
-        self.backward(review)
-        grad_summary = self.clip_grad()
-        self.optimizer.step()
-        nested_update(review, grad_summary)
-        return model_out, review
+    _start_non_validation_time = None
 
     def validate(self, validation_iterator):
         """
@@ -226,7 +215,7 @@ class Trainer(Configurable):
         """
         train_end_time = self.timer.timestamp()
 
-        if hasattr(self, '_start_non_validation_time'):
+        if self._start_non_validation_time is not None:
             self.timer.timings['non_validation_time'].append(
                 train_end_time - self._start_non_validation_time
             )
@@ -244,6 +233,19 @@ class Trainer(Configurable):
                 nested_op(lambda m: m.train(), self.model)
                 self._start_non_validation_time = self.timer.timestamp()
 
+    def train_step(self, example):
+        nested_op(
+            lambda x: (x.zero_grad() if x is not None else None),
+            self.optimizer
+        )
+        model_out, review = self.step(example)
+        self.backward(review)
+        grad_summary = self.clip_grad()
+        nested_op(
+            lambda x: (x.step() if x is not None else None), self.optimizer)
+        nested_update(review, grad_summary)
+        return model_out, review
+
     def validation_step(self, example):
         assert isinstance(self.model, torch.nn.Module), (
             self.model,
@@ -253,6 +255,10 @@ class Trainer(Configurable):
         return self.step(example)
 
     def step(self, example):
+        msg = 'Overwrite the train_step and validation_step, ' \
+              'when you have multiple models.'
+        assert isinstance(self.model, torch.nn.Module), (self.model, msg)
+        assert isinstance(self.optimizer, Optimizer), (self.optimizer, msg)
         model_out = self.model(example)
         return model_out, self.model.review(example, model_out)
 
