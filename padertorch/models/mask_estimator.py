@@ -183,7 +183,7 @@ class MaskEstimatorModel(pt.Model):
         losses = dict()
 
         if len(noise_loss) > 0:
-            noise_loss = sum(loss)
+            noise_loss = sum(noise_loss)
             loss.append(noise_loss)
             losses[MaskLossKeys.NOISE_MASK] = noise_loss
             if power_weights is not None:
