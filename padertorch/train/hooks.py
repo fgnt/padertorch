@@ -2,6 +2,7 @@
 """
 from collections import defaultdict
 from enum import IntEnum
+from operator import lt, gt
 import os
 
 import numpy as np
@@ -250,6 +251,58 @@ class ValidationHook(SummaryHook):
             assert len(trainer.timer.timings) == 0, trainer.timer
             print('Finished Validation')
 
+
+class CheckpointedValidationHook(ValidationHook):
+    """ Performs model validation and keeps checkpoints for model states that
+        perform best on a given set of metrics.
+        Cannot be used together with a ValidationHook
+        or a SimpleCheckpointHook.
+    """
+    def __init__(self, trigger, iterator, metrics=None):
+        super().__init__(self, trigger, iterator)
+        assert isinstance(metrics, dict) and metrics,  \
+            'The metrics dict must not be empty!'
+        self.metrics = self._convert_metrics_to_internal_layout(metrics)
+        self.best_checkpoints = {metric: '' for metric in metrics.keys()}
+        self.checkpoints = {}
+
+    def pre_step(self, trainer: 'pt.Trainer'):
+        super().pre_step(trainer)
+        current_metrics = {metric: value
+                           for metric, value in self.summary['scalars']
+                           if metric in self.metrics.keys()}
+        for metric, value in current_metrics:
+            is_better, best_value = self.metrics[metric]
+            if is_better(current_metrics[metric], best_value):
+                self.metrics[metric] = is_better, value
+                checkpoint_path = trainer.default_checkpoint_path()
+                self._save_checkpoint_if_not_yet_done(trainer, checkpoint_path)
+                self.best_checkpoints[metric] = checkpoint_path
+
+        self._cleanup_stale_checkpoints()
+
+    @staticmethod
+    def _convert_metrics_to_internal_layout(metrics):
+        def get_is_better_fn(criterion: str):
+            if criterion == 'min':
+                return lt, float('inf')
+            elif criterion == 'max':
+                return gt, -float('inf')
+            else:
+                raise ValueError("Comparison criterion must be either"
+                                 " 'min' or 'max'!")
+        return {metric: get_is_better_fn(criterion)
+                for metric, criterion in metrics.values()}
+
+    def _save_checkpoint_if_not_yet_done(self, trainer, checkpoint_path):
+        if checkpoint_path not in self.checkpoints:
+            trainer.save_checkpoint(checkpoint_path)
+
+    def _cleanup_stale_checkpoints(self):
+        for checkpoint_path in self.checkpoints:
+            if checkpoint_path not in self.best_checkpoints.values():
+                os.remove(checkpoint_path)
+        self.checkpoints = set(self.best_checkpoints.values())
 
 class ProgressBarHook(BaseHook):
     def __init__(self, max_trigger, max_iteration=None,
