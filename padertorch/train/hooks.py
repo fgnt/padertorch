@@ -2,6 +2,7 @@
 """
 from collections import defaultdict
 from enum import IntEnum
+import os
 
 import numpy as np
 import torch
@@ -205,6 +206,29 @@ class SummaryHook(BaseHook):
 
     def close(self, trainer: 'pt.Trainer'):
         self.dump_summary(trainer)
+
+
+class SimpleCheckpointHook(BaseHook):
+    """ Can be used to keep all checkpoints, e.g. for continuous evaluation
+            (latest_only = False) or to only store the most recent checkpoint
+            (latest_only = True).
+            Cannot be used together with a CheckpointedValidationHook
+    """
+    def __init__(self, trigger, latest_only=False):
+        super().__init__(trigger)
+        self.latest_only = latest_only
+        self.last_checkpoint_path = None
+
+    @property
+    def priority(self):
+        return Priority.CHECKPOINT
+
+    def pre_step(self, trainer: 'pt.Trainer'):
+        checkpoint_path = trainer.default_checkpoint_path()
+        trainer.save_checkpoint(checkpoint_path)
+        if self.latest_only and os.path.exists(self.last_checkpoint_path):
+            os.remove(self.last_checkpoint_path)
+        self.last_checkpoint_path = checkpoint_path
 
 
 class ValidationHook(SummaryHook):
