@@ -2,7 +2,7 @@
 """
 from collections import defaultdict
 from enum import IntEnum
-from operator import lt, gt
+import operator
 import os
 
 import numpy as np
@@ -15,10 +15,12 @@ from padertorch.train.trigger import IntervalTrigger, EndTrigger, OrTrigger
 
 __all__ = [
     'SummaryHook',
+    'SimpleCheckpointHook',
     'ValidationHook',
+    'CheckpointedValidationHook',
     'ProgressBarHook',
     'StopTrainingHook',
-    'StopTraining'
+    'StopTraining',
 ]
 
 
@@ -268,6 +270,13 @@ class CheckpointedValidationHook(ValidationHook):
 
     def pre_step(self, trainer: 'pt.Trainer'):
         super().pre_step(trainer)
+        # Do only a checkpoint, when the trigger triggers
+        # self.summary is always empty
+        # Keep the last checkpoint (important for training resume)
+        # Suggestion:
+        #     Make a symlink to the best, i.e. ln -s ckpt_123 ckpt_loss_best
+        # Save the state of this checkpoint to the filesystem
+        # Implement a `close` that only saves the checkpoint (no validation).
         current_metrics = {metric: value
                            for metric, value in self.summary['scalars']
                            if metric in self.metrics.keys()}
@@ -283,11 +292,13 @@ class CheckpointedValidationHook(ValidationHook):
 
     @staticmethod
     def _convert_metrics_to_internal_layout(metrics):
+        # Is a class better? The class could store the value and the path.
+        # Also the class could implement the `latest` objective.
         def get_is_better_fn(criterion: str):
             if criterion == 'min':
-                return lt, float('inf')
+                return operator.lt, float('inf')
             elif criterion == 'max':
-                return gt, -float('inf')
+                return operator.gt, -float('inf')
             else:
                 raise ValueError("Comparison criterion must be either"
                                  " 'min' or 'max'!")
