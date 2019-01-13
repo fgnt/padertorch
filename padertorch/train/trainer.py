@@ -328,7 +328,8 @@ class Trainer(Configurable):
         return str(self.storage_dir / 'checkpoints' / f'ckpt_{self.iteration}')
 
     def save_checkpoint(self, checkpoint_path=None):
-        checkpoint_path = checkpoint_path or self.default_checkpoint_path()
+        if checkpoint_path is None:
+            checkpoint_path = self.default_checkpoint_path()
         if self.use_cuda:
             self.cpu()
         torch.save(
