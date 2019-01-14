@@ -15,7 +15,12 @@ import padertorch as pt
 import paderbox as pb
 
 
-def test_run(trainer, train_iterator, validation_iterator):
+def test_run(
+        trainer,
+        train_iterator,
+        validation_iterator,
+        test_with_known_iterator_length=False,
+):
     """
     Run a test on the trainer instance (i.e. model test).
 
@@ -113,9 +118,28 @@ def test_run(trainer, train_iterator, validation_iterator):
             new_callable=SpyMagicMock,
         ))
 
+        class Iterable:
+            def __init__(self, data):
+                self.data = data
+
+            def __iter__(self):
+                yield from self.data
+
+            def __len__(self):
+                raise TypeError(
+                    f'object of type {self.__class__.__name__} has no len()'
+                )
+
+        sub_train_iterator = list(itertools.islice(train_iterator, 2))
+        sub_validation_iterator = list(itertools.islice(validation_iterator, 2))
+
+        if not test_with_known_iterator_length:
+            sub_train_iterator = Iterable(sub_train_iterator)
+            sub_validation_iterator = Iterable(sub_validation_iterator)
+
         trainer.train(
-            list(itertools.islice(train_iterator, 2)),
-            list(itertools.islice(validation_iterator, 2)),
+            sub_train_iterator,
+            sub_validation_iterator,
         )
 
         def assert_step(x):
@@ -197,6 +221,7 @@ def test_run_from_config(
         trainer_config,
         train_iterator,
         validation_iterator,
+        test_with_known_iterator_length=False,
 ):
     trainer_config = copy.deepcopy(trainer_config)
 
@@ -211,7 +236,12 @@ def test_run_from_config(
             # no event file
             raise Exception(files_before)
 
-        t.test_run(train_iterator, validation_iterator)
+        test_run(
+            t,
+            train_iterator,
+            validation_iterator,
+            test_with_known_iterator_length=test_with_known_iterator_length
+        )
 
         files_after = tuple(tmp_dir.glob('*'))
         if files_after != files_before:

@@ -280,9 +280,10 @@ class Trainer(Configurable):
     def get_default_hooks(self, hooks, *, train_iterator, validation_iterator):
         if hooks is None:
             hooks = []
-        if hasattr(train_iterator, '__len__'):
+        try:
             max_it_len = len(train_iterator)
-        else:
+        except TypeError:
+            # TypeError: object of type '...' has no len()
             max_it_len = None
         hooks = pt.utils.to_list(hooks)
         hooks.append(SummaryHook(self.summary_trigger, self.validate_trigger))
