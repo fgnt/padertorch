@@ -244,7 +244,7 @@ class ValidationHook(SummaryHook):
         return Priority.VALIDATION
 
     def pre_step(self, trainer: 'pt.Trainer'):
-        assert all([len(value) for value in self.summary.values()])
+        assert all([len(value) == 0 for value in self.summary.values()])
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
             assert len(trainer.timer.timings) == 0, trainer.timer
             print('Starting Validation')
