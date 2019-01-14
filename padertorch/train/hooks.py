@@ -244,6 +244,7 @@ class ValidationHook(SummaryHook):
         return Priority.VALIDATION
 
     def pre_step(self, trainer: 'pt.Trainer'):
+        assert all([len(value) for value in self.summary.values()])
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
             assert len(trainer.timer.timings) == 0, trainer.timer
             print('Starting Validation')
@@ -252,6 +253,12 @@ class ValidationHook(SummaryHook):
             self.dump_summary(trainer)
             assert len(trainer.timer.timings) == 0, trainer.timer
             print('Finished Validation')
+
+    def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
+        pass
+
+    def close(self, trainer: 'pt.Trainer'):
+        pass
 
 
 class CheckpointedValidationHook(ValidationHook):
