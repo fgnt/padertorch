@@ -277,7 +277,7 @@ class CheckpointedValidationHook(ValidationHook):
 
     def pre_step(self, trainer: 'pt.Trainer'):
         super().pre_step(trainer)
-        # Do only a checkpoint, when the trigger triggers
+        # Do only a checkpoint when the trigger triggers
         # self.summary is always empty
         # Keep the last checkpoint (important for training resume)
         # Suggestion:
