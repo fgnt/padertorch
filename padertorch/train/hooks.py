@@ -349,6 +349,7 @@ class CheckpointedValidationHook(ValidationHook):
 
 
 class ProgressBarHook(BaseHook):
+    """ Adds a progress bar to the console output. """
     def __init__(self, max_trigger, max_iteration=None,
                  update_intervall=10, bar_length=100, disable=False):
         """
@@ -410,6 +411,7 @@ class ProgressBarHook(BaseHook):
 
 
 class StopTrainingHook(BaseHook):
+    """ Raises a StopTraining exception if triggered. """
     def __init__(self, trigger):
         super().__init__()
         self.trigger = EndTrigger.new(trigger)
@@ -426,4 +428,7 @@ class StopTrainingHook(BaseHook):
 
 
 class StopTraining(Exception):
+    """ Rationale: Raised as signal to stop the training
+        (e.g. when predefined number of iterations are completed.)
+    """
     pass
