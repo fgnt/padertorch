@@ -386,12 +386,14 @@ class CheckpointedValidationHook(ValidationHook):
         """ Store the state information of the metrics objects to a json.
         """
         assert all(metric_key == metric.name
-                   for metric_key, metric in self.metrics.items())
+                   for metric_key, metric in self.metrics.items()), \
+            'Some metric keys do not match their names!'
         json_path = (os.path.dirname(self.latest_checkpoint_path) +
                      os.path.sep + 'metrics.json')
         content = {metric_key: metric.to_json()
                    for metric_key, metric in self.metrics.items()}
-        json.dump(content, json_path)
+        with open(json_path, 'w') as json_file:
+            json.dump(content, json_file)
 
     def _cleanup_stale_checkpoints(self):
         """ Remove all checkpoints that became stale (i.e. have associated
