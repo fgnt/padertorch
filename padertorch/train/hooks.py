@@ -2,6 +2,7 @@
 """
 from collections import defaultdict
 from enum import IntEnum
+import json
 import operator
 import os
 
@@ -269,6 +270,7 @@ class _Metric:
         self.key = metric_key
         self.criterion = criterion
         self.path = None
+        self.symlink_name = None
 
         if criterion == 'min':
             self._is_better_fn = operator.lt
@@ -293,6 +295,10 @@ class _Metric:
         """
         self.value = value
         self.path = checkpoint_path
+        self.symlink_name = (os.path.dirname(checkpoint_path) + os.path.sep
+                             + 'ckpt_best_{metric_key}')
+        os.symlink(checkpoint_path, self.symlink_name)
+
 
 
 class CheckpointedValidationHook(ValidationHook):
