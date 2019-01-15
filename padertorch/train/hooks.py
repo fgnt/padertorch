@@ -302,24 +302,27 @@ class CheckpointedValidationHook(ValidationHook):
         self.validated_checkpoints = {}
         self.latest_checkpoint_path = None
 
-    def close(self, trainer: 'pt.Trainer'):
-        self._store_latest_checkpoint(trainer)
-
     def dump_summary(self, trainer: 'pt.Trainer'):
         # TODO:
         # Suggestion:
         #     Make a symlink to the best, i.e. ln -s ckpt_123 ckpt_loss_best
         # Save the state of this checkpoint to the filesystem (json ?)
+        self._save_latest_checkpoint(trainer)
         self._update_validated_checkpoints(trainer)
-        self._store_latest_checkpoint(trainer)
         super().dump_summary(trainer)
+
+    def close(self, trainer: 'pt.Trainer'):
+        self._save_latest_checkpoint(trainer)
 
     @classmethod
     def _convert_metrics_to_internal_layout(cls, metrics):
         return {metric_key: _Metric(metric_key, criterion)
                 for metric_key, criterion in metrics.values()}
 
-    def _store_latest_checkpoint(self, trainer):
+    def _save_latest_checkpoint(self, trainer):
+        """ Unconditionally save a checkpoint for the current model.
+            This is needed for resuming training.
+        """
         checkpoint_path = trainer.default_checkpoint_path()
         trainer.save_checkpoint(checkpoint_path)
         if self.latest_checkpoint_path is not None:
