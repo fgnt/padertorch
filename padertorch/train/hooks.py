@@ -337,14 +337,13 @@ class CheckpointedValidationHook(ValidationHook):
         self.latest_checkpoint_path = checkpoint_path
 
     def _update_validated_checkpoints(self, trainer: 'pt.Trainer'):
-        summary_metrics = self._current_relevant_summary_metrics()
-        for metric_key, summary_value in summary_metrics.items():
+        for metric_key, summary_value in self._relevant_summary().items():
             if self.metrics[metric_key].is_better(summary_value):
                 self._update_checkpoint(trainer, metric_key, summary_value)
         self._cleanup_stale_checkpoints()
 
-    def _current_relevant_summary_metrics(self):
-        # Check if all desired metric are valid (i.e. appear in summary)
+    def _relevant_summary(self):
+        # Check if all desired metrics are valid (i.e. appear in summary)
         invalid_metrics = (set(self.metrics.keys()) -
                            set(self.summary['scalars'].keys()))
         if invalid_metrics:
