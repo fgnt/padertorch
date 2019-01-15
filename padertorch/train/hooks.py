@@ -267,60 +267,86 @@ class CheckpointedValidationHook(ValidationHook):
         Cannot be used together with a ValidationHook
         or a SimpleCheckpointHook.
     """
+    class Metric:
+        def __init__(self, criterion):
+            if criterion == 'min':
+                self._is_better = operator.lt
+                self.value = float('inf')
+            elif criterion == 'max':
+                self._is_better = operator.gt
+                self.value = -float('inf')
+            else:
+                raise ValueError("Comparison criterion must be either"
+                                 " 'min' or 'max'!")
+
+        def is_better(self, value):
+            return self._is_better(value, self.value)
+
     def __init__(self, trigger, iterator, metrics=None):
         super().__init__(self, trigger, iterator)
         assert isinstance(metrics, dict) and metrics,  \
             'The metrics dict must not be empty!'
         self.metrics = self._convert_metrics_to_internal_layout(metrics)
-        self.best_checkpoints = {metric: '' for metric in metrics.keys()}
-        self.checkpoints = {}
+        self.best_checkpoints = {key: '' for key in metrics.keys()}
+        self.validated_checkpoints = {}
+        self.latest_checkpoint_path = None
 
-    def pre_step(self, trainer: 'pt.Trainer'):
-        super().pre_step(trainer)
-        # Do only a checkpoint when the trigger triggers
-        # self.summary is always empty
-        # Keep the last checkpoint (important for training resume)
+    def close(self, trainer: 'pt.Trainer'):
+        self._store_latest_checkpoint(trainer)
+
+    def dump_summary(self, trainer: 'pt.Trainer'):
+        # TODO:
         # Suggestion:
         #     Make a symlink to the best, i.e. ln -s ckpt_123 ckpt_loss_best
-        # Save the state of this checkpoint to the filesystem
-        # Implement a `close` that only saves the checkpoint (no validation).
-        current_metrics = {metric: value
-                           for metric, value in self.summary['scalars']
-                           if metric in self.metrics.keys()}
-        for metric, value in current_metrics:
-            is_better, best_value = self.metrics[metric]
-            if is_better(current_metrics[metric], best_value):
-                self.metrics[metric] = is_better, value
-                checkpoint_path = trainer.default_checkpoint_path()
-                self._save_checkpoint_if_not_yet_done(trainer, checkpoint_path)
-                self.best_checkpoints[metric] = checkpoint_path
+        # Save the state of this checkpoint to the filesystem (json ?)
+        self._update_validated_checkpoints(trainer)
+        self._store_latest_checkpoint(trainer)
+        super().dump_summary(trainer)
 
+    @classmethod
+    def _convert_metrics_to_internal_layout(cls, metrics):
+        return {metric_key: cls.Metric(criterion)
+                for metric_key, criterion in metrics.values()}
+
+    def _store_latest_checkpoint(self, trainer):
+        checkpoint_path = trainer.default_checkpoint_path()
+        trainer.save_checkpoint(checkpoint_path)
+        if self.latest_checkpoint_path is not None:
+            os.remove(self.latest_checkpoint_path)
+        self.latest_checkpoint_path = checkpoint_path
+
+    def _update_validated_checkpoints(self, trainer: 'pt.Trainer'):
+        summary_metrics = self._current_relevant_summary_metrics()
+        for metric_key, summary_value in summary_metrics.items():
+            if self.metrics[metric_key].is_better(summary_value):
+                self.metrics[metric_key].value = summary_value
+                self._update_checkpoint(metric_key, trainer)
         self._cleanup_stale_checkpoints()
 
-    @staticmethod
-    def _convert_metrics_to_internal_layout(metrics):
-        # Is a class better? The class could store the value and the path.
-        # Also the class could implement the `latest` objective.
-        def get_is_better_fn(criterion: str):
-            if criterion == 'min':
-                return operator.lt, float('inf')
-            elif criterion == 'max':
-                return operator.gt, -float('inf')
-            else:
-                raise ValueError("Comparison criterion must be either"
-                                 " 'min' or 'max'!")
-        return {metric: get_is_better_fn(criterion)
-                for metric, criterion in metrics.values()}
+    def _current_relevant_summary_metrics(self):
+        # Check if all desired metric are valid (i.e. appear in summary)
+        invalid_metrics = (set(self.metrics.keys()) -
+                           set(self.summary['scalars'].keys()))
+        if invalid_metrics:
+            raise ValueError('The metrics {invalid_metrics} do not exist in '
+                             "summary['scalars'].")
+        # return all desired metrics from summary
+        return {metric_key: summary_value
+                for metric_key, summary_value in self.summary['scalars']
+                if metric_key in self.metrics}
 
-    def _save_checkpoint_if_not_yet_done(self, trainer, checkpoint_path):
-        if checkpoint_path not in self.checkpoints:
+    def _update_checkpoint(self, metric_key, trainer):
+        checkpoint_path = trainer.default_checkpoint_path()
+        if checkpoint_path not in self.validated_checkpoints:
             trainer.save_checkpoint(checkpoint_path)
+        self.best_checkpoints[metric_key] = checkpoint_path
 
     def _cleanup_stale_checkpoints(self):
-        for checkpoint_path in self.checkpoints:
+        for checkpoint_path in self.validated_checkpoints:
             if checkpoint_path not in self.best_checkpoints.values():
                 os.remove(checkpoint_path)
-        self.checkpoints = set(self.best_checkpoints.values())
+        self.validated_checkpoints = set(self.best_checkpoints.values())
+
 
 class ProgressBarHook(BaseHook):
     def __init__(self, max_trigger, max_iteration=None,
