@@ -299,6 +299,10 @@ class _Metric:
                              + 'ckpt_best_{metric_key}')
         os.symlink(checkpoint_path, self.symlink_name)
 
+    def to_json(self):
+        """ Dump metric state information into dictionary. """
+        return dict(key=self.key, criterion=self.criterion, path=self.path,
+                    symlink_name=self.symlink_name)
 
 
 class CheckpointedValidationHook(ValidationHook):
@@ -346,6 +350,7 @@ class CheckpointedValidationHook(ValidationHook):
         for metric_key, summary_value in self._relevant_summary().items():
             if self.metrics[metric_key].is_better(summary_value):
                 self._update_checkpoint(trainer, metric_key, summary_value)
+        self._dump_metrics_to_json()
         self._cleanup_stale_checkpoints()
 
     def _relevant_summary(self):
@@ -365,6 +370,17 @@ class CheckpointedValidationHook(ValidationHook):
         if checkpoint_path not in self.best_validated_checkpoints:
             trainer.save_checkpoint(checkpoint_path)
         self.metrics[metric_key].update(summary_value, checkpoint_path)
+
+    def _dump_metrics_to_json(self):
+        """ Store the state information of the metrics objects to a json.
+        """
+        assert all(metric_key == metric.name
+                   for metric_key, metric in self.metrics.items())
+        json_path = (os.path.dirname(self.latest_checkpoint_path) +
+                     os.path.sep + 'metrics.json')
+        content = {metric_key: metric.to_json()
+                   for metric_key, metric in self.metrics.items()}
+        json.dump(content, json_path)
 
     def _cleanup_stale_checkpoints(self):
         for checkpoint_path in self.validated_checkpoints:
