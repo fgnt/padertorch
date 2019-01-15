@@ -142,7 +142,7 @@ class SummaryHook(BaseHook):
         for key, image in review.get('images', dict()).items():
             self.summary['images'][key] = image  # snapshot
 
-    def dump_summary(self, trainer):
+    def dump_summary(self, trainer: 'pt.Trainer'):
         iteration = trainer.iteration
         timer = trainer.timer
         prefix = self.summary_prefix
