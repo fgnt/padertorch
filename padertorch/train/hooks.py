@@ -268,6 +268,7 @@ class _Metric:
     def __init__(self, metric_key, criterion):
         self.key = metric_key
         self.criterion = criterion
+        self.path = None
 
         if criterion == 'min':
             self._is_better_fn = operator.lt
@@ -286,6 +287,13 @@ class _Metric:
         """
         return self._is_better_fn(value, self.value)
 
+    def update(self, value, checkpoint_path):
+        """ Update to best metric value, corresponding checkpoint path
+            and set symlink to checkpoint.
+        """
+        self.value = value
+        self.path = checkpoint_path
+
 
 class CheckpointedValidationHook(ValidationHook):
     """ Performs model validation and keeps checkpoints for model states that
@@ -298,8 +306,7 @@ class CheckpointedValidationHook(ValidationHook):
         assert isinstance(metrics, dict) and metrics,  \
             'The metrics dict must not be empty!'
         self.metrics = self._convert_metrics_to_internal_layout(metrics)
-        self.best_checkpoints = {key: '' for key in metrics.keys()}
-        self.validated_checkpoints = {}
+        self.best_validated_checkpoints = {}
         self.latest_checkpoint_path = None
 
     def dump_summary(self, trainer: 'pt.Trainer'):
@@ -333,8 +340,7 @@ class CheckpointedValidationHook(ValidationHook):
         summary_metrics = self._current_relevant_summary_metrics()
         for metric_key, summary_value in summary_metrics.items():
             if self.metrics[metric_key].is_better(summary_value):
-                self.metrics[metric_key].value = summary_value
-                self._update_checkpoint(metric_key, trainer)
+                self._update_checkpoint(trainer, metric_key, summary_value)
         self._cleanup_stale_checkpoints()
 
     def _current_relevant_summary_metrics(self):
@@ -349,17 +355,22 @@ class CheckpointedValidationHook(ValidationHook):
                 for metric_key, summary_value in self.summary['scalars']
                 if metric_key in self.metrics}
 
-    def _update_checkpoint(self, metric_key, trainer):
+    def _update_checkpoint(self, trainer, metric_key, summary_value):
         checkpoint_path = trainer.default_checkpoint_path()
-        if checkpoint_path not in self.validated_checkpoints:
+        if checkpoint_path not in self.best_validated_checkpoints:
             trainer.save_checkpoint(checkpoint_path)
-        self.best_checkpoints[metric_key] = checkpoint_path
+        self.metrics[metric_key].update(summary_value, checkpoint_path)
 
     def _cleanup_stale_checkpoints(self):
         for checkpoint_path in self.validated_checkpoints:
             if checkpoint_path not in self.best_checkpoints.values():
+        best_checkpoint_paths = {metric.path
+                                 for metric in self.metrics.values()
+                                 if metric.path is not None}
+        for checkpoint_path in self.best_validated_checkpoints:
+            if checkpoint_path not in best_checkpoint_paths:
                 os.remove(checkpoint_path)
-        self.validated_checkpoints = set(self.best_checkpoints.values())
+        self.best_validated_checkpoints = best_checkpoint_paths
 
 
 class ProgressBarHook(BaseHook):
