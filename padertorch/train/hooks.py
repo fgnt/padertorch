@@ -320,10 +320,12 @@ class CheckpointedValidationHook(ValidationHook):
         self.latest_checkpoint_path = None
 
     def dump_summary(self, trainer: 'pt.Trainer'):
-        # TODO:
-        # Suggestion:
-        #     Make a symlink to the best, i.e. ln -s ckpt_123 ckpt_loss_best
-        # Save the state of this checkpoint to the filesystem (json ?)
+        """ This class needs to overload the dump_summary - even if the naming
+            is suboptimal - because the ValidationHook class produces the
+            necessary metrics in its pre_step but immediately calls
+            dump_summary. However, the implementation in SummaryHook clears
+            the summary content.
+        """
         self._save_latest_checkpoint(trainer)
         self._update_validated_checkpoints(trainer)
         super().dump_summary(trainer)
@@ -347,6 +349,10 @@ class CheckpointedValidationHook(ValidationHook):
         self.latest_checkpoint_path = checkpoint_path
 
     def _update_validated_checkpoints(self, trainer: 'pt.Trainer'):
+        """ Save a checkpoint if the current model improves one or multiple
+            validation metrics, dump the metric information to a json file
+            and remove old checkpoints.
+        """
         for metric_key, summary_value in self._relevant_summary().items():
             if self.metrics[metric_key].is_better(summary_value):
                 self._update_checkpoint(trainer, metric_key, summary_value)
@@ -366,6 +372,10 @@ class CheckpointedValidationHook(ValidationHook):
                 if metric_key in self.metrics}
 
     def _update_checkpoint(self, trainer, metric_key, summary_value):
+        """ Is called if a metric was improved with the current model state.
+            Stores a checkpoint for the current state if not yet done
+            and updates the corresponding metric object.
+        """
         checkpoint_path = f'{trainer.default_checkpoint_path()}_best'
         if checkpoint_path not in self.best_validated_checkpoints:
             trainer.save_checkpoint(checkpoint_path)
@@ -383,8 +393,9 @@ class CheckpointedValidationHook(ValidationHook):
         json.dump(content, json_path)
 
     def _cleanup_stale_checkpoints(self):
-        for checkpoint_path in self.validated_checkpoints:
-            if checkpoint_path not in self.best_checkpoints.values():
+        """ Remove all checkpoints that became stale (i.e. have associated
+            metric where they perform best anymore).
+        """
         best_checkpoint_paths = {metric.path
                                  for metric in self.metrics.values()
                                  if metric.path is not None}
