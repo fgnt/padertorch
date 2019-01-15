@@ -301,7 +301,8 @@ class _Metric:
 
     def to_json(self):
         """ Dump metric state information into dictionary. """
-        return dict(key=self.key, criterion=self.criterion, path=self.path,
+        return dict(key=self.key, value=self.value,
+                    criterion=self.criterion, path=self.path,
                     symlink_name=self.symlink_name)
 
 
@@ -336,7 +337,7 @@ class CheckpointedValidationHook(ValidationHook):
     @classmethod
     def _convert_metrics_to_internal_layout(cls, metrics):
         return {metric_key: _Metric(metric_key, criterion)
-                for metric_key, criterion in metrics.values()}
+                for metric_key, criterion in metrics.items()}
 
     def _save_latest_checkpoint(self, trainer):
         """ Unconditionally save a checkpoint for the current model.
