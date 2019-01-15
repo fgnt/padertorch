@@ -261,27 +261,38 @@ class ValidationHook(SummaryHook):
         pass
 
 
+class _Metric:
+    """ Bookkeeping of metrics (comparison, best value, checkpoint path,
+        symlink) needed for CheckpointedValidationHook.
+    """
+    def __init__(self, metric_key, criterion):
+        self.key = metric_key
+        self.criterion = criterion
+
+        if criterion == 'min':
+            self._is_better_fn = operator.lt
+            self.value = float('inf')
+        elif criterion == 'max':
+            self._is_better_fn = operator.gt
+            self.value = -float('inf')
+        else:
+            raise ValueError("Comparison criterion must be either"
+                             " 'min' or 'max'!")
+
+    def is_better(self, value):
+        """ Decides whether current metric value is better than best
+            previous one. Has to work for cost and gain objectives
+            => See init for details.
+        """
+        return self._is_better_fn(value, self.value)
+
+
 class CheckpointedValidationHook(ValidationHook):
     """ Performs model validation and keeps checkpoints for model states that
         perform best on a given set of metrics.
         Cannot be used together with a ValidationHook
         or a SimpleCheckpointHook.
     """
-    class Metric:
-        def __init__(self, criterion):
-            if criterion == 'min':
-                self._is_better = operator.lt
-                self.value = float('inf')
-            elif criterion == 'max':
-                self._is_better = operator.gt
-                self.value = -float('inf')
-            else:
-                raise ValueError("Comparison criterion must be either"
-                                 " 'min' or 'max'!")
-
-        def is_better(self, value):
-            return self._is_better(value, self.value)
-
     def __init__(self, trigger, iterator, metrics=None):
         super().__init__(self, trigger, iterator)
         assert isinstance(metrics, dict) and metrics,  \
@@ -305,7 +316,7 @@ class CheckpointedValidationHook(ValidationHook):
 
     @classmethod
     def _convert_metrics_to_internal_layout(cls, metrics):
-        return {metric_key: cls.Metric(criterion)
+        return {metric_key: _Metric(metric_key, criterion)
                 for metric_key, criterion in metrics.values()}
 
     def _store_latest_checkpoint(self, trainer):
