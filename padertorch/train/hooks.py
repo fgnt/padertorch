@@ -356,7 +356,7 @@ class CheckpointedValidationHook(ValidationHook):
                 if metric_key in self.metrics}
 
     def _update_checkpoint(self, trainer, metric_key, summary_value):
-        checkpoint_path = trainer.default_checkpoint_path()
+        checkpoint_path = f'{trainer.default_checkpoint_path()}_best'
         if checkpoint_path not in self.best_validated_checkpoints:
             trainer.save_checkpoint(checkpoint_path)
         self.metrics[metric_key].update(summary_value, checkpoint_path)
