@@ -365,8 +365,8 @@ class CheckpointedValidationHook(ValidationHook):
         invalid_metrics = (set(self.metrics.keys()) -
                            set(self.summary['scalars'].keys()))
         if invalid_metrics:
-            raise ValueError('The metrics {invalid_metrics} do not exist in '
-                             "summary['scalars'].")
+            raise ValueError(f"The metrics {invalid_metrics} do not exist in "
+                             f"summary['scalars'].")
         # return all desired metrics from summary
         return {metric_key: summary_value
                 for metric_key, summary_value in self.summary['scalars']
