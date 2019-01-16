@@ -58,8 +58,8 @@ class BaseHook:
         :param trigger: Length of step between occurences or Trigger.
             It consists of an integer and either 'epoch' or 'iteration'
         """
-        if trigger is not None:
-            self.trigger = IntervalTrigger.new(trigger)
+        # if trigger is not None:  # CB: use case?
+        self.trigger = IntervalTrigger.new(trigger)
 
     @property
     def priority(self):
@@ -93,17 +93,9 @@ class BaseHook:
 
 
 class SummaryHook(BaseHook):
-    def __init__(self, trigger, validate=None,
+    def __init__(self, trigger,
                  summary_prefix='training'):
-        super().__init__()
-
-        if validate is None:
-            super().__init__(trigger)
-        else:
-            super().__init__(OrTrigger(
-                IntervalTrigger.new(trigger),
-                IntervalTrigger.new(validate),
-            ))
+        super().__init__(trigger)
         self.reset_summary()
         self.summary_prefix = summary_prefix
         self.storage_dir = None
@@ -249,8 +241,8 @@ class ValidationHook(SummaryHook):
         return Priority.VALIDATION
 
     def pre_step(self, trainer: 'pt.Trainer'):
-        assert all([len(value) == 0 for value in self.summary.values()])
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
+            assert all([len(value) == 0 for value in self.summary.values()])
             assert len(trainer.timer.timings) == 0, trainer.timer
             print('Starting Validation')
             for model_out, review in trainer.validate(self.iterator):
@@ -279,14 +271,22 @@ class _Metric:
         assert criterion in ('min', 'max'), criterion
         self._value = float('inf') if criterion == 'min' else -float('inf')
 
+    def __repr__(self):
+        return (
+            f'{self.__class__.__name__}('
+            f'{self._key!r}, {self.criterion!r}, '
+            f'best={self.resolved_symlink_path}'
+            f')'
+        )
+
     @property
     def name(self):
         return self._key
 
     @property
     def paths(self):
-        return ([self._symlink_name.resolve()]
-                if self._symlink_name is not None else [])
+        return ([self.resolved_symlink_path]
+                if self.resolved_symlink_path.exists() else [])
 
     @property
     def values(self):
@@ -310,13 +310,13 @@ class _Metric:
         """
         self._value = value
         # create relative symlink to best checkpoint for metric
-        absoulte_symlink_path = self._checkpoint_dir / self._symlink_name
-        if absoulte_symlink_path.exists:
-            absoulte_symlink_path.unlink()
-        absoulte_symlink_path.symlink_to(checkpoint_path.name)
+        if self.resolved_symlink_path.exists:
+            self.resolved_symlink_path.unlink()
+        self.resolved_symlink_path.symlink_to(checkpoint_path.name)
 
-    def _get_symlink_path(self):
-        return self._checkpoint_dir / self._symlink_name
+    @property
+    def resolved_symlink_path(self):
+        return (self._checkpoint_dir / self._symlink_name).resolve()
 
     def to_json(self):
         """ Dump metric state information into dictionary. """
@@ -334,8 +334,8 @@ class _Metric:
         assert self._key == state_dict['key'], (self._key, state_dict['key'])
         assert self._criterion == state_dict['criterion'], (
             self._criterion, state_dict['criterion'])
-        assert self._symlink_name is None, self._symlink_name
-        assert len(state_dict['paths']) == len(state_dict['values'])
+        assert len(state_dict['paths']) == len(state_dict['values']), \
+            state_dict
         if len(state_dict['paths']) == 0:
             pass
         elif len(state_dict['paths']) == 1:
@@ -351,6 +351,15 @@ class CheckpointedValidationHook(ValidationHook):
         perform best on a given set of metrics.
         Cannot be used together with a ValidationHook
         or a SimpleCheckpointHook.
+
+    Checkpointing and validation:
+     - save checkpoint
+     - validate and collect summary
+     - update best checkpoints according to metrics
+     - dump summary to tfevents file
+     - cleanup stale checkpoints
+     - save CheckpointedValidationHook state in `_json_filename`
+
     """
     _json_filename = 'ckpt_state.json'
 
@@ -364,23 +373,29 @@ class CheckpointedValidationHook(ValidationHook):
         self._keep_all = keep_all
         if init_from_json:
             json_path = checkpoint_dir / self._json_filename
-            with open(json_path, 'r') as json_fd:
+            assert checkpoint_dir.exists(), checkpoint_dir
+            with json_path.open('r') as json_fd:
                 json_state = json.load(json_fd)
             self.latest_checkpoint = Path(json_state['latest_checkpoint_path'])
-            assert set(metrics.keys()) == set(json_state['metrics'].keys()), (
-                metrics, json_state)
-            for metric_key, metric in metrics.items():
+            assert set(self.metrics.keys()) == set(json_state['metrics'].keys()), (
+                self.metrics, json_state)
+            for metric_key, metric in self.metrics.items():
                 metric.set_state(json_state['metrics'][metric_key])
         else:
             if checkpoint_dir.exists():
-                assert checkpoint_dir.isdir(), checkpoint_dir
-                assert len(list(checkpoint_dir.iterdir)) == 0, checkpoint_dir
+                assert checkpoint_dir.is_dir(), checkpoint_dir
+                assert len(list(checkpoint_dir.iterdir())) == 0, checkpoint_dir
             else:
                 checkpoint_dir.mkdir()
             self.latest_checkpoint = None
 
     def pre_step(self, trainer: 'pt.Trainer'):
-        self._save_latest_checkpoint(trainer)
+        if (
+                self.trigger(iteration=trainer.iteration, epoch=trainer.epoch)
+                or trainer.iteration == 1
+        ):
+
+            self._save_latest_checkpoint(trainer)
         super().pre_step(trainer)
 
     def dump_summary(self, trainer: 'pt.Trainer'):
@@ -406,7 +421,7 @@ class CheckpointedValidationHook(ValidationHook):
             latest_checkpoint_path=str(self.latest_checkpoint),
             metrics={metric_key: metric.to_json()
                      for metric_key, metric in self.metrics.items()})
-        with open(json_path, 'w') as json_file:
+        with json_path.open('w') as json_file:
             json.dump(content, json_file)
 
     def close(self, trainer: 'pt.Trainer'):
@@ -535,8 +550,7 @@ class ProgressBarHook(BaseHook):
 class StopTrainingHook(BaseHook):
     """ Raises a StopTraining exception if triggered. """
     def __init__(self, trigger):
-        super().__init__()
-        self.trigger = EndTrigger.new(trigger)
+        super().__init__(EndTrigger.new(trigger))
 
     @property
     def priority(self):
@@ -553,3 +567,4 @@ class StopTraining(Exception):
     """ Rationale: Raised as signal to stop the training
         (e.g. when predefined number of iterations are completed.)
     """
+    pass

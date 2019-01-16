@@ -153,11 +153,11 @@ class OrTrigger(Trigger):
 
     def set_last(self, iteration, epoch):
         for t in self.triggers:
+            assert not isinstance(t, tuple), self.triggers
             t.set_last(
                 iteration=iteration,
                 epoch=epoch,
             )
-
 
 
 class AndTrigger(OrTrigger):

@@ -57,11 +57,11 @@ def test_run(
             'summary_trigger',
             new=(1, 'epoch'),
         ))
-        exit_stack.enter_context(mock.patch.object(
-            trainer,
-            'validate_trigger',
-            new=(1, 'epoch'),
-        ))
+        # exit_stack.enter_context(mock.patch.object(
+        #     trainer,
+        #     'validate_trigger',
+        #     new=(1, 'epoch'),
+        # ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
             'checkpoint_trigger',

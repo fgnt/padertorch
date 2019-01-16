@@ -19,7 +19,7 @@ from padertorch.configurable import Configurable
 from padertorch.train.optimizer import Optimizer, Adam
 from padertorch.train.run_time_tests import test_run
 from padertorch.train.hooks import *
-from padertorch.train.trigger import IntervalTrigger
+from padertorch.train.trigger import IntervalTrigger, OrTrigger
 
 __all__ = [
     'Trainer',
@@ -88,7 +88,8 @@ class Trainer(Configurable):
             loss_weights=None,
             summary_trigger=(1, 'epoch'),
             checkpoint_trigger=(1, 'epoch'),
-            validate_trigger=(1, 'epoch'),
+            keep_all_checkpoints=False,
+            # validate_trigger=(1, 'epoch'),
             max_trigger=(1, 'epoch'),
             gpu=0 if torch.cuda.is_available() else None,
             init_checkpoint=None,
@@ -124,7 +125,7 @@ class Trainer(Configurable):
 
         self.summary_trigger = summary_trigger
         self.checkpoint_trigger = IntervalTrigger.new(checkpoint_trigger)
-        self.validate_trigger = validate_trigger
+        self.keep_all_checkpoints = keep_all_checkpoints
         self.max_trigger = max_trigger
 
         self.loss_weights = loss_weights
@@ -148,8 +149,16 @@ class Trainer(Configurable):
             validation_iterator,
         )
 
-    def train(self, train_iterator, validation_iterator, hooks=None):
-        os.makedirs(str(self.storage_dir / 'checkpoints'), exist_ok=True)
+    def train(
+            self,
+            train_iterator,
+            validation_iterator=None,
+            *,
+            hooks=None,
+            metrics={'loss': 'min'},
+            n_best_checkpoints=1,
+    ):
+        # os.makedirs(str(self.storage_dir / 'checkpoints'), exist_ok=True)
 
         torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = False
@@ -164,12 +173,14 @@ class Trainer(Configurable):
             hooks,
             train_iterator=train_iterator,
             validation_iterator=validation_iterator,
+            metrics=metrics,
+            n_best_checkpoints=n_best_checkpoints,
         )
 
         # For training continue set the correct last value
         for hook in hooks:
             hook.set_last(self.iteration, self.epoch)
-        self.checkpoint_trigger.set_last(self.iteration, self.epoch)
+        # self.checkpoint_trigger.set_last(self.iteration, self.epoch)
 
         # ================ MAIN TRAINING LOOP! ===================
         try:
@@ -180,10 +191,10 @@ class Trainer(Configurable):
                     # "max_iterations".
                     for hook in hooks:
                         hook.pre_step(self)
-                    if self.checkpoint_trigger(
-                            iteration=self.iteration, epoch=self.epoch
-                    ) or self.iteration == 1:
-                        self.save_checkpoint()
+                    # if self.checkpoint_trigger(
+                    #         iteration=self.iteration, epoch=self.epoch
+                    # ) or self.iteration == 1:
+                    #     self.save_checkpoint()
                     with self.timer['time_per_step']:
                         try:
                             with self.timer['time_per_data_loading']:
@@ -277,7 +288,15 @@ class Trainer(Configurable):
             loss += weight * value
         loss.backward(retain_graph=retain_graph)
 
-    def get_default_hooks(self, hooks, *, train_iterator, validation_iterator):
+    def get_default_hooks(
+            self,
+            hooks,
+            *,
+            train_iterator,
+            validation_iterator,
+            metrics,
+            n_best_checkpoints,
+    ):
         if hooks is None:
             hooks = []
         try:
@@ -286,10 +305,35 @@ class Trainer(Configurable):
             # TypeError: object of type '...' has no len()
             max_it_len = None
         hooks = pt.utils.to_list(hooks)
-        hooks.append(SummaryHook(self.summary_trigger, self.validate_trigger))
+
+        if validation_iterator is None:
+            print(
+                'Since no validation_iterator is provided to `Trainer.train`, '
+                'disable validation.'
+            )
+            hooks.append(SimpleCheckpointHook(
+                self.checkpoint_trigger,
+                keep_all=self.keep_all_checkpoints,
+            ))
+
+            summary_trigger = self.summary_trigger
+        else:
+            hooks.append(CheckpointedValidationHook(
+                trigger=self.checkpoint_trigger,
+                iterator=validation_iterator,
+                checkpoint_dir=self.checkpoint_dir,
+                metrics=metrics,
+                keep_all=self.keep_all_checkpoints,
+                init_from_json=self.checkpoint_dir.exists(),
+            ))
+
+            summary_trigger = OrTrigger(
+                IntervalTrigger.new(self.summary_trigger),
+                IntervalTrigger.new(self.checkpoint_trigger),
+            )
+
+        hooks.append(SummaryHook(summary_trigger))
         hooks.append(ProgressBarHook(self.max_trigger, max_it_len))
-        hooks.append(ValidationHook(self.validate_trigger,
-                                    validation_iterator))
         hooks.append(StopTrainingHook(self.max_trigger))
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
         return hooks
@@ -349,7 +393,7 @@ class Trainer(Configurable):
         )
         if self.use_cuda:
             self.cuda(self.gpu_device)
-        print(f"{datetime.datetime.now()}: Saved model and optimizer state "
+        print(f"{datetime.now()}: Saved model and optimizer state "
               f"at iteration {self.iteration} to {checkpoint_path}")
 
     def load_checkpoint(self, checkpoint_path):
@@ -371,7 +415,7 @@ class Trainer(Configurable):
             self.model, checkpoint_dict['model']
         )
         iteration = checkpoint_dict['iteration']
-        self.iteration = iteration + 1
+        self.iteration = iteration
         self.epoch = checkpoint_dict['epoch']
         nested_op(
             lambda opti, d: opti.load_state_dict(d)
