@@ -2,7 +2,7 @@ import einops
 import padertorch as pt
 import torch
 from torch.nn.utils.rnn import PackedSequence
-
+from pth_bss import data
 
 class PermutationInvariantTrainingModel(pt.Model):
     """
@@ -68,6 +68,12 @@ class PermutationInvariantTrainingModel(pt.Model):
         self.dropout_linear = torch.nn.Dropout(dropout_linear)
         self.linear1 = torch.nn.Linear(2 * units, 2 * units)
         self.linear2 = torch.nn.Linear(2 * units, F * K)
+
+    def pre_batch_transform(self,inputs, return_keys=None):
+        return data.pre_batch_transform(inputs, return_keys)
+
+    def post_batch_transform(self, batch):
+        return data.post_batch_transform(batch)
 
     def forward(self, batch):
         """
