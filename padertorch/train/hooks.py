@@ -410,17 +410,18 @@ class CheckpointedValidationHook(ValidationHook):
 
 class ProgressBarHook(BaseHook):
     """ Adds a progress bar to the console output. """
-    def __init__(self, max_trigger, max_iteration=None,
-                 update_intervall=10, bar_length=100, disable=False):
+    def __init__(self, max_trigger, max_it_len=None, update_intervall=1):
+        from progressbar import bar, UnknownLength
         """
-        :param max_iteration: has to be defined if max_trigger unit is session
+        :param max_trigger: has to be defined if max_trigger unit is session
             integer with the length of the iterator
+        :param max_it_len (int): length of iterator, only used if max_trigger
+            uses unit epoch
         :param update_interval (int): Number of iterations to skip printing the
             progress bar.
         :param bar_length (int): Length of the progress bar in characters.
         :param disable: bool use to disable the entire progressbar wrapper
         """
-        from tqdm import tqdm
         super().__init__((update_intervall, 'iteration'))
         self.ep_trigger = IntervalTrigger(1, 'epoch')
         self.update_intervall = update_intervall
@@ -435,13 +436,22 @@ class ProgressBarHook(BaseHook):
         if unit == 'iteration':
             max_iteration = length
         elif unit == 'epoch':
-            self.ep_pbar = tqdm(total=length, ncols=bar_length,
-                                disable=disable)
+            if max_it_len is not None:
+                max_iteration = length * max_it_len
+            else:
+                max_iteration = UnknownLength
         else:
             raise ValueError(f'unit {unit} is unknown,'
                              f' choose iteration or epoch')
-        self.it_pbar = tqdm(total=max_iteration, ncols=bar_length,
-                            disable=disable)
+        # self.pbar = tqdm(desc=f'epochs: {0}', total=max_iteration,
+        #                  file=sys.stdout, ncols=ncols,
+        #                  dynamic_ncols=dynamic_ncols)
+        self.pbar = bar.ProgressBar(
+            prefix=f'epochs: {0}',
+            max_value=max_iteration,
+            redirect_stderr=True,
+            redirect_stdout=True
+        )
 
     @property
     def priority(self):
@@ -450,24 +460,24 @@ class ProgressBarHook(BaseHook):
     def set_last(self, iteration, epoch):
         super().set_last(iteration, epoch)
         self.ep_trigger.set_last(iteration, epoch)
-        self.it_pbar.pos = iteration
-        if hasattr(self, 'ep_pbar'):
-            self.ep_pbar.pos = epoch
+        self.pbar.value = iteration
 
     def post_step(self, trainer: 'pt.Trainer', example,
                   model_output, review):
+        from progressbar import UnknownLength
         iteration = trainer.iteration
         epoch = trainer.epoch
         if self.trigger(iteration, epoch):
-            self.it_pbar.update(self.update_intervall)
-        if self.ep_trigger(iteration, epoch) and hasattr(self, 'ep_pbar'):
-            self.ep_pbar.update()
+            self.pbar.update(self.update_intervall)
+            if len(review['losses']) == 1:
+                self.pbar.prefix = f'epochs: {epoch}, loss: ' \
+                                 f'{list(review["losses"].values())[0]}'
+        if self.ep_trigger(iteration, epoch) and self.pbar.max_value is UnknownLength:
+            self.pbar.max_value = iteration * epoch
+
 
     def close(self, trainer: 'pt.Trainer'):
-        if hasattr(self, 'ep_pbar'):
-            self.ep_pbar.close()
-        if hasattr(self, 'it_pbar'):
-            self.it_pbar.close()
+        self.pbar.finish()
 
 
 class StopTrainingHook(BaseHook):
