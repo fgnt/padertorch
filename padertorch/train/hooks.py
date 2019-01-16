@@ -266,10 +266,11 @@ class _Metric:
     """ Bookkeeping of metrics (comparison, best value, checkpoint path,
         symlink) needed for CheckpointedValidationHook.
     """
-    def __init__(self, metric_key, criterion):
+    def __init__(self, metric_key, criterion, checkpoint_dir):
         self._key = metric_key
         self._criterion = criterion
-        self._symlink_name = None
+        self._checkpoint_dir = checkpoint_dir
+        self._symlink_name = f'ckpt_best_{metric_key}'
 
         assert criterion in ('min', 'max'), criterion
         self._value = float('inf') if criterion == 'min' else -float('inf')
@@ -310,15 +311,16 @@ class _Metric:
             self._symlink_name.unlink()
         self._symlink_name.symlink_to(checkpoint_path.name)
 
-    def _get_symlink_path(self, checkpoint_path):
-        return checkpoint_path.parent / 'ckpt_best_{self._key}'
+    def _get_symlink_path(self):
+        return self._checkpoint_dir / self._symlink_name
 
     def to_json(self):
         """ Dump metric state information into dictionary. """
         return dict(key=self._key,
                     criterion=self._criterion,
                     values=self.values,
-                    paths=[str(path) for path in self.paths])
+                    paths=[path.relative_to(self._checkpoint_dir)
+                           for path in self.paths])
 
     def set_state(self, state_dict):
         assert self._key == state_dict['key'], (self._key, state_dict['key'])
@@ -327,10 +329,10 @@ class _Metric:
         assert self._symlink_name is none, self._symlink_name
         assert len(state_dict['paths'] == len(state_dict['values'])
         if len(state_dict['paths']) == 0:
-            self._symlink_name = None
+            pass
         elif len(state_dict['paths']) == 1:
-            self._symlink_name = self._get_symlink_path(
-                Path(state_dict['paths'][0])
+            assert [self._symlink_name] == state_dict['paths'], (
+                self._symlink_name, state_dict['paths'])
             self._value = state_dict['values'][0]
         else:
             assert False, state_dict['paths']
@@ -344,19 +346,16 @@ class CheckpointedValidationHook(ValidationHook):
     """
     _json_filename = 'ckpt_state.json'
 
-    def __init__(self, trigger, iterator, metrics=None, keep_all=False,
-                 init_from_json=False, trainer=None):
+    def __init__(self, trigger, iterator, checkpoint_dir: Path,
+                 metrics=None, keep_all=False, init_from_json=False):
         super().__init__(trigger, iterator)
         assert isinstance(metrics, dict) and metrics,  \
             'The metrics dict must not be empty!'
-
+        self._checkpoint_dir = checkpoint_dir
         self.metrics = self._convert_metrics_to_internal_layout(metrics)
         self._keep_all = keep_all
         if init_from_json:
-            assert trainer is not None, \
-                    'trainer must be given for json init but is None!'
-            json_path = (trainer.default_checkpoint_path().parent /
-                self._json_filename)
+            json_path = checkpoint_dir / self._json_filename
             with open(json_path, 'r') as json_fd:
                 json_state = json.load(json_fd)
             self.latest_checkpoint = Path(json_state['latest_checkpoint_path'])
@@ -365,6 +364,11 @@ class CheckpointedValidationHook(ValidationHook):
             for metric_key, metric in metrics.items():
                 metric.set_state(json_state['metrics'][metric_key])
         else:
+            if checkpoint_dir.exists():
+                assert checkpoint_dir.isdir(), checkpoint_dir
+                assert len(list(checkpoint_dir.iterdir)) == 0), checkpoint_dir
+            else:
+                checkpoint_dir.mkdir()
             self.latest_checkpoint = None
 
     def pre_step(self, trainer: 'pt.Trainer'):
@@ -389,7 +393,7 @@ class CheckpointedValidationHook(ValidationHook):
         assert all(metric_key == metric.name
                    for metric_key, metric in self.metrics.items()), \
             'Some metric keys do not match their names!'
-        json_path = self.latest_checkpoint.parent / self._json_filename
+        json_path = self.checkpoint_dir / self._json_filename
         content = dict(
             latest_checkpoint_path=str(self.latest_checkpoint),
             metrics={metric_key: metric.to_json()
@@ -409,7 +413,8 @@ class CheckpointedValidationHook(ValidationHook):
 
     @classmethod
     def _convert_metrics_to_internal_layout(cls, metrics):
-        return {metric_key: _Metric(metric_key, criterion)
+        return {metric_key: _Metric(metric_key, criterion,
+                                    self._checkpoint_dir)
                 for metric_key, criterion in metrics.items()}
 
     def _save_latest_checkpoint(self, trainer):
@@ -417,6 +422,7 @@ class CheckpointedValidationHook(ValidationHook):
             This is needed for resume of training.
         """
         checkpoint_path = trainer.default_checkpoint_path()
+
         trainer.save_checkpoint(checkpoint_path)
         self.latest_checkpoint = checkpoint_path
 
@@ -438,7 +444,7 @@ class CheckpointedValidationHook(ValidationHook):
             return
         used_checkpoints = self.best_checkpoints | {self.latest_checkpoint}
         stored_checkpoints = [
-            path for path in self.latest_checkpoint.parent.glob('ckpt_*')
+            path for path in self.checkpoint_dir.glob('ckpt_*')
             if path.is_file() and not(path.is_symlink()]
         for checkpoint in stored_checkpoints:
             if checkpoint not in used_checkpoints:

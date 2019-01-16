@@ -325,8 +325,12 @@ class Trainer(Configurable):
                 torch.Tensor([grad_norm])
         return summary
 
+    @property
+    def checkpoint_dir(self):
+        return self.storage_dir / 'checkpoints'
+
     def default_checkpoint_path(self):
-        return self.storage_dir / 'checkpoints' / f'ckpt_{self.iteration}'
+        return self.checkpoint_dir / f'ckpt_{self.iteration}'
 
     def save_checkpoint(self, checkpoint_path=None):
         if checkpoint_path is None:
