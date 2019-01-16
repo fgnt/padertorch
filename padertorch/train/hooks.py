@@ -4,7 +4,7 @@ from collections import defaultdict
 from enum import IntEnum
 import json
 import os
-from pathlib import import Path
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -309,11 +309,11 @@ class _Metric:
             and set symlink to checkpoint.
         """
         self._value = value
-        self._symlink_name = self._get_symlink_name(checkpoint_path)
         # create relative symlink to best checkpoint for metric
-        if self._symlink_name.exists:
-            self._symlink_name.unlink()
-        self._symlink_name.symlink_to(checkpoint_path.name)
+        absoulte_symlink_path = self._checkpoint_dir / self._symlink_name
+        if absoulte_symlink_path.exists:
+            absoulte_symlink_path.unlink()
+        absoulte_symlink_path.symlink_to(checkpoint_path.name)
 
     def _get_symlink_path(self):
         return self._checkpoint_dir / self._symlink_name
@@ -327,11 +327,15 @@ class _Metric:
                            for path in self.paths])
 
     def set_state(self, state_dict):
+        """ Set state of the metrics object from a state dictionary.
+            This is usually useful when the state_dict stems from a json file
+            and was previously created by to_json.
+        """
         assert self._key == state_dict['key'], (self._key, state_dict['key'])
         assert self._criterion == state_dict['criterion'], (
             self._criterion, state_dict['criterion'])
-        assert self._symlink_name is none, self._symlink_name
-        assert len(state_dict['paths'] == len(state_dict['values'])
+        assert self._symlink_name is None, self._symlink_name
+        assert len(state_dict['paths']) == len(state_dict['values'])
         if len(state_dict['paths']) == 0:
             pass
         elif len(state_dict['paths']) == 1:
@@ -363,14 +367,14 @@ class CheckpointedValidationHook(ValidationHook):
             with open(json_path, 'r') as json_fd:
                 json_state = json.load(json_fd)
             self.latest_checkpoint = Path(json_state['latest_checkpoint_path'])
-            assert set(metrics.keys()) == set(json_state['metrics'].keys()), \
-                    (metrics, json_state)
+            assert set(metrics.keys()) == set(json_state['metrics'].keys()), (
+                metrics, json_state)
             for metric_key, metric in metrics.items():
                 metric.set_state(json_state['metrics'][metric_key])
         else:
             if checkpoint_dir.exists():
                 assert checkpoint_dir.isdir(), checkpoint_dir
-                assert len(list(checkpoint_dir.iterdir)) == 0), checkpoint_dir
+                assert len(list(checkpoint_dir.iterdir)) == 0, checkpoint_dir
             else:
                 checkpoint_dir.mkdir()
             self.latest_checkpoint = None
@@ -386,7 +390,7 @@ class CheckpointedValidationHook(ValidationHook):
             dump_summary. However, the implementation in SummaryHook clears
             the summary content.
         """
-        self._update_validated_checkpoints(trainer)
+        self._update_validated_checkpoints()
         super().dump_summary(trainer)
         self._cleanup_stale_checkpoints()
         self.dump_json()
@@ -397,7 +401,7 @@ class CheckpointedValidationHook(ValidationHook):
         assert all(metric_key == metric.name
                    for metric_key, metric in self.metrics.items()), \
             'Some metric keys do not match their names!'
-        json_path = self.checkpoint_dir / self._json_filename
+        json_path = self._checkpoint_dir / self._json_filename
         content = dict(
             latest_checkpoint_path=str(self.latest_checkpoint),
             metrics={metric_key: metric.to_json()
@@ -411,12 +415,13 @@ class CheckpointedValidationHook(ValidationHook):
 
     @property
     def best_checkpoints(self):
+        """ return a set of the checkpoints referenced as best by the metrics.
+        """
         return {path
                 for metric in self.metrics.values()
                 for path in metric.paths}
 
-    @classmethod
-    def _convert_metrics_to_internal_layout(cls, metrics):
+    def _convert_metrics_to_internal_layout(self, metrics):
         return {metric_key: _Metric(metric_key, criterion,
                                     self._checkpoint_dir)
                 for metric_key, criterion in metrics.items()}
@@ -430,7 +435,7 @@ class CheckpointedValidationHook(ValidationHook):
         trainer.save_checkpoint(checkpoint_path)
         self.latest_checkpoint = checkpoint_path
 
-    def _update_validated_checkpoints(self, trainer: 'pt.Trainer'):
+    def _update_validated_checkpoints(self):
         """ Save a checkpoint if the current model improves one or multiple
             validation metrics, dump the metric information to a json file
             and remove old checkpoints.
@@ -438,7 +443,7 @@ class CheckpointedValidationHook(ValidationHook):
         for metric_key, metric in self.metrics.items():
             summary_value = self.summary['scalars'][metric_key]
             if metric.is_better(summary_value):
-                metric.update(value, self.latest_checkpoint)
+                metric.update(summary_value, self.latest_checkpoint)
 
     def _cleanup_stale_checkpoints(self):
         """ Remove all checkpoints that became stale (i.e. have no associated
@@ -448,8 +453,8 @@ class CheckpointedValidationHook(ValidationHook):
             return
         used_checkpoints = self.best_checkpoints | {self.latest_checkpoint}
         stored_checkpoints = [
-            path for path in self.checkpoint_dir.glob(f'ckpt_*.{CKPT_EXT}')
-            if path.is_file() and not(path.is_symlink()]
+            path for path in self._checkpoint_dir.glob(f'ckpt_*.{CKPT_EXT}')
+            if path.is_file() and not path.is_symlink()]
         for checkpoint in stored_checkpoints:
             if checkpoint not in used_checkpoints:
                 checkpoint.unlink()
@@ -519,9 +524,9 @@ class ProgressBarHook(BaseHook):
             if len(review['losses']) == 1:
                 self.pbar.prefix = f'epochs: {epoch}, loss: ' \
                                  f'{list(review["losses"].values())[0]}'
-        if self.ep_trigger(iteration, epoch) and self.pbar.max_value is UnknownLength:
+        if (self.ep_trigger(iteration, epoch)
+                and self.pbar.max_value is UnknownLength):
             self.pbar.max_value = iteration * epoch
-
 
     def close(self, trainer: 'pt.Trainer'):
         self.pbar.finish()
@@ -548,4 +553,3 @@ class StopTraining(Exception):
     """ Rationale: Raised as signal to stop the training
         (e.g. when predefined number of iterations are completed.)
     """
-    pass
