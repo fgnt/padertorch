@@ -3,7 +3,6 @@
 from collections import defaultdict
 from enum import IntEnum
 import json
-import operator
 import os
 from pathlib import import Path
 
