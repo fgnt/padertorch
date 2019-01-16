@@ -22,7 +22,11 @@ __all__ = [
     'ProgressBarHook',
     'StopTrainingHook',
     'StopTraining',
+    'CKPT_EXT',
 ]
+
+
+CKPT_EXT = 'pth'
 
 
 class Priority(IntEnum):
@@ -270,7 +274,7 @@ class _Metric:
         self._key = metric_key
         self._criterion = criterion
         self._checkpoint_dir = checkpoint_dir
-        self._symlink_name = f'ckpt_best_{metric_key}'
+        self._symlink_name = f'ckpt_best_{metric_key}.{CKPT_EXT}'
 
         assert criterion in ('min', 'max'), criterion
         self._value = float('inf') if criterion == 'min' else -float('inf')
@@ -444,7 +448,7 @@ class CheckpointedValidationHook(ValidationHook):
             return
         used_checkpoints = self.best_checkpoints | {self.latest_checkpoint}
         stored_checkpoints = [
-            path for path in self.checkpoint_dir.glob('ckpt_*')
+            path for path in self.checkpoint_dir.glob(f'ckpt_*.{CKPT_EXT}')
             if path.is_file() and not(path.is_symlink()]
         for checkpoint in stored_checkpoints:
             if checkpoint not in used_checkpoints:
