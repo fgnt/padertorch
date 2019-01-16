@@ -268,43 +268,73 @@ class _Metric:
         symlink) needed for CheckpointedValidationHook.
     """
     def __init__(self, metric_key, criterion):
-        self.key = metric_key
-        self.criterion = criterion
-        self.path = None
-        self.symlink_name = None
+        self._key = metric_key
+        self._criterion = criterion
+        self._symlink_name = None
 
-        if criterion == 'min':
-            self._is_better_fn = operator.lt
-            self.value = float('inf')
-        elif criterion == 'max':
-            self._is_better_fn = operator.gt
-            self.value = -float('inf')
-        else:
-            raise ValueError("Comparison criterion must be either"
-                             " 'min' or 'max'!")
+        assert criterion in ('min', 'max'), criterion
+        self._value = float('inf') if criterion == 'min' else -float('inf')
+
+    @property
+    def name(self):
+        return self._key
+
+    @property
+    def paths(self):
+        return ([self._symlink_name.resolve()]
+                if self._symlink_name is not None else [])
+
+    @property
+    def values(self):
+        return [self._value] if abs(self._value) != float('Inf') else []
 
     def is_better(self, value):
         """ Decides whether current metric value is better than best
             previous one. Has to work for cost and gain objectives
             => See init for details.
         """
-        return self._is_better_fn(value, self.value)
+        if self._criterion == 'min':
+            return value <= self._value
+        elif self._criterion == 'max':
+            return value >= self._value
+        else:
+            raise AssertionError(f'Should not ne reachable: {self._criterion}')
 
     def update(self, value, checkpoint_path):
         """ Update to best metric value, corresponding checkpoint path
             and set symlink to checkpoint.
         """
-        self.value = value
-        self.path = checkpoint_path
-        self.symlink_name = (os.path.dirname(checkpoint_path) + os.path.sep
-                             + 'ckpt_best_{metric_key}')
-        os.symlink(checkpoint_path, self.symlink_name)
+        self._value = value
+        self._symlink_name = self._get_symlink_name(checkpoint_path)
+        # create relative symlink to best checkpoint for metric
+        if self._symlink_name.exists:
+            self._symlink_name.unlink()
+        self._symlink_name.symlink_to(checkpoint_path.name)
+
+    def _get_symlink_path(self, checkpoint_path):
+        return checkpoint_path.parent / 'ckpt_best_{self._key}'
 
     def to_json(self):
         """ Dump metric state information into dictionary. """
-        return dict(key=self.key, value=self.value,
-                    criterion=self.criterion, path=self.path,
-                    symlink_name=self.symlink_name)
+        return dict(key=self._key,
+                    criterion=self._criterion,
+                    values=self.values,
+                    paths=[str(path) for path in self.paths])
+
+    def set_state(self, state_dict):
+        assert self._key == state_dict['key'], (self._key, state_dict['key'])
+        assert self._criterion == state_dict['criterion'], (
+            self._criterion, state_dict['criterion'])
+        assert self._symlink_name is none, self._symlink_name
+        assert len(state_dict['paths'] == len(state_dict['values'])
+        if len(state_dict['paths']) == 0:
+            self._symlink_name = None
+        elif len(state_dict['paths']) == 1:
+            self._symlink_name = self._get_symlink_path(
+                Path(state_dict['paths'][0])
+            self._value = state_dict['values'][0]
+        else:
+            assert False, state_dict['paths']
 
 
 class CheckpointedValidationHook(ValidationHook):
@@ -313,27 +343,70 @@ class CheckpointedValidationHook(ValidationHook):
         Cannot be used together with a ValidationHook
         or a SimpleCheckpointHook.
     """
-    def __init__(self, trigger, iterator, metrics=None):
+    _json_filename = 'ckpt_state.json'
+
+    def __init__(self, trigger, iterator, metrics=None, keep_all=False,
+                 init_from_json=False, trainer=None):
         super().__init__(trigger, iterator)
         assert isinstance(metrics, dict) and metrics,  \
             'The metrics dict must not be empty!'
+
         self.metrics = self._convert_metrics_to_internal_layout(metrics)
-        self.best_validated_checkpoints = {}
-        self.latest_checkpoint_path = None
+        self._keep_all = keep_all
+        if init_from_json:
+            assert trainer is not None, \
+                    'trainer must be given for json init but is None!'
+            json_path = (trainer.default_checkpoint_path().parent /
+                self._json_filename)
+            with open(json_path, 'r') as json_fd:
+                json_state = json.load(json_fd)
+            self.latest_checkpoint = Path(json_state['latest_checkpoint_path'])
+            assert set(metrics.keys()) == set(json_state['metrics'].keys()), \
+                    (metrics, json_state)
+            for metric_key, metric in metrics.items():
+                metric.set_state(json_state['metrics'][metric_key])
+        else:
+            self.latest_checkpoint = None
+
+    def pre_step(self, trainer: 'pt.Trainer'):
+        self._save_latest_checkpoint(trainer)
+        super().pre_step(trainer)
 
     def dump_summary(self, trainer: 'pt.Trainer'):
         """ This class needs to overload the dump_summary - even if the naming
             is suboptimal - because the ValidationHook class produces the
-            necessary metrics in its pre_step but immediately calls
+            necessary metrics in its pre_step and immediately calls
             dump_summary. However, the implementation in SummaryHook clears
             the summary content.
         """
-        self._save_latest_checkpoint(trainer)
         self._update_validated_checkpoints(trainer)
         super().dump_summary(trainer)
+        self._cleanup_stale_checkpoints()
+        self.dump_json()
+
+    def dump_json(self):
+        """ Store the state information of the hok object to a json.
+        """
+        assert all(metric_key == metric.name
+                   for metric_key, metric in self.metrics.items()), \
+            'Some metric keys do not match their names!'
+        json_path = self.latest_checkpoint.parent / self._json_filename
+        content = dict(
+            latest_checkpoint_path=str(self.latest_checkpoint),
+            metrics={metric_key: metric.to_json()
+                     for metric_key, metric in self.metrics.items()})
+        with open(json_path, 'w') as json_file:
+            json.dump(content, json_file)
 
     def close(self, trainer: 'pt.Trainer'):
         self._save_latest_checkpoint(trainer)
+        self.dump_json()
+
+    @property
+    def best_checkpoints(self):
+        return {path
+                for metric in self.metrics.values()
+                for path in metric.paths}
 
     @classmethod
     def _convert_metrics_to_internal_layout(cls, metrics):
@@ -342,71 +415,35 @@ class CheckpointedValidationHook(ValidationHook):
 
     def _save_latest_checkpoint(self, trainer):
         """ Unconditionally save a checkpoint for the current model.
-            This is needed for resuming training.
+            This is needed for resume of training.
         """
         checkpoint_path = trainer.default_checkpoint_path()
         trainer.save_checkpoint(checkpoint_path)
-        if self.latest_checkpoint_path is not None:
-            os.remove(self.latest_checkpoint_path)
-        self.latest_checkpoint_path = checkpoint_path
+        self.latest_checkpoint = checkpoint_path
 
     def _update_validated_checkpoints(self, trainer: 'pt.Trainer'):
         """ Save a checkpoint if the current model improves one or multiple
             validation metrics, dump the metric information to a json file
             and remove old checkpoints.
         """
-        for metric_key, summary_value in self._relevant_summary().items():
-            if self.metrics[metric_key].is_better(summary_value):
-                self._update_checkpoint(trainer, metric_key, summary_value)
-        self._dump_metrics_to_json()
-        self._cleanup_stale_checkpoints()
-
-    def _relevant_summary(self):
-        # Check if all desired metrics are valid (i.e. appear in summary)
-        invalid_metrics = (set(self.metrics.keys()) -
-                           set(self.summary['scalars'].keys()))
-        if invalid_metrics:
-            raise ValueError(f"The metrics {invalid_metrics} do not exist in "
-                             f"summary['scalars'].")
-        # return all desired metrics from summary
-        return {metric_key: summary_value
-                for metric_key, summary_value in self.summary['scalars']
-                if metric_key in self.metrics}
-
-    def _update_checkpoint(self, trainer, metric_key, summary_value):
-        """ Is called if a metric was improved with the current model state.
-            Stores a checkpoint for the current state if not yet done
-            and updates the corresponding metric object.
-        """
-        checkpoint_path = f'{trainer.default_checkpoint_path()}_best'
-        if checkpoint_path not in self.best_validated_checkpoints:
-            trainer.save_checkpoint(checkpoint_path)
-        self.metrics[metric_key].update(summary_value, checkpoint_path)
-
-    def _dump_metrics_to_json(self):
-        """ Store the state information of the metrics objects to a json.
-        """
-        assert all(metric_key == metric.name
-                   for metric_key, metric in self.metrics.items()), \
-            'Some metric keys do not match their names!'
-        json_path = (os.path.dirname(self.latest_checkpoint_path) +
-                     os.path.sep + 'metrics.json')
-        content = {metric_key: metric.to_json()
-                   for metric_key, metric in self.metrics.items()}
-        with open(json_path, 'w') as json_file:
-            json.dump(content, json_file)
+        for metric_key, metric in self.metrics.items():
+            summary_value = self.summary['scalars'][metric_key]
+            if metric.is_better(summary_value):
+                metric.update(value, self.latest_checkpoint)
 
     def _cleanup_stale_checkpoints(self):
-        """ Remove all checkpoints that became stale (i.e. have associated
+        """ Remove all checkpoints that became stale (i.e. have no associated
             metric where they perform best anymore).
         """
-        best_checkpoint_paths = {metric.path
-                                 for metric in self.metrics.values()
-                                 if metric.path is not None}
-        for checkpoint_path in self.best_validated_checkpoints:
-            if checkpoint_path not in best_checkpoint_paths:
-                os.remove(checkpoint_path)
-        self.best_validated_checkpoints = best_checkpoint_paths
+        if self._keep_all:
+            return
+        used_checkpoints = self.best_checkpoints | {self.latest_checkpoint}
+        stored_checkpoints = [
+            path for path in self.latest_checkpoint.parent.glob('ckpt_*')
+            if path.is_file() and not(path.is_symlink()]
+        for checkpoint in stored_checkpoints:
+            if checkpoint not in used_checkpoints:
+                checkpoint.unlink()
 
 
 class ProgressBarHook(BaseHook):
