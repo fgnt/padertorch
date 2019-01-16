@@ -5,6 +5,7 @@ from enum import IntEnum
 import json
 import operator
 import os
+from pathlib import import Path
 
 import numpy as np
 import torch
@@ -214,13 +215,13 @@ class SummaryHook(BaseHook):
 
 class SimpleCheckpointHook(BaseHook):
     """ Can be used to keep all checkpoints, e.g. for continuous evaluation
-            (latest_only = False) or to only store the most recent checkpoint
-            (latest_only = True).
+            (keep_all = False) or to only store the most recent checkpoint
+            (keep_all = True).
             Cannot be used together with a CheckpointedValidationHook
     """
-    def __init__(self, trigger, latest_only=False):
+    def __init__(self, trigger, keep_all=False):
         super().__init__(trigger)
-        self.latest_only = latest_only
+        self.keep_all = keep_all
         self.last_checkpoint_path = None
 
     @property
@@ -230,8 +231,8 @@ class SimpleCheckpointHook(BaseHook):
     def pre_step(self, trainer: 'pt.Trainer'):
         checkpoint_path = trainer.default_checkpoint_path()
         trainer.save_checkpoint(checkpoint_path)
-        if self.latest_only and os.path.exists(self.last_checkpoint_path):
-            os.remove(self.last_checkpoint_path)
+        if not(self.keep_all) and self.last_checkpoint_path.exists():
+            self.last_checkpoint_path.unlink()
         self.last_checkpoint_path = checkpoint_path
 
 

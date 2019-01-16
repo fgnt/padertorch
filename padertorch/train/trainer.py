@@ -326,7 +326,7 @@ class Trainer(Configurable):
         return summary
 
     def default_checkpoint_path(self):
-        return str(self.storage_dir / 'checkpoints' / f'ckpt_{self.iteration}')
+        return self.storage_dir / 'checkpoints' / f'ckpt_{self.iteration}'
 
     def save_checkpoint(self, checkpoint_path=None):
         if checkpoint_path is None:
@@ -341,7 +341,7 @@ class Trainer(Configurable):
                 optimizer=nested_op(
                     lambda opti: opti and opti.state_dict(), self.optimizer)
             ),
-            checkpoint_path
+            str(checkpoint_path)
         )
         if self.use_cuda:
             self.cuda(self.gpu_device)
