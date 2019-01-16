@@ -4,6 +4,7 @@ from collections import defaultdict
 from enum import IntEnum
 import json
 import os
+import copy
 from pathlib import Path
 
 import numpy as np
@@ -366,6 +367,10 @@ class CheckpointedValidationHook(ValidationHook):
     def __init__(self, trigger, iterator, checkpoint_dir: Path,
                  metrics=None, keep_all=False, init_from_json=False):
         super().__init__(trigger, iterator)
+
+        # ToDo: remove the checkpoint_trigger, see pre_step
+        self.checkpoint_trigger = IntervalTrigger.new(trigger)
+
         assert isinstance(metrics, dict) and metrics,  \
             'The metrics dict must not be empty!'
         self._checkpoint_dir = checkpoint_dir
@@ -389,9 +394,15 @@ class CheckpointedValidationHook(ValidationHook):
                 checkpoint_dir.mkdir()
             self.latest_checkpoint = None
 
+    def set_last(self, iteration, epoch):
+        super().set_last(iteration, epoch)
+        self.checkpoint_trigger.set_last(iteration, epoch)
+
     def pre_step(self, trainer: 'pt.Trainer'):
+        # A trigger triggers only once. So it is important to use here a copy
+        # of self.trigger and super can use the original trigger.
         if (
-                self.trigger(iteration=trainer.iteration, epoch=trainer.epoch)
+                self.checkpoint_trigger(iteration=trainer.iteration, epoch=trainer.epoch)
                 or trainer.iteration == 1
         ):
 
@@ -441,7 +452,7 @@ class CheckpointedValidationHook(ValidationHook):
                                     self._checkpoint_dir)
                 for metric_key, criterion in metrics.items()}
 
-    def _save_latest_checkpoint(self, trainer):
+    def _save_latest_checkpoint(self, trainer: 'pt.Trainer'):
         """ Unconditionally save a checkpoint for the current model.
             This is needed for resume of training.
         """
@@ -456,7 +467,7 @@ class CheckpointedValidationHook(ValidationHook):
             and remove old checkpoints.
         """
         for metric_key, metric in self.metrics.items():
-            summary_value = self.summary['scalars'][metric_key]
+            summary_value = np.mean(self.summary['scalars'][metric_key])
             if metric.is_better(summary_value):
                 metric.update(summary_value, self.latest_checkpoint)
 

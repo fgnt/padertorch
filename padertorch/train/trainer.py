@@ -158,8 +158,6 @@ class Trainer(Configurable):
             metrics={'loss': 'min'},
             n_best_checkpoints=1,
     ):
-        # os.makedirs(str(self.storage_dir / 'checkpoints'), exist_ok=True)
-
         torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = False
 
@@ -180,21 +178,15 @@ class Trainer(Configurable):
         # For training continue set the correct last value
         for hook in hooks:
             hook.set_last(self.iteration, self.epoch)
-        # self.checkpoint_trigger.set_last(self.iteration, self.epoch)
 
         # ================ MAIN TRAINING LOOP! ===================
         try:
             for self.epoch in itertools.count(self.epoch):  # infinite loop
                 data_iterator = iter(train_iterator)
                 for self.iteration in itertools.count(self.iteration):
-                    # Because of last validation, validation must be before
-                    # "max_iterations".
                     for hook in hooks:
                         hook.pre_step(self)
-                    # if self.checkpoint_trigger(
-                    #         iteration=self.iteration, epoch=self.epoch
-                    # ) or self.iteration == 1:
-                    #     self.save_checkpoint()
+
                     with self.timer['time_per_step']:
                         try:
                             with self.timer['time_per_data_loading']:
@@ -221,7 +213,6 @@ class Trainer(Configurable):
         finally:
             for hook in hooks:
                 hook.close(self)
-            self.save_checkpoint()
 
     _start_non_validation_time = None
 
@@ -381,6 +372,7 @@ class Trainer(Configurable):
             checkpoint_path = self.default_checkpoint_path()
         if self.use_cuda:
             self.cpu()
+
         torch.save(
             dict(
                 model=nested_op(lambda m: m.state_dict(), self.model),

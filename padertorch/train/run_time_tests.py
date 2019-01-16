@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 import numpy as np
+import torch
 import paderbox as pb
 import tqdm
 
@@ -32,14 +33,19 @@ def test_run(
     """
     print('Start test run')
     with contextlib.ExitStack() as exit_stack:
-        save_checkpoint = exit_stack.enter_context(mock.patch.object(
-            pt.Trainer,
-            'save_checkpoint',
+        torch_save = exit_stack.enter_context(mock.patch.object(
+            torch,  # similar to pt.Trainer.save_checkpoint
+            'save',
             new_callable=mock.MagicMock,
         ))
         dump_summary = exit_stack.enter_context(mock.patch.object(
             pt.train.hooks.SummaryHook,
             'writer',
+            new_callable=mock.MagicMock,
+        ))
+        dump_validation_state = exit_stack.enter_context(mock.patch.object(
+            pt.train.hooks.CheckpointedValidationHook,
+            'dump_json',
             new_callable=mock.MagicMock,
         ))
         exit_stack.enter_context(mock.patch.object(
@@ -57,11 +63,6 @@ def test_run(
             'summary_trigger',
             new=(1, 'epoch'),
         ))
-        # exit_stack.enter_context(mock.patch.object(
-        #     trainer,
-        #     'validate_trigger',
-        #     new=(1, 'epoch'),
-        # ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
             'checkpoint_trigger',
@@ -75,6 +76,10 @@ def test_run(
         exit_stack.enter_context(mock.patch.object(
             os,
             'makedirs',
+        ))
+        exit_stack.enter_context(mock.patch.object(
+            Path,
+            'mkdir',
         ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
@@ -147,7 +152,12 @@ def test_run(
                 assert x.call_count == 4, x.call_count
 
         pb.utils.nested.nested_op(assert_step, optimizer_step)
-        assert save_checkpoint.call_count == 3, save_checkpoint.call_count
+
+        # torch_save calls:
+        #  after 1 Iteration, after 1 and second epoch, for closing.
+        assert torch_save.call_count == 4, torch_save.call_count
+
+        assert dump_validation_state.call_count == 3, dump_validation_state.call_count
         assert dump_summary.add_scalar.call_count >= 8, dump_summary.add_scalar.call_count
         assert validate_mock.call_count == 2, validate_mock.call_count
 
@@ -156,7 +166,7 @@ def test_run(
         pb.utils.nested.nested_op(assert_review, review_mock)
         assert get_default_hooks_mock.call_count == 1, get_default_hooks_mock.call_count
 
-        save_checkpoint.assert_called()
+        torch_save.assert_called()
 
         def review_mock_to_inputs_output_review(review_mock):
             sig = inspect.signature(review_mock._mock_wraps)

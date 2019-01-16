@@ -1,6 +1,9 @@
 import tempfile
 from pathlib import Path
 import contextlib
+import inspect
+import textwrap
+from unittest import mock
 
 import numpy as np
 import torch
@@ -44,6 +47,62 @@ def get_iterators():
     )
 
 
+@contextlib.contextmanager
+def record_hook_trigger_calls():
+    class TriggerMock(pt.train.trigger.Trigger):
+        def __init__(self, trigger, log_list):
+            self.trigger = trigger
+            self.log_list = log_list
+
+        def __call__(self, iteration, epoch):
+            ret = self.trigger(iteration, epoch)
+
+            frame = inspect.stack()[1].frame
+
+            if 'self' in frame.f_locals:
+                name = frame.f_locals['self'].__class__.__name__
+
+                string = f'I:{iteration}, E: {epoch}, {ret}, {name}.{inspect.stack()[1].function}'
+                self.log_list.append(
+                    string
+                )
+
+                # print(string)
+            else:
+                callerframerecord = inspect.stack()[2]
+                frame = callerframerecord[0]
+                # if 'self' in frame.f_locals:
+                name = frame.f_locals['self'].__class__.__name__
+                assert name == 'OrTrigger', name
+
+
+            return ret
+
+        def set_last(self, iteration, epoch):
+            return self.trigger.set_last(iteration=iteration, epoch=epoch)
+
+    class HookWrapper(mock.MagicMock):
+        def __init__(self, *args, **kw):
+            super().__init__(*args, **kw)
+            self.log_list = []
+
+        def __call__(self, *args, **kw):
+            trigger = super().__call__(*args, **kw)
+
+            if isinstance(trigger, TriggerMock):
+                return trigger
+            else:
+                return TriggerMock(trigger, self.log_list)
+
+    with mock.patch.object(
+            pt.train.trigger.IntervalTrigger,
+            'new',
+            wraps=pt.train.trigger.IntervalTrigger.new,
+            new_callable=HookWrapper,
+    ) as mocked:
+        yield mocked
+
+
 def test_single_model():
     it_tr, it_dt = get_iterators()
     it_tr = it_tr[:2]
@@ -68,13 +127,50 @@ def test_single_model():
             # no event file
             raise Exception(files_before)
 
-        t.train(
-            train_iterator=it_tr,
-            validation_iterator=it_dt,
-            hooks=None,
-            metrics={'loss': 'min'},
-            n_best_checkpoints=1,
-        )
+        with record_hook_trigger_calls() as mocked:
+            t.train(
+                train_iterator=it_tr,
+                validation_iterator=it_dt,
+                hooks=None,
+                metrics={'loss': 'min'},
+                n_best_checkpoints=1,
+            )
+
+        hook_calls = ('\n'.join(mocked.log_list))
+
+        hook_calls_ref = textwrap.dedent('''
+        I:0, E: 0, False, SummaryHook.pre_step
+        I:0, E: 0, False, CheckpointedValidationHook.pre_step
+        I:0, E: 0, False, CheckpointedValidationHook.pre_step
+        I:0, E: 0, False, ProgressBarHook.post_step
+        I:1, E: 0, False, SummaryHook.pre_step
+        I:1, E: 0, False, CheckpointedValidationHook.pre_step
+        I:1, E: 0, False, CheckpointedValidationHook.pre_step
+        I:1, E: 0, True, ProgressBarHook.post_step
+        I:2, E: 0, False, SummaryHook.pre_step
+        I:2, E: 0, False, CheckpointedValidationHook.pre_step
+        I:2, E: 0, False, CheckpointedValidationHook.pre_step
+        I:2, E: 1, True, SummaryHook.pre_step
+        I:2, E: 1, True, CheckpointedValidationHook.pre_step
+        I:2, E: 1, True, CheckpointedValidationHook.pre_step
+        I:2, E: 1, True, ProgressBarHook.post_step
+        I:3, E: 1, False, SummaryHook.pre_step
+        I:3, E: 1, False, CheckpointedValidationHook.pre_step
+        I:3, E: 1, False, CheckpointedValidationHook.pre_step
+        I:3, E: 1, True, ProgressBarHook.post_step
+        I:4, E: 1, False, SummaryHook.pre_step
+        I:4, E: 1, False, CheckpointedValidationHook.pre_step
+        I:4, E: 1, False, CheckpointedValidationHook.pre_step
+        I:4, E: 2, True, SummaryHook.pre_step
+        I:4, E: 2, True, CheckpointedValidationHook.pre_step
+        I:4, E: 2, True, CheckpointedValidationHook.pre_step
+        ''').strip()
+
+        print('#' * 80)
+        print(hook_calls)
+        print('#' * 80)
+
+        assert hook_calls == hook_calls_ref, (hook_calls == hook_calls_ref)
 
         files_after = tuple(tmp_dir.glob('*'))
         assert len(files_after) == 2, files_after
@@ -104,13 +200,51 @@ def test_single_model():
         config['kwargs']['init_checkpoint'] = tmp_dir / 'checkpoints' / 'ckpt_4.pth'
         t = pt.Trainer.from_config(config)
 
-        t.train(
-            train_iterator=it_tr,
-            validation_iterator=it_dt,
-            hooks=None,
-            metrics={'loss': 'min'},
-            n_best_checkpoints=1,
-        )
+        with record_hook_trigger_calls() as mocked:
+            t.train(
+                train_iterator=it_tr,
+                validation_iterator=it_dt,
+                hooks=None,
+                metrics={'loss': 'min'},
+                n_best_checkpoints=1,
+            )
+
+
+        hook_calls = ('\n'.join(mocked.log_list))
+
+        hook_calls_ref = textwrap.dedent('''
+        I:4, E: 2, False, SummaryHook.pre_step
+        I:4, E: 2, False, CheckpointedValidationHook.pre_step
+        I:4, E: 2, False, CheckpointedValidationHook.pre_step
+        I:4, E: 2, False, ProgressBarHook.post_step
+        I:5, E: 2, False, SummaryHook.pre_step
+        I:5, E: 2, False, CheckpointedValidationHook.pre_step
+        I:5, E: 2, False, CheckpointedValidationHook.pre_step
+        I:5, E: 2, True, ProgressBarHook.post_step
+        I:6, E: 2, False, SummaryHook.pre_step
+        I:6, E: 2, False, CheckpointedValidationHook.pre_step
+        I:6, E: 2, False, CheckpointedValidationHook.pre_step
+        I:6, E: 3, True, SummaryHook.pre_step
+        I:6, E: 3, True, CheckpointedValidationHook.pre_step
+        I:6, E: 3, True, CheckpointedValidationHook.pre_step
+        I:6, E: 3, True, ProgressBarHook.post_step
+        I:7, E: 3, False, SummaryHook.pre_step
+        I:7, E: 3, False, CheckpointedValidationHook.pre_step
+        I:7, E: 3, False, CheckpointedValidationHook.pre_step
+        I:7, E: 3, True, ProgressBarHook.post_step
+        I:8, E: 3, False, SummaryHook.pre_step
+        I:8, E: 3, False, CheckpointedValidationHook.pre_step
+        I:8, E: 3, False, CheckpointedValidationHook.pre_step
+        I:8, E: 4, True, SummaryHook.pre_step
+        I:8, E: 4, True, CheckpointedValidationHook.pre_step
+        I:8, E: 4, True, CheckpointedValidationHook.pre_step
+        ''').strip()
+
+        print('#' * 80)
+        print(hook_calls)
+        print('#' * 80)
+
+        assert hook_calls == hook_calls_ref, (hook_calls == hook_calls_ref)
 
         files_after = tuple(tmp_dir.glob('*'))
         assert len(files_after) == 2, files_after
