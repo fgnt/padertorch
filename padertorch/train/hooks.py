@@ -313,7 +313,7 @@ class CheckpointedValidationHook(ValidationHook):
         or a SimpleCheckpointHook.
     """
     def __init__(self, trigger, iterator, metrics=None):
-        super().__init__(self, trigger, iterator)
+        super().__init__(trigger, iterator)
         assert isinstance(metrics, dict) and metrics,  \
             'The metrics dict must not be empty!'
         self.metrics = self._convert_metrics_to_internal_layout(metrics)
