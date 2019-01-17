@@ -1,10 +1,8 @@
 """ This module contains various hooks which perform actions during training.
 """
+import json
 from collections import defaultdict
 from enum import IntEnum
-import json
-import os
-import copy
 from pathlib import Path
 
 import numpy as np
@@ -12,8 +10,7 @@ import torch
 from cached_property import cached_property
 from tensorboardX import SummaryWriter
 
-from padertorch.train.trigger import IntervalTrigger, EndTrigger, OrTrigger
-
+from padertorch.train.trigger import IntervalTrigger, EndTrigger
 
 __all__ = [
     'SummaryHook',
