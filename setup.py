@@ -77,6 +77,7 @@ setup(
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
         'torch',
+        'tensorboardx'
         'einops',
         'progressbar2'
     ],
