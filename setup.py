@@ -76,7 +76,9 @@ setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
-        'torch'
+        'torch',
+        'einops',
+        'progressbar2'
     ],
 
     # Installation problems in a clean, new environment:
