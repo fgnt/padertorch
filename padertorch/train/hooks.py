@@ -175,11 +175,12 @@ class SummaryHook(BaseHook):
                 # Only time_per_train_step has the correct number of steps.
                 if 'time_per_train_step' in timer.as_dict:
                     step_count = len(timer.as_dict['time_per_train_step'])
-                    assert np.size(scalar) >= 2 * step_count
+                    assert np.size(scalar) >= 2 * step_count, (key, np.size(scalar), 2 * step_count)
                     scalar = scalar.sum() / step_count
                 else:
-                    assert np.size(scalar) == 1, (scalar, timer.as_dict)
-                    continue
+                    raise Exception('Should not happen')
+                    # assert np.size(scalar) == 1, (key, scalar, timer.as_dict)
+                    # continue
 
             self.writer.add_scalar(
                 f'{prefix}/{key}', scalar.mean(), iteration)
