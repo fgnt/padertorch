@@ -180,22 +180,29 @@ class Trainer(Configurable):
             hook.set_last(self.iteration, self.epoch)
 
         # ================ MAIN TRAINING LOOP! ===================
+
+        def get_infinite_example_iterator():
+            while True:
+                i = None
+                for i, ex in enumerate(train_iterator):
+                    assert ex is not None, ex
+                    yield ex
+                if i is None:
+                    # ToDo: does this work as expected?
+                    raise Exception('Zero length train iterator')
+                yield None
         try:
+            data_iterator = get_infinite_example_iterator()
             for self.epoch in itertools.count(self.epoch):  # infinite loop
-                data_iterator = iter(train_iterator)
                 for self.iteration in itertools.count(self.iteration):
                     for hook in hooks:
                         hook.pre_step(self)
 
                     with self.timer['time_per_step']:
-                        try:
-                            with self.timer['time_per_data_loading']:
-                                example = next(data_iterator)
-                        except StopIteration:
-                            if self.iteration > 0:
-                                break
-                            else:
-                                raise Exception('Zero length train iterator')
+                        with self.timer['time_per_data_loading']:
+                            example = next(data_iterator)
+                        if example is None:
+                            break
 
                         example = pt.data.batch_to_device(
                             example, self.use_cuda, self.gpu_device
