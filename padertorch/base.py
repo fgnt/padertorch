@@ -32,8 +32,15 @@ class Model(Module, Configurable, abc.ABC):
     def forward(self, inputs):
         """
 
-        :param inputs: whatever is required here (Probably dict or tuple).
-        :return: outputs (dict,tuple,list,tensor,...)
+        Args:
+            inputs:
+                Single example from train_iterator or validation_iterator that
+                is provided to `pt.Trainer`.
+
+        Returns:
+            Whatever self.review expects as second argument.
+            Usually something like a prediction.
+
         """
         pass
 
@@ -41,10 +48,41 @@ class Model(Module, Configurable, abc.ABC):
     def review(self, inputs, outputs):
         """
 
-        :param inputs: whatever is required here. (By default trainer provides
-        output of iterator. Can be modified by overwriting train_step.)
-        :param outputs: outputs of forward function
-        :return: dict with possible sub-dicts
-        losses/scalars/histograms/images/audios/figures
+        Args:
+            inputs:
+                Same as `inputs` argument of `self.forward`.
+
+                Single example from train_iterator or validation_iterator that
+                is provided to `pt.Trainer`.
+
+                In case of multi model `pt.Trainer.step` is overwritten.
+                Than see that new function.
+            outputs:
+                Output of `self.forward`
+
+
+        Returns:
+            dict with possible sub-dicts for tensorboard
+                losses:
+                    Will be added to scalars logging of tensorboard.
+                    Combined with `pt.Trainer.loss_weights` these losses build
+                    the loss. On the loss is backward called for gradient
+                    update.
+                loss:
+                    Scalar objective. Only allowed when no losses is provided.
+                    Otherwise it will be computed from losses.
+                scalars: dict of scalars for tensorboard
+                histograms: see tensorboardX documentation
+                images: see tensorboardX documentation
+                audios: see tensorboardX documentation
+                figures: see tensorboardX documentation
+
+
+        Hints:
+         - The contextmanager `torch.no_grad()` disables backpropagation for
+           metric computations (i.e. scalars in tensorboard)
+         - `self.training` (bool) indicate training or validation mode
+
+
         """
         pass
