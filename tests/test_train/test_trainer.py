@@ -117,8 +117,8 @@ def load_tfevents_as_dict(
 ):
     """
 
-    >>> path = '/net/home/boeddeker/sacred/torch/am/32/events.out.tfevents.1545605113.ntsim1'
-    >>> load_tfevents_as_dict(path)[2]
+    >> path = '/net/home/boeddeker/sacred/torch/am/32/events.out.tfevents.1545605113.ntsim1'
+    >> load_tfevents_as_dict(path)[2]
     {'wall_time': 1545605119.7274427, 'step': 1, 'summary': {'value': [{'tag': 'training/grad_norm', 'simple_value': 0.21423661708831787}]}}
 
     """
