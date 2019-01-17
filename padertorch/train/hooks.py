@@ -207,6 +207,7 @@ class SummaryHook(BaseHook):
 
     def close(self, trainer: 'pt.Trainer'):
         self.dump_summary(trainer)
+        self.writer.close()
 
 
 class SimpleCheckpointHook(BaseHook):
@@ -438,6 +439,7 @@ class CheckpointedValidationHook(ValidationHook):
     def close(self, trainer: 'pt.Trainer'):
         self._save_latest_checkpoint(trainer)
         self.dump_json()
+        self.writer.close()
 
     @property
     def best_checkpoints(self):
