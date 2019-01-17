@@ -252,7 +252,9 @@ def test_run(
         assert 'loss' in dt1['review'], dt1['review']
 
         allowed_summary_keys = (
-            {'loss'} | set(pt.trainer.SummaryHook.empty_summary_dict().keys())
+            {'loss', 'losses'} | set(
+                pt.trainer.SummaryHook.empty_summary_dict().keys()
+            )
         )
         if 0 != len(set(dt1['review'].keys()) - set(allowed_summary_keys)):
             got = set(dt1['review'].keys())

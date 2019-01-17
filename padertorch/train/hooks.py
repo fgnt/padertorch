@@ -4,6 +4,7 @@ import json
 from collections import defaultdict
 from enum import IntEnum
 from pathlib import Path
+import types
 
 import numpy as np
 import progressbar
@@ -115,13 +116,15 @@ class SummaryHook(BaseHook):
 
     @staticmethod
     def empty_summary_dict():
-        return dict(
-            losses=defaultdict(list),
+        # MappingProxyType is similar to a frozen dict (does not exist)
+        #   Ensures that no key is added.
+        return types.MappingProxyType(dict(
+            # losses=defaultdict(list),
             scalars=defaultdict(list),
             histograms=defaultdict(list),
             audios=dict(),
-            images=dict()
-        )
+            images=dict(),
+        ))
 
     def reset_summary(self):
         # Todo: add figures
@@ -489,8 +492,6 @@ class CheckpointedValidationHook(ValidationHook):
         for metric_key, metric in self.metrics.items():
             if metric_key in self.summary['scalars']:
                 summary_value = np.mean(self.summary['scalars'][metric_key])
-            elif metric_key in self.summary['losses']:
-                summary_value = np.mean(self.summary['losses'][metric_key])
             else:
                 raise ValueError(metric_key, self.summary)
 
