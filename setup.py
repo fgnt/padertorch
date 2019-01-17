@@ -77,9 +77,9 @@ setup(
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
         'torch',
-        'tensorboardx'
+        'tensorboardX',
         'einops',
-        'progressbar2'
+        'progressbar2',
     ],
 
     # Installation problems in a clean, new environment:
