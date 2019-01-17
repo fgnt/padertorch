@@ -82,6 +82,10 @@ def test_run(
             'mkdir',
         ))
         exit_stack.enter_context(mock.patch.object(
+            Path,
+            'symlink_to',
+        ))
+        exit_stack.enter_context(mock.patch.object(
             trainer,
             'iteration',
             new=0,

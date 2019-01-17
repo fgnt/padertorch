@@ -33,7 +33,7 @@ class Model(pt.Model):
             device=output.device,
         )[None]
         ce = torch.nn.CrossEntropyLoss()(output[None, :], target)
-        return {'losses': {'ce': ce}}
+        return {'losses': {'loss': ce}}
 
 
 def get_iterators():
