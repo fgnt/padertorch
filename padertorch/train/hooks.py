@@ -3,6 +3,8 @@
 import json
 from collections import defaultdict
 from enum import IntEnum
+import os
+import copy
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +13,10 @@ import torch
 from cached_property import cached_property
 from tensorboardX import SummaryWriter
 
-from padertorch.train.trigger import IntervalTrigger, EndTrigger
+import paderbox as pb
+
+from padertorch.train.trigger import IntervalTrigger, EndTrigger, OrTrigger
+
 
 __all__ = [
     'SummaryHook',
@@ -92,12 +97,16 @@ class BaseHook:
 
 
 class SummaryHook(BaseHook):
-    def __init__(self, trigger,
-                 summary_prefix='training'):
+    def __init__(
+            self,
+            trigger,
+            event_dir,
+            summary_prefix='training',
+    ):
         super().__init__(trigger)
         self.reset_summary()
         self.summary_prefix = summary_prefix
-        self.storage_dir = None
+        self.event_dir = Path(event_dir)
 
     @property
     def priority(self):
@@ -105,8 +114,8 @@ class SummaryHook(BaseHook):
 
     @cached_property
     def writer(self):
-        return SummaryWriter(str(self.storage_dir),
-                             filename_suffix=self.summary_prefix)
+        return SummaryWriter(str(self.event_dir),
+                             filename_suffix='.' + self.summary_prefix)
 
     @staticmethod
     def empty_summary_dict():
@@ -207,10 +216,6 @@ class SummaryHook(BaseHook):
             self.dump_summary(trainer)
 
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
-        if self.storage_dir is None:
-            self.storage_dir = trainer.storage_dir
-        else:
-            assert self.storage_dir == trainer.storage_dir
         self.update_summary(review)
 
     def close(self, trainer: 'pt.Trainer'):
@@ -242,8 +247,9 @@ class SimpleCheckpointHook(BaseHook):
 
 
 class ValidationHook(SummaryHook):
-    def __init__(self, trigger, iterator):
-        super().__init__(trigger, summary_prefix='validation')
+    def __init__(self, trigger, iterator, event_dir):
+        super().__init__(trigger, summary_prefix='validation',
+                         event_dir=event_dir)
         self.iterator = iterator
 
     @property
@@ -265,7 +271,7 @@ class ValidationHook(SummaryHook):
         pass
 
     def close(self, trainer: 'pt.Trainer'):
-        pass
+        self.writer.close()
 
 
 class _Metric:
@@ -284,7 +290,7 @@ class _Metric:
     def __repr__(self):
         return (
             f'{self.__class__.__name__}('
-            f'{self._key!r}, {self.criterion!r}, '
+            f'{self._key!r}, {self._criterion!r}, '
             f'best={self.resolved_symlink_path}'
             f')'
         )
@@ -320,7 +326,7 @@ class _Metric:
         """
         self._value = value
         # create relative symlink to best checkpoint for metric
-        if self.resolved_symlink_path.exists:
+        if self.resolved_symlink_path.exists():
             self.resolved_symlink_path.unlink()
         self.resolved_symlink_path.symlink_to(checkpoint_path.name)
 
@@ -349,8 +355,9 @@ class _Metric:
         if len(state_dict['paths']) == 0:
             pass
         elif len(state_dict['paths']) == 1:
-            assert [self._symlink_name] == state_dict['paths'], (
-                self._symlink_name, state_dict['paths'])
+            expect = self._checkpoint_dir / state_dict['paths'][0]
+            assert self.resolved_symlink_path == expect, (
+                self.resolved_symlink_path, expect)
             self._value = state_dict['values'][0]
         else:
             assert False, state_dict['paths']
@@ -373,9 +380,17 @@ class CheckpointedValidationHook(ValidationHook):
     """
     _json_filename = 'ckpt_state.json'
 
-    def __init__(self, trigger, iterator, checkpoint_dir: Path,
-                 metrics=None, keep_all=False, init_from_json=False):
-        super().__init__(trigger, iterator)
+    def __init__(
+            self,
+            trigger,
+            iterator,
+            event_dir,
+            checkpoint_dir: Path,
+            metrics=None,
+            keep_all=False,
+            init_from_json=False,
+    ):
+        super().__init__(trigger, iterator, event_dir=event_dir)
 
         # ToDo: remove the checkpoint_trigger, see pre_step
         self.checkpoint_trigger = IntervalTrigger.new(trigger)
@@ -441,8 +456,8 @@ class CheckpointedValidationHook(ValidationHook):
             latest_checkpoint_path=str(self.latest_checkpoint),
             metrics={metric_key: metric.to_json()
                      for metric_key, metric in self.metrics.items()})
-        with json_path.open('w') as json_file:
-            json.dump(content, json_file)
+
+        pb.io.dump_json(content, json_path)
 
     def close(self, trainer: 'pt.Trainer'):
         self._save_latest_checkpoint(trainer)
@@ -477,7 +492,13 @@ class CheckpointedValidationHook(ValidationHook):
             and remove old checkpoints.
         """
         for metric_key, metric in self.metrics.items():
-            summary_value = np.mean(self.summary['scalars'][metric_key])
+            if metric_key in self.summary['scalars']:
+                summary_value = np.mean(self.summary['scalars'][metric_key])
+            elif metric_key in self.summary['losses']:
+                summary_value = np.mean(self.summary['losses'][metric_key])
+            else:
+                raise ValueError(metric_key, self.summary)
+
             if metric.is_better(summary_value):
                 metric.update(summary_value, self.latest_checkpoint)
 

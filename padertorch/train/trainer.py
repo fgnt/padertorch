@@ -326,6 +326,7 @@ class Trainer(Configurable):
                 metrics=metrics,
                 keep_all=self.keep_all_checkpoints,
                 init_from_json=self.checkpoint_dir.exists(),
+                event_dir=self.storage_dir,
             ))
 
             summary_trigger = OrTrigger(
@@ -333,7 +334,7 @@ class Trainer(Configurable):
                 IntervalTrigger.new(self.checkpoint_trigger),
             )
 
-        hooks.append(SummaryHook(summary_trigger))
+        hooks.append(SummaryHook(summary_trigger, event_dir=self.storage_dir))
         hooks.append(ProgressBarHook(self.max_trigger, max_it_len))
         hooks.append(StopTrainingHook(self.max_trigger))
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)

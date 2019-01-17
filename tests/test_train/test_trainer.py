@@ -167,7 +167,7 @@ def test_single_model():
 
 
         # CheckpointedValidationHook trigger is called two times
-        #   (once for checkpointing once for validation)
+        #   (once for checkpointing once for validation)_file_name
 
         hook_calls_ref = textwrap.dedent('''
         I:0, E: 0, False, SummaryHook.pre_step
@@ -206,12 +206,14 @@ def test_single_model():
 
         assert hook_calls == hook_calls_ref, (hook_calls == hook_calls_ref)
 
+        old_event_files = []
+
         files_after = tuple(tmp_dir.glob('*'))
-        assert len(files_after) == 2, files_after
+        assert len(files_after) == 3, files_after
         for file in files_after:
             if 'tfevents' in file.name:
+                old_event_files.append(file)
                 events = load_tfevents_as_dict(file)
-                assert len(events) == 19, (len(events), events)
 
                 tags = []
                 for event in events:
@@ -221,31 +223,51 @@ def test_single_model():
 
                 import itertools, collections
                 c = dict(collections.Counter(tags))
-                expect = {
-                    'training/grad_norm': 3,
-                    'training/grad_norm_': 3,
-                    'training/loss': 3,
-                    'training/time_per_step': 3,
-                    'training/time_rel_data_loading': 3,
-                    'training/time_rel_train_step': 3,
-                }
+                if '.training' in file.name:
+                    assert len(events) == 19, (len(events), events)
+                    expect = {
+                        'training/grad_norm': 3,
+                        'training/grad_norm_': 3,
+                        'training/loss': 3,
+                        'training/time_per_step': 3,
+                        'training/time_rel_data_loading': 3,
+                        'training/time_rel_train_step': 3,
+                    }
+                elif '.validation' in file.name:
+                    assert len(events) == 6, (len(events), events)
+                    expect = {
+                        'validation/loss': 2,
+                        # non validation time can only be measured between
+                        # validations:
+                        #  => # of non_val_time - 1 == # of val_time
+                        'validation/non_validation_time': 1,
+                        'validation/validation_time': 2,
+                    }
+                else:
+                    raise ValueError(file)
                 assert c == expect, c
 
             elif file.name == 'checkpoints':
                 checkpoints_files = tuple(file.glob('*'))
-                assert len(checkpoints_files) == 4, checkpoints_files
+                assert len(checkpoints_files) == 5, checkpoints_files
                 checkpoints_files_name = [
                     f.name
                     for f in checkpoints_files
                 ]
                 expect = {
-                    'ckpt_1.pth', 'ckpt_2.pth', 'ckpt_4.pth', 'ckpt_state.json'
+                    'ckpt_1.pth', 'ckpt_2.pth', 'ckpt_4.pth',
+                    'ckpt_state.json', 'ckpt_best_loss.pth',
                 }
                 assert expect == set(checkpoints_files_name), (
                     expect, checkpoints_files_name
                 )
             else:
                 raise ValueError(file)
+
+        import time
+        # tfevents use unixtime as unique indicator. Sleep 2 seconds to ensure
+        # new value
+        time.sleep(2)
 
         config['kwargs']['max_trigger'] = (4, 'epoch')
         config['kwargs']['init_checkpoint'] = tmp_dir / 'checkpoints' / 'ckpt_4.pth'
@@ -301,16 +323,48 @@ def test_single_model():
         assert hook_calls == hook_calls_ref, (hook_calls == hook_calls_ref)
 
         files_after = tuple(tmp_dir.glob('*'))
-        assert len(files_after) == 2, files_after
+        assert len(files_after) == 5, files_after
         for file in files_after:
             if 'tfevents' in file.name:
-                file_bytes = file.read_bytes()
-                # 913
-                assert len(file_bytes) > 800, len(file_bytes)
-                assert len(file_bytes) < 1000, len(file_bytes)
+                if file in old_event_files:
+                    continue
+
+                events = load_tfevents_as_dict(file)
+
+                tags = []
+                for event in events:
+                    if 'summary' in event.keys():
+                        value, = event['summary']['value']
+                        tags.append(value['tag'])
+
+                import itertools, collections
+                c = dict(collections.Counter(tags))
+                if '.training' in file.name:
+                    assert len(events) == 13, (len(events), events)
+                    expect = {
+                        'training/grad_norm': 2,
+                        'training/grad_norm_': 2,
+                        'training/loss': 2,
+                        'training/time_per_step': 2,
+                        'training/time_rel_data_loading': 2,
+                        'training/time_rel_train_step': 2,
+                    }
+                elif '.validation' in file.name:
+                    assert len(events) == 6, (len(events), events)
+                    expect = {
+                        'validation/loss': 2,
+                        # non validation time can only be measured between
+                        # validations:
+                        #  => # of non_val_time - 1 == # of val_time
+                        'validation/non_validation_time': 1,
+                        'validation/validation_time': 2,
+                    }
+                else:
+                    raise ValueError(file)
+                assert c == expect, c
             elif file.name == 'checkpoints':
                 checkpoints_files = tuple(file.glob('*'))
-                assert len(checkpoints_files) == 6, checkpoints_files
+                assert len(checkpoints_files) == 7, checkpoints_files
                 checkpoints_files_name = [
                     f.name
                     for f in checkpoints_files
@@ -318,6 +372,7 @@ def test_single_model():
                 expect = {
                     *[f'ckpt_{i}.pth'for i in [1, 2, 4, 6, 8]],
                     'ckpt_state.json',
+                    'ckpt_best_loss.pth',
                 }
                 assert expect == set(checkpoints_files_name), (
                     expect, checkpoints_files_name
