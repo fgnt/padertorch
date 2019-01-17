@@ -144,7 +144,9 @@ class EndTrigger(IntervalTrigger):
 class OrTrigger(Trigger):
 
     def __init__(self, *triggers):
-        self.triggers = triggers
+        self.triggers = tuple([
+            IntervalTrigger.new(t) for t in triggers
+        ])
 
     def __call__(self, iteration, epoch):
         return any(
