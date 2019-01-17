@@ -85,7 +85,11 @@ class TestPermutationInvariantTrainingModel(unittest.TestCase):
     # TODO: Test forward deterministic if not train
 
     def setUp(self):
-        self.model = pt.models.bss.PermutationInvariantTrainingModel()
+        self.model = pt.models.bss.PermutationInvariantTrainingModel(
+            dropout_input=0.5,
+            dropout_hidden=0.5,
+            dropout_linear=0.5
+        )
 
         self.T = 100
         self.B = 4
@@ -128,8 +132,12 @@ class TestPermutationInvariantTrainingModel(unittest.TestCase):
 
     def test_minibatch_equal_to_single_example(self):
         inputs = pt.data.batch_to_device(self.inputs)
-        mask = self.model(inputs)
+
+        with pt.train.utils.evaluation_mode(self.model):
+            mask = self.model(inputs)
+
         review = self.model.review(inputs, mask)
+
         actual_loss = review['losses']['pit_mse_loss']
 
         reference_loss = list()
@@ -142,7 +150,10 @@ class TestPermutationInvariantTrainingModel(unittest.TestCase):
                 'X_abs': [target],
             }
             inputs = pt.data.batch_to_device(inputs)
-            mask = self.model(inputs)
+
+            with pt.train.utils.evaluation_mode(self.model):
+                mask = self.model(inputs)
+
             review = self.model.review(inputs, mask)
             reference_loss.append(review['losses']['pit_mse_loss'])
 
@@ -151,5 +162,19 @@ class TestPermutationInvariantTrainingModel(unittest.TestCase):
         np.testing.assert_allclose(
             actual_loss.detach().numpy(),
             reference_loss.detach().numpy(),
+            atol=1e-6
+        )
+
+    def test_evaluation_mode_deterministic(self):
+        with pt.train.utils.evaluation_mode(self.model):
+            inputs = pt.data.batch_to_device(self.inputs)
+            mask1 = self.model(inputs)[0]
+
+            inputs = pt.data.batch_to_device(self.inputs)
+            mask2 = self.model(inputs)[0]
+
+        np.testing.assert_allclose(
+            mask1.detach().numpy(),
+            mask2.detach().numpy(),
             atol=1e-6
         )
