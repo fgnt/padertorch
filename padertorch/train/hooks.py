@@ -500,8 +500,7 @@ class CheckpointedValidationHook(ValidationHook):
 
 class ProgressBarHook(BaseHook):
     """ Adds a progress bar to the console output. """
-    def __init__(self, max_trigger, max_it_len=None, update_intervall=1):
-        from progressbar import bar, UnknownLength
+    def __init__(self, max_trigger, max_it_len=None, update_intervall=10):
         """
         :param max_trigger: has to be defined if max_trigger unit is session
             integer with the length of the iterator
@@ -513,7 +512,7 @@ class ProgressBarHook(BaseHook):
         :param disable: bool use to disable the entire progressbar wrapper
         """
         super().__init__((update_intervall, 'iteration'))
-        self.ep_trigger = IntervalTrigger(1, 'epoch')
+        self.ep_trigger = IntervalTrigger.new((1, 'epoch'))
         self.update_intervall = update_intervall
         if isinstance(max_trigger, EndTrigger):
             length, unit = max_trigger.period, max_trigger.unit
@@ -524,20 +523,19 @@ class ProgressBarHook(BaseHook):
                              f'or a list or tuple, but is {type(max_trigger)},'
                              f'{max_trigger}')
         if unit == 'iteration':
-            max_iteration = length
+            max_iteration = length + 1
         elif unit == 'epoch':
             if max_it_len is not None:
-                max_iteration = length * max_it_len
+                max_iteration = length * max_it_len + 1
             else:
-                max_iteration = UnknownLength
+                self.num_epochs = length
+                max_iteration = progressbar.UnknownLength
         else:
             raise ValueError(f'unit {unit} is unknown,'
                              f' choose iteration or epoch')
-        # self.pbar = tqdm(desc=f'epochs: {0}', total=max_iteration,
-        #                  file=sys.stdout, ncols=ncols,
-        #                  dynamic_ncols=dynamic_ncols)
-        self.pbar = bar.ProgressBar(
-            prefix=f'epochs: {0}',
+        self.pbar = progressbar.bar.ProgressBar(
+            prefix=f'epochs: {0} ',
+            min_value=1,
             max_value=max_iteration,
             redirect_stderr=True,
             redirect_stdout=True
@@ -554,17 +552,19 @@ class ProgressBarHook(BaseHook):
 
     def post_step(self, trainer: 'pt.Trainer', example,
                   model_output, review):
-        from progressbar import UnknownLength
+        # iteration and epoch is always one step behind in post_step so (iteration + 1)
+
         iteration = trainer.iteration
         epoch = trainer.epoch
         if self.trigger(iteration, epoch):
-            self.pbar.update(self.update_intervall)
+            self.pbar.update(iteration + 1)
             if len(review['losses']) == 1:
                 self.pbar.prefix = f'epochs: {epoch}, loss: ' \
-                                 f'{list(review["losses"].values())[0]}'
+                                 f'{list(review["losses"].values())[0]} '
         if (self.ep_trigger(iteration, epoch)
-                and self.pbar.max_value is UnknownLength):
-            self.pbar.max_value = iteration * epoch
+                and self.pbar.max_value is progressbar.UnknownLength):
+            if hasattr(self, 'num_epochs'):
+                self.pbar.max_value = (iteration + 1)* self.num_epochs
 
     def close(self, trainer: 'pt.Trainer'):
         self.pbar.finish()
