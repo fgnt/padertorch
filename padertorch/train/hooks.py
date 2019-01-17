@@ -3,8 +3,6 @@
 import json
 from collections import defaultdict
 from enum import IntEnum
-import os
-import copy
 from pathlib import Path
 
 import numpy as np
@@ -14,9 +12,7 @@ from cached_property import cached_property
 from tensorboardX import SummaryWriter
 
 import paderbox as pb
-
-from padertorch.train.trigger import IntervalTrigger, EndTrigger, OrTrigger
-
+from padertorch.train.trigger import IntervalTrigger, EndTrigger
 
 __all__ = [
     'SummaryHook',
@@ -542,10 +538,10 @@ class ProgressBarHook(BaseHook):
                              f'or a list or tuple, but is {type(max_trigger)},'
                              f'{max_trigger}')
         if unit == 'iteration':
-            max_iteration = length + 1
+            max_iteration = length
         elif unit == 'epoch':
             if max_it_len is not None:
-                max_iteration = length * max_it_len + 1
+                max_iteration = length * max_it_len
             else:
                 self.num_epochs = length
                 max_iteration = progressbar.UnknownLength
@@ -575,15 +571,15 @@ class ProgressBarHook(BaseHook):
 
         iteration = trainer.iteration
         epoch = trainer.epoch
-        if self.trigger(iteration, epoch):
-            self.pbar.update(iteration + 1)
-            if len(review['losses']) == 1:
-                self.pbar.prefix = f'epochs: {epoch}, loss: ' \
-                                 f'{list(review["losses"].values())[0]} '
         if (self.ep_trigger(iteration, epoch)
                 and self.pbar.max_value is progressbar.UnknownLength):
             if hasattr(self, 'num_epochs'):
                 self.pbar.max_value = (iteration + 1)* self.num_epochs
+        if self.trigger(iteration, epoch):
+            if len(review['losses']) == 1:
+                self.pbar.prefix = f'epochs: {epoch}, loss: ' \
+                                   f'{list(review["losses"].values())[0]} '
+            self.pbar.update(iteration + 1)
 
     def close(self, trainer: 'pt.Trainer'):
         self.pbar.finish()
