@@ -6,6 +6,7 @@ from enum import IntEnum
 from pathlib import Path
 
 import numpy as np
+import progressbar
 import torch
 from cached_property import cached_property
 from tensorboardX import SummaryWriter
