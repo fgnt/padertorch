@@ -106,13 +106,20 @@ def test_run(
                 self.spyed_return_values += [ret]
                 return ret
 
-        review_mock = pb.utils.nested.nested_op(
-            lambda x: exit_stack.enter_context(mock.patch.object(
-                x,
-                'review',
-                wraps=x.review,
-                new_callable=SpyMagicMock,
-            )), trainer.model)
+        trainer_step_mock = exit_stack.enter_context(mock.patch.object(
+            trainer,
+            'step',
+            wraps=trainer.step,
+            new_callable=SpyMagicMock,
+        ))
+
+        # review_mock = pb.utils.nested.nested_op(
+        #     lambda x: exit_stack.enter_context(mock.patch.object(
+        #         x,
+        #         'review',
+        #         wraps=x.review,
+        #         new_callable=SpyMagicMock,
+        #     )), trainer.model)
 
         validate_mock = exit_stack.enter_context(mock.patch.object(
             trainer,
@@ -165,19 +172,29 @@ def test_run(
         assert dump_summary.add_scalar.call_count >= 8, dump_summary.add_scalar.call_count
         assert validate_mock.call_count == 2, validate_mock.call_count
 
-        def assert_review(x):
-            assert x.call_count == 8, x.call_count
-        pb.utils.nested.nested_op(assert_review, review_mock)
+        # def assert_review(x):
+        #     assert x.call_count == 8, x.call_count
+
+        # pb.utils.nested.nested_op(assert_review, review_mock)
+        assert trainer_step_mock.call_count == 8, trainer_step_mock.call_count
         assert get_default_hooks_mock.call_count == 1, get_default_hooks_mock.call_count
 
         torch_save.assert_called()
 
-        def review_mock_to_inputs_output_review(review_mock):
+        # def review_mock_to_inputs_output_review(review_mock):
+        #     sig = inspect.signature(review_mock._mock_wraps)
+        #     for call, review in zip(review_mock.call_args_list,
+        #                             review_mock.spyed_return_values):
+        #         args, kwargs = tuple(call)
+        #         inputs, output = sig.bind(*args, **kwargs).arguments.values()
+        #         yield dict(inputs=inputs, output=output, review=review)
+
+        def trainer_step_mock_to_inputs_output_review(review_mock):
             sig = inspect.signature(review_mock._mock_wraps)
-            for call, review in zip(review_mock.call_args_list,
+            for call, (output, review) in zip(review_mock.call_args_list,
                                     review_mock.spyed_return_values):
                 args, kwargs = tuple(call)
-                inputs, output = sig.bind(*args, **kwargs).arguments.values()
+                inputs, = sig.bind(*args, **kwargs).arguments.values()
                 yield dict(inputs=inputs, output=output, review=review)
 
         def nested_test_assert_allclose(struct1, struct2):
@@ -196,30 +213,54 @@ def test_run(
                 handle_dataclass=True,
             )
 
-        def test_review(review_mock):
-            tr1, tr2, dt1, dt2, tr3, tr4, dt3, dt4 = \
-                review_mock_to_inputs_output_review(
-                    review_mock
-                )
+        # def test_review(review_mock):
+        #     tr1, tr2, dt1, dt2, tr3, tr4, dt3, dt4 = \
+        #         review_mock_to_inputs_output_review(
+        #             review_mock
+        #         )
+        #
+        #     nested_test_assert_allclose(dt1['output'], dt3['output'])
+        #     nested_test_assert_allclose(dt2['output'], dt4['output'])
+        #     nested_test_assert_allclose(dt1['review'], dt3['review'])
+        #     nested_test_assert_allclose(dt2['review'], dt4['review'])
+        #
+        #     assert 'losses' in dt1['review'], dt1['review']
+        #
+        #     if 0 != len(set(dt1['review'].keys()) - set(
+        #             pt.trainer.SummaryHook.empty_summary_dict().keys())):
+        #         got = set(dt1['review'].keys())
+        #         allowed = set(trainer.summary.keys())
+        #         raise ValueError(
+        #             f'Found keys: {got}\n'
+        #             f'Allowed: {allowed}\n'
+        #             f'Delta: {got - allowed}'
+        #         )
+        #
+        # pb.utils.nested.nested_op(test_review, review_mock)
 
-            nested_test_assert_allclose(dt1['output'], dt3['output'])
-            nested_test_assert_allclose(dt2['output'], dt4['output'])
-            nested_test_assert_allclose(dt1['review'], dt3['review'])
-            nested_test_assert_allclose(dt2['review'], dt4['review'])
+        # trainer_step_mock_to_inputs_output_review
+        tr1, tr2, dt1, dt2, tr3, tr4, dt3, dt4 = \
+            trainer_step_mock_to_inputs_output_review(
+                trainer_step_mock
+            )
 
-            assert 'losses' in dt1['review'], dt1['review']
+        nested_test_assert_allclose(dt1['output'], dt3['output'])
+        nested_test_assert_allclose(dt2['output'], dt4['output'])
+        nested_test_assert_allclose(dt1['review'], dt3['review'])
+        nested_test_assert_allclose(dt2['review'], dt4['review'])
 
-            if 0 != len(set(dt1['review'].keys()) - set(
-                    pt.trainer.SummaryHook.empty_summary_dict().keys())):
-                got = set(dt1['review'].keys())
-                allowed = set(trainer.summary.keys())
-                raise ValueError(
-                    f'Found keys: {got}\n'
-                    f'Allowed: {allowed}\n'
-                    f'Delta: {got - allowed}'
-                )
+        assert 'losses' in dt1['review'], dt1['review']
 
-        pb.utils.nested.nested_op(test_review, review_mock)
+        if 0 != len(set(dt1['review'].keys()) - set(
+                pt.trainer.SummaryHook.empty_summary_dict().keys())):
+            got = set(dt1['review'].keys())
+            allowed = set(trainer.summary.keys())
+            raise ValueError(
+                f'Found keys: {got}\n'
+                f'Allowed: {allowed}\n'
+                f'Delta: {got - allowed}'
+            )
+        # end trainer_step_mock_to_inputs_output_review
 
         hooks, = get_default_hooks_mock.spyed_return_values
         for hook in hooks:
