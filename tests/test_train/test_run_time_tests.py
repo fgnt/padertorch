@@ -156,6 +156,17 @@ class ListTrainer(pt.trainer.Trainer):
         latent_out = self.model[1](vae_out[1:])
         pb.utils.nested.nested_update(review, self.model[1].review(
             vae_out[1:], latent_out))
+
+        losses = review['losses']
+
+        review['losses'] = {'loss': sum([
+            self.loss_weights[k] * v
+            for k, v in losses.items()
+        ])}
+        if 'scalars' in review:
+            review['scalars'].update(losses)
+        else:
+            review['scalars'] = losses
         return (vae_out, latent_out), review
 
 
