@@ -128,8 +128,9 @@ class SummaryHook(BaseHook):
         self.summary = self.empty_summary_dict()
 
     def update_summary(self, review):
+        self.summary['scalars']['loss'].append(review['loss'].item())
         for key, loss in review.get('losses', dict()).items():
-            self.summary['losses'][key].append(loss.item())
+            self.summary['scalars'][key].append(loss.item())
         for key, scalar in review.get('scalars', dict()).items():
             self.summary['scalars'][key].append(
                 scalar.item() if torch.is_tensor(scalar) else scalar)
@@ -147,9 +148,6 @@ class SummaryHook(BaseHook):
         iteration = trainer.iteration
         timer = trainer.timer
         prefix = self.summary_prefix
-        for key, loss in self.summary['losses'].items():
-            self.writer.add_scalar(
-                f'{prefix}/{key}', np.mean(loss), iteration)
         for key, scalar in self.summary['scalars'].items():
             self.writer.add_scalar(
                 f'{prefix}/{key}', np.mean(scalar), iteration)

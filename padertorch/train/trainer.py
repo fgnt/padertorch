@@ -268,7 +268,7 @@ class Trainer(Configurable):
     def validation_step(self, example):
         return self.step(example)
 
-    def step(self, example):
+    def _step(self, example):
         msg = 'Overwrite the step function of the trainer, ' \
               'when you have multiple models.'
         assert isinstance(self.model, torch.nn.Module), (self.model, msg)
@@ -276,18 +276,34 @@ class Trainer(Configurable):
         model_out = self.model(example)
         return model_out, self.model.review(example, model_out)
 
+    def _maybe_add_loss_to_review(self, review):
+        if 'losses' in review:
+            assert 'loss' not in review, review
+            losses = review['losses']
+
+            loss = 0.
+            loss_weights = self.loss_weights
+            if loss_weights is None and len(losses) != 1:
+                raise Exception(
+                    'You can not have multiple losses without specifying '
+                    f'loss_weights. losses: {losses}'
+                )
+            for key, value in losses.items():
+                weight = loss_weights[key] if loss_weights is not None else 1.
+                loss += weight * value
+
+            review['loss'] = loss
+        else:
+            assert 'loss' in review, review
+
+        return review
+
+    def step(self, example):
+        model_out, review = self._step(example)
+        return model_out, self._maybe_add_loss_to_review(review)
+
     def backward(self, review, retain_graph=False):
-        loss = 0.
-        loss_weights = self.loss_weights
-        if loss_weights is None and len(review['losses']) != 1:
-            raise Exception(
-                'You can not have multiple losses without specifying '
-                f'loss_weights. losses: {review["losses"]}'
-            )
-        for key, value in review['losses'].items():
-            weight = loss_weights[key] if loss_weights is not None else 1.
-            loss += weight * value
-        loss.backward(retain_graph=retain_graph)
+        review['loss'].backward(retain_graph=retain_graph)
 
     def get_default_hooks(
             self,

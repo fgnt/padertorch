@@ -148,7 +148,7 @@ class StandardNormal(Model):
 
 
 class ListTrainer(pt.trainer.Trainer):
-    def step(self, example):
+    def _step(self, example):
         review = dict()
         vae_out = self.model[0](example)
         pb.utils.nested.nested_update(review, self.model[0].review(
@@ -156,17 +156,6 @@ class ListTrainer(pt.trainer.Trainer):
         latent_out = self.model[1](vae_out[1:])
         pb.utils.nested.nested_update(review, self.model[1].review(
             vae_out[1:], latent_out))
-
-        losses = review['losses']
-
-        review['losses'] = {'loss': sum([
-            self.loss_weights[k] * v
-            for k, v in losses.items()
-        ])}
-        if 'scalars' in review:
-            review['scalars'].update(losses)
-        else:
-            review['scalars'] = losses
         return (vae_out, latent_out), review
 
 
@@ -186,7 +175,7 @@ def test_list_of_models():
 
 
 class DictTrainer(pt.trainer.Trainer):
-    def step(self, example):
+    def _step(self, example):
         review = dict()
         vae_out = self.model['vae'](example)
         pb.utils.nested.nested_update(review, self.model['vae'].review(

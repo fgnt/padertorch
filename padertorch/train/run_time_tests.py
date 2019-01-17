@@ -249,16 +249,17 @@ def test_run(
         nested_test_assert_allclose(dt1['review'], dt3['review'])
         nested_test_assert_allclose(dt2['review'], dt4['review'])
 
-        assert 'losses' in dt1['review'], dt1['review']
+        assert 'loss' in dt1['review'], dt1['review']
 
-        if 0 != len(set(dt1['review'].keys()) - set(
-                pt.trainer.SummaryHook.empty_summary_dict().keys())):
+        allowed_summary_keys = (
+            {'loss'} | set(pt.trainer.SummaryHook.empty_summary_dict().keys())
+        )
+        if 0 != len(set(dt1['review'].keys()) - set(allowed_summary_keys)):
             got = set(dt1['review'].keys())
-            allowed = set(trainer.summary.keys())
             raise ValueError(
                 f'Found keys: {got}\n'
-                f'Allowed: {allowed}\n'
-                f'Delta: {got - allowed}'
+                f'Allowed: {allowed_summary_keys}\n'
+                f'Delta: {got - allowed_summary_keys}'
             )
         # end trainer_step_mock_to_inputs_output_review
 
