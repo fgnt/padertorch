@@ -195,15 +195,18 @@ class Trainer(Configurable):
             data_iterator = get_infinite_example_iterator()
             for self.epoch in itertools.count(self.epoch):  # infinite loop
                 for self.iteration in itertools.count(self.iteration):
-                    for hook in hooks:
-                        hook.pre_step(self)
 
                     with self.timer['time_per_step']:
                         with self.timer['time_per_data_loading']:
                             example = next(data_iterator)
-                        if example is None:
-                            break
 
+                    if example is None:
+                        break
+
+                    for hook in hooks:
+                        hook.pre_step(self)
+
+                    with self.timer['time_per_step']:
                         example = pt.data.batch_to_device(
                             example, self.use_cuda, self.gpu_device
                         )

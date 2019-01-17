@@ -154,12 +154,10 @@ class SummaryHook(BaseHook):
             if key in ['time_per_data_loading', 'time_per_train_step']:
                 if 'time_per_step' in timer.as_dict.keys():
                     time_per_step = timer.as_dict['time_per_step']
-                    if len(time_per_step) != len(scalar):
-                        print(
-                            'Warning: padertorch.Trainer timing bug.'
-                            f'len(time_per_step) == {len(time_per_step)} '
-                            f'!= len(scalar) == {len(scalar)}'
-                        )
+
+                    # Note the length of both is different, because the
+                    # measurement context is entered multiple times.
+                    # It is important to use sum instead of mean.
                     scalar = (
                         scalar.sum() / time_per_step.sum()
                     )
@@ -167,9 +165,21 @@ class SummaryHook(BaseHook):
                         key = 'time_rel_data_loading'
                     elif key == 'time_per_train_step':
                         key = 'time_rel_train_step'
+                    else:
+                        raise ValueError(key)
                 else:
                     # Something went wrong, most likely an exception.
-                    pass
+                    continue
+            elif key in ['time_per_step']:
+                # Only time_per_train_step has the correct number of steps.
+                if 'time_per_train_step' in timer.as_dict:
+                    step_count = len(timer.as_dict['time_per_train_step'])
+                    assert np.size(scalar) >= 2 * step_count
+                    scalar = scalar.sum() / step_count
+                else:
+                    assert np.size(scalar) == 1, (scalar, timer.as_dict)
+                    continue
+
             self.writer.add_scalar(
                 f'{prefix}/{key}', scalar.mean(), iteration)
         for key, histogram in self.summary['histograms'].items():
