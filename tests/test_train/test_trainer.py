@@ -180,19 +180,19 @@ def test_single_model():
         I:1, E: 0, False, CheckpointedValidationHook.pre_step
         I:1, E: 0, False, CheckpointedValidationHook.pre_step
         I:1, E: 0, False, StopTrainingHook.pre_step
-        I:1, E: 0, True, ProgressBarHook.post_step
+        I:1, E: 0, False, ProgressBarHook.post_step
         I:1, E: 0, False, ProgressBarHook.post_step
         I:2, E: 1, True, SummaryHook.pre_step
         I:2, E: 1, True, CheckpointedValidationHook.pre_step
         I:2, E: 1, True, CheckpointedValidationHook.pre_step
         I:2, E: 1, False, StopTrainingHook.pre_step
         I:2, E: 1, True, ProgressBarHook.post_step
-        I:2, E: 1, True, ProgressBarHook.post_step
+        I:2, E: 1, False, ProgressBarHook.post_step
         I:3, E: 1, False, SummaryHook.pre_step
         I:3, E: 1, False, CheckpointedValidationHook.pre_step
         I:3, E: 1, False, CheckpointedValidationHook.pre_step
         I:3, E: 1, False, StopTrainingHook.pre_step
-        I:3, E: 1, True, ProgressBarHook.post_step
+        I:3, E: 1, False, ProgressBarHook.post_step
         I:3, E: 1, False, ProgressBarHook.post_step
         I:4, E: 2, True, SummaryHook.pre_step
         I:4, E: 2, True, CheckpointedValidationHook.pre_step
@@ -204,7 +204,14 @@ def test_single_model():
         print(hook_calls)
         print('#' * 80)
 
-        assert hook_calls == hook_calls_ref, (hook_calls == hook_calls_ref)
+        if hook_calls != hook_calls_ref:
+            import difflib
+            raise AssertionError(
+                '\n' +
+                ('\n'.join(difflib.ndiff(
+                    hook_calls.splitlines(),
+                    hook_calls_ref.splitlines(),
+            ))))
 
         old_event_files = []
 
@@ -296,19 +303,19 @@ def test_single_model():
         I:5, E: 2, False, CheckpointedValidationHook.pre_step
         I:5, E: 2, False, CheckpointedValidationHook.pre_step
         I:5, E: 2, False, StopTrainingHook.pre_step
-        I:5, E: 2, True, ProgressBarHook.post_step
+        I:5, E: 2, False, ProgressBarHook.post_step
         I:5, E: 2, False, ProgressBarHook.post_step
         I:6, E: 3, True, SummaryHook.pre_step
         I:6, E: 3, True, CheckpointedValidationHook.pre_step
         I:6, E: 3, True, CheckpointedValidationHook.pre_step
         I:6, E: 3, False, StopTrainingHook.pre_step
         I:6, E: 3, True, ProgressBarHook.post_step
-        I:6, E: 3, True, ProgressBarHook.post_step
+        I:6, E: 3, False, ProgressBarHook.post_step
         I:7, E: 3, False, SummaryHook.pre_step
         I:7, E: 3, False, CheckpointedValidationHook.pre_step
         I:7, E: 3, False, CheckpointedValidationHook.pre_step
         I:7, E: 3, False, StopTrainingHook.pre_step
-        I:7, E: 3, True, ProgressBarHook.post_step
+        I:7, E: 3, False, ProgressBarHook.post_step
         I:7, E: 3, False, ProgressBarHook.post_step
         I:8, E: 4, True, SummaryHook.pre_step
         I:8, E: 4, True, CheckpointedValidationHook.pre_step
@@ -320,7 +327,14 @@ def test_single_model():
         print(hook_calls)
         print('#' * 80)
 
-        assert hook_calls == hook_calls_ref, (hook_calls == hook_calls_ref)
+        if hook_calls != hook_calls_ref:
+            import difflib
+            raise AssertionError(
+                '\n' +
+                ('\n'.join(difflib.ndiff(
+                    hook_calls.splitlines(),
+                    hook_calls_ref.splitlines(),
+            ))))
 
         files_after = tuple(tmp_dir.glob('*'))
         assert len(files_after) == 5, files_after
