@@ -91,7 +91,6 @@ class Trainer(Configurable):
             keep_all_checkpoints=False,
             max_trigger=(1, 'epoch'),
             gpu=0 if torch.cuda.is_available() else None,
-            init_checkpoint=False,
             seed=0,
     ):
         self.model = model
@@ -116,12 +115,6 @@ class Trainer(Configurable):
         self.reset_timer()
         self.iteration = 0
         self.epoch = 0
-        if init_checkpoint:
-            self.load_checkpoint(init_checkpoint)
-        else:
-            assert not self.checkpoint_dir.exists(),\
-                f'A checkpoint directory already exists. If you want to' \
-                f'restart the training set init_checkpoint to True.'
         self.seed = seed
 
         self.summary_trigger = summary_trigger
@@ -158,7 +151,14 @@ class Trainer(Configurable):
             hooks=None,
             metrics={'loss': 'min'},
             n_best_checkpoints=1,
+            resume=False
     ):
+        if resume:
+            self.load_checkpoint()
+        else:
+            assert not self.checkpoint_dir.exists(),\
+                f'A checkpoint directory already exists. If you want to' \
+                f'restart the training set init_checkpoint to True.'
         torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = False
 
@@ -404,7 +404,7 @@ class Trainer(Configurable):
         print(f"{datetime.now()}: Saved model and optimizer state "
               f"at iteration {self.iteration} to {checkpoint_path}")
 
-    def load_checkpoint(self, checkpoint_path):
+    def load_checkpoint(self):
         """
         Function should not be modified to accept a folder alone to avoid
         a confusion between best snapshot (for test) and last snapshot
@@ -416,10 +416,8 @@ class Trainer(Configurable):
         Returns:
 
         """
-        if isinstance(checkpoint_path, bool):
-            checkpoints = self.checkpoint_dir.glob(f'ckpt_*.{CKPT_EXT}')
-            checkpoint_path = sorted(checkpoints, reverse=True)[0]
-        checkpoint_path = Path(checkpoint_path).expanduser().absolute()
+        checkpoints = self.checkpoint_dir.glob(f'ckpt_*.{CKPT_EXT}')
+        checkpoint_path = sorted(checkpoints, reverse=True)[0]
         assert checkpoint_path.is_file(), checkpoint_path
         checkpoint_dict = torch.load(str(checkpoint_path), map_location='cpu')
         nested_op(
