@@ -475,7 +475,8 @@ class CheckpointedValidationHook(ValidationHook):
     @property
     def latest_symlink_path(self):
         # ToDo why does resolve crash the test?
-        return (self._checkpoint_dir / f'ckpt_latest.{CKPT_EXT}')#.resolve()
+        # Resolve eliminates the symlink -> bad idea
+        return (self._checkpoint_dir / f'ckpt_latest.{CKPT_EXT}').absolute()
 
     def _save_latest_checkpoint(self, trainer: 'pt.Trainer'):
         """ Unconditionally save a checkpoint for the current model.
