@@ -89,10 +89,9 @@ class Trainer(Configurable):
             summary_trigger=(1, 'epoch'),
             checkpoint_trigger=(1, 'epoch'),
             keep_all_checkpoints=False,
-            # validate_trigger=(1, 'epoch'),
             max_trigger=(1, 'epoch'),
             gpu=0 if torch.cuda.is_available() else None,
-            init_checkpoint=None,
+            init_checkpoint=False,
             seed=0,
     ):
         self.model = model
@@ -117,10 +116,12 @@ class Trainer(Configurable):
         self.reset_timer()
         self.iteration = 0
         self.epoch = 0
-        if init_checkpoint is not None:
-            self.load_checkpoint(
-                Path(init_checkpoint).expanduser().absolute(),
-            )
+        if init_checkpoint:
+            self.load_checkpoint(init_checkpoint)
+        else:
+            assert not self.checkpoint_dir.exists(),\
+                f'A checkpoint directory already exists. If you want to' \
+                f'restart the training set init_checkpoint to True.'
         self.seed = seed
 
         self.summary_trigger = summary_trigger
@@ -415,7 +416,11 @@ class Trainer(Configurable):
         Returns:
 
         """
-        assert os.path.isfile(checkpoint_path), checkpoint_path
+        if isinstance(checkpoint_path, bool):
+            checkpoints = self.checkpoint_dir.glob(f'ckpt_*.{CKPT_EXT}')
+            checkpoint_path = sorted(checkpoints, reverse=True)[0]
+        checkpoint_path = Path(checkpoint_path).expanduser().absolute()
+        assert checkpoint_path.is_file(), checkpoint_path
         checkpoint_dict = torch.load(str(checkpoint_path), map_location='cpu')
         nested_op(
             lambda m, d: m.load_state_dict(d),
