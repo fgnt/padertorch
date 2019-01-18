@@ -133,8 +133,8 @@ class TestPermutationInvariantTrainingModel(unittest.TestCase):
     def test_minibatch_equal_to_single_example(self):
         inputs = pt.data.batch_to_device(self.inputs)
 
-        with pt.train.utils.evaluation_mode(self.model):
-            mask = self.model(inputs)
+        self.model.eval()
+        mask = self.model(inputs)
 
         review = self.model.review(inputs, mask)
 
@@ -151,8 +151,8 @@ class TestPermutationInvariantTrainingModel(unittest.TestCase):
             }
             inputs = pt.data.batch_to_device(inputs)
 
-            with pt.train.utils.evaluation_mode(self.model):
-                mask = self.model(inputs)
+            self.model.eval()
+            mask = self.model(inputs)
 
             review = self.model.review(inputs, mask)
             reference_loss.append(review['losses']['pit_mse_loss'])
@@ -166,12 +166,13 @@ class TestPermutationInvariantTrainingModel(unittest.TestCase):
         )
 
     def test_evaluation_mode_deterministic(self):
-        with pt.train.utils.evaluation_mode(self.model):
-            inputs = pt.data.batch_to_device(self.inputs)
-            mask1 = self.model(inputs)[0]
+        self.model.eval()
 
-            inputs = pt.data.batch_to_device(self.inputs)
-            mask2 = self.model(inputs)[0]
+        inputs = pt.data.batch_to_device(self.inputs)
+        mask1 = self.model(inputs)[0]
+
+        inputs = pt.data.batch_to_device(self.inputs)
+        mask2 = self.model(inputs)[0]
 
         np.testing.assert_allclose(
             mask1.detach().numpy(),
