@@ -170,12 +170,12 @@ def test_single_model():
         #   (once for checkpointing once for validation)_file_name
 
         hook_calls_ref = textwrap.dedent('''
-        I:0, E: 0, False, SummaryHook.pre_step
-        I:0, E: 0, False, CheckpointedValidationHook.pre_step
-        I:0, E: 0, False, CheckpointedValidationHook.pre_step
+        I:0, E: 0, True, SummaryHook.pre_step
+        I:0, E: 0, True, CheckpointedValidationHook.pre_step
+        I:0, E: 0, True, CheckpointedValidationHook.pre_step
         I:0, E: 0, False, StopTrainingHook.pre_step
-        I:0, E: 0, False, ProgressBarHook.post_step
-        I:0, E: 0, False, ProgressBarHook.post_step
+        I:0, E: 0, True, ProgressBarHook.post_step
+        I:0, E: 0, True, ProgressBarHook.post_step
         I:1, E: 0, False, SummaryHook.pre_step
         I:1, E: 0, False, CheckpointedValidationHook.pre_step
         I:1, E: 0, False, CheckpointedValidationHook.pre_step
@@ -231,24 +231,24 @@ def test_single_model():
                 import itertools, collections
                 c = dict(collections.Counter(tags))
                 if '.training' in file.name:
-                    assert len(events) == 19, (len(events), events)
+                    assert len(events) == 13, (len(events), events)
                     expect = {
-                        'training/grad_norm': 3,
-                        'training/grad_norm_': 3,
-                        'training/loss': 3,
-                        'training/time_per_step': 3,
-                        'training/time_rel_data_loading': 3,
-                        'training/time_rel_train_step': 3,
+                        'training/grad_norm': 2,
+                        'training/grad_norm_': 2,
+                        'training/loss': 2,
+                        'training/time_per_step': 2,
+                        'training/time_rel_data_loading': 2,
+                        'training/time_rel_train_step': 2,
                     }
                 elif '.validation' in file.name:
-                    assert len(events) == 6, (len(events), events)
+                    assert len(events) == 9, (len(events), events)
                     expect = {
-                        'validation/loss': 2,
+                        'validation/loss': 3,
                         # non validation time can only be measured between
                         # validations:
                         #  => # of non_val_time - 1 == # of val_time
-                        'validation/non_validation_time': 1,
-                        'validation/validation_time': 2,
+                        'validation/non_validation_time': 2,
+                        'validation/validation_time': 3,
                     }
                 else:
                     raise ValueError(file)
@@ -262,7 +262,7 @@ def test_single_model():
                     for f in checkpoints_files
                 ]
                 expect = {
-                    'ckpt_1.pth', 'ckpt_2.pth', 'ckpt_4.pth',
+                    'ckpt_0.pth', 'ckpt_2.pth', 'ckpt_4.pth',
                     'ckpt_state.json', 'ckpt_best_loss.pth',
                 }
                 assert expect == set(checkpoints_files_name), (
@@ -384,7 +384,7 @@ def test_single_model():
                     for f in checkpoints_files
                 ]
                 expect = {
-                    *[f'ckpt_{i}.pth'for i in [1, 2, 4, 6, 8]],
+                    *[f'ckpt_{i}.pth'for i in [0, 2, 4, 6, 8]],
                     'ckpt_state.json',
                     'ckpt_best_loss.pth',
                 }

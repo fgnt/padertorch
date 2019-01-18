@@ -165,8 +165,8 @@ def test_run(
         pb.utils.nested.nested_op(assert_step, optimizer_step)
 
         # torch_save calls:
-        #  after 1 Iteration, after 1 and second epoch, for closing.
-        assert torch_save.call_count == 4, torch_save.call_count
+        #   after first and second epoch, for closing.
+        assert torch_save.call_count == 3, torch_save.call_count
 
         assert dump_validation_state.call_count == 3, dump_validation_state.call_count
         assert dump_summary.add_scalar.call_count >= 8, dump_summary.add_scalar.call_count

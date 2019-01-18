@@ -1,5 +1,6 @@
 import copy
 
+
 class Trigger:
     pass
 
@@ -36,7 +37,7 @@ class IntervalTrigger(Trigger):
         >>> for i in range(10):
         ...     epoch = i // 3
         ...     print(i, epoch, trigger(i, epoch))
-        0 0 False
+        0 0 True
         1 0 False
         2 0 False
         3 1 False
@@ -50,7 +51,7 @@ class IntervalTrigger(Trigger):
         >>> for i in range(10):
         ...     epoch = i // 3
         ...     print(i, epoch, trigger(i, epoch))
-        0 0 False
+        0 0 True
         1 0 False
         2 0 True
         3 1 False
@@ -76,7 +77,7 @@ class IntervalTrigger(Trigger):
         assert isinstance(self.period, int), (type(self.period), self.period)
         assert unit == 'epoch' or unit == 'iteration', unit
         self.unit = unit
-        self.last = 0
+        self.last = -1
 
     def __call__(self, iteration, epoch):
         if self.unit == 'epoch':

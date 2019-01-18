@@ -181,9 +181,9 @@ class SummaryHook(BaseHook):
                     assert np.size(scalar) >= 2 * step_count, (key, np.size(scalar), 2 * step_count)
                     scalar = scalar.sum() / step_count
                 else:
-                    raise Exception('Should not happen')
-                    # assert np.size(scalar) == 1, (key, scalar, timer.as_dict)
-                    # continue
+                    # raise Exception('Should not happen', timer.as_dict)
+                    assert np.size(scalar) == 1, (key, scalar, timer.as_dict)
+                    continue
 
             self.writer.add_scalar(
                 f'{prefix}/{key}', scalar.mean(), iteration)
@@ -209,8 +209,8 @@ class SummaryHook(BaseHook):
         trainer.reset_timer()
 
     def pre_step(self, trainer: 'pt.Trainer'):
-        if(self.trigger(iteration=trainer.iteration, epoch=trainer.epoch)
-           or trainer.iteration == 1):
+        if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch) \
+                and trainer.iteration != 0:
             self.dump_summary(trainer)
 
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
@@ -423,11 +423,9 @@ class CheckpointedValidationHook(ValidationHook):
     def pre_step(self, trainer: 'pt.Trainer'):
         # A trigger triggers only once. So it is important to use here a copy
         # of self.trigger and super can use the original trigger.
-        if (
-                self.checkpoint_trigger(iteration=trainer.iteration, epoch=trainer.epoch)
-                or trainer.iteration == 1
+        if self.checkpoint_trigger(
+                iteration=trainer.iteration, epoch=trainer.epoch
         ):
-
             self._save_latest_checkpoint(trainer)
         super().pre_step(trainer)
 
@@ -553,7 +551,7 @@ class ProgressBarHook(BaseHook):
             min_value=1,
             max_value=max_iteration,
             redirect_stderr=True,
-            redirect_stdout=True
+            redirect_stdout=True,
         )
 
     @property

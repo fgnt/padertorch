@@ -113,8 +113,8 @@ class Trainer(Configurable):
 
         self.storage_dir = Path(storage_dir).expanduser().absolute()
         self.reset_timer()
-        self.iteration = 0
-        self.epoch = 0
+        self.iteration = None
+        self.epoch = None
         self.seed = seed
 
         self.summary_trigger = summary_trigger
@@ -151,7 +151,7 @@ class Trainer(Configurable):
             hooks=None,
             metrics={'loss': 'min'},
             n_best_checkpoints=1,
-            resume=False
+            resume=False,
     ):
         if resume:
             self.load_checkpoint()
@@ -176,13 +176,21 @@ class Trainer(Configurable):
             n_best_checkpoints=n_best_checkpoints,
         )
 
-        # For training continue set the correct last value
-        for hook in hooks:
-            hook.set_last(self.iteration, self.epoch)
+        if self.iteration is None and self.epoch is None:
+            self.iteration = 0
+            self.epoch = 0
+        else:
+            # For training continue set the correct last value (default -1)
+            for hook in hooks:
+                hook.set_last(self.iteration, self.epoch)
 
         # ================ MAIN TRAINING LOOP! ===================
         try:
             for self.epoch in itertools.count(self.epoch):  # infinite loop
+                epoch_start = True
+                for hook in hooks:
+                    hook.pre_step(self)
+
                 data_iterator = iter(train_iterator)
                 for self.iteration in itertools.count(self.iteration):
                     try:
@@ -192,8 +200,11 @@ class Trainer(Configurable):
                     except StopIteration:
                         break
 
-                    for hook in hooks:
-                        hook.pre_step(self)
+                    if epoch_start:
+                        epoch_start = False
+                    else:
+                        for hook in hooks:
+                            hook.pre_step(self)
 
                     with self.timer['time_per_step']:
                         example = pt.data.batch_to_device(
