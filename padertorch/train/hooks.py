@@ -472,6 +472,10 @@ class CheckpointedValidationHook(ValidationHook):
         return {metric_key: _Metric(metric_key, criterion,
                                     self._checkpoint_dir)
                 for metric_key, criterion in metrics.items()}
+    @property
+    def latest_symlink_path(self):
+        # ToDo why does resolve crash the test?
+        return (self._checkpoint_dir / f'ckpt_latest.{CKPT_EXT}')#.resolve()
 
     def _save_latest_checkpoint(self, trainer: 'pt.Trainer'):
         """ Unconditionally save a checkpoint for the current model.
@@ -481,6 +485,10 @@ class CheckpointedValidationHook(ValidationHook):
 
         trainer.save_checkpoint(checkpoint_path)
         self.latest_checkpoint = checkpoint_path
+        # create relative symlink to latest checkpoint
+        if self.latest_symlink_path.exists():
+            self.latest_symlink_path.unlink()
+        self.latest_symlink_path.symlink_to(checkpoint_path.name)
 
     def _update_validated_checkpoints(self):
         """ Save a checkpoint if the current model improves one or multiple

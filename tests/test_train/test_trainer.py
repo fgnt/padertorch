@@ -161,6 +161,7 @@ def test_single_model():
                 hooks=None,
                 metrics={'loss': 'min'},
                 n_best_checkpoints=1,
+                resume=False,
             )
 
         hook_calls = ('\n'.join(mocked.log_list))
@@ -256,7 +257,7 @@ def test_single_model():
 
             elif file.name == 'checkpoints':
                 checkpoints_files = tuple(file.glob('*'))
-                assert len(checkpoints_files) == 5, checkpoints_files
+                assert len(checkpoints_files) == 6, checkpoints_files
                 checkpoints_files_name = [
                     f.name
                     for f in checkpoints_files
@@ -264,6 +265,7 @@ def test_single_model():
                 expect = {
                     'ckpt_0.pth', 'ckpt_2.pth', 'ckpt_4.pth',
                     'ckpt_state.json', 'ckpt_best_loss.pth',
+                    'ckpt_latest.pth'
                 }
                 assert expect == set(checkpoints_files_name), (
                     expect, checkpoints_files_name
@@ -277,7 +279,6 @@ def test_single_model():
         time.sleep(2)
 
         config['kwargs']['max_trigger'] = (4, 'epoch')
-        config['kwargs']['init_checkpoint'] = tmp_dir / 'checkpoints' / 'ckpt_4.pth'
         t = pt.Trainer.from_config(config)
 
         with record_hook_trigger_calls(t) as mocked:
@@ -287,6 +288,7 @@ def test_single_model():
                 hooks=None,
                 metrics={'loss': 'min'},
                 n_best_checkpoints=1,
+                resume=tmp_dir,
             )
 
 
@@ -378,7 +380,7 @@ def test_single_model():
                 assert c == expect, c
             elif file.name == 'checkpoints':
                 checkpoints_files = tuple(file.glob('*'))
-                assert len(checkpoints_files) == 7, checkpoints_files
+                assert len(checkpoints_files) == 8, checkpoints_files
                 checkpoints_files_name = [
                     f.name
                     for f in checkpoints_files
@@ -387,6 +389,7 @@ def test_single_model():
                     *[f'ckpt_{i}.pth'for i in [0, 2, 4, 6, 8]],
                     'ckpt_state.json',
                     'ckpt_best_loss.pth',
+                    'ckpt_latest.pth'
                 }
                 assert expect == set(checkpoints_files_name), (
                     expect, checkpoints_files_name

@@ -427,8 +427,8 @@ class Trainer(Configurable):
         Returns:
 
         """
-        checkpoints = self.checkpoint_dir.glob(f'ckpt_*.{CKPT_EXT}')
-        checkpoint_path = sorted(checkpoints, reverse=True)[0]
+
+        checkpoint_path = self.checkpoint_dir / 'ckpt_latest.pth'
         assert checkpoint_path.is_file(), checkpoint_path
         checkpoint_dict = torch.load(str(checkpoint_path), map_location='cpu')
         nested_op(
