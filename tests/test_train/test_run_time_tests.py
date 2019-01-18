@@ -51,7 +51,7 @@ def test_single_model():
         updates=pb.utils.nested.deflatten({
             'model.cls': Model,
             'storage_dir': None,  # will be overwritten
-            'max_trigger': (10, 'epoch')
+            'max_trigger': None,  # will be overwritten
         })
     )
 
