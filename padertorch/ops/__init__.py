@@ -7,3 +7,4 @@ from . import tensor
 from .einsum import *
 from .sequence import *
 from .tensor import *
+from .mu_law import *
