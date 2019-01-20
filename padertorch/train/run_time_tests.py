@@ -16,8 +16,25 @@ import padertorch as pt
 import paderbox as pb
 
 
+def nested_test_assert_allclose(struct1, struct2):
+    def assert_func(array1, array2):
+        array1 = pt.utils.to_numpy(array1)
+        array2 = pt.utils.to_numpy(array2)
+        np.testing.assert_allclose(
+            array1, array2,
+            rtol=1e-5,
+            atol=1e-5,
+        )
+
+    pb.utils.nested.nested_op(
+        assert_func,
+        struct1, struct2,
+        handle_dataclass=True,
+    )
+
+
 def test_run(
-        trainer,
+        trainer: 'pt.Trainer',
         train_iterator,
         validation_iterator,
         test_with_known_iterator_length=False,
@@ -33,25 +50,12 @@ def test_run(
     """
     print('Start test run')
     with contextlib.ExitStack() as exit_stack:
-        torch_save = exit_stack.enter_context(mock.patch.object(
-            torch,  # similar to pt.Trainer.save_checkpoint
-            'save',
-            new_callable=mock.MagicMock,
-        ))
-        dump_summary = exit_stack.enter_context(mock.patch.object(
-            pt.train.hooks.SummaryHook,
-            'writer',
-            new_callable=mock.MagicMock,
-        ))
-        dump_validation_state = exit_stack.enter_context(mock.patch.object(
-            pt.train.hooks.CheckpointedValidationHook,
-            'dump_json',
-            new_callable=mock.MagicMock,
-        ))
+        storage_dir = Path(exit_stack.enter_context(tempfile.TemporaryDirectory()))
+
         exit_stack.enter_context(mock.patch.object(
-            tqdm,
-            'tqdm',
-            new_callable=mock.MagicMock,
+            trainer,
+            'storage_dir',
+            new=storage_dir,
         ))
         optimizer_step = pb.utils.nested.nested_op(
             lambda x: (exit_stack.enter_context(mock.patch.object(
@@ -72,18 +76,6 @@ def test_run(
             trainer,
             'max_trigger',
             new=(2, 'epoch'),
-        ))
-        exit_stack.enter_context(mock.patch.object(
-            os,
-            'makedirs',
-        ))
-        exit_stack.enter_context(mock.patch.object(
-            Path,
-            'mkdir',
-        ))
-        exit_stack.enter_context(mock.patch.object(
-            Path,
-            'symlink_to',
         ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
@@ -112,15 +104,6 @@ def test_run(
             wraps=trainer.step,
             new_callable=SpyMagicMock,
         ))
-
-        # review_mock = pb.utils.nested.nested_op(
-        #     lambda x: exit_stack.enter_context(mock.patch.object(
-        #         x,
-        #         'review',
-        #         wraps=x.review,
-        #         new_callable=SpyMagicMock,
-        #     )), trainer.model)
-
         validate_mock = exit_stack.enter_context(mock.patch.object(
             trainer,
             'validate',
@@ -153,10 +136,73 @@ def test_run(
             sub_train_iterator = Iterable(sub_train_iterator)
             sub_validation_iterator = Iterable(sub_validation_iterator)
 
-        trainer.train(
-            sub_train_iterator,
-            sub_validation_iterator,
-        )
+        @contextlib.contextmanager
+        def ensure_unchanged_parameter(trainer):
+            parameters_before = {
+                name: parameter.detach().cpu().numpy().copy()
+                for name, parameter in trainer.model.named_parameters()
+            }
+
+            yield
+
+            parameters_after = {
+                name: parameter.detach().cpu().numpy().copy()
+                for name, parameter in trainer.model.named_parameters()
+            }
+
+            assert parameters_before.keys() == parameters_after.keys(), (
+                parameters_before.keys(), parameters_after.keys()
+            )
+            for k in parameters_before.keys():
+                np.testing.assert_equal(
+                    parameters_before[k],
+                    parameters_after[k],
+                )
+
+        # ================ Train Call ===================
+        with ensure_unchanged_parameter(trainer):
+            trainer.train(
+                sub_train_iterator,
+                sub_validation_iterator,
+            )
+
+        files = list(storage_dir.glob('*'))
+        assert len(files) == 2, files
+
+        for file in files:
+            if 'tfevents' in file.name:
+                pass
+            elif file.name == 'checkpoints':
+                checkpoint_names = {f.name for f in file.glob('*')}
+                expect = {
+                    'ckpt_latest.pth',
+                    'ckpt_best_loss.pth',
+                    'ckpt_state.json',
+                    'ckpt_2.pth',
+                    'ckpt_4.pth',
+                }
+                assert checkpoint_names == expect, (checkpoint_names, expect)
+
+                ckpt_best = (file / 'ckpt_best_loss.pth').resolve().name
+                ckpt_last = (file / 'ckpt_latest.pth').resolve().name
+                assert ckpt_best == 'ckpt_2.pth', ckpt_best
+                assert ckpt_last == 'ckpt_4.pth', ckpt_last
+
+                print(torch.load((file / 'ckpt_latest.pth').resolve()))
+
+                # ckpt_state = pb.io.load_json(file / 'ckpt_state.json')
+                # assert ckpt_state == {
+                #     'latest_checkpoint_path':
+                #         '/tmp/tmp_h0sygfv/checkpoints/ckpt_4.pth',
+                #     'metrics': {
+                #         'loss': {
+                #             'criterion': 'min',
+                #             'key': 'loss',
+                #             'paths': ['ckpt_2.pth'],
+                #             'values': [2.5040305852890015],
+                #         }
+                #     }
+                # }, ckpt_state
 
         def assert_step(x):
             if x is not None:
@@ -164,30 +210,10 @@ def test_run(
 
         pb.utils.nested.nested_op(assert_step, optimizer_step)
 
-        # torch_save calls:
-        #   after first and second epoch, for closing.
-        assert torch_save.call_count == 3, torch_save.call_count
-
-        assert dump_validation_state.call_count == 3, dump_validation_state.call_count
-        assert dump_summary.add_scalar.call_count >= 8, dump_summary.add_scalar.call_count
         assert validate_mock.call_count == 2, validate_mock.call_count
 
-        # def assert_review(x):
-        #     assert x.call_count == 8, x.call_count
-
-        # pb.utils.nested.nested_op(assert_review, review_mock)
         assert trainer_step_mock.call_count == 8, trainer_step_mock.call_count
         assert get_default_hooks_mock.call_count == 1, get_default_hooks_mock.call_count
-
-        torch_save.assert_called()
-
-        # def review_mock_to_inputs_output_review(review_mock):
-        #     sig = inspect.signature(review_mock._mock_wraps)
-        #     for call, review in zip(review_mock.call_args_list,
-        #                             review_mock.spyed_return_values):
-        #         args, kwargs = tuple(call)
-        #         inputs, output = sig.bind(*args, **kwargs).arguments.values()
-        #         yield dict(inputs=inputs, output=output, review=review)
 
         def trainer_step_mock_to_inputs_output_review(review_mock):
             sig = inspect.signature(review_mock._mock_wraps)
@@ -197,46 +223,6 @@ def test_run(
                 inputs, = sig.bind(*args, **kwargs).arguments.values()
                 yield dict(inputs=inputs, output=output, review=review)
 
-        def nested_test_assert_allclose(struct1, struct2):
-            def assert_func(array1, array2):
-                array1 = pt.utils.to_numpy(array1)
-                array2 = pt.utils.to_numpy(array2)
-                np.testing.assert_allclose(
-                    array1, array2,
-                    rtol=1e-5,
-                    atol=1e-5,
-                )
-
-            pb.utils.nested.nested_op(
-                assert_func,
-                struct1, struct2,
-                handle_dataclass=True,
-            )
-
-        # def test_review(review_mock):
-        #     tr1, tr2, dt1, dt2, tr3, tr4, dt3, dt4 = \
-        #         review_mock_to_inputs_output_review(
-        #             review_mock
-        #         )
-        #
-        #     nested_test_assert_allclose(dt1['output'], dt3['output'])
-        #     nested_test_assert_allclose(dt2['output'], dt4['output'])
-        #     nested_test_assert_allclose(dt1['review'], dt3['review'])
-        #     nested_test_assert_allclose(dt2['review'], dt4['review'])
-        #
-        #     assert 'losses' in dt1['review'], dt1['review']
-        #
-        #     if 0 != len(set(dt1['review'].keys()) - set(
-        #             pt.trainer.SummaryHook.empty_summary_dict().keys())):
-        #         got = set(dt1['review'].keys())
-        #         allowed = set(trainer.summary.keys())
-        #         raise ValueError(
-        #             f'Found keys: {got}\n'
-        #             f'Allowed: {allowed}\n'
-        #             f'Delta: {got - allowed}'
-        #         )
-        #
-        # pb.utils.nested.nested_op(test_review, review_mock)
 
         # trainer_step_mock_to_inputs_output_review
         tr1, tr2, dt1, dt2, tr3, tr4, dt3, dt4 = \

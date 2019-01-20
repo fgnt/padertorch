@@ -4,6 +4,7 @@ import contextlib
 import inspect
 import textwrap
 from unittest import mock
+import itertools, collections
 
 import numpy as np
 import torch
@@ -166,7 +167,6 @@ def test_single_model():
 
         hook_calls = ('\n'.join(mocked.log_list))
 
-
         # CheckpointedValidationHook trigger is called two times
         #   (once for checkpointing once for validation)_file_name
 
@@ -217,7 +217,7 @@ def test_single_model():
         old_event_files = []
 
         files_after = tuple(tmp_dir.glob('*'))
-        assert len(files_after) == 3, files_after
+        assert len(files_after) == 2, files_after
         for file in files_after:
             if 'tfevents' in file.name:
                 old_event_files.append(file)
@@ -229,30 +229,22 @@ def test_single_model():
                         value, = event['summary']['value']
                         tags.append(value['tag'])
 
-                import itertools, collections
                 c = dict(collections.Counter(tags))
-                if '.training' in file.name:
-                    assert len(events) == 13, (len(events), events)
-                    expect = {
-                        'training/grad_norm': 2,
-                        'training/grad_norm_': 2,
-                        'training/loss': 2,
-                        'training/time_per_step': 2,
-                        'training/time_rel_data_loading': 2,
-                        'training/time_rel_train_step': 2,
-                    }
-                elif '.validation' in file.name:
-                    assert len(events) == 9, (len(events), events)
-                    expect = {
-                        'validation/loss': 3,
-                        # non validation time can only be measured between
-                        # validations:
-                        #  => # of non_val_time - 1 == # of val_time
-                        'validation/non_validation_time': 2,
-                        'validation/validation_time': 3,
-                    }
-                else:
-                    raise ValueError(file)
+                assert len(events) == 21, (len(events), events)
+                expect = {
+                    'training/grad_norm': 2,
+                    'training/grad_norm_': 2,
+                    'training/loss': 2,
+                    'training/time_per_step': 2,
+                    'training/time_rel_data_loading': 2,
+                    'training/time_rel_train_step': 2,
+                    'validation/loss': 3,
+                    # non validation time can only be measured between
+                    # validations:
+                    #  => # of non_val_time - 1 == # of val_time
+                    'validation/non_validation_time': 2,
+                    'validation/validation_time': 3,
+                }
                 assert c == expect, c
 
             elif file.name == 'checkpoints':
@@ -339,7 +331,7 @@ def test_single_model():
             ))))
 
         files_after = tuple(tmp_dir.glob('*'))
-        assert len(files_after) == 5, files_after
+        assert len(files_after) == 3, files_after
         for file in files_after:
             if 'tfevents' in file.name:
                 if file in old_event_files:
@@ -353,30 +345,22 @@ def test_single_model():
                         value, = event['summary']['value']
                         tags.append(value['tag'])
 
-                import itertools, collections
                 c = dict(collections.Counter(tags))
-                if '.training' in file.name:
-                    assert len(events) == 13, (len(events), events)
-                    expect = {
-                        'training/grad_norm': 2,
-                        'training/grad_norm_': 2,
-                        'training/loss': 2,
-                        'training/time_per_step': 2,
-                        'training/time_rel_data_loading': 2,
-                        'training/time_rel_train_step': 2,
-                    }
-                elif '.validation' in file.name:
-                    assert len(events) == 6, (len(events), events)
-                    expect = {
-                        'validation/loss': 2,
-                        # non validation time can only be measured between
-                        # validations:
-                        #  => # of non_val_time - 1 == # of val_time
-                        'validation/non_validation_time': 1,
-                        'validation/validation_time': 2,
-                    }
-                else:
-                    raise ValueError(file)
+                assert len(events) == 18, (len(events), events)
+                expect = {
+                    'training/grad_norm': 2,
+                    'training/grad_norm_': 2,
+                    'training/loss': 2,
+                    'training/time_per_step': 2,
+                    'training/time_rel_data_loading': 2,
+                    'training/time_rel_train_step': 2,
+                    'validation/loss': 2,
+                    # non validation time can only be measured between
+                    # validations:
+                    #  => # of non_val_time - 1 == # of val_time
+                    'validation/non_validation_time': 1,
+                    'validation/validation_time': 2,
+                }
                 assert c == expect, c
             elif file.name == 'checkpoints':
                 checkpoints_files = tuple(file.glob('*'))
