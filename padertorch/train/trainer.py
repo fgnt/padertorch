@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import tensorboardX
 
 from paderbox.utils.nested import flatten, nested_op, nested_update
 import padertorch as pt
@@ -118,7 +119,7 @@ class Trainer(Configurable):
         self.seed = seed
 
         self.summary_trigger = summary_trigger
-        self.checkpoint_trigger = IntervalTrigger.new(checkpoint_trigger)
+        self.checkpoint_trigger = checkpoint_trigger
         self.keep_all_checkpoints = keep_all_checkpoints
         self.max_trigger = max_trigger
 
@@ -162,6 +163,11 @@ class Trainer(Configurable):
         torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = False
 
+        # Why set the seed here?
+        #  - To late for iterator
+        #  - To late for model init (i.e. parameter init)
+        # Only effects random part in NN (dropout, sample).
+        #  - Desired?
         torch.manual_seed(self.seed)
         torch.cuda.manual_seed(self.seed)
 
@@ -348,8 +354,8 @@ class Trainer(Configurable):
             ))
 
             summary_trigger = OrTrigger(
-                IntervalTrigger.new(self.summary_trigger),
-                IntervalTrigger.new(self.checkpoint_trigger),
+                self.summary_trigger,
+                self.checkpoint_trigger,
             )
 
         hooks.append(SummaryHook(summary_trigger, writer=writer))
