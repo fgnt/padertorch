@@ -97,22 +97,17 @@ class SummaryHook(BaseHook):
     def __init__(
             self,
             trigger,
-            event_dir,
+            writer: SummaryWriter,
             summary_prefix='training',
     ):
         super().__init__(trigger)
         self.reset_summary()
         self.summary_prefix = summary_prefix
-        self.event_dir = Path(event_dir)
+        self.writer = writer
 
     @property
     def priority(self):
         return Priority.SUMMARY
-
-    @cached_property
-    def writer(self):
-        return SummaryWriter(str(self.event_dir),
-                             filename_suffix='.' + self.summary_prefix)
 
     @staticmethod
     def empty_summary_dict():
@@ -245,9 +240,9 @@ class SimpleCheckpointHook(BaseHook):
 
 
 class ValidationHook(SummaryHook):
-    def __init__(self, trigger, iterator, event_dir):
+    def __init__(self, trigger, iterator, writer):
         super().__init__(trigger, summary_prefix='validation',
-                         event_dir=event_dir)
+                         writer=writer)
         self.iterator = iterator
 
     @property
@@ -394,13 +389,13 @@ class CheckpointedValidationHook(ValidationHook):
             self,
             trigger,
             iterator,
-            event_dir,
+            writer,
             checkpoint_dir: Path,
             metrics=None,
             keep_all=False,
             init_from_json=False,
     ):
-        super().__init__(trigger, iterator, event_dir=event_dir)
+        super().__init__(trigger, iterator, writer=writer)
 
         # ToDo: remove the checkpoint_trigger, see pre_step
         self.checkpoint_trigger = IntervalTrigger.new(trigger)

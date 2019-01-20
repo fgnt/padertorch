@@ -323,6 +323,8 @@ class Trainer(Configurable):
             max_it_len = None
         hooks = pt.utils.to_list(hooks)
 
+        writer = tensorboardX.SummaryWriter(str(self.storage_dir))
+
         if validation_iterator is None:
             print(
                 'Since no validation_iterator is provided to `Trainer.train`, '
@@ -342,7 +344,7 @@ class Trainer(Configurable):
                 metrics=metrics,
                 keep_all=self.keep_all_checkpoints,
                 init_from_json=self.checkpoint_dir.exists(),
-                event_dir=self.storage_dir,
+                writer=writer,
             ))
 
             summary_trigger = OrTrigger(
@@ -350,7 +352,7 @@ class Trainer(Configurable):
                 IntervalTrigger.new(self.checkpoint_trigger),
             )
 
-        hooks.append(SummaryHook(summary_trigger, event_dir=self.storage_dir))
+        hooks.append(SummaryHook(summary_trigger, writer=writer))
         hooks.append(ProgressBarHook(self.max_trigger, max_it_len))
         hooks.append(StopTrainingHook(self.max_trigger))
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
