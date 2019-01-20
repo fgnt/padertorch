@@ -312,9 +312,9 @@ class _Metric:
             => See init for details.
         """
         if self._criterion == 'min':
-            return value <= self._value
+            return value < self._value
         elif self._criterion == 'max':
-            return value >= self._value
+            return value > self._value
         else:
             raise AssertionError(f'Should not ne reachable: {self._criterion}')
 
