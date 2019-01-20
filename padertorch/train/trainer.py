@@ -73,6 +73,23 @@ class ContextTimerDict:
         return str(self.as_dict)
 
 
+def nested_to_torch_module(model) -> torch.nn.Module:
+    if isinstance(model, torch.nn.Module):
+        return model
+    elif isinstance(model, dict):
+        return torch.nn.ModuleDict({
+            k: nested_to_torch_module(v)
+            for k, v in model.items()
+        })
+    elif isinstance(model, (tuple, list)):
+        return torch.nn.ModuleList([
+            nested_to_torch_module(e)
+            for e in model
+        ])
+    else:
+        raise TypeError(type(model), model)
+
+
 class Trainer(Configurable):
 
     @classmethod
@@ -94,22 +111,23 @@ class Trainer(Configurable):
             gpu=0 if torch.cuda.is_available() else None,
             seed=0,
     ):
-        self.model = model
+        self.model = nested_to_torch_module(model)
         self.use_cuda = gpu is not None
         self.gpu_device = None
         if self.use_cuda:
             self.gpu_device = int(gpu)
-            self.model = nested_op(
-                lambda m: m.cuda(self.gpu_device), self.model
-            )
+            self.model.cuda(self.gpu_device)
         else:
             self.gpu_device = None
         self.optimizer = optimizer
 
         nested_op(
-            lambda model, opti: opti.set_parameters(model.parameters())
+            lambda opti, model: opti.set_parameters(model.parameters())
             if opti is not None else None,
-            self.model, self.optimizer
+            self.optimizer,
+            self.model,
+            mapping_type=(dict, torch.nn.ModuleDict),
+            sequence_type=(tuple, list, torch.nn.ModuleList),
         )
 
         self.storage_dir = Path(storage_dir).expanduser().absolute()
@@ -172,7 +190,7 @@ class Trainer(Configurable):
         torch.cuda.manual_seed(self.seed)
 
         # Change model to train mode (e.g. activate dropout)
-        nested_op(lambda m: m.train(), self.model)
+        self.model.train()
 
         hooks = self.get_default_hooks(
             hooks,
@@ -247,7 +265,7 @@ class Trainer(Configurable):
 
         with self.timer['validation_time'], torch.no_grad():
             # Change model to eval mode (e.g. deactivate dropout)
-            nested_op(lambda m: m.eval(), self.model)
+            self.model.eval()
             try:
                 for i, example in enumerate(validation_iterator):
                     example = pt.data.batch_to_device(
@@ -255,7 +273,7 @@ class Trainer(Configurable):
                     )
                     yield self.validation_step(example)
             finally:
-                nested_op(lambda m: m.train(), self.model)
+                self.model.train()
                 self._start_non_validation_time = self.timer.timestamp()
 
     def train_step(self, example):
@@ -372,9 +390,11 @@ class Trainer(Configurable):
         else:
             prefix_ = f'{prefix}_'
         grad_norm = nested_op(
-            lambda model, opti: opti.clip_grad(model.parameters(), prefix)
+            lambda opti, model: opti.clip_grad(model.parameters(), prefix)
             if opti is not None else 0.,
-            self.model, self.optimizer
+            self.optimizer, self.model,
+            mapping_type=(dict, torch.nn.ModuleDict),
+            sequence_type=(tuple, list, torch.nn.ModuleList),
         )
         summary = dict(scalars=dict(), histograms=dict())
         if isinstance(grad_norm, dict):
@@ -408,13 +428,24 @@ class Trainer(Configurable):
         if self.use_cuda:
             self.cpu()
 
+        # Is self.model.state_dict better than a nested op
+        # model_state_dict = self.model.state_dict()
+        model_state_dict = nested_op(
+            lambda model: model.state_dict(),
+            self.model,
+            mapping_type=(dict, torch.nn.ModuleDict),
+            sequence_type=(tuple, list, torch.nn.ModuleList),
+            keep_type=False
+        )
+
         torch.save(
             dict(
-                model=nested_op(lambda m: m.state_dict(), self.model),
+                model=model_state_dict,
                 iteration=self.iteration,
                 epoch=self.epoch,
                 optimizer=nested_op(
-                    lambda opti: opti and opti.state_dict(), self.optimizer)
+                    lambda opti: opti and opti.state_dict(), self.optimizer
+                )
             ),
             str(checkpoint_path)
         )
@@ -439,10 +470,18 @@ class Trainer(Configurable):
         checkpoint_path = self.checkpoint_dir / 'ckpt_latest.pth'
         assert checkpoint_path.is_file(), checkpoint_path
         checkpoint_dict = torch.load(str(checkpoint_path), map_location='cpu')
+
+        # Is self.model.load_state_dict better than a nested op
+        # self.model.load_state_dict(checkpoint_dict['model'])
         nested_op(
-            lambda m, d: m.load_state_dict(d),
-            self.model, checkpoint_dict['model']
+            lambda model, state: model.load_state_dict(state),
+            self.model,
+            checkpoint_dict['model'],
+            mapping_type=(dict, torch.nn.ModuleDict),
+            sequence_type=(tuple, list, torch.nn.ModuleList),
+            keep_type=False
         )
+
         iteration = checkpoint_dict['iteration']
         self.iteration = iteration
         self.epoch = checkpoint_dict['epoch']
@@ -454,14 +493,14 @@ class Trainer(Configurable):
         print(f"Loaded checkpoint '{checkpoint_path}' (iteration {iteration})")
 
     def cpu(self):
-        nested_op(lambda m: m.cpu(), self.model)
+        self.model.cpu()
         nested_op(
             lambda opti: opti.cpu() if opti is not None else None,
             self.optimizer
         )
 
     def cuda(self, device):
-        nested_op(lambda m: m.cuda(device), self.model)
+        self.model.cuda(device)
         nested_op(
             lambda opti: opti.cuda(device) if opti is not None else None,
             self.optimizer
