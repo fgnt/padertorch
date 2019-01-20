@@ -324,12 +324,24 @@ class _Metric:
         """
         self._value = value
         # create relative symlink to best checkpoint for metric
-        if self.resolved_symlink_path.exists():
-            self.resolved_symlink_path.unlink()
-        self.resolved_symlink_path.symlink_to(checkpoint_path.name)
+        symlink_path = self.symlink_path
+        if symlink_path.is_symlink():
+            symlink_path.unlink()
+        symlink_path.symlink_to(checkpoint_path.name)
+
+    @property
+    def symlink_path(self):
+        """
+        The absolute path to the symlink "file".
+        """
+        return (self._checkpoint_dir / self._symlink_name).absolute()
 
     @property
     def resolved_symlink_path(self):
+        """
+        The absolute path to the file on that the symlink points.
+        Note: returns the symlink itself, when the symlink does not exists.
+        """
         return (self._checkpoint_dir / self._symlink_name).resolve()
 
     def to_json(self):
@@ -472,6 +484,7 @@ class CheckpointedValidationHook(ValidationHook):
         return {metric_key: _Metric(metric_key, criterion,
                                     self._checkpoint_dir)
                 for metric_key, criterion in metrics.items()}
+
     @property
     def latest_symlink_path(self):
         # ToDo why does resolve crash the test?
@@ -487,7 +500,7 @@ class CheckpointedValidationHook(ValidationHook):
         trainer.save_checkpoint(checkpoint_path)
         self.latest_checkpoint = checkpoint_path
         # create relative symlink to latest checkpoint
-        if self.latest_symlink_path.exists():
+        if self.latest_symlink_path.is_symlink():
             self.latest_symlink_path.unlink()
         self.latest_symlink_path.symlink_to(checkpoint_path.name)
 
