@@ -547,7 +547,6 @@ class ProgressBarHook(BaseHook):
         :param disable: bool use to disable the entire progressbar wrapper
         """
         super().__init__((update_intervall, 'iteration'))
-        self.ep_trigger = IntervalTrigger.new((1, 'epoch'))
         self.update_intervall = update_intervall
         if isinstance(max_trigger, EndTrigger):
             length, unit = max_trigger.period, max_trigger.unit
@@ -583,22 +582,20 @@ class ProgressBarHook(BaseHook):
 
     def set_last(self, iteration, epoch):
         super().set_last(iteration, epoch)
-        self.ep_trigger.set_last(iteration, epoch)
         self.pbar.value = iteration
 
     def post_step(self, trainer: 'pt.Trainer', example,
                   model_output, review):
         # iteration and epoch is always one step behind in post_step so (iteration + 1)
 
-        iteration = trainer.iteration
+        iteration = trainer.iteration + 1
         epoch = trainer.epoch
-        if (self.ep_trigger(iteration, epoch) and epoch != 0
-                and self.pbar.max_value is progressbar.UnknownLength):
+        if epoch == 1 and self.pbar.max_value is progressbar.UnknownLength:
             if hasattr(self, 'num_epochs'):
-                self.pbar.max_value = (iteration + 1) * self.num_epochs
-        if self.trigger(iteration + 1, epoch):
+                self.pbar.max_value = (iteration) * self.num_epochs
+        if self.trigger(iteration, epoch):
             self.pbar.prefix = f'epochs: {epoch}, loss: {review["loss"]}'
-            self.pbar.update(iteration + 1)
+            self.pbar.update(iteration)
 
     def close(self, trainer: 'pt.Trainer'):
         self.pbar.finish()
