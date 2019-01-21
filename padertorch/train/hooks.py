@@ -573,6 +573,7 @@ class ProgressBarHook(BaseHook):
             max_value=max_iteration,
             redirect_stderr=True,
             redirect_stdout=True,
+            max_error=False
         )
 
     @property
@@ -590,11 +591,11 @@ class ProgressBarHook(BaseHook):
 
         iteration = trainer.iteration
         epoch = trainer.epoch
-        if (self.ep_trigger(iteration, epoch)
+        if (self.ep_trigger(iteration, epoch) and epoch != 0
                 and self.pbar.max_value is progressbar.UnknownLength):
             if hasattr(self, 'num_epochs'):
-                self.pbar.max_value = (iteration + 1)* self.num_epochs
-        if self.trigger(iteration, epoch):
+                self.pbar.max_value = (iteration + 1) * self.num_epochs
+        if self.trigger(iteration + 1, epoch):
             if len(review['losses']) == 1:
                 self.pbar.prefix = f'epochs: {epoch}, loss: ' \
                                    f'{list(review["losses"].values())[0]} '
