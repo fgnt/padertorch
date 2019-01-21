@@ -262,6 +262,22 @@ def test_single_model():
                 assert expect == set(checkpoints_files_name), (
                     expect, checkpoints_files_name
                 )
+                ckpt_state = pb.io.load_json(file / 'ckpt_state.json')
+                assert ckpt_state['metrics']['loss']['values'][0] > 0, ckpt_state
+                ckpt_state['metrics']['loss']['values'][0] = -1
+                expect = {
+                    'latest_checkpoint_path': 'ckpt_4.pth',
+                    'metrics': {
+                        'loss': {
+                            'criterion': 'min',
+                            'key': 'loss',
+                            'paths': ['ckpt_0.pth'],
+                            'values': [-1]
+                        }
+                    }
+                }
+                assert ckpt_state == expect, (ckpt_state, expect)
+
             else:
                 raise ValueError(file)
 

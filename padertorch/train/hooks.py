@@ -402,7 +402,7 @@ class CheckpointedValidationHook(ValidationHook):
 
         assert isinstance(metrics, dict) and metrics,  \
             'The metrics dict must not be empty!'
-        self._checkpoint_dir = checkpoint_dir
+        self._checkpoint_dir = Path(checkpoint_dir)
         self.metrics = self._convert_metrics_to_internal_layout(metrics)
         self._keep_all = keep_all
         if init_from_json:
@@ -410,7 +410,9 @@ class CheckpointedValidationHook(ValidationHook):
             assert checkpoint_dir.exists(), checkpoint_dir
             with json_path.open('r') as json_fd:
                 json_state = json.load(json_fd)
-            self.latest_checkpoint = Path(json_state['latest_checkpoint_path'])
+            self.latest_checkpoint = (
+                    self._checkpoint_dir / json_state['latest_checkpoint_path']
+            )
             assert set(self.metrics.keys()) == set(json_state['metrics'].keys()), (
                 self.metrics, json_state)
             for metric_key, metric in self.metrics.items():
@@ -456,7 +458,9 @@ class CheckpointedValidationHook(ValidationHook):
             'Some metric keys do not match their names!'
         json_path = self._checkpoint_dir / self._json_filename
         content = dict(
-            latest_checkpoint_path=str(self.latest_checkpoint),
+            latest_checkpoint_path=str(
+                self.latest_checkpoint.relative_to(self._checkpoint_dir)
+            ),
             metrics={metric_key: metric.to_json()
                      for metric_key, metric in self.metrics.items()})
 
