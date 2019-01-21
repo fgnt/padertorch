@@ -271,6 +271,11 @@ def import_class(name: str):
         )
 
 
+def resolve_main_python_path() -> str:
+    """Can only resolve, if you run scripts with `python -m`."""
+    return getattr(sys.modules['__main__'].__spec__, 'name', '__main__')
+
+
 def class_to_str(cls):
     """
     >>> import padertorch
@@ -285,12 +290,13 @@ def class_to_str(cls):
 
     if isinstance(cls, str):
         cls = import_class(cls)
+
     module = cls.__module__
 
     if module == '__main__':
         # Try to figure out the module.
         # Could be done, when the script is started with "python -m ..."
-        module = getattr(sys.modules[module].__spec__, 'name', module)
+        module = resolve_main_python_path()
 
     if module != '__main__':
         return f'{module}.{cls.__qualname__}'
