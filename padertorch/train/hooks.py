@@ -126,6 +126,7 @@ class SummaryHook(BaseHook):
         self.summary = self.empty_summary_dict()
 
     def update_summary(self, review):
+        # note item is the pytorch function to get the value of a tensor
         self.summary['scalars']['loss'].append(review['loss'].item())
         for key, loss in review.get('losses', dict()).items():
             self.summary['scalars'][key].append(loss.item())
