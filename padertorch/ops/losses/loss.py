@@ -80,7 +80,7 @@ def pit_mse_loss(estimate, target):
         estimate: Padded sequence with shape (T, K, F)
         target: Padded sequence with shape (T, K, F)
     """
-    sources = 2  # Replace this later, when you gained more confidence.
+    sources = estimate.size()[1]
     assert estimate.size() == target.size(), (
         f'{estimate.size()} != {target.size()}'
     )
