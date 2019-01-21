@@ -42,16 +42,16 @@ class ProgresbarHookTest(unittest.TestCase):
                     trainer.iteration = iteration
                     trainer.epoch = epoch
                     progressbar_hook.post_step(trainer, None, None, {
-                        'losses': {'loss': iteration + 1}})
+                        'loss': iteration + 1})
                     iteration += 1
                 assert iteration == self.iterator_length
         except pt.train.hooks.StopTraining:
             pass
         finally:
             assert progressbar_hook.pbar.value == length
-            assert progressbar_hook.pbar.prefix == \
-                   f'epochs: {epoch}, loss: {length} ', (
-                progressbar_hook.pbar.prefix, epoch, iteration)
+            assert progressbar_hook.pbar.prefix == (
+                f'epochs: {epoch}, loss: {length}'), (
+                progressbar_hook.pbar.prefix, epoch, length)
             progressbar_hook.close(trainer)
 
     def train_loop_epoch(self, length, max_it_len):
@@ -68,7 +68,7 @@ class ProgresbarHookTest(unittest.TestCase):
                 assert iteration // epoch == self.iterator_length, iteration
                 progressbar_hook.post_step(trainer, None, None,
                                            {'losses': {'loss': iteration}})
-                assert progressbar_hook.pbar.max_value ==\
+                assert progressbar_hook.pbar.max_value == \
                        self.num_epochs * self.iterator_length, \
                     (progressbar_hook.pbar.max_value, length)
             for idx in range(self.iterator_length):
@@ -78,10 +78,10 @@ class ProgresbarHookTest(unittest.TestCase):
                         (iteration, progressbar_hook.pbar.value)
                 assert iteration < self.iterator_length * self.num_epochs
                 progressbar_hook.post_step(trainer, None, None, {
-                    'losses': {'loss': iteration + 1}})
+                    'loss': iteration + 1})
                 iteration += 1
         assert progressbar_hook.pbar.value == iteration
-        assert progressbar_hook.pbar.prefix == \
-               f'epochs: {epoch}, loss: {length * self.iterator_length} ', \
-            (progressbar_hook.pbar.prefix, epoch, iteration)
+        assert progressbar_hook.pbar.prefix == (
+            f'epochs: {epoch}, loss: {length * self.iterator_length}'), (
+        progressbar_hook.pbar.prefix, epoch, length * self.iterator_length)
         progressbar_hook.close(trainer)
