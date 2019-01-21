@@ -212,6 +212,7 @@ class TCN(Module):
         self.input_size = input_size
         self.hidden_sizes = to_list(hidden_sizes, depth - 1)
         self.output_size = output_size
+        self.condition_size = condition_size
         self.depth = depth
         self.kernel_sizes = to_list(kernel_sizes, depth)
         self.dilations = to_list(dilations, depth)
@@ -317,6 +318,7 @@ class MSTCN(Module):
         self.input_size = input_size
         self.hidden_sizes = to_list(hidden_sizes, depth - 1)
         self.output_size = output_size
+        self.condition_size = condition_size
         self.depth = depth
         self.kernel_sizes = to_list(kernel_sizes, depth)
         self.n_scales = to_list(n_scales, depth - 1)

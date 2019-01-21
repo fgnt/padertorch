@@ -29,7 +29,7 @@ import torch
 from cached_property import cached_property
 
 from padertorch.base import Module
-from padertorch.ops import mu_law_decode
+from padertorch.ops import mu_law_encode, mu_law_decode
 
 
 __all__ = [
@@ -67,7 +67,7 @@ class Conv(torch.nn.Module):
 
 class WaveNet(Module):
     def __init__(
-            self, n_cond_channels, upsamp_window, upsamp_stride,
+            self, n_cond_channels=None, upsamp_window=None, upsamp_stride=None,
             n_in_channels=256, n_layers=16, max_dilation=128,
             n_residual_channels=64, n_skip_channels=256, n_out_channels=256
     ):
@@ -130,14 +130,15 @@ class WaveNet(Module):
                 n_residual_channels, n_skip_channels, w_init_gain='relu')
             self.skip_layers.append(skip_layer)
 
-    def forward(self, features, forward_input):
+    def forward(self, features, audio):
         cond_input = self.upsample(features)
+        quantized = mu_law_encode(audio).long()
 
-        assert (cond_input.size(2) >= forward_input.size(1))
-        if cond_input.size(2) > forward_input.size(1):
-            cond_input = cond_input[:, :, :forward_input.size(1)]
+        assert (cond_input.size(2) >= quantized.size(1))
+        if cond_input.size(2) > quantized.size(1):
+            cond_input = cond_input[:, :, :quantized.size(1)]
 
-        forward_input = self.embed(forward_input.long())
+        forward_input = self.embed(quantized)
         forward_input = forward_input.transpose(1, 2)
 
         cond_acts = self.cond_layers(cond_input)
@@ -172,7 +173,7 @@ class WaveNet(Module):
         first = last * 0.0
         output = torch.cat((first, output), dim=2)
 
-        return output
+        return output, quantized
 
     def export_weights(self):
         """
