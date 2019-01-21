@@ -68,7 +68,8 @@ class ProgresbarHookTest(unittest.TestCase):
                 assert iteration // epoch == self.iterator_length, iteration
                 progressbar_hook.post_step(trainer, None, None,
                                            {'losses': {'loss': iteration}})
-                assert progressbar_hook.pbar.max_value == self.num_epochs * self.iterator_length, progressbar_hook.pbar.max_value
+                assert progressbar_hook.pbar.max_value == self.num_epochs * self.iterator_length,\
+                    (progressbar_hook.pbar.max_value, self.num_epochs, self.iterator_length)
             for idx in range(self.iterator_length):
                 trainer.iteration = iteration
                 if not iteration == 1:
