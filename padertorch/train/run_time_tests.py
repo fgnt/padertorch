@@ -188,8 +188,6 @@ def test_run(
                 assert ckpt_best == 'ckpt_2.pth', ckpt_best
                 assert ckpt_last == 'ckpt_4.pth', ckpt_last
 
-                print(torch.load((file / 'ckpt_latest.pth').resolve()))
-
                 # ckpt_state = pb.io.load_json(file / 'ckpt_state.json')
                 # assert ckpt_state == {
                 #     'latest_checkpoint_path':
