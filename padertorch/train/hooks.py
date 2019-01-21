@@ -274,7 +274,7 @@ class _Metric:
     def __init__(self, metric_key, criterion, checkpoint_dir):
         self._key = metric_key
         self._criterion = criterion
-        self._checkpoint_dir = checkpoint_dir
+        self._checkpoint_dir = Path(checkpoint_dir).expanduser().resolve()
         self._symlink_name = f'ckpt_best_{metric_key}.{CKPT_EXT}'
 
         assert criterion in ('min', 'max'), criterion

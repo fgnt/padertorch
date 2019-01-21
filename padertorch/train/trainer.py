@@ -130,7 +130,7 @@ class Trainer(Configurable):
             sequence_type=(tuple, list, torch.nn.ModuleList),
         )
 
-        self.storage_dir = Path(storage_dir).expanduser().absolute()
+        self.storage_dir = Path(storage_dir).expanduser().resolve()
         self.reset_timer()
         self.iteration = None
         self.epoch = None
