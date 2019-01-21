@@ -597,9 +597,7 @@ class ProgressBarHook(BaseHook):
             if hasattr(self, 'num_epochs'):
                 self.pbar.max_value = (iteration + 1) * self.num_epochs
         if self.trigger(iteration + 1, epoch):
-            if len(review['losses']) == 1:
-                self.pbar.prefix = f'epochs: {epoch}, loss: ' \
-                                   f'{list(review["losses"].values())[0]} '
+            self.pbar.prefix = f'epochs: {epoch}, loss: {review["loss"]}'
             self.pbar.update(iteration + 1)
 
     def close(self, trainer: 'pt.Trainer'):
