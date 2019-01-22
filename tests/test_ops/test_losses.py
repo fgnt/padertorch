@@ -125,7 +125,7 @@ class TestDeepClusteringLoss(unittest.TestCase):
             torch.Tensor(embedding.astype(np.float32)),
             torch.Tensor(target_mask.astype(np.float32)),
         )
-        np.testing.assert_allclose(loss, loss_ref, atol=1e-6)
+        np.testing.assert_allclose(loss, loss_ref, atol=1e-4)
 
 
 class TestPermutationInvariantTrainingLoss(unittest.TestCase):
