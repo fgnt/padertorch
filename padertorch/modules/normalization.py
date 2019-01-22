@@ -72,7 +72,7 @@ class Normalization(pt.Module):
             )
             norm = sequence_reduction(
                 torch.mean,
-                tensor - mean,
+                torch.abs(tensor - mean)**2,
                 axis=self.statistics_axis,
                 keepdims=True
             )
