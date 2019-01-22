@@ -11,15 +11,13 @@ from scipy import signal
 from tqdm import tqdm
 
 from paderbox.database import keys as NTKeys
-from paderbox.io.audioread import audioread
+from paderbox.io import load_audio
 from paderbox.utils.nested import squeeze_nested, nested_op, nested_update
 from padertorch.configurable import Configurable
 from padertorch.utils import to_list
 
-
 class Keys:
     SPECTROGRAM = "spectrogram"
-    LABELS = "labels"
 
 
 LABEL_KEYS = [NTKeys.PHONES, NTKeys.WORDS, NTKeys.EVENTS, NTKeys.SCENE]
@@ -78,7 +76,7 @@ class ReadAudio(Transform):
         self.converter_type = converter_type
 
     def read(self, audio_path):
-        x, sr = audioread(audio_path)
+        x, sr = load_audio(audio_path, return_sample_rate=True)
         if sr != self.sample_rate:
             import samplerate
             warn('Sample rate mismatch -> Resample.')
@@ -169,6 +167,7 @@ class Spectrogram(Transform):
         return np.linalg.pinv(self.fbanks)
 
     def stft(self, x):
+        # ToDo: switch to toolbox stft?
         noverlap = self.frame_length - self.frame_step
         if self.padded:
             pad_width = x.ndim * [(0, 0)]
