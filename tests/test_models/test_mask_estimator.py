@@ -41,7 +41,7 @@ def get_iterators():
 
 class TestMaskEstimatorModel(unittest.TestCase):
     # TODO: Test forward deterministic if not train
-    C = 1
+    C = 4
 
     def setUp(self):
         self.model_class= pt.models.mask_estimator.MaskEstimatorModel
@@ -115,15 +115,16 @@ class TestMaskEstimatorModel(unittest.TestCase):
         mask = self.model(inputs)
         review = self.model.review(inputs, mask)
 
-        assert 'losses' in review, review.keys()
-        assert 'loss' in review['losses'], review['losses'].keys()
+        assert 'loss' in review, review.keys()
+        assert 'loss' not in review['scalars'], review['scalars'].keys()
 
     def test_minibatch_equal_to_single_example(self):
         inputs = pt.data.batch_to_device(self.inputs)
         model = self.model
+        model.eval()
         mask = model(inputs)
         review = model.review(inputs, mask)
-        actual_loss = review['losses']['loss']
+        actual_loss = review['loss']
 
         reference_loss = list()
 
@@ -140,7 +141,7 @@ class TestMaskEstimatorModel(unittest.TestCase):
             inputs = pt.data.batch_to_device(inputs)
             mask = model(inputs)
             review = model.review(inputs, mask)
-            reference_loss.append(review['losses']['loss'])
+            reference_loss.append(review['loss'])
 
         reference_loss = torch.sum(torch.stack(reference_loss))
 
@@ -151,5 +152,5 @@ class TestMaskEstimatorModel(unittest.TestCase):
         )
 
 
-class TestMaskEstimatorMultiChannelModel(TestMaskEstimatorModel):
-    C = 4
+class TestMaskEstimatorSingleChannelModel(TestMaskEstimatorModel):
+    C = 1
