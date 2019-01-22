@@ -172,26 +172,27 @@ def test_single_model():
 
         hook_calls_ref = textwrap.dedent('''
         I:0, E: 0, True, SummaryHook.pre_step
+        I:0, E: 0, True, ProgressBarHook.pre_step
         I:0, E: 0, True, CheckpointedValidationHook.pre_step
         I:0, E: 0, True, CheckpointedValidationHook.pre_step
         I:0, E: 0, False, StopTrainingHook.pre_step
-        I:1, E: 0, False, ProgressBarHook.post_step
         I:1, E: 0, False, SummaryHook.pre_step
+        I:1, E: 0, False, ProgressBarHook.pre_step
         I:1, E: 0, False, CheckpointedValidationHook.pre_step
         I:1, E: 0, False, CheckpointedValidationHook.pre_step
         I:1, E: 0, False, StopTrainingHook.pre_step
-        I:2, E: 0, False, ProgressBarHook.post_step
         I:2, E: 1, True, SummaryHook.pre_step
+        I:2, E: 1, False, ProgressBarHook.pre_step
         I:2, E: 1, True, CheckpointedValidationHook.pre_step
         I:2, E: 1, True, CheckpointedValidationHook.pre_step
         I:2, E: 1, False, StopTrainingHook.pre_step
-        I:3, E: 1, False, ProgressBarHook.post_step
         I:3, E: 1, False, SummaryHook.pre_step
+        I:3, E: 1, False, ProgressBarHook.pre_step
         I:3, E: 1, False, CheckpointedValidationHook.pre_step
         I:3, E: 1, False, CheckpointedValidationHook.pre_step
         I:3, E: 1, False, StopTrainingHook.pre_step
-        I:4, E: 1, False, ProgressBarHook.post_step
         I:4, E: 2, True, SummaryHook.pre_step
+        I:4, E: 2, False, ProgressBarHook.pre_step
         I:4, E: 2, True, CheckpointedValidationHook.pre_step
         I:4, E: 2, True, CheckpointedValidationHook.pre_step
         I:4, E: 2, True, StopTrainingHook.pre_step
@@ -300,26 +301,27 @@ def test_single_model():
 
         hook_calls_ref = textwrap.dedent('''
         I:4, E: 2, False, SummaryHook.pre_step
+        I:4, E: 2, False, ProgressBarHook.pre_step
         I:4, E: 2, False, CheckpointedValidationHook.pre_step
         I:4, E: 2, False, CheckpointedValidationHook.pre_step
         I:4, E: 2, False, StopTrainingHook.pre_step
-        I:5, E: 2, False, ProgressBarHook.post_step
         I:5, E: 2, False, SummaryHook.pre_step
+        I:5, E: 2, False, ProgressBarHook.pre_step
         I:5, E: 2, False, CheckpointedValidationHook.pre_step
         I:5, E: 2, False, CheckpointedValidationHook.pre_step
         I:5, E: 2, False, StopTrainingHook.pre_step
-        I:6, E: 2, False, ProgressBarHook.post_step
         I:6, E: 3, True, SummaryHook.pre_step
+        I:6, E: 3, False, ProgressBarHook.pre_step
         I:6, E: 3, True, CheckpointedValidationHook.pre_step
         I:6, E: 3, True, CheckpointedValidationHook.pre_step
         I:6, E: 3, False, StopTrainingHook.pre_step
-        I:7, E: 3, False, ProgressBarHook.post_step
         I:7, E: 3, False, SummaryHook.pre_step
+        I:7, E: 3, False, ProgressBarHook.pre_step
         I:7, E: 3, False, CheckpointedValidationHook.pre_step
         I:7, E: 3, False, CheckpointedValidationHook.pre_step
         I:7, E: 3, False, StopTrainingHook.pre_step
-        I:8, E: 3, False, ProgressBarHook.post_step
         I:8, E: 4, True, SummaryHook.pre_step
+        I:8, E: 4, False, ProgressBarHook.pre_step
         I:8, E: 4, True, CheckpointedValidationHook.pre_step
         I:8, E: 4, True, CheckpointedValidationHook.pre_step
         I:8, E: 4, True, StopTrainingHook.pre_step

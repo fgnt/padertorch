@@ -567,8 +567,11 @@ class ProgressBarHook(BaseHook):
         else:
             raise ValueError(f'unit {unit} is unknown,'
                              f' choose iteration or epoch')
+
+        self.loss = None
+
         self.pbar = progressbar.bar.ProgressBar(
-            prefix=f'epochs: {0} ',
+            prefix=f'epochs: {0} loss: {0} ',
             min_value=1,
             max_value=max_iteration,
             redirect_stderr=True,
@@ -584,18 +587,23 @@ class ProgressBarHook(BaseHook):
         super().set_last(iteration, epoch)
         self.pbar.value = iteration
 
-    def post_step(self, trainer: 'pt.Trainer', example,
-                  model_output, review):
-        # iteration and epoch is always one step behind in post_step so (iteration + 1)
-
-        iteration = trainer.iteration + 1
+    def pre_step(self, trainer: 'pt.Trainer'):
+        iteration = trainer.iteration
         epoch = trainer.epoch
         if epoch == 1 and self.pbar.max_value is progressbar.UnknownLength:
             if hasattr(self, 'num_epochs'):
-                self.pbar.max_value = (iteration) * self.num_epochs
+                # sets the max length of the bar after the first epoch
+                self.pbar.max_value = iteration * self.num_epochs
         if self.trigger(iteration, epoch):
-            self.pbar.prefix = f'epochs: {epoch}, loss: {review["loss"]}'
+            if not self.loss is None:
+                self.pbar.prefix = f'epochs: {epoch}, loss: {self.loss} '
             self.pbar.update(iteration)
+
+    def post_step(self, trainer: 'pt.Trainer', example,
+                  model_output, review):
+        self.loss = review["loss"]
+
+
 
     def close(self, trainer: 'pt.Trainer'):
         self.pbar.finish()
