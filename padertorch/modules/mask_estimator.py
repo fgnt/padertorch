@@ -1,3 +1,4 @@
+import torch
 from torch.nn.utils.rnn import PackedSequence
 
 import padertorch as pt
@@ -73,14 +74,19 @@ class MaskEstimator(pt.Module):
         assert n_in == num_features, (n_in, num_features)
         return out_config
 
-    def __init__(self, fully_connected, normalization, recurrent:LSTM,
-                 num_features=513,
-                 use_log: bool = False,
-                 use_powerspectrum: bool = False,
-                 separate_masks: bool = True,
-                 output_activation: str = 'sigmoid',
-                 fix_states: bool = False
-                 ):
+    def __init__(
+            self,
+            fully_connected,
+            normalization: Normalization,
+            recurrent: LSTM,
+            num_features:int = 513,
+            input_dropout: float = 0.5,
+            use_log: bool = False,
+            use_powerspectrum: bool = False,
+            separate_masks: bool = True,
+            output_activation: str = 'sigmoid',
+            fix_states: bool = False
+    ):
         super().__init__()
         self.fully_connected = fully_connected
         self.normalization = normalization
@@ -89,6 +95,7 @@ class MaskEstimator(pt.Module):
         if use_log or use_powerspectrum:
             raise NotImplementedError
         self.num_features = num_features
+        self.input_dropout = torch.nn.Dropout(input_dropout)
         self.use_log = use_log
         self.use_powerspectrum = use_powerspectrum
         self.separate_masks = separate_masks
@@ -101,8 +108,9 @@ class MaskEstimator(pt.Module):
         :return:
         """
         if not isinstance(x, PackedSequence):
-            # x = self.normalization(x)  # ToDo allow PackedSequence
+            x = self.normalization(x)  # ToDo allow PackedSequence
             x = pack_sequence(x)
+        x = PackedSequence(self.input_dropout(x.data), x.batch_sizes)
         if not self.fix_states:
             self.recurrent.reset_states(x)
         h = self.recurrent(x)
