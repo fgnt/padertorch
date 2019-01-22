@@ -77,7 +77,7 @@ class MaskEstimatorModel(pt.Model):
         :return:
         """
         losses = self.add_losses(batch, output)
-        return dict(losses={'loss': losses[MaskLossKeys.MASK]},
+        return dict(loss= losses.pop(MaskLossKeys.MASK),
                     scalars=losses,
                     audios=self.add_audios(batch, output),
                     images=self.add_images(batch, output)
