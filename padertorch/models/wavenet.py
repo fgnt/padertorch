@@ -6,10 +6,12 @@ from padertorch.ops import mu_law_decode
 
 
 class WaveNet(Model):
-    def __init__(self, wavenet, sample_rate=16000):
+    def __init__(self, wavenet, sample_rate=16000, feature_key=0, audio_key=1):
         super().__init__()
         self.wavenet = wavenet
         self.sample_rate = sample_rate
+        self.feature_key = feature_key
+        self.audio_key = audio_key
 
     @classmethod
     def get_signature(cls):
@@ -18,8 +20,7 @@ class WaveNet(Model):
         return signature
 
     def forward(self, inputs):
-        features, audio = inputs
-        return self.wavenet(features, audio)
+        return self.wavenet(inputs[self.feature_key], inputs[self.audio_key])
 
     def review(self, inputs, outputs):
         predictions, targets = outputs
@@ -29,7 +30,7 @@ class WaveNet(Model):
             scalars=dict(),
             histograms=dict(reconstruction_ce=ce),
             audios=dict(
-                target=(inputs[1][0], self.sample_rate),
+                target=(inputs[self.audio_key][0], self.sample_rate),
                 decode=(
                     mu_law_decode(
                         torch.argmax(outputs[0][0], dim=0),
