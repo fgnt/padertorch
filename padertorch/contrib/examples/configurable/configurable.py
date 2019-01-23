@@ -72,7 +72,7 @@ import sacred
 import sacred.run
 import sacred.commands
 exp = sacred.Experiment('vae')
-from padertorch.configurable_utils import deflatten
+from paderbox.utils.nested import deflatten
 
 @exp.config
 def config():

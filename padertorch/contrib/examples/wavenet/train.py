@@ -15,14 +15,14 @@ from sacred import Experiment as Exp
 from sacred.observers import FileStorageObserver
 from torch.utils.data.dataloader import default_collate
 
-exp_name = 'wavenet'
-exp = Exp(exp_name)
-storage_dir = str(Path(os.environ['STORAGE_ROOT']) / exp_name)
+
+ex = Exp('wavenet')
+storage_dir = str(Path(os.environ['STORAGE_DIR']))
 observer = FileStorageObserver.create(storage_dir)
-exp.observers.append(observer)
+ex.observers.append(observer)
 
 
-@exp.config
+@ex.config
 def config():
     # Data configuration
     data_config = dict(
@@ -36,12 +36,10 @@ def config():
         batch_size=8,
     )
     Configurable.get_config(
-        out_config=data_config['transform_config']['reader'],
-        updates=deflatten({})
+        out_config=data_config['transform_config']['reader']
     )
     Configurable.get_config(
-        out_config=data_config['transform_config']['spectrogram'],
-        updates=deflatten({})
+        out_config=data_config['transform_config']['spectrogram']
     )
     data_config['transform_config']['spectrogram']['kwargs']['sample_rate'] = \
         data_config['transform_config']['reader']['kwargs']['sample_rate']
@@ -84,7 +82,7 @@ def config():
     )
 
 
-@exp.automain
+@ex.automain
 def train(
         _config, data_config, model_config, optimizer_config, train_config
 ):
@@ -119,7 +117,7 @@ def train(
     )
 
     norm = GlobalNormalize()
-    norm.init_moments(iterator=validation_iter, storage_dir=observer.dir)
+    norm.init_moments(iterator=validation_iter, storage_dir=storage_dir)
     train_iter = train_iter.map(norm)
     validation_iter = validation_iter.map(norm)
 
@@ -146,7 +144,7 @@ def train(
 
     trainer = Trainer(
         model=model,
-        storage_dir=observer.dir,
+        storage_dir=storage_dir,
         optimizer=optimizer,
         **config_to_instance(train_config)
     )
