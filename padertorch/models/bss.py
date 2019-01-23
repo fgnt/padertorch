@@ -34,6 +34,7 @@ class PermutationInvariantTrainingModel(pt.Model):
             dropout_input=0.,
             dropout_hidden=0.,
             dropout_linear=0.,
+            output_activation='identity'
     ):
         """
 
@@ -46,6 +47,7 @@ class PermutationInvariantTrainingModel(pt.Model):
             dropout_hidden: Vertical forget ratio dropout between each
                 recurrent layer
             dropout_linear: Dropout forget ratio before first linear layer
+            output_activation:
         """
         super().__init__()
 
@@ -67,6 +69,8 @@ class PermutationInvariantTrainingModel(pt.Model):
         assert dropout_linear <= 0.5, dropout_linear
         self.dropout_linear = torch.nn.Dropout(dropout_linear)
         self.linear = torch.nn.Linear(2 * units, F * K)
+        self.output_activation \
+            = pt.mappings.ACTIVATION_FN_MAP[output_activation]()
 
     def forward(self, batch):
         """
@@ -96,7 +100,11 @@ class PermutationInvariantTrainingModel(pt.Model):
         h = PackedSequence(h_data, h.batch_sizes)
 
         mask = PackedSequence(
-            einops.rearrange(h.data, 'tb (k f) -> tb k f', k=self.K),
+            einops.rearrange(
+                self.output_activation(h.data),
+                'tb (k f) -> tb k f',
+                k=self.K
+            ),
             h.batch_sizes,
         )
         return pt.ops.unpack_sequence(mask)
