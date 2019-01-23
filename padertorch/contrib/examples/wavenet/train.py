@@ -71,6 +71,7 @@ def config():
     )
 
     # Trainer configuration
+    # TODO: LD beantworten, warum train_config anders als model_config.
     train_config = Trainer.get_signature()
     del train_config['optimizer']
     train_config.update(
@@ -103,9 +104,12 @@ def train(
         return example["spectrogram"][0], example["audio_data"]
 
     train_iter = train_iter.shuffle(reshuffle=True)
+
+    # TODO: LD: Why shuffle validation?
     validation_iter = validation_iter.shuffle()
 
     buffer_size = 2*data_config['batch_size']
+    # TODO: LD: Why Compose and not map().map() und am Ende prefetch()?
     train_iter = train_iter.map(
         Compose(read, spec), num_workers=min(buffer_size, 16),
         buffer_size=buffer_size
