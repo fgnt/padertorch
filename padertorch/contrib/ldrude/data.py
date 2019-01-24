@@ -49,12 +49,18 @@ def post_batch_transform(batch):
 
 
 def prepare_iterable(
-        db, dataset: str, batch_size, return_keys=None, prefetch=True
+        db, dataset: str, batch_size, return_keys=None, prefetch=True,
+        iterator_slice=None
 ):
     audio_keys = [OBSERVATION, SPEECH_SOURCE]
     audio_reader = AudioReader(audio_keys=audio_keys, read_fn=db.read_fn)
+    iterator = db.get_iterator_by_names(dataset)
+
+    if iterator_slice is not None:
+        iterator = iterator[iterator_slice]
+
     iterator = (
-        db.get_iterator_by_names(dataset)
+        iterator
         .map(audio_reader)
         .map(partial(pre_batch_transform, return_keys=return_keys))
         .batch(batch_size)

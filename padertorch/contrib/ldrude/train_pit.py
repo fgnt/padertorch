@@ -28,6 +28,7 @@ path_template = Path(os.environ["STORAGE"]) / "pth_models" / nickname
 
 @ex.config
 def config():
+    debug = False
     batch_size = 4
 
     train_dataset = "mix_2_spk_min_tr"
@@ -76,18 +77,28 @@ def get_dir(_run) -> Path:
 
 
 @ex.capture
+def prepare_iterable_captured(
+        database, dataset, batch_size, debug
+):
+    return_keys = 'X_abs Y_abs cos_phase_difference num_frames'.split()
+    return prepare_iterable(
+        database, dataset, batch_size, return_keys,
+        prefetch=not debug,
+        iterator_slice=slice(0, 100, 1) if debug else None
+    )
+
+
+@ex.capture
 def prepare_and_train(
-        _config, _run,
-        batch_size, train_dataset, validate_dataset, resume=False
+        _config, _run, train_dataset, validate_dataset, resume=False
 ):
     sacred.commands.print_config(_run)
     trainer = pt.Trainer.from_config(_config["trainer"])
 
     db = MerlMixtures()
-    return_keys = 'X_abs Y_abs cos_phase_difference num_frames'.split()
     trainer.train(
-        prepare_iterable(db, train_dataset, batch_size, return_keys),
-        prepare_iterable(db, validate_dataset, batch_size, return_keys),
+        prepare_iterable_captured(db, train_dataset),
+        prepare_iterable_captured(db, validate_dataset),
         resume=resume
     )
 
