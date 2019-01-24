@@ -19,6 +19,7 @@ ex = sacred.Experiment('Train Mask Estimator')
 
 ex.captured_out_filter = apply_backspaces_and_linefeeds
 
+
 @ex.config
 def config():
     trainer_opts = {}
@@ -80,6 +81,7 @@ def initialize_trainer_provider(task, trainer_opts, provider_opts, _run):
         raise ValueError(task, storage_dir)
     sacred.commands.print_config(_run)
 
+    # TODO: LD: Why not call it task=resume?
     assert new ^ (task not in ['train', 'create_checkpoint']), \
         'Train cannot be called on an existing directory. ' \
         'If your want to restart the training use task=restart'
@@ -115,6 +117,7 @@ def eval(_config):
     raise NotImplementedError
 
 
+# TODO: LD: What is the motivation to create a checkpoint without training?
 @ex.command
 def create_checkpoint(_config):
     raise NotImplementedError
