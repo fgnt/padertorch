@@ -44,7 +44,7 @@ def config():
                 "storage_dir": None,
                 "optimizer.cls": pt.optimizer.Adam,
                 "summary_trigger": (1000, "iteration"),
-                "max_trigger": (500000, "iteration"),
+                "max_trigger": (500_000, "iteration"),
                 "loss_weights.pit_ips_loss": 0.0,
                 "loss_weights.pit_mse_loss": 1.0,
             },
