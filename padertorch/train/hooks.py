@@ -569,15 +569,14 @@ class ProgressBarHook(BaseHook):
                              f' choose iteration or epoch')
 
         self.loss = None
-
-        self.pbar = progressbar.bar.ProgressBar(
-            prefix=f'epochs: {0} loss: {0} ',
+        self.pbar = progressbar.ProgressBar(
             min_value=1,
             max_value=max_iteration,
             redirect_stderr=True,
             redirect_stdout=True,
-            max_error=False
+            max_error=False,
         )
+        # self.pbar.start()
 
     @property
     def priority(self):
@@ -594,9 +593,7 @@ class ProgressBarHook(BaseHook):
             if hasattr(self, 'num_epochs'):
                 # sets the max length of the bar after the first epoch
                 self.pbar.max_value = iteration * self.num_epochs
-        if self.trigger(iteration, epoch):
-            if not self.loss is None:
-                self.pbar.prefix = f'epochs: {epoch}, loss: {self.loss} '
+        if self.trigger(iteration, epoch) and iteration > 1:
             self.pbar.update(iteration)
 
     def post_step(self, trainer: 'pt.Trainer', example,
