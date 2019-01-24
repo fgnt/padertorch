@@ -76,5 +76,4 @@ def prepare_iterable(
     if prefetch:
         iterator = iterator.prefetch(4, 8)
 
-    print(repr(iterator))
     return iterator

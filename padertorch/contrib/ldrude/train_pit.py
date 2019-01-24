@@ -3,6 +3,8 @@ Example call:
 
 python -m padertorch.contrib.ldrude.train_pit print_config
 python -m padertorch.contrib.ldrude.train_pit
+
+TODO: Enable shuffle
 """
 from sacred import Experiment
 import sacred.commands
