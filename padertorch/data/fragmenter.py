@@ -5,18 +5,23 @@ from paderbox.utils.nested import nested_op, flatten, deflatten
 
 class ChannelFragmenter(object):
     """
+    Takes the first dimension of the values corresponding to fragment_keys
+    and adds it to the examples queue in the iterator.
+    Mostly used with pb.database.iterator.FragmentIterator
+
     >>> channel_fragmenter = ChannelFragmenter(['a', 'b'])
-    >>> example = {'a': np.array([[1,2],[3,4]]), 'b': np.array([[1,2],[3,4]])}
+    >>> example = {'a': np.array([[1,2],[3,4]]), 'b': np.array([[5,6],[7,8]])}
     >>> channel_fragmenter(example)
-    [{'a': array([1, 2]), 'b': array([1, 2])}, {'a': array([3, 4]), 'b': array([3, 4])}]
+    [{'a': array([1, 2]), 'b': array([5, 6])}, {'a': array([3, 4]), 'b': array([7, 8])}]
     >>> channel_fragmenter = ChannelFragmenter(['a'], copy_keys='c')
     >>> example = {'a': np.array([[1,2],[3,4]]), 'b': np.array([[1,2],[3,4]]), 'c': 10}
     >>> channel_fragmenter(example)
     [{'c': 10, 'a': array([1, 2])}, {'c': 10, 'a': array([3, 4])}]
     """
-    def __init__(self, fragment_keys, copy_keys=None):
+    def __init__(self, fragment_keys, copy_keys=None, keep_dim=False):
         self.fragment_keys = fragment_keys
         self.copy_keys = copy_keys
+        self.keep_dim = keep_dim
 
     def __call__(self, example):
         copies = flatten(
@@ -25,7 +30,10 @@ class ChannelFragmenter(object):
         )
 
         def fragment_channels(x):
-            return [x_ for x_ in x]
+            if self.keep_dim:
+                return [x_ for x_ in x ]
+            else:
+                return [x[idx:idx+1] for idx in range(len(x))]
 
         features = nested_op(
             fragment_channels,
