@@ -50,7 +50,9 @@ def config():
     model_path = ''
     assert len(model_path) > 0, 'Set the model path on the command line.'
     checkpoint_name = 'ckpt_best_loss.pth'
-    experiment_dir = get_new_folder(path_template, mkdir=False)
+    experiment_dir = get_new_folder(
+        path_template, mkdir=False, consider_mpi=True,
+    )
     batch_size = 1
     datasets = ["mix_2_spk_min_cv", "mix_2_spk_min_tt"]
     locals()  # Fix highlighting
@@ -82,7 +84,6 @@ def main(_run, batch_size, datasets, debug, experiment_dir):
         sacred.commands.print_config(_run)
 
     # Not necessary yet, but needed once we export more files.
-    experiment_dir = COMM.bcast(experiment_dir, root=MASTER)
     # print(f'RANK={RANK}, experiment_dir={experiment_dir}')
 
     model = get_model()
@@ -126,6 +127,8 @@ def main(_run, batch_size, datasets, debug, experiment_dir):
         for partial_summary in summary_list:
             for dataset, values in partial_summary.items():
                 summary[dataset].update(values)
+
+        # summary = dict(itertools.chain(*summary_list))
 
         for dataset, values in summary.items():
             print(f'{dataset}: {len(values)}')
