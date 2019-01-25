@@ -1,4 +1,5 @@
 import torch
+from einops import rearrange
 from torch.nn.utils.rnn import PackedSequence
 
 import padertorch as pt
@@ -29,6 +30,7 @@ class MaskKeys:
     VAD = 'vad'
     VAD_LOGITS = 'vad_logits'
 
+
 # ToDo: Add vad estimation?
 
 M_K = MaskKeys
@@ -45,8 +47,8 @@ class MaskEstimator(pt.Module):
             LSTM: dict()
         }
         default_dict['fully_connected'] = {
-            'kwargs': dict(input_size=512, hidden_size=[1024]*3,
-                           output_size=num_features*2),
+            'kwargs': dict(input_size=512, hidden_size=[1024] * 3,
+                           output_size=num_features * 2),
             'cls': fully_connected_stack,
             fully_connected_stack: dict()
         }
@@ -54,7 +56,7 @@ class MaskEstimator(pt.Module):
             'cls': Normalization,
             'kwargs': dict(num_features=num_features,
                            order='l2',
-                           statistics_axis=1)
+                           statistics_axis=0)
         }
         return default_dict
 
@@ -69,7 +71,7 @@ class MaskEstimator(pt.Module):
         recu_in = out_config['kwargs']['recurrent']['kwargs']['input_size']
         assert recu_in == num_features, (recu_in, num_features)
         fc = out_config['kwargs']['fully_connected']['kwargs']['output_size']
-        assert fc == 2*num_features, (fc, num_features)
+        assert fc == 2 * num_features, (fc, num_features)
         n_in = out_config['kwargs']['normalization']['kwargs']['num_features']
         assert n_in == num_features, (n_in, num_features)
         return out_config
@@ -79,7 +81,7 @@ class MaskEstimator(pt.Module):
             fully_connected,
             normalization: Normalization,
             recurrent: LSTM,
-            num_features:int = 513,
+            num_features: int = 513,
             input_dropout: float = 0.5,
             use_log: bool = False,
             use_powerspectrum: bool = False,
@@ -104,18 +106,21 @@ class MaskEstimator(pt.Module):
 
     def forward(self, x):
         """
-        :param x: Tensor of shape(C,T,F)
+        :param x: list of tensors of shape(C T F)
         :return:
         """
-        if not isinstance(x, PackedSequence):
-            x = self.normalization(x)  # ToDo allow PackedSequence
-            x = pack_sequence(x)
-        x = PackedSequence(self.input_dropout(x.data), x.batch_sizes)
+        num_channels = x[0].shape[0]
+        h = [obs_single_channel for obs in x for obs_single_channel in obs]
+        h = pack_sequence(h)
+        h = PackedSequence(self.normalization(h.data), h.batch_sizes)
+        h = PackedSequence(self.input_dropout(h.data), h.batch_sizes)
+
         if not self.fix_states:
-            self.recurrent.reset_states(x)
-        h = self.recurrent(x)
+            self.recurrent.reset_states(h)
+        h = self.recurrent(h)
         h = PackedSequence(self.fully_connected(h.data), h.batch_sizes)
-        out = pad_packed_sequence(h)[0].permute(1, 0, 2)
+        out = pad_packed_sequence(h, batch_first=True)[0]
+        out = rearrange(out, '(c b) t f -> b c t f', c=num_channels)
         target_logits = out[..., :self.num_features]
         if self.separate_masks:
             noise_logits = out[..., self.num_features:]

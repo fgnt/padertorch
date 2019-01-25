@@ -8,6 +8,7 @@ from padertorch.modules.mask_estimator import MaskKeys as M_K
 from padertorch.ops.mappings import TORCH_POOLING_FN_MAP
 from paderbox.database import keys as K
 
+from einops import rearrange
 class MaskLossKeys:
     NOISE_MASK = 'noise_mask_loss'
     SPEECH_MASK = 'speech_mask_loss'
@@ -56,17 +57,9 @@ class MaskEstimatorModel(pt.Model):
         :return:
         """
         obs = batch[M_K.OBSERVATION_ABS]
-        num_channels = obs[0].shape[0]
-        if num_channels == 1:
-            num_frames = [tensor.shape[1] for tensor in obs]
-            obs = pt.pack_sequence([tensor[0] for tensor in obs])
-            out = {
-                key: [v[:frames].unsqueeze(0)
-                      for v, frames in zip(value, num_frames)]
-                for key, value in self.estimator(obs).items()
-            }
-        else:
-            out = collate_fn([self.estimator(x) for x in obs])
+        num_frames = [tensor.shape[1] for tensor in obs]
+        out = {key: [v[:, :frames] for v, frames in zip(value, num_frames)]
+               for key, value in self.estimator(obs).items()}
         assert isinstance(out, dict)
         return out
 
@@ -215,4 +208,4 @@ def masks_to_images(masks):
     """
     images = torch.clamp(masks * 255, 0, 255)
     images = images.type(torch.ByteTensor)
-    return images[0].numpy().transpose(1, 0)[::-1]
+    return images[0].cpu().numpy().transpose(1, 0)[::-1]
