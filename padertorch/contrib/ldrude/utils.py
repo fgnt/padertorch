@@ -14,18 +14,37 @@ def get_new_folder(
         basedir,
         try_id=None,
         dry_run=False,
-        mkdir=True
+        mkdir=True,
+        consider_mpi=False,
 ):
     """
 
+    The core source code if copied from the FileStorageObserver in sacred.
+
+    Get a sub folder from basedir with sacred style.
+    Assume integer folder names and select as return folder the last folder
+    integer plus one.
+
     Args:
         basedir:
-        try_id:
+        try_id: Suggestion for the folder name. Can be used as prefix.
+            try_id=prefix with return a folder like: prefix, prefix_2, ...
         dry_run: Per default also creates the directory to be thread safe.
+        mkdir: With mkdir this function is thread and process safe.
+        consider_mpi: If True only the master selects a folder and syncs the
+            folder with the slaves.
 
     Returns:
 
     """
+    if consider_mpi:
+        if pb.utils.mpi.IS_MASTER:
+            pass
+        else:
+            new_folder = None
+            new_folder = pb.utils.mpi.COMM.bcast(new_folder)
+            return new_folder
+
     suggested_id = try_id
     basedir = Path(basedir).expanduser()
 
@@ -58,8 +77,15 @@ def get_new_folder(
                 print(f'dry_run: "os.mkdir({simu_dir})"')
             elif mkdir is False:
                 pass
-            else:
+            elif mkdir is True:
                 simu_dir.mkdir()
+            else:
+                raise ValueError(mkdir)
+
+            if consider_mpi:
+                assert pb.utils.mpi.IS_MASTER, pb.utils.mpi.RANK
+                simu_dir = pb.utils.mpi.COMM.bcast(simu_dir)
+
             return simu_dir
         except FileExistsError:
             # Catch race conditions
@@ -120,11 +146,6 @@ def decorator_append_file_storage_observer_with_lazy_basedir(
 
         *,
         consider_mpi=False,
-
-        # resource_dir=None,
-        # source_dir=None,
-        # template=None,
-        # priority=DEFAULT_FILE_STORAGE_PRIORITY,
 ):
     """
     ToDo: test this
@@ -185,7 +206,6 @@ def decorator_append_file_storage_observer_with_lazy_basedir(
             from paderbox.utils import mpi
             if mpi.IS_MASTER:
                 experiment.observers.append(observer)
-
         else:
             experiment.observers.append(observer)
 
