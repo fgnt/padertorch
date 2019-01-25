@@ -14,7 +14,7 @@ def dict_func(in_dict):
 
 class Parameterized(Configurable):
     @dataclass
-    class Options:
+    class opts:
         pass
 
     def __init__(self, **kwargs):
@@ -23,7 +23,7 @@ class Parameterized(Configurable):
             self.opts = kwargs['opts']
             assert hasattr(self.opts, '__dataclass_fields__')
         else:
-            self.opts = self.Options(**kwargs)
+            self.opts = self.opts(**kwargs)
 
     def __repr__(self):
         return f'{type(self).__name__}:\n{str(self.opts)}'
@@ -31,7 +31,7 @@ class Parameterized(Configurable):
     @classmethod
     def get_signature(cls):
         opts_dict = super().get_signature()
-        opts_dict.update(asdict(cls.Options()))
+        opts_dict.update(asdict(cls.opts()))
         return opts_dict
 
 

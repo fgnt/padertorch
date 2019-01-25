@@ -16,7 +16,6 @@ from padertorch.train.trainer import Trainer
 
 ex = sacred.Experiment('Train Mask Estimator')
 
-
 ex.captured_out_filter = apply_backspaces_and_linefeeds
 
 
@@ -29,8 +28,8 @@ def config():
             'model.cls': MaskEstimatorModel,
             'optimizer.cls': Adam,
             'max_trigger': (int(1e5), 'iteration'),
-            'summary_trigger': (100, 'iteration'),
-            'checkpoint_trigger': (100, 'iteration'),
+            'summary_trigger': (500, 'iteration'),
+            'checkpoint_trigger': (500, 'iteration'),
             'storage_dir': None,
             'keep_all_checkpoints': False,
             'seed': 0
@@ -85,19 +84,9 @@ def initialize_trainer_provider(task, trainer_opts, provider_opts, _run):
     assert new ^ (task not in ['train', 'create_checkpoint']), \
         'Train cannot be called on an existing directory. ' \
         'If your want to restart the training use task=restart'
-    return (Trainer.from_config(config['trainer_opts']),
-            config_to_instance(config['provider_opts']))
-
-
-@ex.automain
-def train(validation_length):
-    trainer, provider = initialize_trainer_provider(task='train')
-    train_iterator = provider.get_train_iterator()
-    eval_iterator = provider.get_eval_iterator(
-        num_examples=validation_length
-    )
-    trainer.test_run(train_iterator, eval_iterator)
-    trainer.train(train_iterator, eval_iterator)
+    trainer = Trainer.from_config(config['trainer_opts'])
+    assert isinstance(trainer, Trainer)
+    return trainer, config_to_instance(config['provider_opts'])
 
 
 @ex.command
@@ -114,50 +103,49 @@ def restart(validation_length):
 
 @ex.command
 def validate(_config):
-    from padertorch.modules.mask_estimator import MaskKeys as M_K
-    from paderbox.database import keys as DB_K
+    import os
     import torch
-    import paderbox as pb
     import numpy as np
+    from functools import partial
+    from paderbox.io import dump_json
+    from concurrent.futures import ThreadPoolExecutor
+
+    from padertorch.contrib.jensheit.evaluation import evaluate_masks
+
     assert len(ex.current_run.observers) == 1, (
         'FileObserver` missing. Add a `FileObserver` with `-F foo/bar/`.'
     )
     storage_dir = Path(ex.current_run.observers[0].basedir)
     assert not (storage_dir / 'results.json').exists(), (
         f'model_dir has already bin evaluatet, {storage_dir}')
-    trainer, provider = initialize_trainer_provider(task='eval')
-    checkpoint = torch.load(storage_dir / 'ckpt_best_loss.pth')
+    trainer, provider = initialize_trainer_provider(task='validate')
+    checkpoint = torch.load(trainer.checkpoint_dir / 'ckpt_best_loss.pth')
     checkpoint = checkpoint['model']
     trainer.model.load_state_dict(checkpoint)
-    trainer.model.from_storage_dir(storage_dir)
     provider.opts.multichannel = True
-    provider.batch_size = 1
+    batch_size = 1
+    provider.opts.batch_size = batch_size
     eval_iterator = provider.get_eval_iterator()
     evaluation_json = dict(snr=dict(), pesq=dict())
-    for example in eval_iterator:
-        model_out, _ = trainer.validation_step(example)
-        speech_image = example[DB_K.SPEECH_IMAGE][0]
-        speech_pred, image_cont, noise_cont = beamforming(
-            example[DB_K.OBSERVATION][0], model_out[M_K.SPEECH_MASK_PRED],
-            model_out[M_K.NOISE_MASK_PRED], speech_image,
-            example[DB_K.NOISE_IMAGE][0]
-        )
-        ex_id = example[DB_K.EXAMPLE_ID][0]
-        evaluation_json['pesq'][ex_id] = pb.evaluation.pesq(
-            example[DB_K.SPEECH_IMAGE][0][0], speech_pred)[0]
-        evaluation_json['snr'][ex_id] =  np.mean(
-            np.abs(image_cont)**2 / np.abs(image_cont)**2)
+    trainer.model.cpu()
+    with ThreadPoolExecutor(os.cpu_count()) as executor:
+        for example_id, snr, pesq in executor.map(
+                partial(evaluate_masks, model=trainer.model,
+                        transform=provider.transformer), eval_iterator):
+            evaluation_json['snr'][example_id] = snr
+            evaluation_json['pesq'][example_id] = pesq
     evaluation_json['pesq_mean'] = np.mean(
         [value for value in evaluation_json['pesq'].values()])
     evaluation_json['snr'] = np.mean(
         [value for value in evaluation_json['snr'].values()])
-    pb.io.dump_json(evaluation_json, storage_dir/ 'results.json')
+    dump_json(evaluation_json, storage_dir / 'results.json')
 
 
 @ex.command
 def create_checkpoint(_config):
     # This may be useful to merge to separatly trained models into one
     raise NotImplementedError
+
 
 @ex.automain
 def train(validation_length):

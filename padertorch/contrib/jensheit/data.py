@@ -4,8 +4,6 @@ from typing import List
 import numpy as np
 from dataclasses import dataclass, asdict
 from dataclasses import field
-from numpy import random
-from padertorch.contrib.jensheit import Parameterized, dict_func
 from scipy import signal
 
 from paderbox.database.chime import Chime3
@@ -14,9 +12,11 @@ from paderbox.database.keys import *
 from paderbox.speech_enhancement.mask_module import biased_binary_mask
 from paderbox.transform import stft, istft
 from paderbox.utils.mapping import Dispatcher
+from padertorch.contrib.jensheit import Parameterized, dict_func
+from padertorch.data.fragmenter import ChannelFragmenter
+from padertorch.data.transforms import Compose
 from padertorch.data.utils import Padder
 from padertorch.modules.mask_estimator import MaskKeys as M_K
-from padertorch.data.transforms import Compose
 
 WINDOW_MAP = Dispatcher(
     blackman=signal.blackman,
@@ -27,7 +27,7 @@ WINDOW_MAP = Dispatcher(
 
 class STFT(Parameterized):
     @dataclass
-    class Options:
+    class opts:
         size: int = 1024
         shift: int = 256
         window: str = 'blackman'
@@ -47,7 +47,7 @@ class STFT(Parameterized):
 
 class MaskTransformer(Parameterized):
     @dataclass
-    class Options:
+    class opts:
         stft: Dict = dict_func({
             'cls': STFT,
             'kwargs': {}
@@ -90,7 +90,7 @@ class MaskTransformer(Parameterized):
 
 class SequenceProvider(Parameterized):
     @dataclass
-    class Options:
+    class opts:
         database: Dict = dict_func({
             'cls': Chime3,
             'kwargs': {}
@@ -100,6 +100,7 @@ class SequenceProvider(Parameterized):
         batch_size: int = 1
         num_workers: int = 4
         buffer_size: int = 20
+        multichannel: bool = False
         backend: str = 't'
         drop_last: bool = False
         collate: Dict = dict_func({
@@ -144,9 +145,14 @@ class SequenceProvider(Parameterized):
         iterator = self.database.get_iterator_by_names(datasets)
         if shuffle:
             iterator = iterator.shuffle()
-        return iterator.map(Compose(
+        iterator = iterator.map(Compose(
             self.read_audio, self.database.add_num_samples
         ))
+        if not self.opts.multichannel:
+            iterator.fragment(ChannelFragmenter(
+                fragment_keys=self.opts.audio_keys, keep_dim=True
+            ))
+        return iterator
 
     def transformer(self, example):
         return example
@@ -168,16 +174,15 @@ class SequenceProvider(Parameterized):
             Compose(self.to_eval_structure, self.transformer)
         )
         return iterator.batch(self.opts.batch_size, self.opts.drop_last) \
-            .map(self.collate)[:num_examples].prefetch(
+                   .map(self.collate)[:num_examples].prefetch(
             self.opts.num_workers, self.opts.buffer_size, self.opts.backend
         )
 
 
 class MaskProvider(SequenceProvider):
     @dataclass
-    class Options(SequenceProvider.Options):
+    class opts(SequenceProvider.opts):
         reference_channel: int = 0
-        multichannel: bool = False
         audio_keys: List = field(default_factory=lambda: [
             OBSERVATION, SPEECH_IMAGE, NOISE_IMAGE
         ])
@@ -195,25 +200,6 @@ class MaskProvider(SequenceProvider):
         })
         num_channels = None
         choose_channel = None
-
-    def get_iterator(self, datasets, shuffle=False):
-        iterator = super().get_iterator(datasets, shuffle)
-        if not self.opts.multichannel:
-            iterator = iterator.map(self.remove_channels)
-        return iterator
-
-    def remove_channels(self, example):
-        if self.opts.num_channels is None:
-            num_channels = len(example[AUDIO_PATH][OBSERVATION])
-        else:
-            num_channels = self.opts.num_channels
-        if self.opts.choose_channel is None:
-            channel = random.randint(0, num_channels)
-        else:
-            channel = self.opts.choose_channel
-        example[AUDIO_PATH] = {key: example[AUDIO_PATH][key][channel]
-                               for key in self.opts.audio_keys}
-        return example
 
     def to_train_structure(self, example):
         out_dict = super().to_train_structure(example)
