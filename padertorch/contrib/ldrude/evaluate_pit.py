@@ -83,7 +83,7 @@ def main(_run, batch_size, datasets, debug, experiment_dir):
 
     # Not necessary yet, but needed once we export more files.
     experiment_dir = COMM.bcast(experiment_dir, root=MASTER)
-    print(f'RANK={RANK}, experiment_dir={experiment_dir}')
+    # print(f'RANK={RANK}, experiment_dir={experiment_dir}')
 
     model = get_model()
     db = MerlMixtures()
@@ -123,8 +123,13 @@ def main(_run, batch_size, datasets, debug, experiment_dir):
 
     if IS_MASTER:
         print(f'len(summary_list): {len(summary_list)}')
-        summary = list(itertools.chain.from_iterable(summary_list))
-        print(f'len(summary): {len(summary)}')
+        for partial_summary in summary_list:
+            for dataset, values in partial_summary.items():
+                summary[dataset].update(values)
+
+        for dataset, values in summary.items():
+            print(f'{dataset}: {len(values)}')
+
         result_json_path = experiment_dir / 'result.json'
         print(f"Exporting result: {result_json_path}")
         pb.io.dump_json(summary, result_json_path)
