@@ -102,7 +102,7 @@ class Trainer(Configurable):
             self,
             model,
             storage_dir,
-            optimizer=None,
+            optimizer,
             loss_weights=None,
             summary_trigger=(1, 'epoch'),
             checkpoint_trigger=(1, 'epoch'),
