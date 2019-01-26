@@ -11,7 +11,7 @@ from torch import nn
 
 class Pad(Module):
     def __init__(
-            self, kernel_size=None, stride=1, side='both', mode='constant'
+            self, kernel_size, stride=1, side='both', mode='constant'
     ):
         super().__init__()
         self.kernel_size = kernel_size
@@ -25,6 +25,8 @@ class Pad(Module):
         :param x:
         :return:
         """
+        if self.stride is None:
+            return x
         k = self.kernel_size - 1
         if k > 0:
             tail = (x.shape[-1] - 1) % self.stride
@@ -43,15 +45,18 @@ class Pad(Module):
 class Cut(Module):
     def __init__(self, side='both'):
         super().__init__()
-        self.mode = side
+        self.side = side
 
     def forward(self, x, size):
+        if self.side is None:
+            assert size == 0
+            return x
         if size > 0:
-            if self.mode == 'front':
+            if self.side == 'front':
                 x = x[..., size:]
-            elif self.mode == 'both':
+            elif self.side == 'both':
                 x = x[..., size//2: -math.ceil(size / 2)]
-            elif self.mode == 'end':
+            elif self.side == 'end':
                 x = x[..., :-size]
             else:
                 raise ValueError
@@ -78,15 +83,15 @@ class Scale(Module):
     def forward(self, x, size):
         if size == 1:
             return x.mean(dim=-1, keepdim=True)
-        if self.padding:
+        if self.padding is None:
+            stride = x.shape[-1] // size
+        else:
             stride = int(np.ceil((x.shape[-1] - 1) / (size - 1e-10)))
             assert stride <= (x.shape[-1] - 1) / (size - 1)
             x = Pad(
                 kernel_size=stride, stride=stride,
                 side=self.padding, mode="replicate"
             )(x)
-        else:
-            stride = x.shape[-1] // size
         if 1 < stride:
             x = F.avg_pool1d(x, stride)
         if x.shape[-1] > size:
@@ -119,7 +124,7 @@ class MaxPool1d(Module):
 
 
 class MaxUnpool1d(Module):
-    def __init__(self, kernel_size=None, padding='both'):
+    def __init__(self, kernel_size, padding='both'):
         super().__init__()
         self.kernel_size = kernel_size
         self.padding = padding
@@ -133,10 +138,10 @@ class MaxUnpool1d(Module):
 
 class Conv1d(Module):
     def __init__(
-            self, input_size=None, output_size=None, condition_size=0,
-            kernel_size=5, dilation=1, stride=1, transpose=False,
-            padding='both', bias=True, groups=1, batch_norm=False, dropout=0.,
-            activation='leaky_relu', gated=False
+            self, input_size, output_size, condition_size=0, kernel_size=5,
+            dilation=1, stride=1, transpose=False, padding='both', bias=True,
+            groups=1, norm=None, dropout=0., activation='leaky_relu',
+            gated=False
     ):
         super().__init__()
         self.kernel_size = kernel_size
@@ -144,13 +149,10 @@ class Conv1d(Module):
         self.stride = stride
         self.transpose = transpose
         self.padding = padding
-        self.batch_norm = batch_norm
         self.dropout = dropout
         self.activation = ACTIVATION_FN_MAP[activation]()
         self.gated = gated
 
-        if batch_norm:
-            self.bn = nn.BatchNorm1d(input_size)
         conv_cls = nn.ConvTranspose1d if transpose else nn.Conv1d
         self.conv = conv_cls(
             input_size + condition_size, output_size,
@@ -159,6 +161,12 @@ class Conv1d(Module):
         torch.nn.init.xavier_uniform_(self.conv.weight)
         if bias:
             torch.nn.init.zeros_(self.conv.bias)
+        if norm is None:
+            self.norm = None
+        elif norm == 'batch':
+            self.norm = nn.BatchNorm1d(output_size)
+        else:
+            raise ValueError(f'{norm} normalization  not known.')
         if self.gated:
             self.gate_conv = conv_cls(
                 input_size + condition_size, output_size,
@@ -169,8 +177,6 @@ class Conv1d(Module):
                 torch.nn.init.zeros_(self.gate_conv.bias)
 
     def forward(self, x, h=None):
-        if self.batch_norm:
-            x = self.bn(x)
         if self.training and self.dropout > 0.:
             x = F.dropout(x, self.dropout)
 
@@ -185,7 +191,10 @@ class Conv1d(Module):
                 side=self.padding
             )(x)
 
-        y = self.activation(self.conv(x))
+        y = self.conv(x)
+        if self.norm is not None:
+            y = self.norm(y)
+        y = self.activation(y)
 
         if self.gated:
             g = self.gate_conv(x)
@@ -194,163 +203,119 @@ class Conv1d(Module):
         if self.transpose:
             k = 1 + self.dilation * (self.kernel_size - 1)
             y = Cut(side=self.padding)(y, size=k - self.stride)
+
+        return y
+
+
+class MultiScaleConv1d(Module):
+    def __init__(
+            self, input_size, hidden_size, output_size, condition_size=0,
+            kernel_size=2, n_scales=1, dilation=False, stride=1,
+            transpose=False, padding='both', norm=None, dropout=0.,
+            activation='leaky_relu', gated=False
+    ):
+        assert hidden_size % n_scales == 0
+        super().__init__()
+        if dilation is True or dilation == 1:
+            kernel_sizes = n_scales * [kernel_size]
+            dilations = [2 ** i for i in range(n_scales)]
+        elif dilation is False or dilation == 0:
+            kernel_sizes = [
+                1 + (kernel_size - 1) * 2**i for i in range(n_scales)
+            ]
+            dilations = n_scales * [1]
+        else:
+            raise ValueError('dilation not a boolean.')
+        self.convs = nn.ModuleList([
+            Conv1d(
+                input_size=input_size, output_size=hidden_size // n_scales,
+                condition_size=condition_size, kernel_size=kernel_sizes[i],
+                dilation=dilations[i], stride=stride, transpose=transpose,
+                padding=padding, norm=None, dropout=dropout,
+                activation=activation, gated=gated
+            )
+            for i in range(n_scales)
+        ])
+        self.out = Conv1d(
+            input_size=hidden_size, output_size=output_size, kernel_size=1,
+            activation='identity', norm=None
+        )
+
+        if norm is None:
+            self.norm = None
+        elif norm == 'batch':
+            self.norm = nn.BatchNorm1d(output_size)
+        else:
+            raise ValueError(f'{norm} normalization  not known.')
+
+    def forward(self, x, h=None):
+        y = self.out(torch.cat([conv(x, h) for conv in self.convs], dim=1))
+        if y.shape == x.shape:
+            y = y + x
+        if self.norm is not None:
+            y = self.norm(y)
         return y
 
 
 class TCN(Module):
     """
-    Temporal Convolutional Network
-    """
-    def __init__(
-            self, input_size=None, output_size=None, hidden_sizes=256,
-            condition_size=0, depth=5, kernel_sizes=3, dilations=1, strides=1,
-            transpose=False, pool_sizes=1, padding='both', batch_norm=False,
-            dropout=0., activation='leaky_relu', gated=False, groups=1
-    ):
-        super().__init__()
-
-        self.input_size = input_size
-        self.hidden_sizes = to_list(hidden_sizes, depth - 1)
-        self.output_size = output_size
-        self.condition_size = condition_size
-        self.depth = depth
-        self.kernel_sizes = to_list(kernel_sizes, depth)
-        self.dilations = to_list(dilations, depth)
-        self.strides = to_list(strides, depth)
-        self.pool_sizes = to_list(pool_sizes, depth)
-        self.transpose = transpose
-        self.padding = padding
-
-        batch_norm_ = False
-        convs = list()
-        for i in range(depth):
-            if i == depth - 1:
-                activation = 'identity'
-                hidden_sizes = output_size
-            else:
-                hidden_sizes = self.hidden_sizes[i]
-            convs.append(Conv1d(
-                input_size=input_size, output_size=hidden_sizes,
-                condition_size=condition_size,
-                kernel_size=self.kernel_sizes[i], dilation=self.dilations[i],
-                stride=self.strides[i], transpose=transpose, padding=padding,
-                batch_norm=batch_norm_, dropout=dropout, activation=activation,
-                gated=gated, groups=groups
-            ))
-            batch_norm_ = batch_norm
-            input_size = hidden_sizes
-        self.convs = nn.ModuleList(convs)
-
-    def forward(self, x, h=None, pool_indices=None):
-        pool_indices = to_list(pool_indices, self.depth)
-        for i, conv in enumerate(self.convs):
-            pool_size = self.pool_sizes[i]
-            if self.transpose:
-                pool = MaxUnpool1d(kernel_size=pool_size, padding=self.padding)
-                x = pool(x, indices=pool_indices[i])
-            x = conv(x, h)
-            if not self.transpose:
-                pool = MaxPool1d(kernel_size=pool_size, padding=self.padding)
-                x, pool_indices[i] = pool(x)
-        if self.transpose:
-            return x
-        return x, pool_indices
-
-
-class MultiScaleConv1d(Module):
-    def __init__(
-            self, input_size=None, output_size=None, condition_size=0,
-            kernel_size=3, n_scales=1, dilated=False, stride=1, transpose=False,
-            padding='both', batch_norm=False, dropout=0.,
-            activation='leaky_relu', gated=False
-    ):
-        assert output_size % n_scales == 0
-        super().__init__()
-        self.input_size = input_size
-        self.output_size = output_size
-        self.n_scales = n_scales
-        self.stride = stride
-        self.transpose = transpose
-        self.padding = padding
-        self.condition_size = condition_size
-        self.activation = activation
-        self.gated = gated
-        self.dropout = dropout
-
-        if dilated:
-            kernel_sizes = n_scales * [kernel_size]
-            dilations = [2 ** i for i in range(n_scales)]
-        else:
-            kernel_sizes = [
-                1 + (kernel_size - 1) * 2**i for i in range(n_scales)
-            ]
-            dilations = n_scales * [1]
-        self.convs = nn.ModuleList([
-            Conv1d(
-                input_size=input_size,
-                output_size=output_size // n_scales,
-                condition_size=condition_size,
-                kernel_size=kernel_sizes[i], dilation=dilations[i],
-                stride=stride, transpose=transpose, padding=padding,
-                batch_norm=batch_norm, dropout=dropout, activation=activation,
-                gated=gated
-            )
-            for i in range(n_scales)
-        ])
-
-    def forward(self, x, h=None):
-        return torch.cat([conv(x, h) for conv in self.convs], dim=1)
-
-
-class MSTCN(Module):
-    """
     Multi-Scale Temporal Convolutional Network
     """
     def __init__(
-            self, input_size=None, output_size=None, hidden_sizes=256,
-            condition_size=0, depth=5, kernel_sizes=3, n_scales=1,
-            dilated=False, strides=1, transpose=False, pool_sizes=1,
-            padding='both', batch_norm=False, dropout=0.,
-            activation='leaky_relu', gated=False
+            self, input_size, output_size, hidden_sizes=256,
+            condition_size=0, num_layers=5, kernel_sizes=3, n_scales=None,
+            dilations=1, strides=1, transpose=False, pool_sizes=1,
+            padding='both', norm=None, dropout=0., activation='leaky_relu',
+            gated=False
     ):
         super().__init__()
 
         self.input_size = input_size
-        self.hidden_sizes = to_list(hidden_sizes, depth - 1)
+        self.hidden_sizes = to_list(hidden_sizes, num_layers - 1)
         self.output_size = output_size
         self.condition_size = condition_size
-        self.depth = depth
-        self.kernel_sizes = to_list(kernel_sizes, depth)
-        self.n_scales = to_list(n_scales, depth - 1)
-        self.strides = to_list(strides, depth)
-        self.pool_sizes = to_list(pool_sizes, depth)
+        self.num_layers = num_layers
+        self.kernel_sizes = to_list(kernel_sizes, num_layers)
+        self.n_scales = None if n_scales is None else to_list(
+            n_scales, num_layers)
+        self.dilations = to_list(dilations, num_layers)
+        self.strides = to_list(strides, num_layers)
+        self.pool_sizes = to_list(pool_sizes, num_layers)
         self.transpose = transpose
         self.padding = padding
 
-        batch_norm_ = False
         convs = list()
-        for i in range(depth):
-            if i == depth - 1:
-                activation = 'identity'
+        for i in range(num_layers):
+            if i == num_layers - 1:
                 hidden_size = output_size
-                n_scales = 1
+                norm = None
+                activation = 'identity'
             else:
                 hidden_size = self.hidden_sizes[i]
-                n_scales = self.n_scales[i]
-            convs.append(MultiScaleConv1d(
-                input_size=input_size, output_size=hidden_size,
-                condition_size=condition_size,
-                kernel_size=self.kernel_sizes[i], n_scales=n_scales,
-                dilated=dilated, stride=self.strides[i], transpose=transpose,
-                padding=padding, batch_norm=batch_norm_, dropout=dropout,
-                activation=activation, gated=gated
-            ))
-            batch_norm_ = batch_norm
+            if n_scales is None:
+                convs.append(Conv1d(
+                    input_size=input_size, output_size=hidden_size,
+                    condition_size=condition_size,
+                    kernel_size=self.kernel_sizes[i],
+                    dilation=self.dilations[i],
+                    stride=self.strides[i], transpose=transpose,
+                    padding=padding, norm=norm, dropout=dropout,
+                    activation=activation, gated=gated
+                ))
+            else:
+                convs.append(MultiScaleConv1d(
+                    input_size=input_size, hidden_size=hidden_size,
+                    output_size=hidden_size, condition_size=condition_size,
+                    kernel_size=self.kernel_sizes[i], n_scales=self.n_scales[i],
+                    dilation=self.dilations[i], stride=self.strides[i],
+                    transpose=transpose, padding=padding, norm=norm,
+                    dropout=dropout, activation=activation, gated=gated
+                ))
             input_size = hidden_size
         self.convs = nn.ModuleList(convs)
 
     def forward(self, x, h=None, pool_indices=None):
-        pool_indices = to_list(pool_indices, self.depth)
+        pool_indices = to_list(pool_indices, self.num_layers)
         for i, conv in enumerate(self.convs):
             pool_size = self.pool_sizes[i]
             if self.transpose:
