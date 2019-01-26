@@ -21,6 +21,7 @@ import importlib
 from numbers import Number
 from typing import Union
 from pathlib import Path
+from collections import OrderedDict
 
 
 class Configurable:
@@ -424,10 +425,16 @@ def config_to_instance(config):
             new = import_class(config['cls'])(
                 **config_to_instance(config['kwargs'])
             )
-            new.config = config
+            try:
+                new.config = config
+            except AttributeError:
+                pass
             return new
         else:
-            return {k: config_to_instance(v) for k, v in config.items()}
+            d = config.__class__()
+            for k, v in config.items():
+                d[k] = config_to_instance(v)
+            return d
     elif isinstance(config, (tuple, list)):
         return config.__class__([
             config_to_instance(l) for l in config
