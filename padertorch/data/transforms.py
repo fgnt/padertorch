@@ -1,12 +1,14 @@
 import abc
 import json
 from pathlib import Path
+import sys
 from typing import Optional
 from warnings import warn
 
 import librosa
 import numpy as np
 from cached_property import cached_property
+from collections import OrderedDict
 from scipy import signal
 from tqdm import tqdm
 
@@ -15,6 +17,7 @@ from paderbox.io import load_audio
 from paderbox.utils.nested import squeeze_nested, nested_op, nested_update
 from padertorch.configurable import Configurable
 from padertorch.utils import to_list
+
 
 class Keys:
     SPECTROGRAM = "spectrogram"
@@ -44,12 +47,21 @@ class Compose:
     https://stackoverflow.com/questions/16739290/composing-functions-in-python
     for alternatives.
     """
-    def __init__(self, *transforms):
-        # Wouldn't "functions" instead of transforms not a better name=
-        self.transforms = transforms
+    def __init__(self, *args):
+        # Wouldn't "functions" instead of transforms not a better name
+        if len(args) == 1 and isinstance(args[0], (list, tuple)):
+            args = args[0]
+        if len(args) == 1 and isinstance(args[0], dict):
+            if not isinstance(args[0], OrderedDict):
+                raise ValueError('OrderedDict required.')
+            self._transforms = args[0]
+        else:
+            self._transforms = OrderedDict()
+            for i, transform in enumerate(args):
+                self._transforms[str(i)] = transform
 
     def __call__(self, example):
-        for transform in self.transforms:
+        for key, transform in self._transforms.items():
             example = transform(example)
         return example
 
@@ -61,7 +73,7 @@ class Compose:
         >>> Compose(operator.neg, abs)(1)
         1
         """
-        s = ', '.join([repr(t) for t in self.transforms])
+        s = ', '.join([repr(t) for k, t in self._transforms.items()])
         return f'{self.__class__.__name__}({s})'
 
 
