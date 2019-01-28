@@ -2,6 +2,20 @@ import torch
 from functools import partial
 
 
+__all__ = [
+    'sequence_elementwise',
+    'abs',
+    'ceil',
+    'clamp',
+    'exp',
+    'log',
+    'log1p',
+    'log10',
+    'sigmoid',
+    'sqrt',
+]
+
+
 def sequence_elementwise(function, x, *args, **kwargs):
     """Expects the desired function and a `Tensor` or `PackedSequence`."""
     if isinstance(x, torch.nn.utils.rnn.PackedSequence):
