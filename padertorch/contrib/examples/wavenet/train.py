@@ -117,7 +117,7 @@ def train(
         model=model,
         storage_dir=storage_dir,
         optimizer=optimizer,
-        **config_to_instance(train_config)
+        **train_config
     )
     trainer.test_run(train_iter, validation_iter)
     trainer.train(train_iter, validation_iter)

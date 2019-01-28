@@ -7,9 +7,9 @@ from padertorch.data.transforms import Compose, GlobalNormalize
 
 def datasets(
         database_name, training_set_names, validation_set_names=None,
-        transforms=None, max_workers=0, normalize_features=None,
-        subset_size=1000, storage_dir=None, fragmentations=None,
-        shuffle_buffer_size=1000, batch_size=None
+        label_encoders=None, transforms=None, max_workers=0,
+        normalize_features=None, subset_size=None, storage_dir=None,
+        fragmentations=None, shuffle_buffer_size=1000, batch_size=None
 ):
 
     db = JsonDatabase(
@@ -22,6 +22,25 @@ def datasets(
     else:
         validation_iter = None
 
+    if label_encoders is not None:
+        if isinstance(label_encoders, (list, tuple)):
+            pass
+        elif isinstance(label_encoders, OrderedDict):
+            label_encoders = [
+                label_encoder for key, label_encoder in label_encoders.items()
+            ]
+        elif callable(label_encoders):
+            label_encoders = [label_encoders]
+        else:
+            raise ValueError
+        for label_encoder in label_encoders:
+            label_encoder.init_labels(
+                storage_dir=storage_dir, iterator=validation_iter
+            )
+            training_iter = training_iter.map(label_encoder)
+            if validation_iter is not None:
+                validation_iter = validation_iter.map(label_encoder)
+
     if transforms is not None:
         transform = Compose(transforms)
     else:
@@ -30,7 +49,9 @@ def datasets(
     buffer_size = 2*batch_size
     if normalize_features:
         norm = GlobalNormalize(normalize_features)
-        subset_iter = training_iter.shuffle()[:subset_size]
+        subset_iter = training_iter
+        if subset_size is not None:
+            subset_iter = training_iter.shuffle()[:subset_size]
         if transform is not None:
             subset_iter = subset_iter.map(
                 transform, num_workers=min(buffer_size, max_workers),
@@ -65,13 +86,15 @@ def datasets(
             ]
         elif callable(fragmentations):
             fragmentations = [fragmentations]
+        else:
+            raise ValueError
         for fragmenter in fragmentations:
             training_iter = training_iter.fragment(
-                partial(fragmenter, training=True)
+                partial(fragmenter, random_onset=True)
             )
             if validation_iter is not None:
                 validation_iter = validation_iter.fragment(
-                    partial(fragmenter, training=False)
+                    partial(fragmenter, random_onset=False)
                 )
         training_iter = training_iter.shuffle(
             reshuffle=True, buffer_size=shuffle_buffer_size
