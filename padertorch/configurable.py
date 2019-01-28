@@ -27,18 +27,199 @@ from collections import OrderedDict
 
 class Configurable:
     """
+    Each factory function is a configurable object (e.g. class constructor and
+    function). The configurable object can be described with cls and kwargs.
+    "cls" is the string that can be imported and kwargs contains all the
+    keyword arguments to initialize that object. Not inside the kwargs can also
+    be configurable objects.
 
     Example::
 
-        from padertorch.configurable import Configurable
-        class MyModule(Configurable):
-            def __init__(self, a=1):
-                pass
-        MyModule.get_config()
+        >>> from IPython.lib.pretty import pprint
+        >>> fix_doctext_import_class(locals())
+        >>> import torch
+        >>> def get_dense_layer(in_units, out_units):
+        ...    l = torch.nn.Linear(in_units, out_units)
+        ...    a = torch.nn.ReLU()
+        ...    return torch.nn.Sequential(l, a)
+        >>> config = {'cls': get_dense_layer,
+        ...           'kwargs': {'in_units': 5, 'out_units': 3}}
+        >>> Configurable.from_config(config)
+        Sequential(
+          (0): Linear(in_features=5, out_features=3, bias=True)
+          (1): ReLU()
+        )
 
-    Results in::
+    When the operations get more difficult, it is common to use a class instead
+    of a function. When the class inheritance from `Configurable` the class
+    gets the attributes `get_config` and `from_config`. They make it easier to
+    get the config and convert the config to an object.
 
-        {'cls': 'MyModule', 'kwargs': {'a': 1}}
+    Example::
+
+        >>> class DenseLayer(Configurable, torch.nn.Module):
+        ...     def __init__(self, in_units, out_units):
+        ...         super().__init__()
+        ...         self.l = torch.nn.Linear(in_units, out_units)
+        ...         self.a = torch.nn.ReLU()
+        ...     def __call__(self, x):
+        ...         return self.a(self.l(x))
+        >>> config = {'cls': DenseLayer,
+        ...           'kwargs': {'in_units': 5, 'out_units': 3}}
+        >>> DenseLayer.from_config(config)
+        DenseLayer(
+          (l): Linear(in_features=5, out_features=3, bias=True)
+          (a): ReLU()
+        )
+        >>> DenseLayer.get_config_v2({'in_units': 5, 'out_units': 3})
+        {'cls': 'configurable.DenseLayer', 'kwargs': {'in_units': 5, 'out_units': 3}}
+
+    When a configurable object depends on other exchangeable configurable
+    objects, it is recommended to overwrite the classmethod `get_signature`.
+    (This also increases the documentation quality of the config object.)
+    There you can specify the factory (i.e. cls) and the arguments. Missing
+    arguments are read from the signature of the factory.
+
+    Example::
+
+        >>> class CustomisableDenseLayer(Configurable, torch.nn.Module):
+        ...     @classmethod
+        ...     def get_signature(cls):
+        ...         defaults = super().get_signature()
+        ...         defaults['linear'] = {
+        ...             'cls': torch.nn.Linear,
+        ...             'kwargs': {'out_features': 3},
+        ...             torch.nn.Linear: {'in_features': 5},
+        ...         }
+        ...         defaults['activation'] = {
+        ...             'cls': torch.nn.ReLU,
+        ...         }
+        ...         return defaults
+        ...     def __init__(self, linear, activation):
+        ...         super().__init__()
+        ...         self.l = linear  # torch.nn.Linear(in_units, out_units)
+        ...         self.a = activation  # torch.nn.ReLU()
+        ...     def __call__(self, x):
+        ...         return self.a(self.l(x))
+        >>> config = CustomisableDenseLayer.get_config_v2()
+        >>> pprint(config)
+        {'cls': 'configurable.CustomisableDenseLayer',
+         'kwargs': {'linear': {'cls': 'torch.nn.modules.linear.Linear',
+           'kwargs': {'bias': True, 'in_features': 5, 'out_features': 3}},
+          'activation': {'cls': 'torch.nn.modules.activation.ReLU',
+           'kwargs': {'inplace': False}}}}
+        >>> CustomisableDenseLayer.from_config(config)
+        CustomisableDenseLayer(
+          (l): Linear(in_features=5, out_features=3, bias=True)
+          (a): ReLU()
+        )
+
+    With the update keyword of `get_config` you can replace any value in the
+    config. Note in the following example that the 'out_features' stayes in the
+    config, because it is defined as kwargs, while 'in_features' disapers,
+    because it is only defined for `torch.nn.Linear`.
+
+    Example::
+
+        >>> config = CustomisableDenseLayer.get_config_v2(
+        ...     updates={'linear': {
+        ...         'cls': torch.nn.Bilinear,
+        ...         torch.nn.Bilinear: {
+        ...             'in1_features': 10, 'in2_features': 15
+        ...         },
+        ...     }}
+        ... )
+        >>> pprint(config)
+        {'cls': 'configurable.CustomisableDenseLayer',
+         'kwargs': {'linear': {'cls': 'torch.nn.modules.linear.Bilinear',
+           'kwargs': {'bias': True,
+            'out_features': 3,
+            'in1_features': 10,
+            'in2_features': 15}},
+          'activation': {'cls': 'torch.nn.modules.activation.ReLU',
+           'kwargs': {'inplace': False}}}}
+        >>> CustomisableDenseLayer.from_config(config)
+        CustomisableDenseLayer(
+          (l): Bilinear(in1_features=10, in2_features=15, out_features=3, bias=True)
+          (a): ReLU()
+        )
+
+    When `get_signature` is still not powerful enough, `update_config`
+    supports depended config entries (e.g. NN input size depends on selected
+    input features). The `update_config` has as input the current config.
+    The values in the config are enforced to have the updated value.
+    (example below) i.e. when the update set 'activation' to be 'sigmoid'
+    the statement `config['activation'] = 'relu'` has no effect.
+
+    Example::
+
+        >>> class DenceLayerStack(Configurable, torch.nn.Module):
+        ...     @classmethod
+        ...     def update_config(cls, config):
+        ...         # !!!order will not be preserved!!!
+        ...         config['activation'] = 'relu'
+        ...         # print("config['activation']", config['activation'])
+        ...         if config['activation'] == 'relu':
+        ...             activation = torch.nn.ReLU
+        ...         elif config['activation'] == 'sigmoid':
+        ...             activation = torch.nn.Sigmoid
+        ...         layers = collections.OrderedDict()
+        ...         for i in range(config['layer_count']):
+        ...             layers[f'l_{i}'] = {
+        ...                 'cls': torch.nn.Linear,
+        ...                 'kwargs': {'out_features': 3},
+        ...                 torch.nn.Linear: {'in_features': 5},
+        ...             }
+        ...             layers[f'{i}_activation'] = {
+        ...                 'cls': activation,
+        ...             }
+        ...         config['net'] = layers
+        ...     def __init__(self, net, activation, layer_count=3):
+        ...         super().__init__()
+        ...         self.net = torch.nn.Sequential(
+        ...             # !!!order is lost (json will sort the keys)!!!
+        ...             collections.OrderedDict(net)
+        ...         )
+        ...     def __call__(self, x):
+        ...         return self.net(x)
+        >>> config = DenceLayerStack.get_config_v2()
+        >>> pprint(config)
+        {'cls': 'configurable.DenceLayerStack',
+         'kwargs': {'layer_count': 3,
+          'activation': 'relu',
+          'net': {'l_0': {'cls': 'torch.nn.modules.linear.Linear',
+            'kwargs': {'bias': True, 'in_features': 5, 'out_features': 3}},
+           '0_activation': {'cls': 'torch.nn.modules.activation.ReLU',
+            'kwargs': {'inplace': False}},
+           'l_1': {'cls': 'torch.nn.modules.linear.Linear',
+            'kwargs': {'bias': True, 'in_features': 5, 'out_features': 3}},
+           '1_activation': {'cls': 'torch.nn.modules.activation.ReLU',
+            'kwargs': {'inplace': False}},
+           'l_2': {'cls': 'torch.nn.modules.linear.Linear',
+            'kwargs': {'bias': True, 'in_features': 5, 'out_features': 3}},
+           '2_activation': {'cls': 'torch.nn.modules.activation.ReLU',
+            'kwargs': {'inplace': False}}}}}
+        >>> DenceLayerStack.from_config(config)
+        DenceLayerStack(
+          (net): Sequential(
+            (l_0): Linear(in_features=5, out_features=3, bias=True)
+            (0_activation): ReLU()
+            (l_1): Linear(in_features=5, out_features=3, bias=True)
+            (1_activation): ReLU()
+            (l_2): Linear(in_features=5, out_features=3, bias=True)
+            (2_activation): ReLU()
+          )
+        )
+        >>> DenceLayerStack.from_config(DenceLayerStack.get_config_v2(
+        ...     updates={'layer_count': 1, 'activation': 'sigmoid'}
+        ... ))
+        DenceLayerStack(
+          (net): Sequential(
+            (l_0): Linear(in_features=5, out_features=3, bias=True)
+            (0_activation): Sigmoid()
+          )
+        )
+
 
     """
     _config = None
@@ -180,12 +361,17 @@ class Configurable:
             # but not when it is called with "python <script>.py ..."
             cls = import_class(class_to_str(cls))
 
+        if updates is None:
+            updates = dict()
+
         config = DogmaticConfig.normalize({
             'cls': cls,
             'kwargs': updates
         }, kwargs_normalize=False)
 
-        if out_config is not None:
+        if out_config is None:
+            out_config = {}
+        else:
             config = NestedChainMap(
                 DogmaticConfig.sacred_dogmatic_to_dict(out_config),
                 config,
@@ -201,6 +387,7 @@ class Configurable:
 
         config = DogmaticConfig(config).to_dict()
 
+        # For sacred
         out_config.clear()
         out_config.update(config)
 
@@ -215,8 +402,9 @@ class Configurable:
     ) -> 'Configurable':
         # assert do not use defaults
         assert 'cls' in config, (cls, config)
-        assert issubclass(import_class(config['cls']), cls), \
-            (config['cls'], cls)
+        if cls is not Configurable:
+            assert issubclass(import_class(config['cls']), cls), \
+                (config['cls'], cls)
         new = config_to_instance(config)
         # new.config = config
         return new
@@ -289,6 +477,51 @@ def test_config(config, updates):
             'below the sub config:\n'
             f'{pretty_config}'
         )
+
+
+def fix_doctext_import_class(locals_dict):
+    """
+    Use this function inside a doctest as
+    `>>> fix_doctext_import_class(locals())`
+
+    >>> abc = 1
+    >>> class Foo: pass
+    >>> import_class(class_to_str(Foo))  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+    ...
+    AttributeError: Module ... 'configurable' ... has no attribute Foo. ...
+
+    >>> fix_doctext_import_class(locals())
+    >>> import_class(class_to_str(Foo))
+    <class 'configurable.Foo'>
+    """
+    cache = {}
+
+    class_to_str_orig = class_to_str
+    import_class_orig = import_class
+
+    def class_to_str_fix(cls):
+        nonlocal cache
+        name = class_to_str_orig(cls)
+        if (not isinstance(cls, str)) \
+                and cls.__module__ == locals_dict['__name__']:
+            cache[name] = cls
+        return name
+
+    def import_class_fix(name):
+        if name in cache:
+            return cache[name]
+        else:
+            return import_class_orig(name)
+
+    # for code in the doctest
+    locals_dict['import_class'] = import_class_fix
+    locals_dict['class_to_str'] = class_to_str_fix
+
+    # for the remaining code
+    globals()['import_class'] = import_class_fix
+    globals()['class_to_str'] = class_to_str_fix
+
 
 def import_class(name: str):
     if not isinstance(name, str):
@@ -376,8 +609,8 @@ def recursive_class_to_str(
     """
     if config is None or isinstance(config, (str, Number)):
         return config
-    elif isinstance(config, dict):
-        if 'cls' in config:
+    elif isinstance(config, (dict, NestedChainMap)):
+        if 'cls' in config.keys():
             return {
                 k if isinstance(k, str) else class_to_str(k):
                 class_to_str(v) if k == 'cls' else recursive_class_to_str(v)
@@ -653,6 +886,22 @@ class DogmaticConfig:
                 cls
             )
 
+    # Keep the dictionary reference and do an inplace update
+    # (fallback)
+    @classmethod
+    def nested_default(cls, d, fallback):
+        # Similar to
+        # dict.setdefault(key[, default])
+        # but for nested
+        for k, v in fallback.items():
+            if k in d:
+                if isinstance(d[k], dict) and isinstance(v, dict):
+                    cls.nested_default(d[k], v)
+                else:
+                    pass
+            else:
+                d[k] = v
+
     @classmethod
     def normalize(cls, dictionary, kwargs_normalize=True):
         """
@@ -671,54 +920,57 @@ class DogmaticConfig:
             MyClass dict.
 
         """
-        if 'cls' in dictionary:
-            if not isinstance(dictionary['cls'], str):
-                dictionary['cls'] = class_to_str(dictionary['cls'])
-            for key in tuple(dictionary.keys()):
-                if not isinstance(key, str):
-                    str_key = class_to_str(key)
-                    dictionary[str_key] = dictionary.pop(key)
+        # dictionary = recursive_class_to_str(dictionary)
+        if isinstance(dictionary, collections.Mapping):
+            if 'cls' in dictionary:
+                if not isinstance(dictionary['cls'], str):
+                    # assert False, (type(dictionary), dictionary)
+                    dictionary['cls'] = class_to_str(dictionary['cls'])
+                for key in tuple(dictionary.keys()):
+                    if not isinstance(key, str):
+                        str_key = class_to_str(key)
+                        dictionary[str_key] = dictionary.pop(key)
 
-        if 'cls' in dictionary:
-            if 'kwargs' not in dictionary:
-                dictionary['kwargs'] = {}
-
-            if kwargs_normalize:
-                cls_str = dictionary['cls']
-
-                if cls_str not in dictionary:
-                    dictionary[cls_str] = {}
-
+            if 'cls' in dictionary:
                 if 'kwargs' not in dictionary:
                     dictionary['kwargs'] = {}
-                for k in set(dictionary.keys()) - {'cls', 'kwargs'}:
-                    # Keep the dictionary reference and do an inplace update
-                    # (fallback)
-                    def nested_default(d, fallback):
-                        # Similar to
-                        # dict.setdefault(key[, default])
-                        # but for nested
-                        for k, v in fallback.items():
-                            if k in d:
-                                if isinstance(d[k], dict) and isinstance(v, dict):
-                                    nested_default(d[k], v)
-                                else:
-                                    pass
-                            else:
-                                d[k] = v
 
-                    nested_default(dictionary[k], dictionary['kwargs'])
+                if kwargs_normalize:
+                    cls_str = dictionary['cls']
 
-                    # NestedChainMap is to expensive here
-                    # dictionary[k] = NestedChainMap(
-                    #     dictionary[k], dictionary['kwargs']
-                    # )
+                    if cls_str not in dictionary:
+                        dictionary[cls_str] = {}
 
-        for k, v in list(dictionary.items()):
-            if isinstance(v, dict):
+                    if 'kwargs' not in dictionary:
+                        dictionary['kwargs'] = {}
+                    for k in set(dictionary.keys()) - {'cls', 'kwargs'}:
+                        cls.nested_default(dictionary[k], dictionary['kwargs'])
+
+                        # NestedChainMap is to expensive here
+                        # if isinstance(dictionary[k], NestedChainMap) \
+                        #         and len(dictionary[k].maps) == 2 \
+                        #         and dictionary[k].maps[-1] is dictionary['kwargs']:
+                        #     print('#' * 100)
+                        #     pass
+                        # else:
+                        #     dictionary[k] = NestedChainMap(
+                        #         dictionary[k], dictionary['kwargs']
+                        #     )
+
+            for k, v in list(dictionary.items()):
+                # if isinstance(v, dict):
                 cls.normalize(v, kwargs_normalize=kwargs_normalize)
-            elif isinstance(v, Path):
-                dictionary[k] = str(v)
+                # elif isinstance(v, Path):
+                #     dictionary[k] = str(v)
+        elif isinstance(dictionary, (tuple, list)):
+            dictionary = [
+                cls.normalize(v, kwargs_normalize=kwargs_normalize)
+                for v in dictionary
+            ]
+        elif isinstance(dictionary, Path):
+            dictionary = str(dictionary)
+        else:
+            return dictionary
 
         return dictionary
 
@@ -761,24 +1013,36 @@ class DogmaticConfig:
         else:
             return tuple(self.data.keys())
 
+    def __contains__(self, item):
+        raise NotImplementedError(
+            f'{self.__class__.__name__}.__contains__\n'
+            f'Use `key in {self.__class__.__name__}.keys()`\n instead of\n'
+            f'`key in {self.__class__.__name__}`'
+        )
+
     def __setitem__(self, key, value):
         if isinstance(value, dict):
             self.normalize(value, kwargs_normalize=True)
 
-        if 'cls' in self.data:
-            if key == 'kwargs':
-                for k in set(self.data.keys()) - {'cls', 'kwargs'}:
-                    self.data[k] = value
-            elif key == 'cls':
-                pass
-            elif key not in self.data:
-                # ToDo: test this
-                import copy
-                for m in self.data.maps:
-                    if 'kwargs' in m:
-                        m[key] = copy.deepcopy(m['kwargs'])
-            else:
-                pass
+        # if 'cls' in self.data:
+        #     if key == 'kwargs':
+        #         for k in set(self.data.keys()) - {'cls', 'kwargs'}:
+        #             self.data[k] = value
+        #     elif key == 'cls':
+        #         pass
+        #     elif key not in self.data:
+        #         # ToDo: test this
+        #         import copy
+        #         from IPython.lib.pretty import pprint
+        #         print('Insert new class str')
+        #         pprint(self.data)
+        #         for m in self.data.maps:
+        #             if 'kwargs' in m:
+        #                 m[key] = copy.deepcopy(m['kwargs'])
+        #
+        #         pprint(self.data)
+        #     else:
+        #         pass
 
         self.data[key] = value
 
@@ -796,6 +1060,9 @@ class DogmaticConfig:
                 defaults = self.get_signature(cls)
 
                 _ = self.get_sub_config(key)
+
+                for m1, m2 in zip(self.data[key].maps, self.data['kwargs'].maps):
+                    self.nested_default(m1, m2)
 
                 # Freeze the mutable_idx.
                 # => changes from get_signature and update_config go to this
@@ -823,6 +1090,7 @@ class DogmaticConfig:
                 value = self.data[key]
         else:
             raise KeyError(key)
+
         return value
 
     def to_dict(self):
