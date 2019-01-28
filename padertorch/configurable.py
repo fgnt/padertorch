@@ -18,6 +18,7 @@ import sys
 import json
 import inspect
 import importlib
+import collections
 from numbers import Number
 from typing import Union
 from pathlib import Path
@@ -230,6 +231,30 @@ class Configurable:
         return config
 
     @classmethod
+    def get_config_v2(
+            cls,
+            updates=None,
+            out_config=None,
+    ):
+        config = DogmaticConfig.normalize({
+            'cls': cls,
+            'kwargs': updates
+        }, kwargs_normalize=False)
+
+        if out_config is not None:
+            config = NestedChainMap(
+                DogmaticConfig.sacred_dogmatic_to_dict(out_config),
+                config,
+            ).to_dict()
+
+        config = DogmaticConfig(config).to_dict()
+
+        out_config.clear()
+        out_config.update(config)
+
+        return out_config
+
+    @classmethod
     def from_config(
             cls,
             config,
@@ -378,6 +403,7 @@ def update_config(config, updates):
         cls = import_class(config['cls'])
         if hasattr(cls, 'get_config'):
             # inplace
+            print(cls)
             cls.get_config(
                 updates=sub_updates,
                 out_config=config,
@@ -441,3 +467,354 @@ def config_to_instance(config):
         ])
     else:
         return config
+
+
+class NestedChainMap(collections.ChainMap):
+    """
+
+    This class is similar to collections.ChainMap.
+    Differences:
+     - works on nested dictionaries
+     - has a mutable_idx in the signature
+        - mutable_idx == 0 => same behaviour as ChainMap
+        - mutable_idx != 0 => works like a sacred.DogmaticDict
+          - setting a value does not guarantee that getitem returns this value
+            When a earlier mapping defines the value for that key, __getitem__
+            will return that value
+
+
+    >>> from IPython.lib.pretty import pprint
+    >>> a = {'1': {'1_1': 1}, '2': {'2_2': 2}, '3': 3}
+    >>> b = {'1': {'1_2': 3}, '2': {'2_1': 3, '2_2': 4}}
+    >>> c = NestedChainMap(a, b, mutable_idx=-1)
+    >>> pprint(c)
+    NestedChainMap({'1': {'1_1': 1}, '2': {'2_2': 2}, '3': 3},
+                   {'1': {'1_2': 3}, '2': {'2_1': 3, '2_2': 4}})
+    >>> pprint(c.to_dict())
+    {'1': {'1_2': 3, '1_1': 1}, '2': {'2_1': 3, '2_2': 2}, '3': 3}
+    >>> c['1']['1_1'] = 100  # will be ignored
+    >>> c['1']['1_2'] = 200  # will set the value
+    >>> pprint(c)
+    NestedChainMap({'1': {'1_1': 1}, '2': {'2_2': 2}, '3': 3},
+                   {'1': {'1_2': 200, '1_1': 100}, '2': {'2_1': 3, '2_2': 4}})
+    >>> pprint(c.to_dict())
+    {'1': {'1_2': 200, '1_1': 1}, '2': {'2_1': 3, '2_2': 2}, '3': 3}
+    """
+    def __init__(
+            self,
+            *maps,
+            mutable_idx=0,
+    ):
+        self.subs = {}
+        super().__init__(*maps)
+        self.mutable_idx = mutable_idx
+
+    def __delitem__(self, key):
+        raise NotImplementedError()
+
+    def copy(self):
+        raise NotImplementedError()
+
+    def clear(self):
+        raise NotImplementedError()
+
+    def __iter__(self):
+        # Python 3.7 ChainMap.__iter__
+        d = {}
+        for mapping in reversed(self.maps):
+            d.update(mapping)  # reuses stored hash values if possible
+        return iter(d)
+
+    def __setitem__(self, key, value):
+        try:
+            self.maps[self.mutable_idx][key] = value
+        except IndexError as e:
+            raise IndexError(
+                f'{e}\n'
+                '\n'
+                f'self.set_idx: {self.mutable_idx}\n'
+                f'len(self.maps): {len(self.maps)}\n'
+                f'key: {key}\n'
+                f'value: {value}\n'
+                f'self: {self}'
+            )
+
+    def __getitem__(self, item):
+
+        if item in self.subs:
+            # short circuit
+            return self.subs[item]
+
+        is_dict_list = [
+            isinstance(m[item], (dict, self.__class__))
+            for m in self.maps
+            if item in m
+        ]
+        if any(is_dict_list):
+            assert all(is_dict_list), (item, is_dict_list, self.maps)
+            m: dict
+
+            def my_setdefault(mapping, key, default):
+                if key in mapping:
+                    return mapping[key]
+                else:
+                    mapping[key] = default
+                    return default
+
+            sub = self.__class__(*[
+                my_setdefault(m, item, {}) for m in self.maps
+            ], mutable_idx=self.mutable_idx)
+
+            self.subs[item] = sub
+            return sub
+        else:
+            # super().__getitem__ is to expensive
+            for mapping in self.maps:
+                if item in mapping:
+                    return mapping[item]
+            raise KeyError(item)
+
+    def to_dict(self):
+        return {
+            k: v.to_dict() if isinstance(v, self.__class__) else v
+            for k, v in self.items()
+        }
+
+    def _repr_pretty_(self, p, cycle):
+        if cycle:
+            p.text(f'{self.__class__.__name__}(...)')
+        else:
+            name = self.__class__.__name__
+            pre, post = f'{name}(', ')'
+            with p.group(len(pre), pre, post):
+                for idx, m in enumerate(self.maps):
+                    if idx:
+                        p.text(',')
+                        p.breakable()
+                    p.pretty(m)
+
+
+class DogmaticConfig:
+
+    @classmethod
+    def sacred_dogmatic_to_dict(cls, config):
+        import sacred.config.custom_containers
+        import paderbox as pb
+
+        if isinstance(config, sacred.config.custom_containers.DogmaticDict):
+            return pb.utils.nested.nested_merge(
+                {
+                    k: cls.sacred_dogmatic_to_dict(config[k])
+                    for keys in [
+                    config.keys(),
+                    cls.sacred_dogmatic_to_dict(config.fallback).keys(),
+                ]
+                    for k in keys
+                }, {
+                    k: cls.sacred_dogmatic_to_dict(v)
+                    for k, v in config.fixed.items()
+                }
+            )
+        elif isinstance(config, dict):
+            return {
+                k: cls.sacred_dogmatic_to_dict(v)
+                for k, v in config.items()
+            }
+        else:
+            return config
+
+    @staticmethod
+    def get_signature(cls: Configurable):
+        if hasattr(cls, 'get_signature'):
+            return cls.get_signature()
+        else:
+            return Configurable.get_signature.__func__(
+                cls
+            )
+
+    @classmethod
+    def normalize(cls, dictionary, kwargs_normalize=True):
+        """
+        Normalize the nested dictionary.
+
+        The value of cls keys are forced to have the type str
+        (i.e. class_to_str).
+
+        When a dict has the cls key it also have the kwargs key and the cls
+        value as key (e.g. {'cls': 'MyClass', 'kwargs': {}, 'MyClass': {}}).
+
+        If kwargs_normalize is True:
+        Description on the example
+            {'cls': 'MyClass', 'kwargs': {}, 'MyClass': {}}
+            Each key value in kwargs that is missing in MyClass is set in the
+            MyClass dict.
+
+        """
+        if 'cls' in dictionary:
+            if not isinstance(dictionary['cls'], str):
+                dictionary['cls'] = class_to_str(dictionary['cls'])
+            for key in tuple(dictionary.keys()):
+                if not isinstance(key, str):
+                    str_key = class_to_str(key)
+                    dictionary[str_key] = dictionary.pop(key)
+
+        if 'cls' in dictionary:
+            if 'kwargs' not in dictionary:
+                dictionary['kwargs'] = {}
+
+            if kwargs_normalize:
+                cls_str = dictionary['cls']
+
+                if cls_str not in dictionary:
+                    dictionary[cls_str] = {}
+
+                if 'kwargs' not in dictionary:
+                    dictionary['kwargs'] = {}
+                for k in set(dictionary.keys()) - {'cls', 'kwargs'}:
+                    # Keep the dictionary reference and do an inplace update
+                    # (fallback)
+                    def nested_default(d, fallback):
+                        # Similar to
+                        # dict.setdefault(key[, default])
+                        # but for nested
+                        for k, v in fallback.items():
+                            if k in d:
+                                if isinstance(d[k], dict) and isinstance(v, dict):
+                                    nested_default(d[k], v)
+                                else:
+                                    pass
+                            else:
+                                d[k] = v
+
+                    nested_default(dictionary[k], dictionary['kwargs'])
+
+                    # NestedChainMap is to expensive here
+                    # dictionary[k] = NestedChainMap(
+                    #     dictionary[k], dictionary['kwargs']
+                    # )
+
+        for v in dictionary.values():
+            if isinstance(v, dict):
+                cls.normalize(v, kwargs_normalize=kwargs_normalize)
+
+        return dictionary
+
+    def __init__(
+            self,
+            *maps,
+            mutable_idx=-1
+    ):
+        self.mutable_idx = mutable_idx
+
+        assert len(maps) >= 1, maps
+        maps = [
+            self.normalize(m, kwargs_normalize=True)
+            for m in maps
+        ] + [{}]
+
+        self.data = NestedChainMap(*maps,
+                                   mutable_idx=mutable_idx,
+                                   )
+
+    def get_sub_config(self, key, mutable_idx=None):
+        if mutable_idx is None:
+            mutable_idx = self.mutable_idx
+        sub = self.data[key]
+
+        if isinstance(sub, NestedChainMap):
+            return self.__class__(
+                *sub.maps, mutable_idx=mutable_idx
+            )
+        else:
+            raise KeyError(key)
+
+    def keys(self):
+        if 'cls' in self.data:
+            return tuple([
+                k
+                for k in self.data.keys()
+                if k in ['cls', 'kwargs']
+            ])
+        else:
+            return tuple(self.data.keys())
+
+    def __setitem__(self, key, value):
+        if isinstance(value, dict):
+            self.normalize(value, kwargs_normalize=True)
+
+        if 'cls' in self.data:
+            if key == 'kwargs':
+                for k in set(self.data.keys()) - {'cls', 'kwargs'}:
+                    self.data[k] = value
+            elif key == 'cls':
+                pass
+            elif key not in self.data:
+                # ToDo: test this
+                import copy
+                for m in self.data.maps:
+                    m[key] = copy.deepcopy(m['kwargs'])
+
+                raise NotImplementedError(key, self.data)
+            else:
+                pass
+
+        self.data[key] = value
+
+    def __getitem__(self, key):
+        if 'cls' in self.data:
+            cls_str = self.data['cls']
+
+            if key == 'cls':
+                value = cls_str
+            elif key == 'kwargs':
+                # Changes 'kwargs' to cls str
+                key = cls_str
+
+                cls = import_class(cls_str)
+                defaults = self.get_signature(cls)
+
+                _ = self.get_sub_config(key)
+
+                # Freeze the mutable_idx.
+                # => changes from get_signature and update_config go to this
+                #    level of the config
+                kwargs = self.__class__(
+                    *self.data[key].maps,
+                    mutable_idx=len(self.data.maps) - 1,
+                )
+
+                for k, v in defaults.items():
+                    kwargs[k] = v
+
+                if hasattr(cls, 'update_config'):
+                    cls.update_config(kwargs)
+
+                # ToDo: assert valid kwargs
+
+                value = self.get_sub_config(key)
+            else:
+                raise ValueError(key)
+        elif key in self.data:
+            try:
+                value = self.get_sub_config(key)
+            except KeyError:
+                value = self.data[key]
+        else:
+            raise KeyError(key)
+        return value
+
+    def to_dict(self):
+        if 'cls' in self.keys():
+            d = {
+                'cls': self['cls'],
+                'kwargs': self['kwargs'].to_dict()
+            }
+        else:
+            d = {}
+            for k in self.keys():
+                v = self[k]
+                if isinstance(v, self.__class__):
+                    v = v.to_dict()
+                d[k] = v
+
+        return d
