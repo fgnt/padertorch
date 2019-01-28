@@ -775,9 +775,8 @@ class DogmaticConfig:
                 # ToDo: test this
                 import copy
                 for m in self.data.maps:
-                    m[key] = copy.deepcopy(m['kwargs'])
-
-                raise NotImplementedError(key, self.data)
+                    if 'kwargs' in m:
+                        m[key] = copy.deepcopy(m['kwargs'])
             else:
                 pass
 
