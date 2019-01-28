@@ -13,7 +13,7 @@ from paderbox.speech_enhancement.mask_module import biased_binary_mask
 from paderbox.transform import stft, istft
 from paderbox.utils.mapping import Dispatcher
 from padertorch.contrib.jensheit import Parameterized, dict_func
-from padertorch.data.fragmenter import ChannelFragmenter
+from padertorch.data.fragmenter import Fragmenter
 from padertorch.data.transforms import Compose
 from padertorch.data.utils import Padder
 from padertorch.modules.mask_estimator import MaskKeys as M_K
@@ -149,8 +149,8 @@ class SequenceProvider(Parameterized):
             self.read_audio, self.database.add_num_samples
         ))
         if not self.opts.multichannel:
-            iterator.fragment(ChannelFragmenter(
-                fragment_keys=self.opts.audio_keys, keep_dim=True
+            iterator.fragment(Fragmenter(
+                fragment_steps={key: 1 for key in self.opts.audio_keys},
             ))
         return iterator
 
