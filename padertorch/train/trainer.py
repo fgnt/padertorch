@@ -186,8 +186,9 @@ class Trainer(Configurable):
         #  - To late for model init (i.e. parameter init)
         # Only effects random part in NN (dropout, sample).
         #  - Desired?
-        torch.manual_seed(self.seed)
-        torch.cuda.manual_seed(self.seed)
+        if self.seed is not None:
+            torch.manual_seed(self.seed)
+            torch.cuda.manual_seed(self.seed)
 
         # Change model to train mode (e.g. activate dropout)
         self.model.train()
