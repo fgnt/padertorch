@@ -2,6 +2,12 @@ import numpy as np
 import torch
 
 
+__all__ = [
+    'batch_to_device',
+    'Sorter',
+]
+
+
 def batch_to_device(batch, use_cuda=False, gpu_device=None):
     if isinstance(batch, dict):
         return batch.__class__({
@@ -37,3 +43,16 @@ def batch_to_device(batch, use_cuda=False, gpu_device=None):
         )
     else:
         return batch
+
+
+class Sorter:
+    # pb.database.keys.NUM_SAMPLES is 'num_samples'
+    def __init__(self, key=lambda example: example['num_samples']):
+        self.key = key
+
+    def __call__(self, examples):
+        return tuple(sorted(
+            examples,
+            key=self.key,
+            reverse=True,
+        ))
