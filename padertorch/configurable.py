@@ -161,72 +161,7 @@ class Configurable:
                 f'Updates that are not used anywhere: {ex}'
             )
 
-        # Test if the kwargs are valid
-        sig = inspect.signature(import_class(config['cls']))
-
-        # Remove default -> force completely described
-        sig = sig.replace(
-            parameters=[p.replace(
-                default=inspect.Parameter.empty
-            ) for p in sig.parameters.values()]
-        )
-        try:
-            bound_arguments: inspect.BoundArguments = sig.bind(
-                **config['kwargs']
-            )
-            bound_arguments.apply_defaults()
-        except TypeError as ex:
-            unexpected_keyword = 'got an unexpected keyword argument '
-            if unexpected_keyword in str(ex):
-                _, keyword = str(ex).split(unexpected_keyword)
-                keyword = keyword.strip().strip("'")
-                available_keys = sig.parameters.keys()
-
-                import difflib
-                suggestions = difflib.get_close_matches(
-                    keyword, available_keys,
-                )
-
-                # CB: Is it better to print with assigned values or without?
-                sig_wo_anno = sig.replace(
-                    parameters=[p.replace(
-                        annotation=inspect.Parameter.empty,
-                        default=config['kwargs'].get(
-                            p.name, inspect.Parameter.empty
-                        ),
-                    ) for p in sig.parameters.values()]
-                )
-                raise TypeError(
-                    f'{config["cls"]} {ex}\n'
-                    f'Did you mean one of these {suggestions}?\n'
-                    f'Call signature: {sig_wo_anno}\n'
-                    f'Where\n'
-                    f'     kwargs.keys(): {config["kwargs"].keys()}\n'
-                    f'     error msg: {ex}'
-                ) from ex
-            else:
-                raise TypeError(
-                    f'The test, if the call {config["cls"]}(**kwargs) would '
-                    f'be successful, failed.\n'
-                    f'Where\n'
-                    f'     kwargs: {config["kwargs"]}\n'
-                    f'     signature: {sig}\n'
-                    f'     updates: {updates}\n'
-                    f'     error msg: {ex}'
-                ) from ex
-
-        # Guarantee that config is json serializable
-        try:
-            _ = json.dumps(config)
-        except TypeError as ex:
-            from IPython.lib.pretty import pretty
-            pretty_config = pretty(config)
-            raise ValueError(
-                'Invalid config.\n'
-                'See above exception msg from json.dumps and '
-                'below the sub config:\n'
-                f'{pretty_config}'
-            )
+        test_config(config, updates)
 
         return config
 
@@ -236,6 +171,15 @@ class Configurable:
             updates=None,
             out_config=None,
     ):
+
+        if cls.__module__ == '__main__':
+            # When a class is defined in the main script, it will be
+            # __main__.<ModelName>, but it should be <script>.<ModelName>.
+            # This fix it, when the script is called with
+            # "python -m <script> ..."
+            # but not when it is called with "python <script>.py ..."
+            cls = import_class(class_to_str(cls))
+        
         config = DogmaticConfig.normalize({
             'cls': cls,
             'kwargs': updates
@@ -252,6 +196,8 @@ class Configurable:
         out_config.clear()
         out_config.update(config)
 
+        test_config(config, updates)
+
         return out_config
 
     @classmethod
@@ -267,6 +213,74 @@ class Configurable:
         # new.config = config
         return new
 
+
+def test_config(config, updates):
+    # Test if the kwargs are valid
+    sig = inspect.signature(import_class(config['cls']))
+
+    # Remove default -> force completely described
+    sig = sig.replace(
+        parameters=[p.replace(
+            default=inspect.Parameter.empty
+        ) for p in sig.parameters.values()]
+    )
+    try:
+        bound_arguments: inspect.BoundArguments = sig.bind(
+            **config['kwargs']
+        )
+        bound_arguments.apply_defaults()
+    except TypeError as ex:
+        unexpected_keyword = 'got an unexpected keyword argument '
+        if unexpected_keyword in str(ex):
+            _, keyword = str(ex).split(unexpected_keyword)
+            keyword = keyword.strip().strip("'")
+            available_keys = sig.parameters.keys()
+
+            import difflib
+            suggestions = difflib.get_close_matches(
+                keyword, available_keys,
+            )
+
+            # CB: Is it better to print with assigned values or without?
+            sig_wo_anno = sig.replace(
+                parameters=[p.replace(
+                    annotation=inspect.Parameter.empty,
+                    default=config['kwargs'].get(
+                        p.name, inspect.Parameter.empty
+                    ),
+                ) for p in sig.parameters.values()]
+            )
+            raise TypeError(
+                f'{config["cls"]} {ex}\n'
+                f'Did you mean one of these {suggestions}?\n'
+                f'Call signature: {sig_wo_anno}\n'
+                f'Where\n'
+                f'     kwargs.keys(): {config["kwargs"].keys()}\n'
+                f'     error msg: {ex}'
+            ) from ex
+        else:
+            raise TypeError(
+                f'The test, if the call {config["cls"]}(**kwargs) would '
+                f'be successful, failed.\n'
+                f'Where\n'
+                f'     kwargs: {config["kwargs"]}\n'
+                f'     signature: {sig}\n'
+                f'     updates: {updates}\n'
+                f'     error msg: {ex}'
+            ) from ex
+
+    # Guarantee that config is json serializable
+    try:
+        _ = json.dumps(config)
+    except TypeError as ex:
+        from IPython.lib.pretty import pretty
+        pretty_config = pretty(config)
+        raise ValueError(
+            'Invalid config.\n'
+            'See above exception msg from json.dumps and '
+            'below the sub config:\n'
+            f'{pretty_config}'
+        )
 
 def import_class(name: str):
     if not isinstance(name, str):
