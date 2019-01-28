@@ -715,9 +715,11 @@ class DogmaticConfig:
                     #     dictionary[k], dictionary['kwargs']
                     # )
 
-        for v in dictionary.values():
+        for k, v in list(dictionary.items()):
             if isinstance(v, dict):
                 cls.normalize(v, kwargs_normalize=kwargs_normalize)
+            elif isinstance(v, Path):
+                dictionary[k] = str(v)
 
         return dictionary
 
