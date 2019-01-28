@@ -425,7 +425,6 @@ def update_config(config, updates):
         cls = import_class(config['cls'])
         if hasattr(cls, 'get_config'):
             # inplace
-            print(cls)
             cls.get_config(
                 updates=sub_updates,
                 out_config=config,
