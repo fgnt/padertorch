@@ -179,7 +179,7 @@ class Configurable:
             # "python -m <script> ..."
             # but not when it is called with "python <script>.py ..."
             cls = import_class(class_to_str(cls))
-        
+
         config = DogmaticConfig.normalize({
             'cls': cls,
             'kwargs': updates
@@ -190,6 +190,14 @@ class Configurable:
                 DogmaticConfig.sacred_dogmatic_to_dict(out_config),
                 config,
             ).to_dict()
+
+            # This assert is for sacred that may change values in the config
+            # dict.
+            if inspect.isclass(import_class(config['cls'])) \
+                    and issubclass(import_class(config['cls']), Configurable):
+                # When subclass of Configurable expect proper subclass
+                assert issubclass(import_class(config['cls']), cls), (
+                config['cls'], cls)
 
         config = DogmaticConfig(config).to_dict()
 
