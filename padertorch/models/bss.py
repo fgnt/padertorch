@@ -98,15 +98,9 @@ class PermutationInvariantTrainingModel(pt.Model):
         h_data = self.dropout_linear(h.data)
         h_data = self.linear(h_data)
         h = PackedSequence(h_data, h.batch_sizes)
-
-        mask = PackedSequence(
-            einops.rearrange(
-                self.output_activation(h.data),
-                'tb (k f) -> tb k f',
-                k=self.K
-            ),
-            h.batch_sizes,
-        )
+        h_data = self.output_activation(h.data)
+        h_data = einops.rearrange(h_data, 'tb (k f) -> tb k f', k=self.K)
+        mask = PackedSequence(h_data, h.batch_sizes,)
         return pt.ops.unpack_sequence(mask)
 
     def review(self, batch, model_out):
