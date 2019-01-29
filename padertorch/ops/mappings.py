@@ -1,4 +1,3 @@
-import torch.nn.functional as F
 import torch
 from torch import optim
 from paderbox.utils.mapping import Dispatcher
