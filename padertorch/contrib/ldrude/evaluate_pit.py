@@ -5,12 +5,12 @@ mpiexec -np 8 python -m padertorch.contrib.ldrude.evaluate_pit with model_path=/
 TODO: Add input mir_sdr result to be able to calculate gains.
 TODO: Add pesq, stoi, invasive_sxr.
 TODO: mpi: For mpi I need to know the experiment dir before.
+TODO: Change to sacred IDs again, otherwise I can not apply `unique` to `_id`.
 """
 import os
 import warnings
 from collections import defaultdict
 from pathlib import Path
-import itertools
 
 import einops
 import matplotlib as mpl
@@ -82,9 +82,6 @@ def get_model(_run, model_path, checkpoint_name):
 def main(_run, batch_size, datasets, debug, experiment_dir):
     if IS_MASTER:
         sacred.commands.print_config(_run)
-
-    # Not necessary yet, but needed once we export more files.
-    # print(f'RANK={RANK}, experiment_dir={experiment_dir}')
 
     model = get_model()
     db = MerlMixtures()

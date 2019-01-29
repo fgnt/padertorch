@@ -5,6 +5,7 @@ python -m padertorch.contrib.ldrude.train_pit print_config
 python -m padertorch.contrib.ldrude.train_pit
 
 TODO: Enable shuffle
+TODO: Change to sacred IDs again, otherwise I can not apply `unique` to `_id`.
 """
 from sacred import Experiment
 import sacred.commands
@@ -61,21 +62,6 @@ def config():
 @decorator_append_file_storage_observer_with_lazy_basedir(ex)
 def basedir(_config):
     return Path(_config['trainer']['kwargs']['storage_dir']) / 'sacred'
-
-
-@ex.capture
-def get_dir(_run) -> Path:
-    """
-    Gets the current directory from this run, e.g. `pth_models/pit/3/`.
-    Args:
-        _run: From Sacred internal
-
-    Returns:
-
-    """
-    assert len(_run.observers) == 1, len(_run.observers)
-    _dir = Path(_run.observers[0].basedir) / str(_run._id)
-    return _dir
 
 
 @ex.capture
