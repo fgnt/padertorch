@@ -172,6 +172,53 @@ class Trainer(Configurable):
             n_best_checkpoints=1,
             resume=False,
     ):
+        """
+        A simplified training loop::
+
+            for epoch in range(1, ...):
+                for example in train_iterator:
+                    model_out = self.model(example)
+                    review = self.model.review(example, model_out)
+                    review = maybe_add_loss_from_losses(review)
+                    review.backward()
+                    self.optimizer.step()
+                    add_review_to_tensorboardX(review)
+
+        The remaining code takes care about calling validation and save the
+        result to tensorboard (if the a validation_iterator is given), save
+        checkpoints, cleanup checkpoints that are stale (not best according
+        to metrics and not last) and display a progessbar.
+        The code is designed that many aspects can be customized.
+        (e.g. see Janek's examples for multi model trainer)
+
+        Args:
+            train_iterator:
+                The train_iterator is python iterable (e.g. tuple, list, ...)
+                that can consumed multiple times (i.e. not generator).
+
+                Usually it will be paderbox.database.BaseIterator that is
+                returned from a database in paderbox.database.
+
+            validation_iterator:
+                Optional and same type as train_iterator. This iterator is used
+                for validation.
+            hooks:
+                Add additional hooks to the default hooks
+                (`Trainer.get_default_hooks`)
+            metrics:
+                The metrics that are used for the deciding which checkpoint is
+                kept. The key is of each entry must be a key 'loss' or a key in
+                review['losses'] or review['scalars']. The value indicate if
+                the metric has to be maximised ('max') or minimised ('min').
+            n_best_checkpoints:
+                The numer of checkpoints to keep for each metric. In the moment
+                only one checkpoints is supported.
+                Use `keep_all_checkpoints=True` from the `__init__` to keep all
+                checkpoints.
+            resume:
+                Whether to resume a training or start a fresh one.
+
+        """
         if resume:
             self.load_checkpoint()
         else:
@@ -211,13 +258,13 @@ class Trainer(Configurable):
 
         # ================ MAIN TRAINING LOOP! ===================
         try:
-            for self.epoch in itertools.count(self.epoch):  # infinite loop
+            for self.epoch in itertools.count(start=self.epoch):  # infinite loop
                 epoch_start = True
                 for hook in hooks:
                     hook.pre_step(self)
 
                 data_iterator = iter(train_iterator)
-                for self.iteration in itertools.count(self.iteration):
+                for self.iteration in itertools.count(start=self.iteration):
                     try:
                         with self.timer['time_per_step'], \
                                 self.timer['time_per_data_loading']:
@@ -339,6 +386,13 @@ class Trainer(Configurable):
             metrics,
             n_best_checkpoints,
     ):
+        if n_best_checkpoints != 1:
+            raise NotImplementedError(
+                f'The implementation for more than one checkpoint is not'
+                f'finished.\n'
+                f'Requested number of checkponts: {n_best_checkpoints}'
+            )
+
         if hooks is None:
             hooks = []
         try:
