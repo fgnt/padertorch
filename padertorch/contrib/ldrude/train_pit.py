@@ -38,30 +38,29 @@ def config():
     validate_dataset = "mix_2_spk_min_cv"
 
     # Start with an empty dict to allow tracking by Sacred
-    trainer = {}
-    pt.Trainer.get_config(
-        out_config=trainer,
-        updates=pb.utils.nested.deflatten(
-            {
-                "model.cls": pt.models.bss.PermutationInvariantTrainingModel,
-                "storage_dir": None,
-                "optimizer.cls": pt.optimizer.Adam,
-                "summary_trigger": (1000, "iteration"),
-                "max_trigger": (500_000, "iteration"),
-                "loss_weights.pit_ips_loss": 0.0,
-                "loss_weights.pit_mse_loss": 1.0,
-            },
-            sep=".",
-        ),
+    trainer = pb.utils.nested.deflatten(
+        {
+            "model.factory": pt.models.bss.PermutationInvariantTrainingModel,
+            "storage_dir": None,
+            "optimizer.factory": pt.optimizer.Adam,
+            "summary_trigger": (1000, "iteration"),
+            "max_trigger": (500_000, "iteration"),
+            "loss_weights.pit_ips_loss": 0.0,
+            "loss_weights.pit_mse_loss": 1.0,
+        },
+        sep=".",
     )
-    if trainer['kwargs']['storage_dir'] is None:
-        trainer['kwargs']['storage_dir'] \
+    pt.Trainer.get_config(
+        trainer,
+    )
+    if trainer['storage_dir'] is None:
+        trainer['storage_dir'] \
             = get_new_folder(path_template, mkdir=False)
 
 
 @decorator_append_file_storage_observer_with_lazy_basedir(ex)
 def basedir(_config):
-    return Path(_config['trainer']['kwargs']['storage_dir']) / 'sacred'
+    return Path(_config['trainer']['storage_dir']) / 'sacred'
 
 
 @ex.capture
@@ -94,7 +93,7 @@ def prepare_and_train(
 @ex.main
 def main(_config, _run):
     write_makefile_and_config_json(
-        _config['trainer']['kwargs']['storage_dir'], _config, _run
+        _config['trainer']['storage_dir'], _config, _run
     )
     prepare_and_train()
 
