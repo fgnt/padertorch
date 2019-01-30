@@ -187,11 +187,11 @@ class Configurable:
         >>> config = EncoderDecoder.get_config_v2()
         >>> pprint(config)
         {'cls': 'configurable.EncoderDecoder',
-         'kwargs': {'decoder': {'cls': 'configurable.DenseLayer',
-           'kwargs': {'in_units': 10, 'out_units': 20}},
+         'kwargs': {'in_features': 5,
           'encoder': {'cls': 'configurable.DenseLayer',
            'kwargs': {'in_units': 5, 'out_units': 10}},
-          'in_features': 5}}
+          'decoder': {'cls': 'configurable.DenseLayer',
+           'kwargs': {'in_units': 10, 'out_units': 20}}}}
         >>> EncoderDecoder.from_config(config)
         EncoderDecoder(
           (net): Sequential(
