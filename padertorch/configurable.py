@@ -16,23 +16,24 @@ used for that instance in your modified `get_signature`.
 
 """
 import sys
-import json
 import inspect
 import importlib
 import collections
-from numbers import Number
-from typing import Union
 from pathlib import Path
-from collections import OrderedDict
+
+import paderbox as pb
 
 
 class Configurable:
     """
-    Each factory function is a configurable object (e.g. class constructor and
-    function). The configurable object can be described with cls and kwargs.
-    "cls" is the string that can be imported and kwargs contains all the
-    keyword arguments to initialize that object. Note: inside the kwargs can
-     also be configurable objects.
+    Motivation: ToDo: reproducability, adjustable
+
+    Each factory is a configurable object (e.g. class constructor and
+    function). The configurable object can be described with the factory object
+    or the python path to the factory object and the kwargs of that function.
+    To instantiate the object, the factory is called with the kwargs.
+    Note: Inside the config be again a configurable object, but later more about
+    this. First an example:
 
     Example::
 
@@ -43,13 +44,32 @@ class Configurable:
         ...    l = torch.nn.Linear(in_units, out_units)
         ...    a = torch.nn.ReLU()
         ...    return torch.nn.Sequential(l, a)
-        >>> config = {'cls': get_dense_layer,
-        ...           'kwargs': {'in_units': 5, 'out_units': 3}}
+        >>> config = {
+        ...     'factory': get_dense_layer,
+        ...     'in_units': 5,
+        ...     'out_units': 3,
+        ... }
         >>> Configurable.from_config(config)
         Sequential(
           (0): Linear(in_features=5, out_features=3, bias=True)
           (1): ReLU()
         )
+        >>> str_factory = class_to_str(get_dense_layer)
+        >>> str_factory
+        'configurable.get_dense_layer'
+        >>> config = {
+        ...     'factory': 'configurable.get_dense_layer',
+        ...     'in_units': 5,
+        ...     'out_units': 3,
+        ... }
+        >>> Configurable.from_config(config)
+        Sequential(
+          (0): Linear(in_features=5, out_features=3, bias=True)
+          (1): ReLU()
+        )
+
+    The value of the "factory" in the config is instantiated with in_units and
+    out_units: `get_dense_layer(in_units=5, out_units=3)`
 
     When the operations get more difficult, it is common to use a class instead
     of a function. When the class inheritance from `Configurable` the class
@@ -59,159 +79,175 @@ class Configurable:
     Example::
 
         >>> class DenseLayer(Configurable, torch.nn.Module):
-        ...     def __init__(self, in_units, out_units):
+        ...     def __init__(self, in_units, out_units=3):
         ...         super().__init__()
         ...         self.l = torch.nn.Linear(in_units, out_units)
         ...         self.a = torch.nn.ReLU()
         ...     def __call__(self, x):
         ...         return self.a(self.l(x))
-        >>> config = {'cls': DenseLayer,
-        ...           'kwargs': {'in_units': 5, 'out_units': 3}}
+        >>> config = {'factory': DenseLayer,
+        ...           'in_units': 5,
+        ...           'out_units': 7}
         >>> DenseLayer.from_config(config)
         DenseLayer(
-          (l): Linear(in_features=5, out_features=3, bias=True)
+          (l): Linear(in_features=5, out_features=7, bias=True)
           (a): ReLU()
         )
-        >>> DenseLayer.get_config_v2({'in_units': 5, 'out_units': 3})
-        {'cls': 'configurable.DenseLayer', 'kwargs': {'in_units': 5, 'out_units': 3}}
+
+    Instead of manually defining each value in the config, it is recommended to
+    use the `get_config` that reads the defaults from the signature (in the
+    example above `out_units=3` from `DenseLayer.__init__`) and applies the
+    provided updates to complete the kwargs for the instantiation.
+
+    Example::
+
+        >>> DenseLayer.get_config({'in_units': 5})
+        {'factory': 'configurable.DenseLayer', 'in_units': 5, 'out_units': 3}
+        >>> DenseLayer.get_config({'in_units': 5, 'out_units': 10})
+        {'factory': 'configurable.DenseLayer', 'in_units': 5, 'out_units': 10}
 
     When a configurable object depends on other exchangeable configurable
-    objects, it is recommended to overwrite the classmethod `get_signature`.
-    (This also increases the documentation quality of the config object.)
-    There you can specify the factory (i.e. cls) and the arguments. Missing
-    arguments are read from the signature of the factory.
+    objects, it is recommended to overwrite the classmethod
+    `finalize_docmatic_config`. It gets as input the config with the defaults
+    and the updates for that class. The function `finalize_docmatic_config`
+    should set all the remaining objects to fill the config that it contains
+    all kwargs.
 
     Example::
 
         >>> class CustomisableDenseLayer(Configurable, torch.nn.Module):
         ...     @classmethod
-        ...     def get_signature(cls):
-        ...         defaults = super().get_signature()
-        ...         defaults['linear'] = {
-        ...             'cls': torch.nn.Linear,
-        ...             'kwargs': {'out_features': 3},
-        ...             torch.nn.Linear: {'in_features': 5},
+        ...     def finalize_docmatic_config(cls, config):
+        ...         config['linear'] = {
+        ...             'factory': torch.nn.Linear,
+        ...             'out_features': 3,
         ...         }
-        ...         defaults['activation'] = {
-        ...             'cls': torch.nn.ReLU,
+        ...         if config['linear']['factory'] == torch.nn.Linear:
+        ...             config['linear']['in_features'] = 5
+        ...         config['activation'] = {
+        ...             'factory': torch.nn.ReLU,
         ...         }
-        ...         return defaults
         ...     def __init__(self, linear, activation):
         ...         super().__init__()
         ...         self.l = linear  # torch.nn.Linear(in_units, out_units)
         ...         self.a = activation  # torch.nn.ReLU()
         ...     def __call__(self, x):
         ...         return self.a(self.l(x))
-        >>> config = CustomisableDenseLayer.get_config_v2()
+        >>> config = CustomisableDenseLayer.get_config()
         >>> pprint(config)
-        {'cls': 'configurable.CustomisableDenseLayer',
-         'kwargs': {'linear': {'cls': 'torch.nn.modules.linear.Linear',
-           'kwargs': {'bias': True, 'in_features': 5, 'out_features': 3}},
-          'activation': {'cls': 'torch.nn.modules.activation.ReLU',
-           'kwargs': {'inplace': False}}}}
+        {'factory': 'configurable.CustomisableDenseLayer',
+         'linear': {'factory': 'torch.nn.modules.linear.Linear',
+          'in_features': 5,
+          'out_features': 3,
+          'bias': True},
+         'activation': {'factory': 'torch.nn.modules.activation.ReLU',
+          'inplace': False}}
         >>> CustomisableDenseLayer.from_config(config)
         CustomisableDenseLayer(
           (l): Linear(in_features=5, out_features=3, bias=True)
           (a): ReLU()
         )
 
-    With the update keyword of `get_config` you can replace any value in the
-    config. Note in the following example that the 'out_features' stayes in the
-    config, because it is defined as kwargs, while 'in_features' disapers,
-    because it is only defined for `torch.nn.Linear`.
+    Note that the signature defaults from the nested configurable object
+    `torch.nn.modules.linear.Linear` are also in the config.
+
+    With the provided updates to `get_config` you can replace any value in the
+    config. Note in the following example that the 'out_features' stays in the
+    config, because it is outside the if in `finalize_docmatic_config`, while
+    'in_features' disappears because the config object that is given to
+    `finalize_docmatic_config` is a docmatic dict. That means the updates have
+    a higher pririty that the assigned value. This behaviour is similar to
+    sacred (https://sacred.readthedocs.io/en/latest/configuration.html#updating-config-entries).
 
     Example::
 
-        >>> config = CustomisableDenseLayer.get_config_v2(
+        >>> config = CustomisableDenseLayer.get_config(
         ...     updates={'linear': {
-        ...         'cls': torch.nn.Bilinear,
-        ...         torch.nn.Bilinear: {
-        ...             'in1_features': 10, 'in2_features': 15
-        ...         },
+        ...         'factory': torch.nn.Bilinear,
+        ...         'in1_features': 10,
+        ...         'in2_features': 15,
         ...     }}
         ... )
         >>> pprint(config)
-        {'cls': 'configurable.CustomisableDenseLayer',
-         'kwargs': {'linear': {'cls': 'torch.nn.modules.linear.Bilinear',
-           'kwargs': {'bias': True,
-            'out_features': 3,
-            'in1_features': 10,
-            'in2_features': 15}},
-          'activation': {'cls': 'torch.nn.modules.activation.ReLU',
-           'kwargs': {'inplace': False}}}}
+        {'factory': 'configurable.CustomisableDenseLayer',
+         'linear': {'factory': 'torch.nn.modules.linear.Bilinear',
+          'in1_features': 10,
+          'in2_features': 15,
+          'out_features': 3,
+          'bias': True},
+         'activation': {'factory': 'torch.nn.modules.activation.ReLU',
+          'inplace': False}}
         >>> CustomisableDenseLayer.from_config(config)
         CustomisableDenseLayer(
           (l): Bilinear(in1_features=10, in2_features=15, out_features=3, bias=True)
           (a): ReLU()
         )
 
-    When `get_signature` is still not powerful enough, `update_config`
-    supports depended config entries (e.g. NN input size depends on selected
-    input features). The `update_config` has as input the current config.
-    The values in the config are enforced to have the updated value.
-    (example below) i.e. when the update set 'activation' to be 'sigmoid'
-    the statement `config['activation'] = 'relu'` has no effect.
-    Parameters added in from_config
+    Another usecase for this behaviour are depended config entries (e.g.
+    NN input size depends on selected input features).
+
+    # ToDo: This text ist outdated and needs to be reformulated
+    # The values in the config are enforced to have the updated value.
+    # (example below) i.e. when the update set 'activation' to be 'sigmoid'
+    # the statement `config['activation'] = 'relu'` has no effect.
+    # Parameters added in from_config
 
     Example::
 
         >>> class EncoderDecoder(Configurable, torch.nn.Module):
         ...     @classmethod
-        ...     def update_config(cls, config):
+        ...     def finalize_docmatic_config(cls, config):
         ...         # assume that the config only includes values that
         ...         # have defaults in the __init__ signiture
         ...         config['encoder']= {
-        ...                 'cls': DenseLayer,
-        ...                 'kwargs': {
-        ...                     'in_units': config['in_features'],
-        ...                     'out_units': 10
-        ...                 },
-        ...             }
+        ...             'factory': DenseLayer,
+        ...             'in_units': config['in_features'],
+        ...             'out_units': 3
+        ...         }
         ...         config['decoder'] = {
-        ...                 'cls': DenseLayer,
-        ...                 'kwargs': {
-        ...                     'in_units': config['encoder']['kwargs']['out_units'],
-        ...                     'out_units': 20
-        ...                 },
-        ...             }
+        ...             'factory': DenseLayer,
+        ...             'in_units': config['encoder']['out_units'],
+        ...             'out_units': 20
+        ...         }
         ...     def __init__(self, encoder, decoder, in_features=5):
         ...         super().__init__()
         ...         self.net = torch.nn.Sequential(
-        ...             # !!!order is lost (json will sort the keys)!!!
         ...             encoder,
         ...             decoder
         ...         )
         ...         self.in_features = in_features
         ...     def __call__(self, x):
         ...         return self.net(x)
-        >>> config = EncoderDecoder.get_config_v2()
+        >>> config = EncoderDecoder.get_config()
         >>> pprint(config)
-        {'cls': 'configurable.EncoderDecoder',
-         'kwargs': {'in_features': 5,
-          'encoder': {'cls': 'configurable.DenseLayer',
-           'kwargs': {'in_units': 5, 'out_units': 10}},
-          'decoder': {'cls': 'configurable.DenseLayer',
-           'kwargs': {'in_units': 10, 'out_units': 20}}}}
+        {'factory': 'configurable.EncoderDecoder',
+         'encoder': {'factory': 'configurable.DenseLayer',
+          'in_units': 5,
+          'out_units': 3},
+         'decoder': {'factory': 'configurable.DenseLayer',
+          'in_units': 3,
+          'out_units': 20},
+         'in_features': 5}
         >>> EncoderDecoder.from_config(config)
         EncoderDecoder(
           (net): Sequential(
             (0): DenseLayer(
-              (l): Linear(in_features=5, out_features=10, bias=True)
+              (l): Linear(in_features=5, out_features=3, bias=True)
               (a): ReLU()
             )
             (1): DenseLayer(
-              (l): Linear(in_features=10, out_features=20, bias=True)
+              (l): Linear(in_features=3, out_features=20, bias=True)
               (a): ReLU()
             )
           )
         )
 
+    When out_units of the encoder are updated in the config
+    the in_units of the decoder are updated accordingly
+    This behaviour is similar to a sacred config.
 
-        # When out_units of the encoder are updated in the config
-        # the in_units of the decoder are updated accordingly
-        # This behaviour is similar to a sacred config.
-        >>> EncoderDecoder.from_config(EncoderDecoder.get_config_v2(
-        ...     updates={'encoder': {'kwargs': {'out_units': 3}}}
+        >>> EncoderDecoder.from_config(EncoderDecoder.get_config(
+        ...     updates={'encoder': {'out_units': 3}}
         ... ))
         EncoderDecoder(
           (net): Sequential(
@@ -226,34 +262,8 @@ class Configurable:
           )
         )
     """
-    _config = None
 
-    @property
-    def config(self):
-        if self._config is None:
-            p_name = f'{Configurable.__module__}.{Configurable.__qualname__}'
-            name = f'{self.__class__.__module__}.{self.__class__.__qualname__}'
-            raise Exception(
-                f'The config property of a {p_name} object\n'
-                f'is only available, when the object is '
-                f'produced from "from_config".\n'
-                f'You tried to get it for an instance of {name}.'
-            )
-        return self._config
-
-    @config.setter
-    def config(self, value):
-        if self._config is None:
-            self._config = value
-        else:
-            p_name = f'{Configurable.__module__}.{Configurable.__qualname__}'
-            name = f'{self.__class__.__module__}.{self.__class__.__qualname__}'
-            raise Exception(
-                f'The config property of a {p_name} object\n'
-                f'can only be set once.\n'
-                f'You tried to set it for an instance of {name}.'
-            )
-
+    # ToDo: Drop get_signature?
     @classmethod
     def get_signature(cls):
         """
@@ -273,88 +283,18 @@ class Configurable:
         return defaults
 
     @classmethod
+    def finalize_docmatic_config(cls, config):
+        """
+        ToDo: doctext (for now see above Configurable doctext with the
+              examples)
+        """
+        pass
+
+    @classmethod
     def get_config(
             cls,
             updates=None,
-            out_config=None,
-    ):
-        """
-        Provides configuration to allow instantiation with
-        module = Module.from_config(Module.get_config())
-
-        Args:
-            updates: dict with values to be modified w.r.t. defaults.
-                Sub-configurations are updated accordingly if top-level-keys
-                are changed. An Exception is raised if update_dict has unused
-                entries.
-            out_config: Provide an empty dict which is a Sacred config local
-                variable. This allow Sacred to influence dependent parameters.
-
-        Returns: Config
-
-        """
-        config = out_config
-
-        if cls.__module__ == '__main__':
-            # When a class is defined in the main script, it will be
-            # __main__.<ModelName>, but it should be <script>.<ModelName>.
-            # This fix it, when the script is called with
-            # "python -m <script> ..."
-            # but not when it is called with "python <script>.py ..."
-            cls = import_class(class_to_str(cls))
-
-        if config is None:
-            config = {
-                'cls': class_to_str(cls)
-            }
-        elif 'cls' not in config:
-            config['cls'] = class_to_str(cls)
-        else:
-            config['cls'] = class_to_str(config['cls'])
-
-        # This assert is for sacred that may change values in the config dict.
-        if inspect.isclass(import_class(config['cls'])) \
-                and issubclass(import_class(config['cls']), Configurable):
-            # When subclass of Configurable expect proper subclass
-            assert issubclass(import_class(config['cls']), cls), (config['cls'], cls)
-
-        if hasattr(import_class(config['cls']), 'get_signature'):
-            defaults = import_class(config['cls']).get_signature()
-        else:
-            defaults = Configurable.get_signature.__func__(
-                import_class(config['cls'])
-            )
-
-        config['kwargs'] = {
-            **recursive_class_to_str(defaults),
-            **config.get('kwargs', {}),
-            **config.get(config['cls'], {}),
-        }
-
-        for key in list(config.keys()):
-            if key not in ['cls', 'kwargs']:
-                del config[key]
-
-        if updates is None:
-            updates = dict()
-
-        try:
-            update_config(config['kwargs'], updates)
-        except ConfigUpdateException as ex:
-            raise Exception(
-                f'{cls.__module__}.{cls.__qualname__}: '
-                f'Updates that are not used anywhere: {ex}'
-            )
-
-        test_config(config, updates)
-
-        return config
-
-    @classmethod
-    def get_config_v2(
-            cls,
-            updates=None,
-            out_config=None,
+            # out_config=None,
     ):
 
         if cls.__module__ == '__main__':
@@ -366,57 +306,52 @@ class Configurable:
             cls = import_class(class_to_str(cls))
 
         if updates is None:
-            updates = dict()
-
-        config = DogmaticConfig.normalize({
-            'cls': cls,
-            'kwargs': updates
-        }, kwargs_normalize=False)
-
-        if out_config is None:
-            out_config = {}
+            updates = {}
+            config = {}
         else:
-            config = NestedChainMap(
-                DogmaticConfig.sacred_dogmatic_to_dict(out_config),
-                config,
-            ).to_dict()
+            config = _sacred_dogmatic_to_dict(updates)
 
-            # This assert is for sacred that may change values in the config
-            # dict.
-            if inspect.isclass(import_class(config['cls'])) \
-                    and issubclass(import_class(config['cls']), Configurable):
+        if 'factory' not in config:
+            config['factory'] = cls
+        else:
+            config['factory'] = import_class(config['factory'])
+            if inspect.isclass(config['factory']) \
+                    and issubclass(config['factory'], Configurable):
                 # When subclass of Configurable expect proper subclass
-                assert issubclass(import_class(config['cls']), cls), (
-                config['cls'], cls)
+                assert issubclass(import_class(config['factory']), cls), (
+                    config['factory'], cls)
 
-        config = DogmaticConfig(config).to_dict()
+        config = _DogmaticConfig.normalize(config)
 
-        # For sacred
-        out_config.clear()
-        out_config.update(config)
+        # Calculate the config and convert it to a nested dict structure
+        config = _DogmaticConfig(config).to_dict()
 
-        test_config(config, updates)
+        test_config(config, {})
 
-        return out_config
+        # For sacred make an inplace change to the update
+        # (Earlier nessesary, now optional)
+        updates.clear()
+        updates.update(config)
+
+        return updates
 
     @classmethod
     def from_config(
             cls,
             config,
     ) -> 'Configurable':
-        # assert do not use defaults
-        assert 'cls' in config, (cls, config)
+        # ToDo: assert do not use defaults
+        assert 'factory' in config, (cls, config)
         if cls is not Configurable:
-            assert issubclass(import_class(config['cls']), cls), \
-                (config['cls'], cls)
+            assert issubclass(import_class(config['factory']), cls), \
+                (config['factory'], cls)
         new = config_to_instance(config)
-        # new.config = config
         return new
 
 
 def test_config(config, updates):
     # Test if the kwargs are valid
-    sig = inspect.signature(import_class(config['cls']))
+    sig = inspect.signature(import_class(config['factory']))
 
     # Remove default -> force completely described
     sig = sig.replace(
@@ -424,9 +359,10 @@ def test_config(config, updates):
             default=inspect.Parameter.empty
         ) for p in sig.parameters.values()]
     )
+    factory, kwargs = _split_factory_kwargs(config)
     try:
         bound_arguments: inspect.BoundArguments = sig.bind(
-            **config['kwargs']
+            **kwargs
         )
         bound_arguments.apply_defaults()
     except TypeError as ex:
@@ -445,33 +381,35 @@ def test_config(config, updates):
             sig_wo_anno = sig.replace(
                 parameters=[p.replace(
                     annotation=inspect.Parameter.empty,
-                    default=config['kwargs'].get(
+                    default=kwargs.get(
                         p.name, inspect.Parameter.empty
                     ),
                 ) for p in sig.parameters.values()]
             )
             raise TypeError(
-                f'{config["cls"]} {ex}\n'
+                f'{factory} {ex}\n'
                 f'Did you mean one of these {suggestions}?\n'
                 f'Call signature: {sig_wo_anno}\n'
                 f'Where\n'
-                f'     kwargs.keys(): {config["kwargs"].keys()}\n'
+                f'     kwargs.keys(): {kwargs.keys()}\n'
                 f'     error msg: {ex}'
             ) from ex
         else:
             raise TypeError(
-                f'The test, if the call {config["cls"]}(**kwargs) would '
+                f'The test, if the call {factory}(**kwargs) would '
                 f'be successful, failed.\n'
                 f'Where\n'
-                f'     kwargs: {config["kwargs"]}\n'
+                f'     kwargs: {kwargs}\n'
                 f'     signature: {sig}\n'
                 f'     updates: {updates}\n'
-                f'     error msg: {ex}'
+                f'     error msg: {ex}\n'
+                f'     config: {config}'
             ) from ex
 
     # Guarantee that config is json serializable
     try:
-        _ = json.dumps(config)
+        _ = pb.io.dumps_json(config)
+        # _ = json.dumps(config)
     except TypeError as ex:
         from IPython.lib.pretty import pretty
         pretty_config = pretty(config)
@@ -487,6 +425,9 @@ def fix_doctext_import_class(locals_dict):
     """
     Use this function inside a doctest as
     `>>> fix_doctext_import_class(locals())`
+
+    This is necessary, because classes defined in a doctest could not be
+    imported.
 
     >>> abc = 1
     >>> class Foo: pass
@@ -528,6 +469,18 @@ def fix_doctext_import_class(locals_dict):
 
 
 def import_class(name: str):
+    """
+    Imports the str and returns the imported object.
+
+    Opposite of class_to_str.
+    
+    >>> import padertorch
+    >>> import_class(padertorch.Model)
+    <class 'padertorch.base.Model'>
+    >>> import_class('padertorch.Model')
+    <class 'padertorch.base.Model'>
+    
+    """
     if not isinstance(name, str):
         return name
     splitted = name.split('.')
@@ -563,6 +516,10 @@ def resolve_main_python_path() -> str:
 
 def class_to_str(cls):
     """
+    Convert a class to an importable str.
+
+    Opposite of import_class.
+
     >>> import padertorch
     >>> class_to_str(padertorch.Model)
     'padertorch.base.Model'
@@ -589,125 +546,18 @@ def class_to_str(cls):
         return f'{cls.__qualname__}'
 
 
-def recursive_class_to_str(
-        config: Union[str, Number, None, dict, list, tuple, Path]
-) -> Union[str, Number, dict, list, tuple]:
-    """
-    Recursively traverses a config and transforms all class or
-    Path instances into their string representation while passing allowed data
-    types and failing otherwise.
-
-    changes Configurable Objects to import path string
-    changes Path to str
-
-    :param config: The raw config, maybe containing class types and Path
-        instances.
-    :return: a JSON serializable version of the config.
-    >>> from padertorch import Model
-    >>> recursive_class_to_str([{'cls': 'padertorch.Model'}])
-    [{'cls': 'padertorch.base.Model'}]
-    >>> recursive_class_to_str([{'cls': Model, Model: {}}])
-    [{'cls': 'padertorch.base.Model', 'padertorch.base.Model': {}}]
-    >>> recursive_class_to_str([None])
-    [None]
-    """
-    if config is None or isinstance(config, (str, Number)):
-        return config
-    elif isinstance(config, (dict, NestedChainMap)):
-        if 'cls' in config.keys():
-            return {
-                k if isinstance(k, str) else class_to_str(k):
-                class_to_str(v) if k == 'cls' else recursive_class_to_str(v)
-                for k, v in config.items()
-            }
-        else:
-            return config.__class__({
-                k: recursive_class_to_str(v)
-                for k, v in config.items()
-            })
-    elif isinstance(config, (list, tuple)):
-        return config.__class__([
-            recursive_class_to_str(l)
-            for l in config
-        ])
-    elif isinstance(config, Path):
-        return str(config)
-    else:
-        raise TypeError('config is of unusable type'
-                        f' {type(config)}.\n'
-                        f' config:\n{config!r}')
-
-
-class ConfigUpdateException(Exception):
-    pass
-
-
-def update_config(config, updates):
-    """
-
-    :param config: config dict
-    :param updates: updates dict.
-    :return:
-    """
-    # TODO: tuple and lists (e.g. Trainer models and optimizers)
-    if 'cls' in config or 'cls' in updates:
-        if 'cls' in updates:
-            config['cls'] = class_to_str(updates['cls'])
-        sub_updates = {
-            **updates.get('kwargs', {}),
-            **updates.get(config['cls'], {}),
-            **updates.get(import_class(config['cls']), {}),
-        }
-
-        cls = import_class(config['cls'])
-        if hasattr(cls, 'get_config'):
-            # inplace
-            cls.get_config(
-                updates=sub_updates,
-                out_config=config,
-            )
-        else:
-            Configurable.get_config.__func__(
-                cls,
-                updates=sub_updates,
-                out_config=config,
-            )
-    else:
-        for key in sorted(list(config.keys())):
-            if isinstance(config[key], dict):
-                update_config(
-                    config[key],
-                    updates.pop(key) if updates and key in updates else dict(),
-                )
-            elif updates and key in updates:
-                new_value = updates.pop(key)
-                if isinstance(new_value, dict):
-                    config[key] = {}
-                    update_config(
-                        config[key],
-                        new_value,
-                    )
-                else:
-                    config[key] = new_value
-
-        for key in list(updates.keys()):
-            if isinstance(updates[key], dict):
-                config[key] = {}
-                update_config(
-                    config[key],
-                    updates.pop(key),
-                )
-            else:
-                config[key] = updates.pop(key)
-
+def _split_factory_kwargs(config):
+    kwargs = config.copy()
+    factory = kwargs.pop('factory')
+    return factory, kwargs
+    
 
 def config_to_instance(config):
     if isinstance(config, dict):
-        if 'cls' in config:
-            assert 'kwargs' in config, config
-            assert len(config) == 2, (config.keys(), config)
-            new = import_class(config['cls'])(
-                **config_to_instance(config['kwargs'])
+        if 'factory' in config:
+            factory, kwargs = _split_factory_kwargs(config)
+            new = import_class(factory)(
+                **config_to_instance(kwargs)
             )
             try:
                 new.config = config
@@ -751,7 +601,13 @@ class NestedChainMap(collections.ChainMap):
     >>> pprint(c.to_dict())
     {'1': {'1_2': 3, '1_1': 1}, '2': {'2_1': 3, '2_2': 2}, '3': 3}
     >>> c['1']['1_1'] = 100  # will be ignored
-    >>> c['1']['1_2'] = 200  # will set the value
+    >>> c['1']['1_2'] = 300  # will set the value
+    >>> c['1']['1_2'] = 200  # will overwrite the value
+    >>> pprint(c)
+    NestedChainMap({'1': {'1_1': 1}, '2': {'2_2': 2}, '3': 3},
+                   {'1': {'1_2': 200, '1_1': 100}, '2': {'2_1': 3, '2_2': 4}})
+    >>> c['1']['1_2'] = 300  # will set the value
+    >>> c['1']['1_2'] = 200  # will overwrite the value
     >>> pprint(c)
     NestedChainMap({'1': {'1_1': 1}, '2': {'2_2': 2}, '3': 3},
                    {'1': {'1_2': 200, '1_1': 100}, '2': {'2_1': 3, '2_2': 4}})
@@ -803,13 +659,26 @@ class NestedChainMap(collections.ChainMap):
             # short circuit
             return self.subs[item]
 
-        is_dict_list = [
-            isinstance(m[item], (dict, self.__class__))
+        is_mapping = [
+            isinstance(m[item], collections.Mapping)
             for m in self.maps
             if item in m
         ]
-        if any(is_dict_list):
-            assert all(is_dict_list), (item, is_dict_list, self.maps)
+        if any(is_mapping) and is_mapping[0]:
+            if not all(is_mapping):
+                for m in self.maps:
+                    if item in m:
+                        if not isinstance(m[item], collections.Mapping):
+                            # delete the value, because it has the wrong type
+                            del m[item]
+            #     from IPython.lib.pretty import pretty
+            #     raise Exception(
+            #         f'Tried to get the value for the key "{item}" in this '
+            #         f'NestedChainMap.\n'
+            #         f'Expect that all values in the maps are dicts or none is'
+            #         f'a dict:\n'
+            #         f'{pretty(self)}'
+            #     )
             m: dict
 
             def my_setdefault(mapping, key, default):
@@ -820,17 +689,18 @@ class NestedChainMap(collections.ChainMap):
                     return default
 
             sub = self.__class__(*[
-                my_setdefault(m, item, {}) for m in self.maps
+                my_setdefault(m, item, {})
+                for m in self.maps
             ], mutable_idx=self.mutable_idx)
 
             self.subs[item] = sub
             return sub
-        else:
-            # super().__getitem__ is to expensive
-            for mapping in self.maps:
-                if item in mapping:
-                    return mapping[item]
-            raise KeyError(item)
+
+        # super().__getitem__ is to expensive
+        for mapping in self.maps:
+            if item in mapping:
+                return mapping[item]
+        raise KeyError(item)
 
     def to_dict(self):
         return {
@@ -852,34 +722,42 @@ class NestedChainMap(collections.ChainMap):
                     p.pretty(m)
 
 
-class DogmaticConfig:
+def _sacred_dogmatic_to_dict(config):
+    """
+    Takes a nested structure as input and sets all values that are defined
+    from sacred as "fixed". Returns the nested structure with all updates
+    applied from sacred.
+    """
+    import sacred.config.custom_containers
+    import paderbox as pb
 
-    @classmethod
-    def sacred_dogmatic_to_dict(cls, config):
-        import sacred.config.custom_containers
-        import paderbox as pb
-
-        if isinstance(config, sacred.config.custom_containers.DogmaticDict):
-            return pb.utils.nested.nested_merge(
-                {
-                    k: cls.sacred_dogmatic_to_dict(config[k])
-                    for keys in [
-                    config.keys(),
-                    cls.sacred_dogmatic_to_dict(config.fallback).keys(),
-                ]
-                    for k in keys
-                }, {
-                    k: cls.sacred_dogmatic_to_dict(v)
-                    for k, v in config.fixed.items()
-                }
-            )
-        elif isinstance(config, dict):
-            return {
-                k: cls.sacred_dogmatic_to_dict(v)
-                for k, v in config.items()
+    if isinstance(config, sacred.config.custom_containers.DogmaticDict):
+        return pb.utils.nested.nested_merge(
+            {
+                k: _sacred_dogmatic_to_dict(config[k])
+                for keys in [
+                config.keys(),
+                _sacred_dogmatic_to_dict(config.fallback).keys(),
+            ]
+                for k in keys
+            }, {
+                k: _sacred_dogmatic_to_dict(v)
+                for k, v in config.fixed.items()
             }
-        else:
-            return config
+        )
+    elif isinstance(config, dict):
+        return {
+            k: _sacred_dogmatic_to_dict(v)
+            for k, v in config.items()
+        }
+    else:
+        return config
+
+
+class _DogmaticConfig:
+    """
+    This class is an implementation detail of Configurable
+    """
 
     @staticmethod
     def get_signature(cls: Configurable):
@@ -890,85 +768,39 @@ class DogmaticConfig:
                 cls
             )
 
-    # Keep the dictionary reference and do an inplace update
-    # (fallback)
     @classmethod
-    def nested_default(cls, d, fallback):
-        # Similar to
-        # dict.setdefault(key[, default])
-        # but for nested
-        for k, v in fallback.items():
-            if k in d:
-                if isinstance(d[k], dict) and isinstance(v, dict):
-                    cls.nested_default(d[k], v)
-                else:
-                    pass
-            else:
-                d[k] = v
+    def _force_factory_type(self, factory):
+        """
+        This is a placeholder until it is finally decided, if the factory
+        should be a str or a class in finalize_docmatic_config.
+
+        Options:
+         - class
+         - str
+         - Object that can be compared with str and class
+
+        This function should later be deleted.
+        """
+        return import_class(factory)
 
     @classmethod
-    def normalize(cls, dictionary, kwargs_normalize=True):
+    def normalize(cls, dictionary):
         """
         Normalize the nested dictionary.
-
-        The value of cls keys are forced to have the type str
-        (i.e. class_to_str).
-
-        When a dict has the cls key it also have the kwargs key and the cls
-        value as key (e.g. {'cls': 'MyClass', 'kwargs': {}, 'MyClass': {}}).
-
-        If kwargs_normalize is True:
-        Description on the example
-            {'cls': 'MyClass', 'kwargs': {}, 'MyClass': {}}
-            Each key value in kwargs that is missing in MyClass is set in the
-            MyClass dict.
-
+         - The value of factory keys are forced to be the object and not the
+           str. (i.e. import_class).
+         - pathlib.Path to str
         """
-        # dictionary = recursive_class_to_str(dictionary)
         if isinstance(dictionary, collections.Mapping):
-            if 'cls' in dictionary:
-                if not isinstance(dictionary['cls'], str):
-                    # assert False, (type(dictionary), dictionary)
-                    dictionary['cls'] = class_to_str(dictionary['cls'])
-                for key in tuple(dictionary.keys()):
-                    if not isinstance(key, str):
-                        str_key = class_to_str(key)
-                        dictionary[str_key] = dictionary.pop(key)
-
-            if 'cls' in dictionary:
-                if 'kwargs' not in dictionary:
-                    dictionary['kwargs'] = {}
-
-                if kwargs_normalize:
-                    cls_str = dictionary['cls']
-
-                    if cls_str not in dictionary:
-                        dictionary[cls_str] = {}
-
-                    if 'kwargs' not in dictionary:
-                        dictionary['kwargs'] = {}
-                    for k in set(dictionary.keys()) - {'cls', 'kwargs'}:
-                        cls.nested_default(dictionary[k], dictionary['kwargs'])
-
-                        # NestedChainMap is to expensive here
-                        # if isinstance(dictionary[k], NestedChainMap) \
-                        #         and len(dictionary[k].maps) == 2 \
-                        #         and dictionary[k].maps[-1] is dictionary['kwargs']:
-                        #     print('#' * 100)
-                        #     pass
-                        # else:
-                        #     dictionary[k] = NestedChainMap(
-                        #         dictionary[k], dictionary['kwargs']
-                        #     )
-
+            if 'factory' in dictionary:
+                dictionary['factory'] = cls._force_factory_type(
+                    dictionary['factory']
+                )
             for k, v in list(dictionary.items()):
-                # if isinstance(v, dict):
-                cls.normalize(v, kwargs_normalize=kwargs_normalize)
-                # elif isinstance(v, Path):
-                #     dictionary[k] = str(v)
+                cls.normalize(v)
         elif isinstance(dictionary, (tuple, list)):
             dictionary = [
-                cls.normalize(v, kwargs_normalize=kwargs_normalize)
+                cls.normalize(v)
                 for v in dictionary
             ]
         elif isinstance(dictionary, Path):
@@ -983,21 +815,35 @@ class DogmaticConfig:
             *maps,
             mutable_idx=-1
     ):
-        self.mutable_idx = mutable_idx
+        """
+        Takes maps as input (usually dicts) and store them as a NestedChainMap
+        with one further dict at the end.
+        The mutable_idx is the index for that dict that this class writes
+        everything that is set with __setitem__. That means if a dict with a
+        lower index already defines a value for that key, the new value is
+        ignored.
 
+        For __getitem__ see __getitem__ doctext.
+
+        Args:
+            *maps:
+            mutable_idx:
+
+        """
         assert len(maps) >= 1, maps
         maps = [
-            self.normalize(m, kwargs_normalize=True)
+            self.normalize(m)
             for m in maps
         ] + [{}]
 
-        self.data = NestedChainMap(*maps,
-                                   mutable_idx=mutable_idx,
-                                   )
+        self.data = NestedChainMap(
+            *maps,
+            mutable_idx=mutable_idx,
+        )
 
     def get_sub_config(self, key, mutable_idx=None):
         if mutable_idx is None:
-            mutable_idx = self.mutable_idx
+            mutable_idx = self.data.mutable_idx
         sub = self.data[key]
 
         if isinstance(sub, NestedChainMap):
@@ -1008,12 +854,29 @@ class DogmaticConfig:
             raise KeyError(key)
 
     def keys(self):
-        if 'cls' in self.data:
-            return tuple([
-                k
-                for k in self.data.keys()
-                if k in ['cls', 'kwargs']
+        if 'factory' in self.data:
+            factory = import_class(self.data['factory'])
+            parameters = inspect.signature(factory).parameters.values()
+            p: inspect.Parameter
+
+            parameter_names = tuple([
+                p.name
+                for p in parameters
+                if p.kind in [
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    inspect.Parameter.KEYWORD_ONLY,
+                ]
             ])
+
+            if inspect.Parameter.VAR_KEYWORD in [p.kind for p in parameters]:
+                parameter_names += tuple(self.data.keys())
+
+                # Removing duplicates in lists
+                # https://stackoverflow.com/a/7961390/5766934
+                parameter_names = tuple(
+                    collections.OrderedDict.fromkeys(parameter_names)
+                )
+            return tuple(['factory']) + parameter_names
         else:
             return tuple(self.data.keys())
 
@@ -1025,69 +888,59 @@ class DogmaticConfig:
         )
 
     def __setitem__(self, key, value):
-        if isinstance(value, dict):
-            self.normalize(value, kwargs_normalize=True)
+        self.data[key] = self.normalize(value)
 
-        # if 'cls' in self.data:
-        #     if key == 'kwargs':
-        #         for k in set(self.data.keys()) - {'cls', 'kwargs'}:
-        #             self.data[k] = value
-        #     elif key == 'cls':
-        #         pass
-        #     elif key not in self.data:
-        #         # ToDo: test this
-        #         import copy
-        #         from IPython.lib.pretty import pprint
-        #         print('Insert new class str')
-        #         pprint(self.data)
-        #         for m in self.data.maps:
-        #             if 'kwargs' in m:
-        #                 m[key] = copy.deepcopy(m['kwargs'])
-        #
-        #         pprint(self.data)
-        #     else:
-        #         pass
-
-        self.data[key] = value
 
     def __getitem__(self, key):
-        if 'cls' in self.data:
-            cls_str = self.data['cls']
+        """
+        Returns the value for the key.
 
-            if key == 'cls':
-                value = cls_str
-            elif key == 'kwargs':
-                # Changes 'kwargs' to cls str
-                key = cls_str
+        When the value is not a dict, directly return the value.
+        When the value is a dict and does not contain "factory" as key,
+        return a _DocmaticConfig instance for that dict
+        (i.e. take the sub dict of each dict is self.data.maps).
+        When the dict contains the key "factory", freeze the mutable_idx of
+        this _DocmaticConfig instance and update the kwargs
+        (i.e. get the defaults from the signature and call
+        finalize_docmatic_config is it exists.)
 
-                cls = import_class(cls_str)
-                defaults = self.get_signature(cls)
+        """
+        if 'factory' in self.data \
+                and key != 'factory' \
+                and self.data.mutable_idx != (len(self.data.maps) - 1):
+            factory = self.data['factory']
 
-                _ = self.get_sub_config(key)
+            # Force factory to be the class/function
+            factory = import_class(factory)
 
-                for m1, m2 in zip(self.data[key].maps, self.data['kwargs'].maps):
-                    self.nested_default(m1, m2)
+            # Freeze the mutable_idx (i.e. all updates to the config of
+            # this level)
+            mutable_idx_old = self.data.mutable_idx
+            self.data.mutable_idx = len(self.data.maps) - 1
 
-                # Freeze the mutable_idx.
-                # => changes from get_signature and update_config go to this
-                #    level of the config
-                kwargs = self.__class__(
-                    *self.data[key].maps,
-                    mutable_idx=len(self.data.maps) - 1,
+            # Get the defaults from the factory signature
+            defaults = self.get_signature(factory)
+            for k, v in defaults.items():
+                self[k] = v
+
+            if hasattr(factory, 'finalize_docmatic_config'):
+                factory.finalize_docmatic_config(self)
+
+            delta = set(self.data.keys()) - set(self.keys())
+
+            if len(delta) > 1:
+                # (delta, self.data.keys(), parameter_names)
+                from IPython.lib.pretty import pretty
+                raise Exception(
+                    f'Got fot the factory {factory} to much keywords.\n'
+                    f'Delta: {delta}\n'
+                    f'signature: {inspect.signature(factory)}\n'
+                    f'current config with fallbacks:\n{pretty(self.data)}'
                 )
 
-                for k, v in defaults.items():
-                    kwargs[k] = v
+            self.data.mutable_idx = mutable_idx_old
 
-                if hasattr(cls, 'update_config'):
-                    cls.update_config(kwargs)
-
-                # ToDo: assert valid kwargs
-
-                value = self.get_sub_config(key)
-            else:
-                raise ValueError(key)
-        elif key in self.data:
+        if key in self.data:
             try:
                 value = self.get_sub_config(key)
             except KeyError:
@@ -1098,17 +951,17 @@ class DogmaticConfig:
         return value
 
     def to_dict(self):
-        if 'cls' in self.keys():
-            d = {
-                'cls': self['cls'],
-                'kwargs': self['kwargs'].to_dict()
-            }
-        else:
-            d = {}
-            for k in self.keys():
-                v = self[k]
-                if isinstance(v, self.__class__):
-                    v = v.to_dict()
-                d[k] = v
+        d = {}
+        for k in self.keys():
+            v = self[k]
+            if 'factory' == k:
+                v = class_to_str(v)
+            if isinstance(v, self.__class__):
+                v = v.to_dict()
+            d[k] = v
 
         return d
+
+    def __repr__(self):
+        maps = ', '.join([repr(m) for m in self.data.maps])
+        return f'{self.__class__.__name__}({maps}, mutable_idx={self.data.mutable_idx})'
