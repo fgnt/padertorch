@@ -9,7 +9,8 @@ resulting in an unparameterized module. If you instantiate it with
 `from_config` you get a configured module.
 
 If modules contain modules, look out for examples on how to override
-`get_signature`. In most cases, when you want to provide an instance as
+`get_signature` (padertorch.contrib.examples.configurable).
+In most cases, when you want to provide an instance as
 a parameter to the `__init__` you can instead provide the parameters which were
 used for that instance in your modified `get_signature`.
 
@@ -30,8 +31,8 @@ class Configurable:
     Each factory function is a configurable object (e.g. class constructor and
     function). The configurable object can be described with cls and kwargs.
     "cls" is the string that can be imported and kwargs contains all the
-    keyword arguments to initialize that object. Not inside the kwargs can also
-    be configurable objects.
+    keyword arguments to initialize that object. Note: inside the kwargs can
+     also be configurable objects.
 
     Example::
 
@@ -150,77 +151,80 @@ class Configurable:
     The values in the config are enforced to have the updated value.
     (example below) i.e. when the update set 'activation' to be 'sigmoid'
     the statement `config['activation'] = 'relu'` has no effect.
+    Parameters added in from_config
 
     Example::
 
-        >>> class DenceLayerStack(Configurable, torch.nn.Module):
+        >>> class EncoderDecoder(Configurable, torch.nn.Module):
         ...     @classmethod
         ...     def update_config(cls, config):
-        ...         # !!!order will not be preserved!!!
-        ...         config['activation'] = 'relu'
-        ...         # print("config['activation']", config['activation'])
-        ...         if config['activation'] == 'relu':
-        ...             activation = torch.nn.ReLU
-        ...         elif config['activation'] == 'sigmoid':
-        ...             activation = torch.nn.Sigmoid
-        ...         layers = collections.OrderedDict()
-        ...         for i in range(config['layer_count']):
-        ...             layers[f'l_{i}'] = {
-        ...                 'cls': torch.nn.Linear,
-        ...                 'kwargs': {'out_features': 3},
-        ...                 torch.nn.Linear: {'in_features': 5},
+        ...         # assume that the config only includes values that
+        ...         # have defaults in the __init__ signiture
+        ...         config['encoder']= {
+        ...                 'cls': DenseLayer,
+        ...                 'kwargs': {
+        ...                     'in_units': config['in_features'],
+        ...                     'out_units': 10
+        ...                 },
         ...             }
-        ...             layers[f'{i}_activation'] = {
-        ...                 'cls': activation,
+        ...         config['decoder'] = {
+        ...                 'cls': DenseLayer,
+        ...                 'kwargs': {
+        ...                     'in_units': config['encoder']['kwargs']['out_units'],
+        ...                     'out_units': 20
+        ...                 },
         ...             }
-        ...         config['net'] = layers
-        ...     def __init__(self, net, activation, layer_count=3):
+        ...     def __init__(self, encoder, decoder, in_features=5):
         ...         super().__init__()
         ...         self.net = torch.nn.Sequential(
         ...             # !!!order is lost (json will sort the keys)!!!
-        ...             collections.OrderedDict(net)
+        ...             encoder,
+        ...             decoder
         ...         )
+        ...         self.in_features = in_features
         ...     def __call__(self, x):
         ...         return self.net(x)
-        >>> config = DenceLayerStack.get_config_v2()
+        >>> config = EncoderDecoder.get_config_v2()
         >>> pprint(config)
-        {'cls': 'configurable.DenceLayerStack',
-         'kwargs': {'layer_count': 3,
-          'activation': 'relu',
-          'net': {'l_0': {'cls': 'torch.nn.modules.linear.Linear',
-            'kwargs': {'bias': True, 'in_features': 5, 'out_features': 3}},
-           '0_activation': {'cls': 'torch.nn.modules.activation.ReLU',
-            'kwargs': {'inplace': False}},
-           'l_1': {'cls': 'torch.nn.modules.linear.Linear',
-            'kwargs': {'bias': True, 'in_features': 5, 'out_features': 3}},
-           '1_activation': {'cls': 'torch.nn.modules.activation.ReLU',
-            'kwargs': {'inplace': False}},
-           'l_2': {'cls': 'torch.nn.modules.linear.Linear',
-            'kwargs': {'bias': True, 'in_features': 5, 'out_features': 3}},
-           '2_activation': {'cls': 'torch.nn.modules.activation.ReLU',
-            'kwargs': {'inplace': False}}}}}
-        >>> DenceLayerStack.from_config(config)
-        DenceLayerStack(
+        {'cls': 'configurable.EncoderDecoder',
+         'kwargs': {'decoder': {'cls': 'configurable.DenseLayer',
+           'kwargs': {'in_units': 10, 'out_units': 20}},
+          'encoder': {'cls': 'configurable.DenseLayer',
+           'kwargs': {'in_units': 5, 'out_units': 10}},
+          'in_features': 5}}
+        >>> EncoderDecoder.from_config(config)
+        EncoderDecoder(
           (net): Sequential(
-            (l_0): Linear(in_features=5, out_features=3, bias=True)
-            (0_activation): ReLU()
-            (l_1): Linear(in_features=5, out_features=3, bias=True)
-            (1_activation): ReLU()
-            (l_2): Linear(in_features=5, out_features=3, bias=True)
-            (2_activation): ReLU()
+            (0): DenseLayer(
+              (l): Linear(in_features=5, out_features=10, bias=True)
+              (a): ReLU()
+            )
+            (1): DenseLayer(
+              (l): Linear(in_features=10, out_features=20, bias=True)
+              (a): ReLU()
+            )
           )
         )
-        >>> DenceLayerStack.from_config(DenceLayerStack.get_config_v2(
-        ...     updates={'layer_count': 1, 'activation': 'sigmoid'}
+
+
+        # When out_units of the encoder are updated in the config
+        # the in_units of the decoder are updated accordingly
+        # This behaviour is similar to a sacred config.
+        >>> EncoderDecoder.from_config(EncoderDecoder.get_config_v2(
+        ...     updates={'encoder': {'kwargs': {'out_units': 3}}}
         ... ))
-        DenceLayerStack(
+        EncoderDecoder(
           (net): Sequential(
-            (l_0): Linear(in_features=5, out_features=3, bias=True)
-            (0_activation): Sigmoid()
+            (0): DenseLayer(
+              (l): Linear(in_features=5, out_features=3, bias=True)
+              (a): ReLU()
+            )
+            (1): DenseLayer(
+              (l): Linear(in_features=3, out_features=20, bias=True)
+              (a): ReLU()
+            )
           )
         )
-
-
     """
     _config = None
 
