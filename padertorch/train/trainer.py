@@ -108,9 +108,27 @@ class Trainer(Configurable):
             checkpoint_trigger=(1, 'epoch'),
             keep_all_checkpoints=False,
             max_trigger=(1, 'epoch'),
-            gpu=0 if torch.cuda.is_available() else None,
-            seed=0,
+            gpu=0 if torch.cuda.is_available() else None
     ):
+        """
+
+        :param model: a pytorch.base.Model object or dict of Models
+        :param storage_dir:
+        :param optimizer: a pytorch.train.optimizer.Optimizer object
+                    or dict of Optimizers
+        :param loss_weights: dict of weights for model with multiple losses
+        :param summary_trigger: pytorch.train.trigger.IntervalTrigger object
+                    or tuple describing the intervall when summaries
+                    are written to event files
+        :param checkpoint_trigger: pytorch.train.trigger.IntervalTrigger object
+                    or tuple describing the intervall when checkpoints
+                    are saved
+        :param keep_all_checkpoints: flag if False only latest and best
+                    checkpoints are kept otherwise all checkpoints are kept
+        :param max_trigger: pytorch.train.trigger.EndTrigger object
+                    or tuple describing the endpoint of the training
+        :param gpu: defines the gpu which shall be used, if None cpu is used
+        """
         self.model = nested_to_torch_module(model)
         self.use_cuda = gpu is not None
         self.gpu_device = None
@@ -134,7 +152,6 @@ class Trainer(Configurable):
         self.reset_timer()
         self.iteration = None
         self.epoch = None
-        self.seed = seed
 
         self.summary_trigger = summary_trigger
         self.checkpoint_trigger = checkpoint_trigger
@@ -189,7 +206,7 @@ class Trainer(Configurable):
         checkpoints, cleanup checkpoints that are stale (not best according
         to metrics and not last) and display a progessbar.
         The code is designed that many aspects can be customized.
-        (e.g. see Janek's examples for multi model trainer)
+        (e.g. test_run_time_tests.py DictTrainer for multi model trainer)
 
         Args:
             train_iterator:
@@ -227,15 +244,6 @@ class Trainer(Configurable):
                 f'restart the training set init_checkpoint to True.'
         torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = False
-
-        # Why set the seed here?
-        #  - To late for iterator
-        #  - To late for model init (i.e. parameter init)
-        # Only effects random part in NN (dropout, sample).
-        #  - Desired?
-        if self.seed is not None:
-            torch.manual_seed(self.seed)
-            torch.cuda.manual_seed(self.seed)
 
         # Change model to train mode (e.g. activate dropout)
         self.model.train()
@@ -560,3 +568,7 @@ class Trainer(Configurable):
             lambda opti: opti.cuda(device) if opti is not None else None,
             self.optimizer
         )
+
+# ToDO: write function for those to functions outside of trainer
+# torch.manual_seed(seed)
+# torch.cuda.manual_seed(seed)
