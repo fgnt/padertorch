@@ -14,7 +14,7 @@ import numpy as np
 import torch
 import tensorboardX
 
-from paderbox.utils.nested import flatten, nested_op, nested_update
+from paderbox.utils.nested import nested_update
 import padertorch as pt
 from padertorch.configurable import Configurable
 from padertorch.train.optimizer import Optimizer, Adam
@@ -25,69 +25,6 @@ from padertorch.train.trigger import IntervalTrigger, OrTrigger
 __all__ = [
     'Trainer',
 ]
-
-
-class ContextTimerDict:
-    """
-    To be able to keep the measurements, we need to create the object before.
-    Then each measurement can be started with a context manager.
-
-    >>> np.set_printoptions(precision=2)
-    >>> timer = ContextTimerDict()
-    >>> with timer['test']:
-    ...     time.sleep(0.1)
-    >>> with timer['test']:
-    ...     time.sleep(0.1)
-    >>> with timer['test_2']:
-    ...     time.sleep(0.1)
-
-    Ignore timing when an exception is raised
-    >>> with contextlib.suppress(Exception), timer['test_2']:
-    ...     raise Exception
-    >>> timer
-    ContextTimerDict: {'test': array([0.1, 0.1]), 'test_2': array([0.1])}
-    >>> timer.as_dict
-    {'test': array([0.1, 0.1]), 'test_2': array([0.1])}
-
-    """
-    def __init__(self):
-        self.timings = defaultdict(list)
-        self.timestamp = time.perf_counter  # time.process_time
-
-    @contextlib.contextmanager
-    def __getitem__(self, item):
-        assert isinstance(item, str), item
-        start = self.timestamp()
-        yield
-        end = self.timestamp()
-        self.timings[item].append(end - start)
-
-    @property
-    def as_dict(self):
-        return {k: np.array(time) for k, time in self.timings.items()}
-
-    def __repr__(self):
-        return f'{self.__class__.__name__}: ' + repr(self.as_dict)
-
-    def __str__(self):
-        return str(self.as_dict)
-
-
-def nested_to_torch_module(model) -> torch.nn.Module:
-    if isinstance(model, torch.nn.Module):
-        return model
-    elif isinstance(model, dict):
-        return torch.nn.ModuleDict({
-            k: nested_to_torch_module(v)
-            for k, v in model.items()
-        })
-    elif isinstance(model, (tuple, list)):
-        return torch.nn.ModuleList([
-            nested_to_torch_module(e)
-            for e in model
-        ])
-    else:
-        raise TypeError(type(model), model)
 
 
 class Trainer(Configurable):
@@ -112,24 +49,56 @@ class Trainer(Configurable):
     ):
         """
 
-        :param model: a pytorch.base.Model object or dict of Models
-        :param storage_dir:
-        :param optimizer: a pytorch.train.optimizer.Optimizer object
+        :param model: a `padertorch.base.Model` object or dict of Models
+        :param storage_dir: The structure of produced storage_dir is:
+            .
+            ├── checkpoints
+            │   ├── ckpt_7122.pth
+            │   ├── ckpt_14244.pth
+            │   ├── ckpt_best_loss.pth -> ckpt_7122.pth
+            │   ├── ckpt_latest.pth -> ckpt_14244.pth
+            │   └── ckpt_state.json
+            ├── events.out.tfevents.1548851867.ntsim5
+        :param optimizer: a `padertorch.train.optimizer.Optimizer` object
                     or dict of Optimizers
         :param loss_weights: dict of weights for model with multiple losses
-        :param summary_trigger: pytorch.train.trigger.IntervalTrigger object
-                    or tuple describing the intervall when summaries
+        :param summary_trigger: `pytorch.train.trigger.IntervalTrigger` object
+                    or tuple describing the interval when summaries
                     are written to event files
-        :param checkpoint_trigger: pytorch.train.trigger.IntervalTrigger object
-                    or tuple describing the intervall when checkpoints
+        :param checkpoint_trigger: `padertorch.train.trigger.IntervalTrigger`
+                    object or tuple describing the interval when checkpoints
                     are saved
         :param keep_all_checkpoints: flag if False only latest and best
                     checkpoints are kept otherwise all checkpoints are kept
-        :param max_trigger: pytorch.train.trigger.EndTrigger object
+        :param max_trigger: `padertorch.train.trigger.EndTrigger` object
                     or tuple describing the endpoint of the training
         :param gpu: defines the gpu which shall be used, if None cpu is used
         """
-        self.model = nested_to_torch_module(model)
+        if isinstance(optimizer, dict):
+            # Special case see Janek's example
+            # ToDo: Hint to example
+
+            model = torch.nn.ModuleDict(model)
+            assert set(model.keys()) == set(optimizer.keys()), \
+                (model, optimizer)
+            optimizer = optimizer.copy()
+            for key, opti in list(optimizer.items()):
+                if opti is None:
+                    del optimizer[key]
+                else:
+                    m = model[key]
+                    opti.set_parameters(m.parameters())
+        else:
+            optimizer.set_parameters(model.parameters())
+
+        self.optimizer = optimizer
+        self.model = model
+        if not isinstance(model, torch.nn.Module):
+            raise TypeError(
+                'Expect that the model is a subclass from padertorch.Module.\n'
+                f'Got: type: {type(model)}\n{model}'
+            )
+
         self.use_cuda = gpu is not None
         self.gpu_device = None
         if self.use_cuda:
@@ -137,16 +106,6 @@ class Trainer(Configurable):
             self.model.cuda(self.gpu_device)
         else:
             self.gpu_device = None
-        self.optimizer = optimizer
-
-        nested_op(
-            lambda opti, model: opti.set_parameters(model.parameters())
-            if opti is not None else None,
-            self.optimizer,
-            self.model,
-            mapping_type=(dict, torch.nn.ModuleDict),
-            sequence_type=(tuple, list, torch.nn.ModuleList),
-        )
 
         self.storage_dir = Path(storage_dir).expanduser().resolve()
         self.reset_timer()
@@ -309,6 +268,7 @@ class Trainer(Configurable):
     def validate(self, validation_iterator):
         """
         used by ValidationHook
+
         :param validation_iterator:
         :return:
         """
@@ -333,15 +293,22 @@ class Trainer(Configurable):
                 self._start_non_validation_time = self.timer.timestamp()
 
     def train_step(self, example):
-        nested_op(
-            lambda x: (x.zero_grad() if x is not None else None),
-            self.optimizer
-        )
+        if isinstance(self.optimizer, dict):
+            for opti in self.optimizer.values():
+                opti.zero_grad()
+        else:
+            self.optimizer.zero_grad()
+
         model_out, review = self.step(example)
         self.backward(review)
         grad_summary = self.clip_grad()
-        nested_op(
-            lambda x: (x.step() if x is not None else None), self.optimizer)
+
+        if isinstance(self.optimizer, dict):
+            for opti in self.optimizer.values():
+                opti.step()
+        else:
+            self.optimizer.step()
+
         nested_update(review, grad_summary)
         return model_out, review
 
@@ -454,30 +421,24 @@ class Trainer(Configurable):
             prefix_ = ''
         else:
             prefix_ = f'{prefix}_'
-        grad_norm = nested_op(
-            lambda opti, model: opti.clip_grad(model.parameters(), prefix)
-            if opti is not None else 0.,
-            self.optimizer, self.model,
-            mapping_type=(dict, torch.nn.ModuleDict),
-            sequence_type=(tuple, list, torch.nn.ModuleList),
-        )
+
         summary = dict(scalars=dict(), histograms=dict())
-        if isinstance(grad_norm, dict):
-            for key, value in flatten(grad_norm).items():
-                summary['scalars'][f'{prefix_}grad_norm_{key}'] = value
+        if isinstance(self.optimizer, dict):
+            for key, opti in self.optimizer:
+                model = self.model[key]
+                grad_norm = opti.clip_grad(model.parameters(), prefix)
+
+                summary['scalars'][f'{prefix_}grad_norm_{key}'] = grad_norm
                 # underscore was necessary to obtain unique keys to prevent
                 # tensorboard error
                 summary['histograms'][
-                    f'{prefix_}grad_norm_{key}_'] = torch.Tensor([value])
-        elif isinstance(grad_norm, (list, tuple)):
-            for i, value in enumerate(grad_norm):
-                summary['scalars'][f'{prefix_}grad_norm_{i}'] = value
-                summary['histograms'][f'{prefix_}grad_norm_{i}_'] = \
-                    torch.Tensor([value])
+                    f'{prefix_}grad_norm_{key}_'] = torch.Tensor([grad_norm])
         else:
+            grad_norm = self.optimizer.clip_grad(self.model.parameters(), prefix)
             summary['scalars'][f'{prefix_}grad_norm'] = grad_norm
             summary['histograms'][f'{prefix_}grad_norm_'] = \
                 torch.Tensor([grad_norm])
+
         return summary
 
     @property
@@ -493,24 +454,25 @@ class Trainer(Configurable):
         if self.use_cuda:
             self.cpu()
 
-        # Is self.model.state_dict better than a nested op
-        # model_state_dict = self.model.state_dict()
-        model_state_dict = nested_op(
-            lambda model: model.state_dict(),
-            self.model,
-            mapping_type=(dict, torch.nn.ModuleDict),
-            sequence_type=(tuple, list, torch.nn.ModuleList),
-            keep_type=False
-        )
+        if isinstance(self.optimizer, dict):
+            model_state_dict = {
+                k: model.state_dict()
+                for k, model in self.model.items()
+            }
+            optimizer_state_dict = {
+                k: opti.state_dict()
+                for k, opti in self.optimizer.items()
+            }
+        else:
+            model_state_dict = self.model.state_dict()
+            optimizer_state_dict = self.optimizer.state_dict()
 
         torch.save(
             dict(
                 model=model_state_dict,
                 iteration=self.iteration,
                 epoch=self.epoch,
-                optimizer=nested_op(
-                    lambda opti: opti and opti.state_dict(), self.optimizer
-                )
+                optimizer=optimizer_state_dict,
             ),
             str(checkpoint_path)
         )
@@ -520,56 +482,94 @@ class Trainer(Configurable):
               f"at iteration {self.iteration} to {checkpoint_path}")
 
     def load_checkpoint(self):
-        """
-        Function should not be modified to accept a folder alone to avoid
-        a confusion between best snapshot (for test) and last snapshot
-        (resume).
-
-        Args:
-            checkpoint_path:
-
-        Returns:
-
-        """
-
         checkpoint_path = self.checkpoint_dir / 'ckpt_latest.pth'
         assert checkpoint_path.is_file(), checkpoint_path
         checkpoint_dict = torch.load(str(checkpoint_path), map_location='cpu')
 
-        # Is self.model.load_state_dict better than a nested op
-        # self.model.load_state_dict(checkpoint_dict['model'])
-        nested_op(
-            lambda model, state: model.load_state_dict(state),
-            self.model,
-            checkpoint_dict['model'],
-            mapping_type=(dict, torch.nn.ModuleDict),
-            sequence_type=(tuple, list, torch.nn.ModuleList),
-            keep_type=False
-        )
+        if isinstance(self.optimizer, dict):
+            assert set(self.model.keys() == set(checkpoint_dict['model'].keys())), \
+                (self.model, checkpoint_dict['model'])
+            for key, model in self.model.items():
+                model.load_state_dict(
+                    checkpoint_dict['model'][key]
+                )
+            assert set(self.optimizer.keys() == set(checkpoint_dict['optimizer'].keys())), \
+                (self.optimizer, checkpoint_dict['model'])
+            for key, otim in self.optimizer.items():
+                otim.load_state_dict(
+                    checkpoint_dict['optimizer'][key]
+                )
+        else:
+            self.model.load_state_dict(checkpoint_dict['model'])
+            self.optimizer.load_state_dict(checkpoint_dict['optimizer'])
 
         iteration = checkpoint_dict['iteration']
         self.iteration = iteration
         self.epoch = checkpoint_dict['epoch']
-        nested_op(
-            lambda opti, d: opti.load_state_dict(d)
-            if opti is not None else None,
-            self.optimizer, checkpoint_dict['optimizer']
-        )
+
         print(f"Loaded checkpoint '{checkpoint_path}' (iteration {iteration})")
 
     def cpu(self):
         self.model.cpu()
-        nested_op(
-            lambda opti: opti.cpu() if opti is not None else None,
-            self.optimizer
-        )
+        if isinstance(self.optimizer, dict):
+            for opti in self.optimizer.values():
+                opti.cpu()
+        else:
+            self.optimizer.cpu()
 
     def cuda(self, device):
         self.model.cuda(device)
-        nested_op(
-            lambda opti: opti.cuda(device) if opti is not None else None,
-            self.optimizer
-        )
+        if isinstance(self.optimizer, dict):
+            for opti in self.optimizer.values():
+                opti.cuda(device)
+        else:
+            self.optimizer.cuda(device)
+
+
+class ContextTimerDict:
+    """
+    To be able to keep the measurements, we need to create the object before.
+    Then each measurement can be started with a context manager.
+
+    >>> np.set_printoptions(precision=2)
+    >>> timer = ContextTimerDict()
+    >>> with timer['test']:
+    ...     time.sleep(0.1)
+    >>> with timer['test']:
+    ...     time.sleep(0.1)
+    >>> with timer['test_2']:
+    ...     time.sleep(0.1)
+
+    Ignore timing when an exception is raised
+    >>> with contextlib.suppress(Exception), timer['test_2']:
+    ...     raise Exception
+    >>> timer
+    ContextTimerDict: {'test': array([0.1, 0.1]), 'test_2': array([0.1])}
+    >>> timer.as_dict
+    {'test': array([0.1, 0.1]), 'test_2': array([0.1])}
+    """
+    def __init__(self):
+        self.timings = defaultdict(list)
+        self.timestamp = time.perf_counter  # time.process_time
+
+    @contextlib.contextmanager
+    def __getitem__(self, item):
+        assert isinstance(item, str), item
+        start = self.timestamp()
+        yield
+        end = self.timestamp()
+        self.timings[item].append(end - start)
+
+    @property
+    def as_dict(self):
+        return {k: np.array(time) for k, time in self.timings.items()}
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}: ' + repr(self.as_dict)
+
+    def __str__(self):
+        return str(self.as_dict)
+
 
 # ToDO: write function for those to functions outside of trainer
 # torch.manual_seed(seed)
