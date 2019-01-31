@@ -9,10 +9,10 @@ resulting in an unparameterized module. If you instantiate it with
 `from_config` you get a configured module.
 
 If modules contain modules, look out for examples on how to override
-`get_signature` (padertorch.contrib.examples.configurable).
+`finalize_docmatic_config` (padertorch.contrib.examples.configurable).
 In most cases, when you want to provide an instance as
 a parameter to the `__init__` you can instead provide the parameters which were
-used for that instance in your modified `get_signature`.
+used for that instance in your modified `finalize_docmatic_config`.
 
 """
 import sys
@@ -266,21 +266,9 @@ class Configurable:
     # ToDo: Drop get_signature?
     @classmethod
     def get_signature(cls):
-        """
-        Checks signature of __init__. If parameters have defaults, return
-        these in a dictionary.
-
-        Returns:
-
-        """
-
-        sig = inspect.signature(cls)
-        defaults = {}
-        param: inspect.Parameter
-        for name, param in sig.parameters.items():
-            if param.default is not inspect.Parameter.empty:
-                defaults[name] = param.default
-        return defaults
+        raise NotImplementedError('get_signature should no longer be used'
+                                  'if additional defaults have to be'
+                                  'specified use finalize_docmatic_config')
 
     @classmethod
     def finalize_docmatic_config(cls, config):
@@ -760,13 +748,22 @@ class _DogmaticConfig:
     """
 
     @staticmethod
-    def get_signature(cls: Configurable):
-        if hasattr(cls, 'get_signature'):
-            return cls.get_signature()
-        else:
-            return Configurable.get_signature.__func__(
-                cls
-            )
+    def get_signature(factory):
+        """
+        Checks signature of the factory. If parameters have defaults, return
+        these in a dictionary.
+
+        Returns:
+
+        """
+
+        sig = inspect.signature(factory)
+        defaults = {}
+        param: inspect.Parameter
+        for name, param in sig.parameters.items():
+            if param.default is not inspect.Parameter.empty:
+                defaults[name] = param.default
+        return defaults
 
     @classmethod
     def _force_factory_type(self, factory):
