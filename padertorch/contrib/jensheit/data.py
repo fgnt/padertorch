@@ -142,9 +142,8 @@ class SequenceProvider(Parameterized):
         iterator = self.database.get_iterator_by_names(datasets)
         if shuffle:
             iterator = iterator.shuffle()
-        iterator = iterator.map(Compose(
-            self.read_audio, self.database.add_num_samples
-        ))
+        iterator = iterator.map(self.read_audio)\
+            .map(self.database.add_num_samples)
         if not self.opts.multichannel:
             iterator.fragment(Fragmenter(
                 fragment_steps={key: 1 for key in self.opts.audio_keys},
@@ -155,25 +154,24 @@ class SequenceProvider(Parameterized):
         return example
 
     def get_train_iterator(self, filter_fn=lambda x: True):
-        iterator = self.get_iterator(
-            self.database.datasets_train, shuffle=self.opts.shuffle).map(
-            Compose(self.to_train_structure, self.transformer)
-        )
-        return iterator.batch(self.opts.batch_size, self.opts.drop_last) \
-            .map(self.collate).prefetch(self.opts.num_workers,
-                                        self.opts.buffer_size,
-                                        self.opts.backend)
+        return self.get_iterator(
+            self.database.datasets_train, shuffle=self.opts.shuffle)\
+            .map(self.to_train_structure)\
+            .map(self.transformer)\
+            .batch(self.opts.batch_size, self.opts.drop_last)\
+            .map(self.collate)\
+            .prefetch(self.opts.num_workers,self.opts.buffer_size,
+                      self.opts.backend)
 
     def get_eval_iterator(self, num_examples=-1, transform_fn=lambda x: x,
                           filter_fn=lambda x: True):
-        iterator = self.get_iterator(
-            self.database.datasets_eval, shuffle=False).map(
-            Compose(self.to_eval_structure, self.transformer)
-        )
-        return iterator.batch(self.opts.batch_size, self.opts.drop_last) \
-                   .map(self.collate)[:num_examples].prefetch(
-            self.opts.num_workers, self.opts.buffer_size, self.opts.backend
-        )
+        return self.get_iterator(self.database.datasets_eval, shuffle=False)\
+            .map(self.to_eval_structure)\
+            .map(self.transformer)\
+            .batch(self.opts.batch_size, self.opts.drop_last)\
+            .map(self.collate)[:num_examples]\
+            .prefetch(self.opts.num_workers, self.opts.buffer_size,
+                      self.opts.backend)
 
 
 class MaskProvider(SequenceProvider):

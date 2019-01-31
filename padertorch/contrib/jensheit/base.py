@@ -29,11 +29,9 @@ class Parameterized(Configurable):
         return f'{type(self).__name__}:\n{str(self.opts)}'
 
     @classmethod
-    def get_signature(cls):
-        # CB: get_signature is deprecated
-        opts_dict = super().get_signature()
-        opts_dict.update(asdict(cls.opts()))
-        return opts_dict
+    def finalize_docmatic_config(cls, config):
+        for key, value in asdict(cls.opts()).items():
+            config[key] = value
 
 
 class BuildingBlock(Parameterized, Module):

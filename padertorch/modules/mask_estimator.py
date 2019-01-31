@@ -38,44 +38,30 @@ M_K = MaskKeys
 
 class MaskEstimator(pt.Module):
     @classmethod
-    def get_signature(cls):
-        # CB: get_signature is deprecated and will be removed in the future
-        default_dict = super().get_signature()
-        num_features = 513
-        default_dict['recurrent'] = dict(
+    def finalize_docmatic_config(cls, config):
+        config['recurrent'] = dict(
             factory=LSTM,
-            input_size=num_features,
+            input_size=513,
         )
-        default_dict['fully_connected'] = dict(
+        num_features = config['recurrent']['input_size']
+        config['fully_connected'] = dict(
             factory=fully_connected_stack,
             input_size=512,
             hidden_size=[1024] * 3,
             output_size=num_features * 2,
         )
-        default_dict['normalization'] = dict(
+        config['normalization'] = dict(
             factory=Normalization,
             num_features=num_features,
             order='l2',
             statistics_axis=0,
         )
-        return default_dict
-
-    @classmethod
-    def get_config(
-            cls,
-            updates=None,
-    ):
-        super().get_config(updates=updates)
-        return
-        # CB: do not overwrite get_config
-        num_features = out_config['kwargs']['num_features']
-        recu_in = out_config['kwargs']['recurrent']['kwargs']['input_size']
+        recu_in = config['recurrent']['input_size']
         assert recu_in == num_features, (recu_in, num_features)
-        fc = out_config['kwargs']['fully_connected']['kwargs']['output_size']
+        fc = config['fully_connected']['output_size']
         assert fc == 2 * num_features, (fc, num_features)
-        n_in = out_config['kwargs']['normalization']['kwargs']['num_features']
+        n_in = config['normalization']['num_features']
         assert n_in == num_features, (n_in, num_features)
-        return out_config
 
     def __init__(
             self,

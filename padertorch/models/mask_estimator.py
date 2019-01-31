@@ -37,12 +37,8 @@ class MaskEstimatorModel(pt.Model):
     """
 
     @classmethod
-    def get_signature(cls):
-        default_dict = super().get_signature()
-        default_dict['estimator'] = {
-            'factory': MaskEstimator,
-        }
-        return default_dict
+    def finalize_docmatic_config(cls, config):
+        config['estimator'] = dict(factory=MaskEstimator)
 
     def __init__(self, estimator, reduction: str = 'average'):
         super().__init__()
@@ -99,13 +95,11 @@ class MaskEstimatorModel(pt.Model):
     def add_audios(self, batch, output):
         audio_dict = dict()
         if K.OBSERVATION in batch:
-            audio_dict.update({
-            K.OBSERVATION: batch[K.OBSERVATION][0][0]
-        })
+            audio_dict.update({K.OBSERVATION: batch[K.OBSERVATION][0][0]})
         if K.SPEECH_IMAGE in batch:
             audio_dict.update({
             K.SPEECH_IMAGE: batch[K.SPEECH_IMAGE][0][0]
-        })
+            })
         return audio_dict
 
     def add_losses(self, batch, output):
