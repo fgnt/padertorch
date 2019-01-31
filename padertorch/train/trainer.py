@@ -417,6 +417,8 @@ class Trainer(Configurable):
                 'Since no validation_iterator is provided to `Trainer.train`, '
                 'disable validation.'
             )
+            # ToDo: Check SimpleCheckpointHook for errors
+            raise NotImplementedError
             hooks.append(SimpleCheckpointHook(
                 self.checkpoint_trigger,
                 keep_all=self.keep_all_checkpoints,
