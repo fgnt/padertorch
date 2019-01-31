@@ -49,8 +49,7 @@ class MaskTransformer(Parameterized):
     @dataclass
     class opts:
         stft: Dict = dict_func({
-            'cls': STFT,
-            'kwargs': {}
+            'factory': STFT,
         })
         low_cut: int = 5
         high_cut: int = -5
@@ -92,8 +91,7 @@ class SequenceProvider(Parameterized):
     @dataclass
     class opts:
         database: Dict = dict_func({
-            'cls': Chime3,
-            'kwargs': {}
+            'factory': Chime3,
         })
         audio_keys: List = field(default_factory=lambda: [OBSERVATION])
         shuffle: bool = True
@@ -104,8 +102,7 @@ class SequenceProvider(Parameterized):
         backend: str = 't'
         drop_last: bool = False
         collate: Dict = dict_func({
-            'cls': Padder,
-            'kwarg': dict()
+            'factory': Padder,
         })
         transformer: Dict = dict_func({})
 
@@ -187,17 +184,15 @@ class MaskProvider(SequenceProvider):
             OBSERVATION, SPEECH_IMAGE, NOISE_IMAGE
         ])
         transformer: Dict = dict_func({
-            'cls': MaskTransformer,
-            'kwargs': {}
+            'factory': MaskTransformer,
         })
-        collate: Dict = dict_func({
-            'cls': Padder,
-            'kwargs': dict(to_torch=False,
-                           sort_by_key=NUM_SAMPLES,
-                           padding=False,
-                           padding_keys=None
-                           )
-        })
+        collate: Dict = dict_func(dict(
+            factory=Padder,
+            to_torch=False,
+            sort_by_key=NUM_SAMPLES,
+            padding=False,
+            padding_keys=None
+        ))
         num_channels = None
         choose_channel = None
 

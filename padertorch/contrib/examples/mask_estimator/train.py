@@ -8,7 +8,7 @@ from paderbox.database.chime import Chime3
 from paderbox.io import dump_json, load_json
 from paderbox.utils.nested import deflatten, flatten
 from padertorch.configurable import config_to_instance
-from padertorch.configurable import recursive_class_to_str
+# from padertorch.configurable import recursive_class_to_str
 from padertorch.contrib.jensheit.data import MaskProvider
 from padertorch.models.mask_estimator import MaskEstimatorModel
 from padertorch.train.optimizer import Adam
@@ -21,25 +21,23 @@ ex.captured_out_filter = apply_backspaces_and_linefeeds
 
 @ex.config
 def config():
-    trainer_opts = {}
-    provider_opts = {}
+    trainer_opts = deflatten({
+        'model.factory': MaskEstimatorModel,
+        'optimizer.factory': Adam,
+        'max_trigger': (int(1e5), 'iteration'),
+        'summary_trigger': (500, 'iteration'),
+        'checkpoint_trigger': (500, 'iteration'),
+        'storage_dir': None,
+        'keep_all_checkpoints': False,
+        'seed': 0
+    })
+    provider_opts = deflatten({
+        'database.factory': Chime3
+    })
     Trainer.get_config(
-        deflatten({
-            'model.cls': MaskEstimatorModel,
-            'optimizer.cls': Adam,
-            'max_trigger': (int(1e5), 'iteration'),
-            'summary_trigger': (500, 'iteration'),
-            'checkpoint_trigger': (500, 'iteration'),
-            'storage_dir': None,
-            'keep_all_checkpoints': False,
-            'seed': 0
-        }),
-        trainer_opts,
+        trainer_opts
     )
     MaskProvider.get_config(
-        deflatten({
-            'database.cls': Chime3
-        }),
         provider_opts
     )
     validation_length = 10  # number of examples taken from the validation iterator
@@ -68,13 +66,13 @@ def initialize_trainer_provider(task, trainer_opts, provider_opts, _run):
     config = dict()
     config['trainer_opts'] = trainer_opts
     print(trainer_opts.keys())
-    config['trainer_opts']['kwargs']['storage_dir'] = storage_dir
+    config['trainer_opts']['storage_dir'] = storage_dir
     config['provider_opts'] = provider_opts
     if (storage_dir / 'init.json').exists():
         compare_configs(storage_dir, config)
         new = False
     elif task in ['train', 'create_checkpoint']:
-        dump_json(recursive_class_to_str(config), storage_dir / 'init.json')
+        dump_json(config, storage_dir / 'init.json')
         new = True
     else:
         raise ValueError(task, storage_dir)

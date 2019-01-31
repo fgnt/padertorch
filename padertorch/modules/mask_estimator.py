@@ -39,34 +39,35 @@ M_K = MaskKeys
 class MaskEstimator(pt.Module):
     @classmethod
     def get_signature(cls):
+        # CB: get_signature is deprecated and will be removed in the future
         default_dict = super().get_signature()
         num_features = 513
-        default_dict['recurrent'] = {
-            'kwargs': dict(input_size=num_features),
-            'cls': LSTM,
-            LSTM: dict()
-        }
-        default_dict['fully_connected'] = {
-            'kwargs': dict(input_size=512, hidden_size=[1024] * 3,
-                           output_size=num_features * 2),
-            'cls': fully_connected_stack,
-            fully_connected_stack: dict()
-        }
-        default_dict['normalization'] = {
-            'cls': Normalization,
-            'kwargs': dict(num_features=num_features,
-                           order='l2',
-                           statistics_axis=0)
-        }
+        default_dict['recurrent'] = dict(
+            factory=LSTM,
+            input_size=num_features,
+        )
+        default_dict['fully_connected'] = dict(
+            factory=fully_connected_stack,
+            input_size=512,
+            hidden_size=[1024] * 3,
+            output_size=num_features * 2,
+        )
+        default_dict['normalization'] = dict(
+            factory=Normalization,
+            num_features=num_features,
+            order='l2',
+            statistics_axis=0,
+        )
         return default_dict
 
     @classmethod
     def get_config(
             cls,
             updates=None,
-            out_config=None,
     ):
-        super().get_config(updates=updates, out_config=out_config)
+        super().get_config(updates=updates)
+        return
+        # CB: do not overwrite get_config
         num_features = out_config['kwargs']['num_features']
         recu_in = out_config['kwargs']['recurrent']['kwargs']['input_size']
         assert recu_in == num_features, (recu_in, num_features)

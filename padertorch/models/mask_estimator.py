@@ -40,8 +40,7 @@ class MaskEstimatorModel(pt.Model):
     def get_signature(cls):
         default_dict = super().get_signature()
         default_dict['estimator'] = {
-            'cls': MaskEstimator,
-            'kwargs': dict()
+            'factory': MaskEstimator,
         }
         return default_dict
 

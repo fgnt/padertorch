@@ -30,6 +30,7 @@ class Parameterized(Configurable):
 
     @classmethod
     def get_signature(cls):
+        # CB: get_signature is deprecated
         opts_dict = super().get_signature()
         opts_dict.update(asdict(cls.opts()))
         return opts_dict
