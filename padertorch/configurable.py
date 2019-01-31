@@ -964,7 +964,27 @@ class _DogmaticConfig:
     def to_dict(self):
         d = {}
         for k in self.keys():
-            v = self[k]
+            try:
+                v = self[k]
+            except KeyError as e:
+                from IPython.lib.pretty import pretty
+                if 'factory' in self.keys() and k != 'factory':
+                    # KeyError has a bad __repr__, use Exception
+                    raise Exception(
+                        f'KeyError: {k}\n'
+                        f'signature: {inspect.signature(self["factory"])}\n'
+                        f'missing keys: {set(self.keys()) - set(self.data.keys())}\n'
+                        f'self:\n{pretty(self)}'
+                    ) from e
+                else:
+                    # KeyError has a bad __repr__, use Exception
+                    # Can this happen?
+                    raise Exception(
+                        f'{k}\n'
+                        f'signature: {inspect.signature(self["factory"])}'
+                        f'self:\n{pretty(self)}'
+                    ) from e
+
             if 'factory' == k:
                 v = class_to_str(v)
             if isinstance(v, self.__class__):
@@ -976,3 +996,19 @@ class _DogmaticConfig:
     def __repr__(self):
         maps = ', '.join([repr(m) for m in self.data.maps])
         return f'{self.__class__.__name__}({maps}, mutable_idx={self.data.mutable_idx})'
+
+    def _repr_pretty_(self, p, cycle):
+        if cycle:
+            p.text(f'{self.__class__.__name__}(...)')
+        else:
+            name = self.__class__.__name__
+            pre, post = f'{name}(', ')'
+            with p.group(len(pre), pre, post):
+                for idx, m in enumerate(self.data.maps):
+                    if idx:
+                        p.text(',')
+                        p.breakable()
+                    p.pretty(m)
+                p.text(',')
+                p.breakable()
+                p.text(f'mutable_idx={self.data.mutable_idx})')
