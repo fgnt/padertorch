@@ -1,6 +1,8 @@
 """
 Example call:
 
+export STORAGE=<your desired storage root>
+mkdir -p $STORAGE/pth_models/pit
 python -m padertorch.contrib.ldrude.train_pit print_config
 python -m padertorch.contrib.ldrude.train_pit
 
@@ -38,24 +40,24 @@ def config():
     validate_dataset = "mix_2_spk_min_cv"
 
     # Start with an empty dict to allow tracking by Sacred
-    trainer = pb.utils.nested.deflatten(
-        {
-            "model.factory": pt.models.bss.PermutationInvariantTrainingModel,
-            "storage_dir": None,
-            "optimizer.factory": pt.optimizer.Adam,
-            "summary_trigger": (1000, "iteration"),
-            "max_trigger": (500_000, "iteration"),
-            "loss_weights.pit_ips_loss": 0.0,
-            "loss_weights.pit_mse_loss": 1.0,
+    trainer = {
+        "model": {
+            "factory": pt.models.bss.PermutationInvariantTrainingModel
         },
-        sep=".",
-    )
-    pt.Trainer.get_config(
-        trainer,
-    )
+        "storage_dir": None,
+        "optimizer": {
+            "factory": pt.optimizer.Adam
+        },
+        "summary_trigger": (1000, "iteration"),
+        "max_trigger": (500_000, "iteration"),
+        "loss_weights": {
+            "pit_ips_loss": 0.0,
+            "pit_mse_loss": 1.0,
+        }
+    }
+    pt.Trainer.get_config(trainer)
     if trainer['storage_dir'] is None:
-        trainer['storage_dir'] \
-            = get_new_folder(path_template, mkdir=False)
+        trainer['storage_dir'] = get_new_folder(path_template, mkdir=False)
 
 
 @decorator_append_file_storage_observer_with_lazy_basedir(ex)
