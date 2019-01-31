@@ -29,7 +29,7 @@ class Parameterized(Configurable):
         return f'{type(self).__name__}:\n{str(self.opts)}'
 
     @classmethod
-    def finalize_docmatic_config(cls, config):
+    def finalize_dogmatic_config(cls, config):
         for key, value in asdict(cls.opts()).items():
             config[key] = value
 

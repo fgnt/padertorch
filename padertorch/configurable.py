@@ -271,8 +271,12 @@ class Configurable:
                                   'specified use finalize_docmatic_config')
 
     @classmethod
-    def finalize_docmatic_config(cls, config):
+    def finalize_dogmatic_config(cls, config):
         """
+        🔥🔥 If you overwrite this function you need to know, what a      🔥🔥
+        🔥🔥 dogmatic dict is. Within this method, Python behaves as if   🔥🔥
+        🔥🔥 you are in a Sacred config.                                  🔥🔥
+
         ToDo: doctext (for now see above Configurable doctext with the
               examples)
         """

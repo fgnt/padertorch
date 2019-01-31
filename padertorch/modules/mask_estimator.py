@@ -38,7 +38,7 @@ M_K = MaskKeys
 
 class MaskEstimator(pt.Module):
     @classmethod
-    def finalize_docmatic_config(cls, config):
+    def finalize_dogmatic_config(cls, config):
         config['recurrent'] = dict(
             factory=LSTM,
             input_size=513,

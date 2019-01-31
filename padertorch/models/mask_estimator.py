@@ -37,7 +37,7 @@ class MaskEstimatorModel(pt.Model):
     """
 
     @classmethod
-    def finalize_docmatic_config(cls, config):
+    def finalize_dogmatic_config(cls, config):
         config['estimator'] = dict(factory=MaskEstimator)
 
     def __init__(self, estimator, reduction: str = 'average'):
