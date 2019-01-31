@@ -333,6 +333,17 @@ class Configurable:
         if cls is not Configurable:
             assert issubclass(import_class(config['factory']), cls), \
                 (config['factory'], cls)
+
+        for key_tuple in pb.utils.nested.flatten(config, sep=None).keys():
+            if 'cls' in key_tuple:
+                from IPython.lib.pretty import pretty
+                raise ValueError(
+                    'Found the old key "cls" in the config.\n'
+                    f'key path: {key_tuple}\n'
+                    'Replace it with factory.\n'
+                    f'{pretty(config)}'
+                )
+
         new = config_to_instance(config)
         return new
 
@@ -886,7 +897,6 @@ class _DogmaticConfig:
 
     def __setitem__(self, key, value):
         self.data[key] = self.normalize(value)
-
 
     def __getitem__(self, key):
         """
