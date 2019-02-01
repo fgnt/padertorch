@@ -12,9 +12,9 @@ python -m padertorch.contrib.examples.acoustic_model.train
 
 """
 import os
+import datetime
 from pathlib import Path
 
-import arrow # Is this realy necessary?
 import sacred
 import sacred.commands
 
@@ -81,7 +81,7 @@ def prepare_and_train(
         _run,
         resume=False
 ):
-    print('Start time:', arrow.now().format('YYYY-MM-DD HH:mm:ss'))
+    print('Start time:', str(datetime.datetime.now()))
     storage_dir = Path(_config['trainer']['storage_dir'])
     try:
         sacred.commands.print_config(_run)
@@ -114,7 +114,7 @@ def prepare_and_train(
         )
     finally:
         print('Storage dir:', storage_dir)
-        print('End time:', arrow.now().format('YYYY-MM-DD HH:mm:ss'))
+        print('End time:', str(datetime.datetime.now()))
 
 
 @ex.command
