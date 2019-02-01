@@ -1,159 +1,109 @@
+"""
+Very simple training script for a mask estimator.
+Saves checkpoints and summaries to STORAGE_ROOT / 'simple_mask_estimator'
+may be called with:
+python -m padertorch.contrib.examples.mask_estimator.train.py
+"""
+import os
 from pathlib import Path
-from warnings import warn
 
-import sacred
-from sacred.utils import apply_backspaces_and_linefeeds
+import numpy as np
+import torch
 
-from paderbox.database.chime import Chime3
-from paderbox.io import dump_json, load_json
-from paderbox.utils.nested import deflatten, flatten
-from padertorch.configurable import config_to_instance
-from padertorch.contrib.jensheit.data import MaskProvider
-from padertorch.models.mask_estimator import MaskEstimatorModel
-from padertorch.train.optimizer import Adam
-from padertorch.train.trainer import Trainer
+import paderbox as pb
+import paderbox.database.keys as K
+import padertorch as pt
 
-ex = sacred.Experiment('Train Mask Estimator')
-
-ex.captured_out_filter = apply_backspaces_and_linefeeds
+STORAGE_ROOT = Path(os.environ['STORAGE_ROOT'])
+assert STORAGE_ROOT.exists(), 'You have to specify an existing STORAGE_ROOT' \
+                              'environmental variable see geting_started'
 
 
-@ex.config
-def config():
-    trainer_opts = deflatten({
-        'model.factory': MaskEstimatorModel,
-        'optimizer.factory': Adam,
-        'max_trigger': (int(1e5), 'iteration'),
-        'summary_trigger': (500, 'iteration'),
-        'checkpoint_trigger': (500, 'iteration'),
-        'storage_dir': None,
-        'keep_all_checkpoints': False
-    })
-    provider_opts = deflatten({
-        'database.factory': Chime3
-    })
-    Trainer.get_config(
-        trainer_opts
+class SmallExampleModel(pt.Model):
+    def __init__(self, num_features, num_units=1024, dropout=0.5,
+                 activation='elu'):
+        """
+        :param num_features: number of input features
+        :param num_units: number of units in linear layern
+        :param dropout: dropout forget ratio
+        :param activation:
+        """
+        super().__init__()
+        self.num_features = num_features
+        self.net = torch.nn.Sequential(
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(num_features, num_units),
+            pt.mappings.ACTIVATION_FN_MAP[activation](),
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(num_units, num_units),
+            pt.mappings.ACTIVATION_FN_MAP[activation](),
+            torch.nn.Linear(num_units, 2 * num_features),
+            # twice num_features for speech and noise_mask
+            torch.nn.Sigmoid()
+            # Output activation to force outputs between 0 and 1
+        )
+
+    def forward(self, batch):
+        x = batch['observation_abs']
+        out = self.net(x)
+        return dict(
+            speech_mask_pred=out[..., :self.num_features],
+            noise_mask_pred=out[..., self.num_features:],
+        )
+
+    def review(self, batch, output):
+        noise_mask_loss = torch.nn.functional.binary_cross_entropy(
+            output['speech_mask_pred'], batch['speech_mask_target']
+        )
+        speech_mask_loss = torch.nn.functional.binary_cross_entropy(
+            output['noise_mask_pred'], batch['noise_mask_target']
+        )
+        return dict(loss=noise_mask_loss + speech_mask_loss)
+
+
+def change_example_structure(example):
+    stft = pb.transform.stft
+    audio_data = example[K.AUDIO_DATA]
+    net_input = dict()
+    net_input['observation_abs'] = np.abs(stft(
+        audio_data[K.OBSERVATION])).astype(np.float32)
+    speech_image = stft(audio_data[K.SPEECH_IMAGE])
+    noise_image = stft(audio_data[K.NOISE_IMAGE])
+    target_mask, noise_mask = pb.speech_enhancement.biased_binary_mask(
+        np.stack([speech_image, noise_image], axis=0)
     )
-    MaskProvider.get_config(
-        provider_opts
-    )
-    validation_length = 100  # number of examples taken from the validation iterator
+    net_input['speech_mask_target'] = target_mask.astype(np.float32)
+    net_input['noise_mask_target'] = noise_mask.astype(np.float32)
+    return net_input
 
 
-def compare_configs(storage_dir, config):
-    config = flatten(config)
-    init = flatten(load_json(Path(storage_dir) / 'init.json'))
-    assert all([key in config for key in init]), \
-        (f'Some keys from the init are no longer used:'
-         f'{[key for key in init if not key in config]}')
-    if not all([init[key] == config[key] for key in init]):
-        warn(f'The following keys have changed in comparison to the init:'
-             f'{[key for key in init if init[key] != config[key]]}')
-    if not all([key in init for key in config]):
-        warn(f'The following keys have been added in comparison to the init:'
-             f'{[key for key in config if key not in init]}')
+def get_train_iterator(database: pb.database.JsonDatabase):
+    audio_reader = pb.database.iterator.AudioReader(audio_keys=[
+        K.OBSERVATION, K.NOISE_IMAGE, K.SPEECH_IMAGE
+    ])
+    train_iterator = database.get_iterator_by_names(database.datasets_train)
+    return train_iterator.map(audio_reader).map(change_example_structure)
 
 
-@ex.capture
-def initialize_trainer_provider(task, trainer_opts, provider_opts, _run):
-    assert len(ex.current_run.observers) == 1, (
-        'FileObserver` missing. Add a `FileObserver` with `-F foo/bar/`.'
-    )
-    storage_dir = Path(ex.current_run.observers[0].basedir)
-    config = dict()
-    config['trainer_opts'] = trainer_opts
-    print(trainer_opts.keys())
-    config['trainer_opts']['storage_dir'] = storage_dir
-    config['provider_opts'] = provider_opts
-    if (storage_dir / 'init.json').exists():
-        compare_configs(storage_dir, config)
-        new = False
-    elif task in ['train', 'create_checkpoint']:
-        dump_json(config, storage_dir / 'init.json')
-        new = True
-    else:
-        raise ValueError(task, storage_dir)
-    sacred.commands.print_config(_run)
-
-    # we cannot ask if task==resume, since validation is also an allowed task
-    assert new ^ (task not in ['train', 'create_checkpoint']), \
-        'Train cannot be called on an existing directory. ' \
-        'If your want to restart the training use task=restart'
-    trainer = Trainer.from_config(config['trainer_opts'])
-    assert isinstance(trainer, Trainer)
-    return trainer, config_to_instance(config['provider_opts'])
+def get_validation_iterator(database: pb.database.JsonDatabase):
+    audio_reader = pb.database.iterator.AudioReader(audio_keys=[
+        K.OBSERVATION, K.NOISE_IMAGE, K.SPEECH_IMAGE
+    ])
+    train_iterator = database.get_iterator_by_names(database.datasets_eval)
+    return train_iterator.map(audio_reader).map(change_example_structure)
 
 
-@ex.command
-def restart(validation_length):
-    trainer, provider = initialize_trainer_provider(task='restart')
-    train_iterator = provider.get_train_iterator()
-    eval_iterator = provider.get_eval_iterator(
-        num_examples=validation_length
-    )
-    trainer.load_checkpoint()
-    trainer.test_run(train_iterator, eval_iterator)
-    trainer.train(train_iterator, eval_iterator)
+def train():
+    model = SmallExampleModel(513)
+    database = pb.database.chime.Chime3()
+    train_iterator = get_train_iterator(database)
+    validation_iterator = get_validation_iterator(database)[:500]
+    trainer = pt.Trainer(model, STORAGE_ROOT / 'simple_mask_estimator',
+                         optimizer=pt.train.optimizer.Adam(),
+                         max_trigger=(int(1e5), 'iteration'))
+    trainer.test_run(train_iterator, validation_iterator)
+    trainer.train(train_iterator, validation_iterator)
 
 
-@ex.command
-def validate(_config):
-    import torch
-    import numpy as np
-    import tensorboardX
-    from padertorch.contrib.jensheit.evaluation import evaluate_masks
-    assert len(ex.current_run.observers) == 1, (
-        'FileObserver` missing. Add a `FileObserver` with `-F foo/bar/`.'
-    )
-    storage_dir = Path(ex.current_run.observers[0].basedir)
-    assert not (storage_dir / 'results.json').exists(), (
-        f'model_dir has already bin evaluatet, {storage_dir}')
-    trainer, provider = initialize_trainer_provider(task='validate')
-    trainer.model.cpu()
-    writer = tensorboardX.SummaryWriter(str(trainer.storage_dir))
-    eval_iterator = provider.get_eval_iterator()
-    provider.opts.multichannel = True
-    batch_size = 1
-    provider.opts.batch_size = batch_size
-    for checkpoints in trainer.checkpoint_dir.glob('*0.pth'):
-        print(checkpoints)
-        iteration = checkpoints.name.split('_')[1].split('.')[0]
-        checkpoint = torch.load(
-            checkpoints)  # trainer.checkpoint_dir / 'ckpt_best_loss.pth')
-        checkpoint = checkpoint['model']
-        trainer.model.load_state_dict(checkpoint)
-        evaluation_json = dict(snr=dict(), pesq=dict())
-        # with ThreadPoolExecutor(max_workers=4) as executor:
-        for example in eval_iterator:
-            example_id, snr, pesq = evaluate_masks(example, model=trainer.model,
-                                                   transform=provider.transformer)
-            evaluation_json['snr'][example_id] = snr
-            evaluation_json['pesq'][example_id] = pesq
-        evaluation_json['pesq_mean'] = np.mean(
-            [value for value in evaluation_json['pesq'].values()])
-        evaluation_json['snr_mean'] = np.mean(
-            [value for value in evaluation_json['snr'].values()])
-        writer.add_scalar('validation}/pesq', evaluation_json['pesq_mean'],
-                          iteration)
-        writer.add_scalar('validation}/snr', evaluation_json['snr_mean'],
-                          iteration)
-        # dump_json(evaluation_json, storage_dir / 'results.json')
-    writer.close()
-
-
-@ex.command
-def create_checkpoint(_config):
-    # This may be useful to merge to separatly trained models into one
-    raise NotImplementedError
-
-
-@ex.automain
-def train(validation_length):
-    trainer, provider = initialize_trainer_provider(task='train')
-    train_iterator = provider.get_train_iterator()
-    eval_iterator = provider.get_eval_iterator(
-        num_examples=validation_length
-    )
-    trainer.test_run(train_iterator, eval_iterator)
-    trainer.train(train_iterator, eval_iterator)
+if __name__ == '__main__':
+    train()
