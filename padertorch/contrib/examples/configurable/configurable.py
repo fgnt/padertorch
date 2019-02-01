@@ -39,16 +39,16 @@ class VAE(pts.configurable.Configurable):
     """
     >>> from pprint import pprint
     >>> pprint(VAE.get_config({}))
-    {'cls': 'parametized.VAE',
-     'kwargs': {'encoder': {'cls': 'parametized.DenseEncoder',
+    {'cls': 'configurable.VAE',
+     'kwargs': {'encoder': {'cls': 'configurable.DenseEncoder',
                             'kwargs': {'layers': 3, 'nonlinearity': 'sigmoid'}},
                 'vae_param': 2}}
     >>> pprint(VAE.get_config({'encoder': {'cls': RecurrentEncoder}}))
-    {'cls': 'parametized.VAE',
-     'kwargs': {'encoder': {'cls': 'parametized.RecurrentEncoder',
+    {'cls': 'configurable.VAE',
+     'kwargs': {'encoder': {'cls': 'configurable.RecurrentEncoder',
                             'kwargs': {'bidirectional': False,
                                        'layers': 4,
-                                       'recurrent': {'cls': 'parametized.GRU',
+                                       'recurrent': {'cls': 'configurable.GRU',
                                                      'kwargs': {'nonlinearity': 'tanh'}}}},
                 'vae_param': 2}}
     """
