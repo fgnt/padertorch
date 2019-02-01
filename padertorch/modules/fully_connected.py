@@ -11,7 +11,7 @@ def fully_connected_stack(
         hidden_size: List[int],
         output_size: int,
         activation: str = 'relu',
-        dropout: int = 0.5
+        dropout: float = 0.5
 ):
     """
 
