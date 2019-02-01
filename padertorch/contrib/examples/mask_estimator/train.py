@@ -15,8 +15,7 @@ import paderbox.database.keys as K
 import padertorch as pt
 
 
-# CB: Maybe SimpleMaskEstimator or FullyConnectedMaskEstimator?
-class SmallExampleModel(pt.Model):
+class SimpleMaskEstimator(pt.Model):
     def __init__(self, num_features, num_units=1024, dropout=0.5,
                  activation='elu'):
         """
@@ -26,7 +25,7 @@ class SmallExampleModel(pt.Model):
         :param dropout: dropout forget ratio
         :param activation:
 
-        >>> SmallExampleModel(513)
+        >>> SimpleMaskEstimator(513)
         SmallExampleModel(
           (net): Sequential(
             (0): Dropout(p=0.5)
@@ -49,10 +48,10 @@ class SmallExampleModel(pt.Model):
             torch.nn.Dropout(dropout),
             torch.nn.Linear(num_units, num_units),
             pt.mappings.ACTIVATION_FN_MAP[activation](),
-            torch.nn.Linear(num_units, 2 * num_features),
             # twice num_features for speech and noise_mask
-            torch.nn.Sigmoid()  # CB: does binary_cross_entropy include sigmoid?
+            torch.nn.Linear(num_units, 2 * num_features),
             # Output activation to force outputs between 0 and 1
+            torch.nn.Sigmoid()
         )
 
     def forward(self, batch):
@@ -91,26 +90,32 @@ def change_example_structure(example):
 
 
 def get_train_iterator(database: pb.database.JsonDatabase):
-    # CB: Wouldn't it be easier to use `pb.io.load_audio` in
-    # `change_example_structure`? maybe add recursive load to `load_audio`?
+    # AudioReader is a specialiced function to read audio organized
+    # in a json as described in pb.database.database
     audio_reader = pb.database.iterator.AudioReader(audio_keys=[
         K.OBSERVATION, K.NOISE_IMAGE, K.SPEECH_IMAGE
     ])
     train_iterator = database.get_iterator_by_names(database.datasets_train)
-    return train_iterator.map(audio_reader).map(change_example_structure)
+    return train_iterator.map(audio_reader)\
+        .map(change_example_structure)\
+        .prefetch(num_workers=4, buffer_size=4)
 
 
 def get_validation_iterator(database: pb.database.JsonDatabase):
+    # AudioReader is a specialiced function to read audio organized
+    # in a json as described in pb.database.database
     audio_reader = pb.database.iterator.AudioReader(audio_keys=[
         K.OBSERVATION, K.NOISE_IMAGE, K.SPEECH_IMAGE
     ])
-    train_iterator = database.get_iterator_by_names(database.datasets_eval)
-    return train_iterator.map(audio_reader).map(change_example_structure)
+    val_iterator = database.get_iterator_by_names(database.datasets_eval)
+    return val_iterator .map(audio_reader)\
+        .map(change_example_structure)\
+        .prefetch(num_workers=4, buffer_size=4)
 
 
 def train():
-    # CB: Maybe some print to imform the user? e.g. model
-    model = SmallExampleModel(513)
+    model = SimpleMaskEstimator(513)
+    print(f'Simple training for the following model: {model}')
     database = pb.database.chime.Chime3()
     train_iterator = get_train_iterator(database)
     validation_iterator = get_validation_iterator(database)[:500]
@@ -118,7 +123,6 @@ def train():
                          optimizer=pt.train.optimizer.Adam(),
                          max_trigger=(int(1e5), 'iteration'))
     trainer.test_run(train_iterator, validation_iterator)
-    # CB: prefetch makes it more complicated, but it still may be useful.
     trainer.train(train_iterator, validation_iterator)
 
 
