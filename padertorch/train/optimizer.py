@@ -3,17 +3,20 @@ from padertorch.configurable import Configurable
 from torch import optim
 
 
-class Optimizer(Configurable):
+class Optimizer:
     optimizer_cls = None
     optimizer = None
+    parameters = None
 
-    def __init__(self, gradient_clipping):
+    def __init__(self, gradient_clipping, **kwargs):
         self.gradient_clipping = gradient_clipping
+        self.optimizer_kwargs = kwargs
 
     def set_parameters(self, parameters):
         self.optimizer = self.optimizer_cls(
             parameters, **self.optimizer_kwargs
         )
+        self.parameters = parameters
 
     def check_if_set(self):
         assert self.optimizer is not None, \
@@ -28,16 +31,13 @@ class Optimizer(Configurable):
         self.check_if_set()
         return self.optimizer.step()
 
-    def clip_grad(self, params, prefix: str = None):
+    def clip_grad(self):
         self.check_if_set()
         # Todo: report clipped and unclipped
         # Todo: allow clip=None but still report grad_norm
-        if isinstance(self.gradient_clipping, dict):
-            grad_clips = self.gradient_clipping[prefix]
-        else:
-            grad_clips = self.gradient_clipping
+        grad_clips = self.gradient_clipping
         return torch.nn.utils.clip_grad_norm_(
-            params, grad_clips
+            self.parameters, grad_clips
         )
 
     def cuda(self, device):
@@ -75,8 +75,8 @@ class Adam(Optimizer):
             weight_decay=0,
             amsgrad=False
     ):
-        super().__init__(gradient_clipping)
-        self.optimizer_kwargs = dict(
+        super().__init__(
+            gradient_clipping,
             lr=lr,
             betas=betas,
             eps=eps,
@@ -97,8 +97,8 @@ class SGD(Optimizer):
             weight_decay=0,
             nesterov=False
     ):
-        super().__init__(gradient_clipping)
-        self.optimizer_kwargs = dict(
+        super().__init__(
+            gradient_clipping,
             lr=lr,
             momentum=momentum,
             dampening=dampening,

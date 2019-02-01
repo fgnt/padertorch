@@ -384,8 +384,9 @@ class Trainer(Configurable):
                 'Since no validation_iterator is provided to `Trainer.train`, '
                 'disable validation.'
             )
-            # ToDo: Check SimpleCheckpointHook for errors
-            raise NotImplementedError
+            raise NotImplementedError(
+                'ToDo: Check SimpleCheckpointHook for errors'
+            )
             hooks.append(SimpleCheckpointHook(
                 self.checkpoint_trigger,
                 keep_all=self.keep_all_checkpoints,
@@ -414,29 +415,24 @@ class Trainer(Configurable):
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
         return hooks
 
-    def clip_grad(self, prefix: str = None):
+    def clip_grad(self):
         # Todo: report clipped and unclipped
         # Todo: allow clip=None but still report grad_norm
-        if prefix is None:
-            prefix_ = ''
-        else:
-            prefix_ = f'{prefix}_'
 
         summary = dict(scalars=dict(), histograms=dict())
         if isinstance(self.optimizer, dict):
             for key, opti in self.optimizer:
-                model = self.model[key]
-                grad_norm = opti.clip_grad(model.parameters(), prefix)
+                grad_norm = opti.clip_grad()
 
-                summary['scalars'][f'{prefix_}grad_norm_{key}'] = grad_norm
+                summary['scalars'][f'{key}_grad_norm'] = grad_norm
                 # underscore was necessary to obtain unique keys to prevent
                 # tensorboard error
                 summary['histograms'][
-                    f'{prefix_}grad_norm_{key}_'] = torch.Tensor([grad_norm])
+                    f'{key}_grad_norm_'] = torch.Tensor([grad_norm])
         else:
-            grad_norm = self.optimizer.clip_grad(self.model.parameters(), prefix)
-            summary['scalars'][f'{prefix_}grad_norm'] = grad_norm
-            summary['histograms'][f'{prefix_}grad_norm_'] = \
+            grad_norm = self.optimizer.clip_grad()
+            summary['scalars'][f'grad_norm'] = grad_norm
+            summary['histograms'][f'grad_norm_'] = \
                 torch.Tensor([grad_norm])
 
         return summary
@@ -455,21 +451,16 @@ class Trainer(Configurable):
             self.cpu()
 
         if isinstance(self.optimizer, dict):
-            model_state_dict = {
-                k: model.state_dict()
-                for k, model in self.model.items()
-            }
             optimizer_state_dict = {
                 k: opti.state_dict()
                 for k, opti in self.optimizer.items()
             }
         else:
-            model_state_dict = self.model.state_dict()
             optimizer_state_dict = self.optimizer.state_dict()
 
         torch.save(
             dict(
-                model=model_state_dict,
+                model=self.model.state_dict(),
                 iteration=self.iteration,
                 epoch=self.epoch,
                 optimizer=optimizer_state_dict,
@@ -486,13 +477,8 @@ class Trainer(Configurable):
         assert checkpoint_path.is_file(), checkpoint_path
         checkpoint_dict = torch.load(str(checkpoint_path), map_location='cpu')
 
+        self.model.load_state_dict(checkpoint_dict['model'])
         if isinstance(self.optimizer, dict):
-            assert set(self.model.keys() == set(checkpoint_dict['model'].keys())), \
-                (self.model, checkpoint_dict['model'])
-            for key, model in self.model.items():
-                model.load_state_dict(
-                    checkpoint_dict['model'][key]
-                )
             assert set(self.optimizer.keys() == set(checkpoint_dict['optimizer'].keys())), \
                 (self.optimizer, checkpoint_dict['model'])
             for key, otim in self.optimizer.items():
@@ -500,7 +486,6 @@ class Trainer(Configurable):
                     checkpoint_dict['optimizer'][key]
                 )
         else:
-            self.model.load_state_dict(checkpoint_dict['model'])
             self.optimizer.load_state_dict(checkpoint_dict['optimizer'])
 
         iteration = checkpoint_dict['iteration']
