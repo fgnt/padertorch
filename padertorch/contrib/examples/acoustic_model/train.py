@@ -14,7 +14,7 @@ python -m padertorch.contrib.examples.acoustic_model.train
 import os
 from pathlib import Path
 
-import arrow
+import arrow # Is this realy necessary?
 import sacred
 import sacred.commands
 

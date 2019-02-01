@@ -138,12 +138,13 @@ class AcousticExperiment(pt.Model):
                 }
             },
             blstm_input_size=40 * 3,
-            blstm_hidden_size=(150, 150),
-            blstm_output_size=150,
+            blstm_hidden_size=(256, 256),
+            blstm_output_size=256,
             blstm_bidirectional=True,
             blstm_dropout=0.3,
-            dense_input_size=150 * 2,  # 2 times blstm_output_size
-            dense_hidden_size=(500, 500),
+            dense_input_size=256 * 2,  # 2 times blstm_output_size
+            dense_hidden_size=(512, 512),
+            # ToDo: may be read dense_ouput_size from kaldi if db has to be specified anyway, should be None or not specified as default
             dense_output_size=1983,  # Chime4 specific
             dense_activation='relu',
             dense_dropout=0.3,
@@ -245,7 +246,7 @@ class AcousticExperiment(pt.Model):
         assert np.all(np.isfinite(predict)), predict
 
         ce = self.criterion(
-            torch.einsum('tbf->tfb', outputs.predict),
+            torch.einsum('tbf->tfb', outputs.predict), # why not use einops here?
             example.alignment,
         )
 
