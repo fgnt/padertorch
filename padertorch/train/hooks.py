@@ -581,7 +581,6 @@ class ProgressBarHook(BaseHook):
             redirect_stdout=True,
             max_error=False,
         )
-        # self.pbar.start()
 
     @property
     def priority(self):

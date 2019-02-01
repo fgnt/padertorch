@@ -24,8 +24,7 @@ class MaskEstimatorModel(pt.Model):
     """
     Implements a mask estimator [1].
 
-    Check out this repository to see example code:
-    git clone git@ntgit.upb.de:scratch/jensheit/padertorch_mask_example
+    Example usage may be found in padertorch.contrib.jensheit:
 
     [1] Heymann 2016, https://groups.uni-paderborn.de/nt/pubs/2016/icassp_2016_heymann_paper.pdf
 
