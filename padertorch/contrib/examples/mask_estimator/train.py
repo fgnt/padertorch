@@ -1,6 +1,6 @@
 """
 Very simple training script for a mask estimator.
-Saves checkpoints and summaries to STORAGE_ROOT / 'simple_mask_estimator'
+Saves checkpoints and summaries to $STORAGE_ROOT/simple_mask_estimator
 may be called with:
 python -m padertorch.contrib.examples.mask_estimator.train.py
 """
@@ -14,19 +14,31 @@ import paderbox as pb
 import paderbox.database.keys as K
 import padertorch as pt
 
-STORAGE_ROOT = Path(os.environ['STORAGE_ROOT'])
-assert STORAGE_ROOT.exists(), 'You have to specify an existing STORAGE_ROOT' \
-                              'environmental variable see geting_started'
 
-
+# CB: Maybe SimpleMaskEstimator or FullyConnectedMaskEstimator?
 class SmallExampleModel(pt.Model):
     def __init__(self, num_features, num_units=1024, dropout=0.5,
                  activation='elu'):
         """
+
         :param num_features: number of input features
         :param num_units: number of units in linear layern
         :param dropout: dropout forget ratio
         :param activation:
+
+        >>> SmallExampleModel(513)
+        SmallExampleModel(
+          (net): Sequential(
+            (0): Dropout(p=0.5)
+            (1): Linear(in_features=513, out_features=1024, bias=True)
+            (2): ELU(alpha=1.0)
+            (3): Dropout(p=0.5)
+            (4): Linear(in_features=1024, out_features=1024, bias=True)
+            (5): ELU(alpha=1.0)
+            (6): Linear(in_features=1024, out_features=1026, bias=True)
+            (7): Sigmoid()
+          )
+        )
         """
         super().__init__()
         self.num_features = num_features
@@ -39,7 +51,7 @@ class SmallExampleModel(pt.Model):
             pt.mappings.ACTIVATION_FN_MAP[activation](),
             torch.nn.Linear(num_units, 2 * num_features),
             # twice num_features for speech and noise_mask
-            torch.nn.Sigmoid()
+            torch.nn.Sigmoid()  # CB: does binary_cross_entropy include sigmoid?
             # Output activation to force outputs between 0 and 1
         )
 
@@ -58,6 +70,7 @@ class SmallExampleModel(pt.Model):
         speech_mask_loss = torch.nn.functional.binary_cross_entropy(
             output['noise_mask_pred'], batch['noise_mask_target']
         )
+        # CB: add image (stft/mask) and audio example?
         return dict(loss=noise_mask_loss + speech_mask_loss)
 
 
@@ -78,6 +91,8 @@ def change_example_structure(example):
 
 
 def get_train_iterator(database: pb.database.JsonDatabase):
+    # CB: Wouldn't it be easier to use `pb.io.load_audio` in
+    # `change_example_structure`? maybe add recursive load to `load_audio`?
     audio_reader = pb.database.iterator.AudioReader(audio_keys=[
         K.OBSERVATION, K.NOISE_IMAGE, K.SPEECH_IMAGE
     ])
@@ -94,6 +109,7 @@ def get_validation_iterator(database: pb.database.JsonDatabase):
 
 
 def train():
+    # CB: Maybe some print to imform the user? e.g. model
     model = SmallExampleModel(513)
     database = pb.database.chime.Chime3()
     train_iterator = get_train_iterator(database)
@@ -102,8 +118,21 @@ def train():
                          optimizer=pt.train.optimizer.Adam(),
                          max_trigger=(int(1e5), 'iteration'))
     trainer.test_run(train_iterator, validation_iterator)
+    # CB: prefetch makes it more complicated, but it still may be useful.
     trainer.train(train_iterator, validation_iterator)
 
 
 if __name__ == '__main__':
+    STORAGE_ROOT = Path(os.environ.get('STORAGE_ROOT'))
+    if STORAGE_ROOT is None:
+        raise EnvironmentError(
+            'You have to specify an STORAGE_ROOT'
+            'environmental variable see geting_started'
+        )
+    elif not STORAGE_ROOT.exists():
+        raise FileNotFoundError(
+            'You have to specify an existing STORAGE_ROOT'
+            'environmental variable see geting_started.\n'
+            f'Got: {STORAGE_ROOT}'
+        )
     train()
