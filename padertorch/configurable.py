@@ -5,15 +5,14 @@ itself, e.g. a structured variational autoencoder or a farfield speech
 enhancer.
 
 You can instantiate a child of `Configurable` either with an `__init__`
-resulting in an unparameterized module. If you instantiate it with
+resulting in an unparameterized module, or if you instantiate it with
 `from_config` you get a configured module.
 
 If modules contain modules, look out for examples on how to override
-`finalize_docmatic_config` (padertorch.contrib.examples.configurable).
+`finalize_dogmatic_config` (padertorch.contrib.examples.configurable).
 In most cases, when you want to provide an instance as
 a parameter to the `__init__` you can instead provide the parameters which were
-used for that instance in your modified `finalize_docmatic_config`.
-
+used for that instance in your modified `finalize_dogmatic_config`.
 """
 import sys
 import inspect
@@ -108,32 +107,30 @@ class Configurable:
 
     When a configurable object depends on other exchangeable configurable
     objects, it is recommended to overwrite the classmethod
-    `finalize_docmatic_config`. It gets as input the config with the defaults
-    and the updates for that class. The function `finalize_docmatic_config`
+    `finalize_dogmatic_config`. It gets as input the config with the defaults
+    and the updates for that class. The function `finalize_dogmatic_config`
     should set all the remaining objects to fill the config that it contains
     all kwargs.
 
     Example::
 
-        >>> class CustomisableDenseLayer(Configurable, torch.nn.Module):
+        >>> class CustomizableDenseLayer(Configurable, torch.nn.Module):
         ...     @classmethod
-        ...     def finalize_docmatic_config(cls, config):
+        ...     def finalize_dogmatic_config(cls, config):
         ...         config['linear'] = {
         ...             'factory': torch.nn.Linear,
         ...             'out_features': 3,
         ...         }
         ...         if config['linear']['factory'] == torch.nn.Linear:
         ...             config['linear']['in_features'] = 5
-        ...         config['activation'] = {
-        ...             'factory': torch.nn.ReLU,
-        ...         }
+        ...         config['activation'] = {'factory': torch.nn.ReLU}
         ...     def __init__(self, linear, activation):
         ...         super().__init__()
         ...         self.l = linear  # torch.nn.Linear(in_units, out_units)
         ...         self.a = activation  # torch.nn.ReLU()
         ...     def __call__(self, x):
         ...         return self.a(self.l(x))
-        >>> config = CustomisableDenseLayer.get_config()
+        >>> config = CustomizableDenseLayer.get_config()
         >>> pprint(config)
         {'factory': 'configurable.CustomisableDenseLayer',
          'linear': {'factory': 'torch.nn.modules.linear.Linear',
@@ -142,7 +139,7 @@ class Configurable:
           'bias': True},
          'activation': {'factory': 'torch.nn.modules.activation.ReLU',
           'inplace': False}}
-        >>> CustomisableDenseLayer.from_config(config)
+        >>> CustomizableDenseLayer.from_config(config)
         CustomisableDenseLayer(
           (l): Linear(in_features=5, out_features=3, bias=True)
           (a): ReLU()
@@ -153,15 +150,15 @@ class Configurable:
 
     With the provided updates to `get_config` you can replace any value in the
     config. Note in the following example that the 'out_features' stays in the
-    config, because it is outside the if in `finalize_docmatic_config`, while
+    config, because it is outside the if in `finalize_dogmatic_config`, while
     'in_features' disappears because the config object that is given to
-    `finalize_docmatic_config` is a docmatic dict. That means the updates have
-    a higher pririty that the assigned value. This behaviour is similar to
-    sacred (https://sacred.readthedocs.io/en/latest/configuration.html#updating-config-entries).
+    `finalize_dogmatic_config` is a dogmatic dict. That means the updates have
+    a higher priority than the assigned value. This behaviour is similar to
+    Sacred (https://sacred.readthedocs.io/en/latest/configuration.html#updating-config-entries).
 
     Example::
 
-        >>> config = CustomisableDenseLayer.get_config(
+        >>> config = CustomizableDenseLayer.get_config(
         ...     updates={'linear': {
         ...         'factory': torch.nn.Bilinear,
         ...         'in1_features': 10,
@@ -177,13 +174,13 @@ class Configurable:
           'bias': True},
          'activation': {'factory': 'torch.nn.modules.activation.ReLU',
           'inplace': False}}
-        >>> CustomisableDenseLayer.from_config(config)
+        >>> CustomizableDenseLayer.from_config(config)
         CustomisableDenseLayer(
           (l): Bilinear(in1_features=10, in2_features=15, out_features=3, bias=True)
           (a): ReLU()
         )
 
-    Another usecase for this behaviour are depended config entries (e.g.
+    Another use case for this behaviour are depended config entries (e.g.
     NN input size depends on selected input features).
 
     # ToDo: This text ist outdated and needs to be reformulated
@@ -196,7 +193,7 @@ class Configurable:
 
         >>> class EncoderDecoder(Configurable, torch.nn.Module):
         ...     @classmethod
-        ...     def finalize_docmatic_config(cls, config):
+        ...     def finalize_dogmatic_config(cls, config):
         ...         # assume that the config only includes values that
         ...         # have defaults in the __init__ signiture
         ...         config['encoder']= {
@@ -268,7 +265,7 @@ class Configurable:
     def get_signature(cls):
         raise NotImplementedError('get_signature should no longer be used'
                                   'if additional defaults have to be'
-                                  'specified use finalize_docmatic_config')
+                                  'specified use finalize_dogmatic_config')
 
     @classmethod
     def finalize_dogmatic_config(cls, config):
@@ -784,7 +781,7 @@ class _DogmaticConfig:
     def _force_factory_type(self, factory):
         """
         This is a placeholder until it is finally decided, if the factory
-        should be a str or a class in finalize_docmatic_config.
+        should be a str or a class in finalize_dogmatic_config.
 
         Options:
          - class
@@ -908,12 +905,12 @@ class _DogmaticConfig:
 
         When the value is not a dict, directly return the value.
         When the value is a dict and does not contain "factory" as key,
-        return a _DocmaticConfig instance for that dict
+        return a _DogmaticConfig instance for that dict
         (i.e. take the sub dict of each dict is self.data.maps).
         When the dict contains the key "factory", freeze the mutable_idx of
-        this _DocmaticConfig instance and update the kwargs
+        this _DogmaticConfig instance and update the kwargs
         (i.e. get the defaults from the signature and call
-        finalize_docmatic_config is it exists.)
+        finalize_dogmatic_config is it exists.)
 
         """
         if 'factory' in self.data \
@@ -934,8 +931,8 @@ class _DogmaticConfig:
             for k, v in defaults.items():
                 self[k] = v
 
-            if hasattr(factory, 'finalize_docmatic_config'):
-                factory.finalize_docmatic_config(self)
+            if hasattr(factory, 'finalize_dogmatic_config'):
+                factory.finalize_dogmatic_config(self)
 
             delta = set(self.data.keys()) - set(self.keys())
 
