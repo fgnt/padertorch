@@ -540,7 +540,7 @@ class CheckpointedValidationHook(ValidationHook):
 
 class ProgressBarHook(BaseHook):
     """ Adds a progress bar to the console output. """
-    def __init__(self, max_trigger, max_it_len=None, update_intervall=10):
+    def __init__(self, max_trigger, max_it_len=None, update_interval=10):
         """
         :param max_trigger: has to be defined if max_trigger unit is session
             integer with the length of the iterator
@@ -551,8 +551,8 @@ class ProgressBarHook(BaseHook):
         :param bar_length (int): Length of the progress bar in characters.
         :param disable: bool use to disable the entire progressbar wrapper
         """
-        super().__init__((update_intervall, 'iteration'))
-        self.update_intervall = update_intervall
+        super().__init__((update_interval, 'iteration'))
+        self.update_intervall = update_interval
         if isinstance(max_trigger, EndTrigger):
             length, unit = max_trigger.period, max_trigger.unit
         elif isinstance(max_trigger, (tuple, list)):
@@ -603,8 +603,6 @@ class ProgressBarHook(BaseHook):
     def post_step(self, trainer: 'pt.Trainer', example,
                   model_output, review):
         self.loss = review["loss"]
-
-
 
     def close(self, trainer: 'pt.Trainer'):
         self.pbar.finish()

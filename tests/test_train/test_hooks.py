@@ -20,7 +20,7 @@ class ProgresbarHookTest(unittest.TestCase):
     def train_loop_iteration(self, length, max_it_len):
         progressbar_hook = pt.train.hooks.ProgressBarHook(
             max_trigger=(length, 'iteration'), max_it_len=max_it_len,
-            update_intervall=1
+            update_interval=1
         )
         iteration = 0
         epoch = 0
@@ -57,7 +57,7 @@ class ProgresbarHookTest(unittest.TestCase):
     def train_loop_epoch(self, length, max_it_len):
         progressbar_hook = pt.train.hooks.ProgressBarHook(
             max_trigger=(length, 'epoch'), max_it_len=max_it_len,
-            update_intervall=1
+            update_interval=1
         )
         iteration = 0
         epoch = 0
