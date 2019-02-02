@@ -85,6 +85,10 @@ def prepare_and_train(
     trainer = pt.Trainer.from_config(_config["trainer"])
 
     db = MerlMixtures()
+    trainer.test_run(
+        prepare_iterable_captured(db, train_dataset),
+        prepare_iterable_captured(db, validate_dataset),
+    )
     trainer.train(
         prepare_iterable_captured(db, train_dataset),
         prepare_iterable_captured(db, validate_dataset),
