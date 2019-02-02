@@ -49,7 +49,7 @@ def test_single_model():
 
     config = pt.Trainer.get_config(
         updates=pb.utils.nested.deflatten({
-            'model.cls': Model,
+            'model.factory': Model,
             'storage_dir': None,  # will be overwritten
             'max_trigger': None,  # will be overwritten
         })
@@ -145,33 +145,6 @@ class StandardNormal(Model):
                 kld=kld
             )
         )
-
-
-class ListTrainer(pt.trainer.Trainer):
-    def _step(self, example):
-        review = dict()
-        vae_out = self.model[0](example)
-        pb.utils.nested.nested_update(review, self.model[0].review(
-            example, vae_out))
-        latent_out = self.model[1](vae_out[1:])
-        pb.utils.nested.nested_update(review, self.model[1].review(
-            vae_out[1:], latent_out))
-        return (vae_out, latent_out), review
-
-
-def test_list_of_models():
-    it_tr, it_dt = get_iterators()
-
-    models = [VAE(), StandardNormal()]
-    optimizers = [pt.optimizer.Adam(), None]
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        trainer = ListTrainer(
-            models, storage_dir=tmp_dir, optimizer=optimizers,
-            loss_weights={'mse': 1., 'kld': 1.}
-        )
-
-        with assert_dir_unchanged_after_context(tmp_dir):
-            trainer.test_run(it_tr, it_dt)
 
 
 class DictTrainer(pt.trainer.Trainer):

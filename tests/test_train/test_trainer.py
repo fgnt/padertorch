@@ -6,6 +6,8 @@ import textwrap
 from unittest import mock
 import itertools, collections
 
+from IPython.lib.pretty import pprint
+
 import numpy as np
 import torch
 
@@ -141,7 +143,7 @@ def test_single_model():
 
         config = pt.Trainer.get_config(
             updates=pb.utils.nested.deflatten({
-                'model.cls': Model,
+                'model.factory': Model,
                 'storage_dir': str(tmp_dir),
                 'max_trigger': (2, 'epoch'),
                 'keep_all_checkpoints': True,
@@ -207,8 +209,8 @@ def test_single_model():
             raise AssertionError(
                 '\n' +
                 ('\n'.join(difflib.ndiff(
-                    hook_calls.splitlines(),
                     hook_calls_ref.splitlines(),
+                    hook_calls.splitlines(),
             ))))
 
         old_event_files = []
@@ -227,7 +229,6 @@ def test_single_model():
                         tags.append(value['tag'])
 
                 c = dict(collections.Counter(tags))
-                assert len(events) == 21, (len(events), events)
                 expect = {
                     'training/grad_norm': 2,
                     'training/grad_norm_': 2,
@@ -242,7 +243,9 @@ def test_single_model():
                     'validation/non_validation_time': 2,
                     'validation/validation_time': 3,
                 }
+                pprint(c)
                 assert c == expect, c
+                assert len(events) == 21, (len(events), events)
 
             elif file.name == 'checkpoints':
                 checkpoints_files = tuple(file.glob('*'))
@@ -283,7 +286,7 @@ def test_single_model():
         # new value
         time.sleep(2)
 
-        config['kwargs']['max_trigger'] = (4, 'epoch')
+        config['max_trigger'] = (4, 'epoch')
         t = pt.Trainer.from_config(config)
 
         with record_hook_trigger_calls(t) as mocked:
@@ -336,8 +339,8 @@ def test_single_model():
             raise AssertionError(
                 '\n' +
                 ('\n'.join(difflib.ndiff(
-                    hook_calls.splitlines(),
                     hook_calls_ref.splitlines(),
+                    hook_calls.splitlines(),
             ))))
 
         files_after = tuple(tmp_dir.glob('*'))
