@@ -4,6 +4,7 @@
 """
 import contextlib
 import itertools
+import os
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -29,10 +30,8 @@ __all__ = [
 class Trainer(Configurable):
 
     @classmethod
-    def get_signature(cls):
-        default_dict = super().get_signature()
-        default_dict['optimizer'] = {'cls': Adam}
-        return default_dict
+    def finalize_dogmatic_config(cls, config):
+        config['optimizer'] = {'factory': Adam}
 
     def __init__(
             self,
@@ -229,32 +228,32 @@ class Trainer(Configurable):
                 for hook in hooks:
                     hook.pre_step(self)
 
-                data_iterator = iter(train_iterator)
-                for self.iteration in itertools.count(start=self.iteration):
-                    try:
-                        with self.timer['time_per_step'], \
-                                self.timer['time_per_data_loading']:
-                            example = next(data_iterator)  # TODO: Can this be part of the for statement?
-                    except StopIteration:
-                        break
-
+                for self.iteration, example in self.timer(
+                    key='time_per_data_loading',
+                    iterable=enumerate(
+                        train_iterator,
+                        start=self.iteration,
+                    )
+                ):
                     if epoch_start:
                         epoch_start = False
                     else:
                         for hook in hooks:
                             hook.pre_step(self)
 
-                    with self.timer['time_per_step']:
+                    with self.timer['time_per_train_step']:
                         example = pt.data.batch_to_device(
                             example, self.use_cuda, self.gpu_device
                         )
-                        # Todo: backup OOM
-                        with self.timer['time_per_train_step']:
-                            model_output, review = self.train_step(example)
-                        for hook in hooks:
-                            hook.post_step(
-                                self, example, model_output, review
-                            )
+                        # Todo: backup OutOfMemory
+                        model_output, review = self.train_step(example)
+                    for hook in hooks:
+                        hook.post_step(
+                            self, example, model_output, review
+                        )
+
+                # Fix for next loop
+                self.iteration += 1
 
         except StopTraining:
             pass
@@ -523,15 +522,17 @@ class ContextTimerDict:
     ...     time.sleep(0.1)
     >>> with timer['test_2']:
     ...     time.sleep(0.1)
+    >>> for _ in timer('test_3', range(3)):
+    ...     time.sleep(0.1)
 
     Ignore timing when an exception is raised
     >>> with contextlib.suppress(Exception), timer['test_2']:
     ...     raise Exception
     >>> timer
-    ContextTimerDict: {'test': array([0.1, 0.1]), 'test_2': array([0.1])}
-    >>> timer.as_dict
-    {'test': array([0.1, 0.1]), 'test_2': array([0.1])}
-    """
+    ContextTimerDict: {'test': array([0.1, 0.1]), 'test_2': array([0.1]), 'test_3': array([1.96e-06, 4.80e-06, 3.87e-06])}
+>>> timer.as_dict
+    {'test': array([0.1, 0.1]), 'test_2': array([0.1]), 'test_3': array([1.96e-06, 4.80e-06, 3.87e-06])}
+"""
     def __init__(self):
         self.timings = defaultdict(list)
         self.timestamp = time.perf_counter  # time.process_time
@@ -553,6 +554,14 @@ class ContextTimerDict:
 
     def __str__(self):
         return str(self.as_dict)
+
+    def __call__(self, key, iterable):
+        iterator = iter(iterable)
+        while True:
+            with self[key]:
+                example = next(iterator)
+            yield example
+
 
 
 # ToDO: write function for those to functions outside of trainer

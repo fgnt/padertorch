@@ -145,21 +145,28 @@ class SummaryHook(BaseHook):
 
     def dump_summary(self, trainer: 'pt.Trainer'):
         iteration = trainer.iteration
-        timer = trainer.timer
+        timer_dict = trainer.timer.as_dict
         prefix = self.summary_prefix
         for key, scalar in self.summary['scalars'].items():
             self.writer.add_scalar(
                 f'{prefix}/{key}', np.mean(scalar), iteration)
-        for key, scalar in timer.as_dict.items():
-            if key in ['time_per_data_loading', 'time_per_train_step']:
-                if 'time_per_step' in timer.as_dict.keys():
-                    time_per_step = timer.as_dict['time_per_step']
+        for key, scalar in timer_dict.items():
+            time_per_step = (
+                np.mean(timer_dict.get('time_per_data_loading', 0))
+                + np.mean(timer_dict.get('time_per_train_step', 0))
+            )
+            self.writer.add_scalar(
+                f'{prefix}/time_per_step', time_per_step, iteration)
 
-                    # Note the length of both is different, because the
-                    # measurement context is entered multiple times.
-                    # It is important to use sum instead of mean.
+            total_train_time = (
+                np.sum(timer_dict.get('time_per_data_loading', 0))
+                + np.sum(timer_dict.get('time_per_train_step', 0))
+            )
+
+            if key in ['time_per_data_loading', 'time_per_train_step']:
+                if total_train_time > 0:
                     scalar = (
-                        scalar.sum() / time_per_step.sum()
+                        scalar.sum() / total_train_time
                     )
                     if key == 'time_per_data_loading':
                         key = 'time_rel_data_loading'
@@ -169,21 +176,6 @@ class SummaryHook(BaseHook):
                         raise ValueError(key)
                 else:
                     # Something went wrong, most likely an exception.
-                    continue
-            elif key in ['time_per_step']:
-                # Only time_per_train_step has the correct number of steps.
-                if 'time_per_train_step' in timer.as_dict:
-                    step_count = len(timer.as_dict['time_per_train_step'])
-
-                    # TODO: The value is not correctly calculated.
-                    # assert np.size(scalar) >= 2 * step_count, (key, np.size(scalar), 2 * step_count)
-
-                    scalar = scalar.sum() / step_count
-                else:
-                    # raise Exception('Should not happen', timer.as_dict)
-
-                    # TODO: The value is not correctly calculated.
-                    # assert np.size(scalar) == 1, (key, scalar, timer.as_dict)
                     continue
 
             self.writer.add_scalar(
