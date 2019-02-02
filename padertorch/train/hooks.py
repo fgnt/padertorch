@@ -150,13 +150,15 @@ class SummaryHook(BaseHook):
         for key, scalar in self.summary['scalars'].items():
             self.writer.add_scalar(
                 f'{prefix}/{key}', np.mean(scalar), iteration)
-        for key, scalar in timer_dict.items():
-            time_per_step = (
+
+        time_per_step = (
                 np.mean(timer_dict.get('time_per_data_loading', 0))
                 + np.mean(timer_dict.get('time_per_train_step', 0))
-            )
+        )
+        if time_per_step > 0:
             self.writer.add_scalar(
                 f'{prefix}/time_per_step', time_per_step, iteration)
+        for key, scalar in timer_dict.items():
 
             total_train_time = (
                 np.sum(timer_dict.get('time_per_data_loading', 0))
