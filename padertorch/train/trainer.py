@@ -422,7 +422,7 @@ class Trainer(Configurable):
 
         summary = dict(scalars=dict(), histograms=dict())
         if isinstance(self.optimizer, dict):
-            for key, opti in self.optimizer:
+            for key, opti in self.optimizer.items():
                 grad_norm = opti.clip_grad()
 
                 summary['scalars'][f'{key}_grad_norm'] = grad_norm
