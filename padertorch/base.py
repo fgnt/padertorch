@@ -41,8 +41,16 @@ class Module(nn.Module, Configurable, abc.ABC):
 
         # Load config
         assert config_path.is_file(), f'Expected {config_path} is file.'
-        with config_path.open() as fp:
-            configurable_config = json.load(fp)
+        if config_path.suffix == '.json':
+            with config_path.open() as fp:
+                configurable_config = json.load(fp)
+        elif config_path.suffix == '.yaml':
+            import yaml
+            with config_path.open() as fp:
+                configurable_config = yaml.safe_load(fp)
+        else:
+            raise ValueError(config_path)
+
         for part in in_config_path.split('.'):
             configurable_config = configurable_config[part]
         module = cls.from_config(configurable_config)
@@ -62,8 +70,9 @@ class Module(nn.Module, Configurable, abc.ABC):
     def from_storage_dir(
             cls,
             storage_dir: Path,
+            config_name: str='config.json',
             checkpoint_name: str='ckpt_best_loss.pth',
-            in_config_path: str='trainer.kwargs.model',
+            in_config_path: str='trainer.model',
             in_checkpoint_path: str='model',
     ) -> 'Module':
         """
@@ -86,8 +95,9 @@ class Module(nn.Module, Configurable, abc.ABC):
         Returns:
 
         """
+        storage_dir = Path(storage_dir)
         return cls.from_config_and_checkpoint(
-            config_path=storage_dir / 'config.json',
+            config_path=storage_dir / config_name,
             checkpoint_path=storage_dir / 'checkpoints' / checkpoint_name,
             in_config_path=in_config_path,
             in_checkpoint_path=in_checkpoint_path
