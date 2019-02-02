@@ -9,7 +9,7 @@ class IntervalTrigger(Trigger):
     """
 
     https://www.cntk.ai/pythondocs/cntk.logging.progress_print.html
-    Is a geometric schedule interesting as opposite to arithmetic?
+    Is a geometric schedule interesting as opposed to arithmetic?
         geometric: [1, 2, 4, 8, 16, ...] times period
         arithmetic: [1, 2, 3, 4, 5, ...] times period
 
@@ -142,14 +142,12 @@ class EndTrigger(IntervalTrigger):
             raise ValueError(self.unit, 'Expect epoch or iteration')
 
 
-class OrTrigger(Trigger):
+class AnyTrigger(Trigger):
     """Used to combine triggers. Triggers, when any trigger triggers.
 
     We refrained from implementing trigger arithmetic, i.e. overloading
     the and and or operator since this was rejected in the following PEP:
     https://www.python.org/dev/peps/pep-0335/
-
-    TODO: Asks to be renamed to AnyTrigger
     """
     def __init__(self, *triggers):
         self.triggers = tuple([
@@ -170,14 +168,12 @@ class OrTrigger(Trigger):
             )
 
 
-class AndTrigger(OrTrigger):
+class AllTrigger(AnyTrigger):
     """Used to combine triggers. Triggers, when all trigger triggers.
 
     We refrained from implementing trigger arithmetic, i.e. overloading
     the and and or operator since this was rejected in the following PEP:
     https://www.python.org/dev/peps/pep-0335/
-
-    TODO: Asks to be renamed to AnyTrigger
     """
     def __call__(self, iteration, epoch):
         return all(

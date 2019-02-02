@@ -4,7 +4,6 @@
 """
 import contextlib
 import itertools
-import os
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -20,7 +19,7 @@ from padertorch.configurable import Configurable
 from padertorch.train.optimizer import Optimizer, Adam
 from padertorch.train.run_time_tests import test_run
 from padertorch.train.hooks import *
-from padertorch.train.trigger import IntervalTrigger, OrTrigger
+from padertorch.train.trigger import AnyTrigger
 
 __all__ = [
     'Trainer',
@@ -235,7 +234,7 @@ class Trainer(Configurable):
                     try:
                         with self.timer['time_per_step'], \
                                 self.timer['time_per_data_loading']:
-                            example = next(data_iterator)
+                            example = next(data_iterator)  # TODO: Can this be part of the for statement?
                     except StopIteration:
                         break
 
@@ -404,7 +403,7 @@ class Trainer(Configurable):
                 writer=writer,
             ))
 
-            summary_trigger = OrTrigger(
+            summary_trigger = AnyTrigger(
                 self.summary_trigger,
                 self.checkpoint_trigger,
             )
