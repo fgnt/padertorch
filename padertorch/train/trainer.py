@@ -223,11 +223,15 @@ class Trainer(Configurable):
 
         # ================ MAIN TRAINING LOOP! ===================
         try:
-            for self.epoch in itertools.count(start=self.epoch):  # infinite loop
+            # Count epochs up to infinity if not any stop condition is met. A
+            # typical stop condition is a firing `StopTrainingHook`.
+            for self.epoch in itertools.count(start=self.epoch):
                 epoch_start = True
                 for hook in hooks:
                     hook.pre_step(self)
 
+                # Count up iteration up to infinity if not any stop condition,
+                # (e.g. `StopIteration` exception) is reached.
                 for self.iteration, example in self.timer(
                     key='time_per_data_loading',
                     iterable=enumerate(
@@ -247,10 +251,9 @@ class Trainer(Configurable):
                         )
                         # Todo: backup OutOfMemory
                         model_output, review = self.train_step(example)
+
                     for hook in hooks:
-                        hook.post_step(
-                            self, example, model_output, review
-                        )
+                        hook.post_step(self, example, model_output, review)
 
                 # Fix for next loop
                 self.iteration += 1
