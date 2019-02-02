@@ -166,42 +166,6 @@ def test_run(
                 sub_validation_iterator,
             )
 
-        files = list(storage_dir.glob('*'))
-        assert len(files) == 2, files
-
-        for file in files:
-            if 'tfevents' in file.name:
-                pass
-            elif file.name == 'checkpoints':
-                checkpoint_names = {f.name for f in file.glob('*')}
-                expect = {
-                    'ckpt_latest.pth',
-                    'ckpt_best_loss.pth',
-                    'ckpt_state.json',
-                    'ckpt_2.pth',
-                    'ckpt_4.pth',
-                }
-                assert checkpoint_names == expect, (checkpoint_names, expect)
-
-                ckpt_best = (file / 'ckpt_best_loss.pth').resolve().name
-                ckpt_last = (file / 'ckpt_latest.pth').resolve().name
-                assert ckpt_best == 'ckpt_2.pth', ckpt_best
-                assert ckpt_last == 'ckpt_4.pth', ckpt_last
-
-                # ckpt_state = pb.io.load_json(file / 'ckpt_state.json')
-                # assert ckpt_state == {
-                #     'latest_checkpoint_path':
-                #         '/tmp/tmp_h0sygfv/checkpoints/ckpt_4.pth',
-                #     'metrics': {
-                #         'loss': {
-                #             'criterion': 'min',
-                #             'key': 'loss',
-                #             'paths': ['ckpt_2.pth'],
-                #             'values': [2.5040305852890015],
-                #         }
-                #     }
-                # }, ckpt_state
-
         def assert_step(x):
             if x is not None:
                 assert x.call_count == 4, x.call_count
@@ -256,6 +220,42 @@ def test_run(
                 len(s) == 0 for s in summary.values()
             ]), (hook, summary)
 
+        files = list(storage_dir.glob('*'))
+        assert len(files) == 2, files
+
+        for file in files:
+            if 'tfevents' in file.name:
+                pass
+            elif file.name == 'checkpoints':
+                checkpoint_names = {f.name for f in file.glob('*')}
+                expect = {
+                    'ckpt_latest.pth',
+                    'ckpt_best_loss.pth',
+                    'ckpt_state.json',
+                    'ckpt_2.pth',
+                    'ckpt_4.pth',
+                }
+                assert checkpoint_names == expect, (checkpoint_names, expect)
+
+                ckpt_best = (file / 'ckpt_best_loss.pth').resolve().name
+                ckpt_last = (file / 'ckpt_latest.pth').resolve().name
+                assert ckpt_best == 'ckpt_2.pth', ckpt_best
+                assert ckpt_last == 'ckpt_4.pth', ckpt_last
+
+                # ckpt_state = pb.io.load_json(file / 'ckpt_state.json')
+                # assert ckpt_state == {
+                #     'latest_checkpoint_path':
+                #         '/tmp/tmp_h0sygfv/checkpoints/ckpt_4.pth',
+                #     'metrics': {
+                #         'loss': {
+                #             'criterion': 'min',
+                #             'key': 'loss',
+                #             'paths': ['ckpt_2.pth'],
+                #             'values': [2.5040305852890015],
+                #         }
+                #     }
+                # }, ckpt_state
+
     print('Successfully finished test run')
 
 
@@ -268,7 +268,7 @@ def test_run_from_config(
     trainer_config = copy.deepcopy(trainer_config)
 
     with tempfile.TemporaryDirectory() as tmp_dir:
-        trainer_config['kwargs']['storage_dir'] = tmp_dir
+        trainer_config['storage_dir'] = tmp_dir
 
         tmp_dir = Path(tmp_dir)
         t = pt.Trainer.from_config(trainer_config)
