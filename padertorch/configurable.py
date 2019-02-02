@@ -940,13 +940,24 @@ class _DogmaticConfig:
                 # (delta, self.data.keys(), parameter_names)
                 from IPython.lib.pretty import pretty
                 raise Exception(
-                    f'Got fot the factory {factory} to much keywords.\n'
+                    f'Got for the factory {factory} to much keywords.\n'
                     f'Delta: {delta}\n'
                     f'signature: {inspect.signature(factory)}\n'
                     f'current config with fallbacks:\n{pretty(self.data)}'
                 )
 
             self.data.mutable_idx = mutable_idx_old
+
+        if 'cls' in self.keys():
+            from IPython.lib.pretty import pretty
+            factory = self.data['cls']
+            factory_str = class_to_str(factory)
+            raise Exception(
+                f'Got the old key "cls" (value: {factory_str}).\n'
+                f'Use the new key: factory\n'
+                f'Signature: {inspect.signature(factory)}\n'
+                f'Current config with fallbacks:\n{pretty(self.data)}'
+            )
 
         if key in self.data:
             try:
