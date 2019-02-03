@@ -14,10 +14,9 @@ class WaveNet(Model):
         self.audio_key = audio_key
 
     @classmethod
-    def get_signature(cls):
-        signature = super().get_signature()
-        signature['wavenet'] = {'cls': modules.WaveNet}
-        return signature
+    def finalize_dogmatic_config(cls, config):
+        config['wavenet']['factory'] = modules.WaveNet
+        return config
 
     def forward(self, inputs):
         return self.wavenet(inputs[self.feature_key], inputs[self.audio_key])
