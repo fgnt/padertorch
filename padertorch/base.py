@@ -1,3 +1,9 @@
+"""Provide Module and Model abstract base classes.
+
+This module defines abstract base classes which allow subclassed modules
+to be used in models and subclassed models to be configurable and trainable
+by instances of pytorch.train.Trainer.
+"""
 import abc
 from pathlib import Path
 import json
@@ -15,14 +21,11 @@ __all__ = [
 
 
 class Module(nn.Module, Configurable, abc.ABC):
-    """
-    Abstract base class for configurable Modules.
-    """
+    """Abstract base class for configurable Modules."""
+
     @abc.abstractmethod
     def forward(self, *args, **kwargs):
-        """
-        Anything
-        """
+        """Define the I/O behavior of Module()."""
         pass
 
     @classmethod
@@ -30,9 +33,10 @@ class Module(nn.Module, Configurable, abc.ABC):
             cls,
             config_path: Path,
             checkpoint_path: Path,
-            in_config_path: str='trainer.kwargs.model',
-            in_checkpoint_path: str='model',
+            in_config_path: str = 'trainer.kwargs.model',
+            in_checkpoint_path: str = 'model',
     ) -> 'Module':
+        """Instantiate the module from given config and checkpoint."""
         config_path = Path(config_path).expanduser().resolve()
         checkpoint_path = Path(checkpoint_path).expanduser().resolve()
 
@@ -70,12 +74,13 @@ class Module(nn.Module, Configurable, abc.ABC):
     def from_storage_dir(
             cls,
             storage_dir: Path,
-            config_name: str='config.json',
-            checkpoint_name: str='ckpt_best_loss.pth',
-            in_config_path: str='trainer.model',
-            in_checkpoint_path: str='model',
+            config_name: str = 'config.json',
+            checkpoint_name: str = 'ckpt_best_loss.pth',
+            in_config_path: str = 'trainer.model',
+            in_checkpoint_path: str = 'model',
     ) -> 'Module':
-        """
+        """Instantiate the module from a given storage directory.
+
         Assumes fixed folder structure in the default configuration. If this
         folder structure is not your folder structure, use the function
         `from_config_and_checkpoint` directly.
@@ -105,13 +110,14 @@ class Module(nn.Module, Configurable, abc.ABC):
 
 
 class Model(Module, Configurable, abc.ABC):
+    """Abstract base class for configurable trainable  models.
+
+    Subclassed models can be trained by padertorch.trainer.Trainer.
     """
-    Abstract base class for configurable Models which can be trained by
-    padertorch.trainer.Trainer.
-    """
+
     @abc.abstractmethod
     def forward(self, inputs):
-        """
+        """Define the I/O behavior of Model().
 
         Args:
             inputs:
@@ -127,8 +133,10 @@ class Model(Module, Configurable, abc.ABC):
 
     @abc.abstractmethod
     def review(self, inputs, outputs):
-        """
+        """Produce a review dictionary from given inputs and outputs.
 
+        In particular, this method usually calculates the loss function
+        and adds the result to the review dict.
         Args:
             inputs:
                 Same as `inputs` argument of `self.forward`.
