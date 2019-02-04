@@ -13,10 +13,10 @@ class Optimizer:
         self.optimizer_kwargs = kwargs
 
     def set_parameters(self, parameters):
+        self.parameters = tuple(parameters)
         self.optimizer = self.optimizer_cls(
-            parameters, **self.optimizer_kwargs
+            self.parameters, **self.optimizer_kwargs
         )
-        self.parameters = parameters
 
     def check_if_set(self):
         assert self.optimizer is not None, \
