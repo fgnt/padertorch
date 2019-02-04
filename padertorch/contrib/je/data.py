@@ -99,7 +99,7 @@ class DataProvider(Configurable):
 
         map_fn = [
             func for func in
-            [self.label_encoders, self.transform, self.normalizer]
+            [self.labels_encoder, self.transform, self.normalizer]
             if func is not None
         ]
         if map_fn:
