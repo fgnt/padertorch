@@ -214,7 +214,7 @@ class MultiScaleConv1d(Module):
             transpose=False, padding='both', norm=None, dropout=0.,
             activation='leaky_relu', gated=False
     ):
-        assert hidden_size % n_scales == 0
+        assert hidden_size % n_scales == 0, (hidden_size, n_scales)
         super().__init__()
         if dilation is True or dilation == 1:
             kernel_sizes = n_scales * [kernel_size]
@@ -246,7 +246,7 @@ class MultiScaleConv1d(Module):
         elif norm == 'batch':
             self.norm = nn.BatchNorm1d(output_size)
         else:
-            raise ValueError(f'{norm} normalization  not known.')
+            raise ValueError(f'{norm} normalization not known.')
 
     def forward(self, x, h=None):
         y = self.out(torch.cat([conv(x, h) for conv in self.convs], dim=1))
@@ -262,16 +262,17 @@ class TCN(Module):
     Multi-Scale Temporal Convolutional Network
     """
     def __init__(
-            self, input_size, output_size, hidden_sizes=256,
-            condition_size=0, num_layers=5, kernel_sizes=3, n_scales=None,
-            dilations=1, strides=1, transpose=False, pool_sizes=1,
-            padding='both', norm=None, dropout=0., activation='leaky_relu',
-            gated=False
+            self, input_size, output_size, hidden_sizes=256, condition_size=0,
+            num_layers=5, kernel_sizes=3, n_scales=None, dilations=1, strides=1,
+            transpose=False, pool_sizes=1, padding='both', norm=None,
+            dropout=0., activation='leaky_relu', gated=False
     ):
         super().__init__()
 
         self.input_size = input_size
-        self.hidden_sizes = to_list(hidden_sizes, num_layers - 1)
+        self.hidden_sizes = to_list(
+            hidden_sizes, num_layers - int(n_scales is None)
+        )
         self.output_size = output_size
         self.condition_size = condition_size
         self.num_layers = num_layers
@@ -286,15 +287,15 @@ class TCN(Module):
 
         convs = list()
         for i in range(num_layers):
-            if i == num_layers - 1:
-                hidden_size = output_size
-                norm = None
-                activation = 'identity'
-            else:
-                hidden_size = self.hidden_sizes[i]
             if n_scales is None:
+                if i == num_layers - 1:
+                    output_size_ = output_size
+                    norm = None
+                    activation = 'identity'
+                else:
+                    output_size_ = self.hidden_sizes[i]
                 convs.append(Conv1d(
-                    input_size=input_size, output_size=hidden_size,
+                    input_size=input_size, output_size=output_size_,
                     condition_size=condition_size,
                     kernel_size=self.kernel_sizes[i],
                     dilation=self.dilations[i],
@@ -303,15 +304,21 @@ class TCN(Module):
                     activation=activation, gated=gated
                 ))
             else:
+                hidden_size = self.hidden_sizes[i]
+                if i == num_layers - 1:
+                    output_size_ = output_size
+                    norm = None
+                else:
+                    output_size_ = hidden_size
                 convs.append(MultiScaleConv1d(
                     input_size=input_size, hidden_size=hidden_size,
-                    output_size=hidden_size, condition_size=condition_size,
+                    output_size=output_size_, condition_size=condition_size,
                     kernel_size=self.kernel_sizes[i], n_scales=self.n_scales[i],
                     dilation=self.dilations[i], stride=self.strides[i],
                     transpose=transpose, padding=padding, norm=norm,
                     dropout=dropout, activation=activation, gated=gated
                 ))
-            input_size = hidden_size
+            input_size = output_size_
         self.convs = nn.ModuleList(convs)
 
     def forward(self, x, h=None, pool_indices=None):
