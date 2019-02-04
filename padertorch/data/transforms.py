@@ -144,7 +144,7 @@ class Spectrogram(Transform):
             sample_rate: int = 16000,
             frame_length: int = 400,
             frame_step: int = 160,
-            fft_length:int = 512,
+            fft_length: int = 512,
             window: str = "hann",
             padded: bool = True,
             n_mels: Optional[int] = 40,

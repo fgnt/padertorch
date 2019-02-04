@@ -126,9 +126,10 @@ class DataProvider(Configurable):
                 data_pipe = data_pipe.fragment(
                     partial(fragment_fn, random_onset=training)
                 )
-            data_pipe = data_pipe.shuffle(
-                reshuffle=True, buffer_size=self.shuffle_buffer_size
-            )
+            if training:
+                data_pipe = data_pipe.shuffle(
+                    reshuffle=True, buffer_size=self.shuffle_buffer_size
+                )
 
         data_pipe = data_pipe.batch(self.batch_size)
         if self.collate_fn is None:
