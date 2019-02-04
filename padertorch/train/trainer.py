@@ -480,7 +480,7 @@ class Trainer(Configurable):
 
         self.model.load_state_dict(checkpoint_dict['model'])
         if isinstance(self.optimizer, dict):
-            assert set(self.optimizer.keys() == set(checkpoint_dict['optimizer'].keys())), \
+            assert set(self.optimizer.keys()) == set(checkpoint_dict['optimizer'].keys()), \
                 (self.optimizer, checkpoint_dict['model'])
             for key, otim in self.optimizer.items():
                 otim.load_state_dict(
