@@ -109,8 +109,8 @@ class SelfAttention(Module):
 def self_attention_stack(
         input_size: int,
         hidden_size: int,
-        key_size: int,
-        value_size: int,
+        key_size: int = 64,
+        value_size: int = 64,
         num_layers: int = 3,
         num_heads: int = 8,
         mask: bool = True,
