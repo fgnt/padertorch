@@ -307,7 +307,7 @@ class Configurable:
             # This fix is active when the script is called with
             # "python -m <script> ..."
             # but not when it is called with "python <script>.py ..."
-            cls_ = import_class(class_to_str(cls))
+            cls = import_class(class_to_str(cls))
 
         if updates is None:
             updates = {}
@@ -316,14 +316,14 @@ class Configurable:
             config = _sacred_dogmatic_to_dict(updates)
 
         if 'factory' not in config:
-            config['factory'] = cls_
+            config['factory'] = cls
         else:
             config['factory'] = import_class(config['factory'])
             if inspect.isclass(config['factory']) \
                     and issubclass(config['factory'], Configurable):
                 # When subclass of Configurable expect proper subclass
-                assert issubclass(import_class(config['factory']), cls_), (
-                    config['factory'], cls_)
+                assert issubclass(import_class(config['factory']), cls), (
+                    config['factory'], cls)
 
         config = _DogmaticConfig.normalize(config)
 
