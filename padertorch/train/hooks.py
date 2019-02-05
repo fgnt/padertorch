@@ -1,4 +1,12 @@
 """ This module contains various hooks which perform actions during training.
+
+Hooks replace a huge amount of conditions in the trainer code.
+Having individual hook modules allows to enable and disable specific
+functionality.
+
+E.g., adding a learning rate schedule without adding further conditions to the
+trainer.
+
 """
 import json
 from collections import defaultdict
@@ -151,35 +159,39 @@ class SummaryHook(BaseHook):
             self.writer.add_scalar(
                 f'{prefix}/{key}', np.mean(scalar), iteration)
 
+        # Special handling for time_per_data_loading and time_per_train_step
+        #  Calculate
+        #   - time_per_step: time of loading plus train step per example
+        #   - time_rel_data_loading: time_for_loading / time_per_step
+        #   - time_rel_train_step: time_train_step / time_per_step
+        # Note: It is not guarantied that the size of time_per_data_loading and
+        #       time_per_train_step is equal, because the Summary Hook is
+        #       called between dataloading and train step. So the loading can
+        #       be part of the previous summary, while the train step is in the
+        #       next summary.
+        time_per_data_loading = timer_dict.pop('time_per_data_loading', [0])
+        time_per_train_step = timer_dict.pop('time_per_train_step', [0])
         time_per_step = (
-                np.mean(timer_dict.get('time_per_data_loading', 0))
-                + np.mean(timer_dict.get('time_per_train_step', 0))
+                np.mean(time_per_data_loading) + np.mean(time_per_train_step)
         )
         if time_per_step > 0:
             self.writer.add_scalar(
                 f'{prefix}/time_per_step', time_per_step, iteration)
-        for key, scalar in timer_dict.items():
-
             total_train_time = (
-                np.sum(timer_dict.get('time_per_data_loading', 0))
-                + np.sum(timer_dict.get('time_per_train_step', 0))
+                    np.sum(time_per_data_loading) + np.sum(time_per_train_step)
+            )
+            self.writer.add_scalar(
+                f'{prefix}/time_rel_data_loading',
+                np.sum(time_per_data_loading) / total_train_time,
+                iteration
+            )
+            self.writer.add_scalar(
+                f'{prefix}/time_rel_train_step',
+                np.sum(time_per_train_step) / total_train_time,
+                iteration
             )
 
-            if key in ['time_per_data_loading', 'time_per_train_step']:
-                if total_train_time > 0:
-                    scalar = (
-                        scalar.sum() / total_train_time
-                    )
-                    if key == 'time_per_data_loading':
-                        key = 'time_rel_data_loading'
-                    elif key == 'time_per_train_step':
-                        key = 'time_rel_train_step'
-                    else:
-                        raise ValueError(key)
-                else:
-                    # Something went wrong, most likely an exception.
-                    continue
-
+        for key, scalar in timer_dict.items():
             self.writer.add_scalar(
                 f'{prefix}/{key}', scalar.mean(), iteration)
         for key, histogram in self.summary['histograms'].items():
