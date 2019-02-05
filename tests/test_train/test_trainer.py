@@ -146,6 +146,7 @@ def test_single_model():
                 'model.factory': Model,
                 'storage_dir': str(tmp_dir),
                 'max_trigger': (2, 'epoch'),
+                'summary_trigger': (3, 'iteration'),
                 'keep_all_checkpoints': True,
             })
         )
@@ -188,7 +189,7 @@ def test_single_model():
         I:2, E: 1, True, CheckpointedValidationHook.pre_step
         I:2, E: 1, True, CheckpointedValidationHook.pre_step
         I:2, E: 1, False, StopTrainingHook.pre_step
-        I:3, E: 1, False, SummaryHook.pre_step
+        I:3, E: 1, True, SummaryHook.pre_step
         I:3, E: 1, False, ProgressBarHook.pre_step
         I:3, E: 1, False, CheckpointedValidationHook.pre_step
         I:3, E: 1, False, CheckpointedValidationHook.pre_step
@@ -223,19 +224,33 @@ def test_single_model():
                 events = load_tfevents_as_dict(file)
 
                 tags = []
+                time_rel_data_loading = []
+                time_rel_train_step = []
                 for event in events:
                     if 'summary' in event.keys():
                         value, = event['summary']['value']
                         tags.append(value['tag'])
+                        if value['tag'] == 'training/time_rel_data_loading':
+                            time_rel_data_loading.append(value['simpleValue'])
+                        elif value['tag'] == 'training/time_rel_train_step':
+                            time_rel_train_step.append(value['simpleValue'])
 
                 c = dict(collections.Counter(tags))
+                # Training summary is written when
+                #   summary_trigger (3, iteration => two times, but zero do not
+                #   count) or checkpoint_trigger (1, epoch => three times, but
+                #   0 do not count) triggers.
+                # Validation summary is written when checkpoint_trigger
+                #   triggers. Hence 3 times.
+                #   non_validation_time can only be measured between
+                #   validations => 2 values (one fewer that validation_time)
                 expect = {
-                    'training/grad_norm': 2,
-                    'training/grad_norm_': 2,
-                    'training/loss': 2,
-                    'training/time_per_step': 2,
-                    'training/time_rel_data_loading': 2,
-                    'training/time_rel_train_step': 2,
+                    'training/grad_norm': 3,
+                    'training/grad_norm_': 3,
+                    'training/loss': 3,
+                    'training/time_per_step': 3,
+                    'training/time_rel_data_loading': 3,
+                    'training/time_rel_train_step': 3,
                     'validation/loss': 3,
                     # non validation time can only be measured between
                     # validations:
@@ -245,7 +260,13 @@ def test_single_model():
                 }
                 pprint(c)
                 assert c == expect, c
-                assert len(events) == 21, (len(events), events)
+                assert len(events) == 27, (len(events), events)
+
+                np.testing.assert_allclose(
+                    np.add(time_rel_data_loading, time_rel_train_step),
+                    1,
+                    err_msg=f'{time_rel_data_loading}, {time_rel_train_step})'
+                )
 
             elif file.name == 'checkpoints':
                 checkpoints_files = tuple(file.glob('*'))
