@@ -12,15 +12,16 @@ def bar(a, b=3, d=4):
 
 class A(pts.configurable.Configurable):
     @classmethod
-    def get_signature(cls):
-        defaults = super().get_signature()
-        defaults['e'] = {
-            'cls': foo,
-            'kwargs': {'b': 5},
-            foo: {'c': 6},
-            bar: {'d': 7},
+    def finalize_dogmatic_config(cls, config):
+        config['e'] = {
+            'factory': foo,
+            'b': 5
         }
-        return defaults
+        if config['e']['factory'] == foo:
+            config['e']['c'] = 6
+        if config['e']['factory'] == bar:
+            config['e']['d'] = 7
+        return config
 
     def __init__(self, e, f=0):
         pass
@@ -30,53 +31,41 @@ class Test:
     def test_(self):
         config = A.get_config()
         expect = {
-            'cls': 'tests.test_configurable.A',
-            'kwargs': {
-                'f': 0,
-                'e': {
-                    'cls': 'tests.test_configurable.foo',
-                    'kwargs': {
-                        'b': 5,
-                        'c': 6
-                    }
-                }
+            'factory': 'tests.test_configurable.A',
+            'f': 0,
+            'e': {
+                'factory': 'tests.test_configurable.foo',
+                'b': 5,
+                'c': 6
             }
         }
         np.testing.assert_equal(config, expect)
 
-        with np.testing.assert_raises_regex(TypeError, "missing a required argument: 'a'"):
-            config = A.get_config({'e': {'cls': bar}})
+        # with np.testing.assert_raises_regex(TypeError, "missing keys: {'a'}"):
+        #     config = A.get_config({'e': {'factory': bar}})
 
-        config = A.get_config({'e': {'cls': bar, 'kwargs': {'a': 10}}})
+        config = A.get_config({'e': {'factory': bar, 'a': 10}})
         expect = {
-            'cls': 'tests.test_configurable.A',
-            'kwargs': {
-                'f': 0,
-                'e': {
-                    'cls': 'tests.test_configurable.bar',
-                    'kwargs': {
-                        'b': 5,
-                        'd': 7,
-                        'a': 10
-                    }
-                }
+            'factory': 'tests.test_configurable.A',
+            'f': 0,
+            'e': {
+                'factory': 'tests.test_configurable.bar',
+                'b': 5,
+                'd': 7,
+                'a': 10
             }
         }
         np.testing.assert_equal(config, expect)
 
-        config = A.get_config({'e': {'cls': bar, bar: {'a': 10}}})
+        config = A.get_config({'e': {'factory': bar, 'a': 10}})
         expect = {
-            'cls': 'tests.test_configurable.A',
-            'kwargs': {
-                'f': 0,
-                'e': {
-                    'cls': 'tests.test_configurable.bar',
-                    'kwargs': {
-                        'b': 5,
-                        'd': 7,
-                        'a': 10
-                    }
-                }
+            'factory': 'tests.test_configurable.A',
+            'f': 0,
+            'e': {
+                'factory': 'tests.test_configurable.bar',
+                'b': 5,
+                'd': 7,
+                'a': 10
             }
         }
         np.testing.assert_equal(config, expect)
