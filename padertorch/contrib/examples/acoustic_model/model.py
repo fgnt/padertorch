@@ -129,7 +129,6 @@ class AcousticExperiment(pt.Model):
             input_feature={
                 'type': 'mfcc',
                 'kwargs': {
-                    # check that these parameters are the mfcc_high_res
                     'num_mel_bins': 40,
                     'num_ceps': 40,
                     'low_freq': 20,

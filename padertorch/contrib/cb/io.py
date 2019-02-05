@@ -91,6 +91,19 @@ def get_new_folder(
 
 
 def write_makefile_and_config(storage_dir, _config, _run, backend='yaml'):
+    """
+    Writes a Makefile and a config file in the storage_dir to resume the
+    Experiment.
+
+    Args:
+        storage_dir:
+        _config:
+        _run:
+        backend:
+
+    Returns:
+
+    """
     if backend == 'json':
         config_path = Path(storage_dir) / "config.json"
         pb.io.dump_json(_config, config_path)

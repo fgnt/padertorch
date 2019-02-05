@@ -11,7 +11,6 @@ export STORAGE_ROOT=/net/vol/$USER/sacred/torch/examples && mkdir -p $STORAGE_RO
 python -m padertorch.contrib.examples.acoustic_model.train
 
 """
-# ToDo: why export STORAGE_ROOT if in one liner?
 import os
 import datetime
 from pathlib import Path
@@ -36,7 +35,18 @@ ex = sacred.Experiment('AM')
 
 
 def get_basedir():
-    # ToDo: Improve error message if no STORAGE_ROOT is set
+    if 'STORAGE_ROOT' not in os.environ:
+        raise EnvironmentError(
+            'You have to specify an STORAGE_ROOT'
+            'environmental variable see getting_started'
+        )
+    elif not os.environ['STORAGE_ROOT'].exists():
+        raise FileNotFoundError(
+            'You have to specify an existing STORAGE_ROOT'
+            'environmental variable see getting_started.\n'
+            f'Got: {os.environ["STORAGE_ROOT"]}'
+        )
+
     basedir = (Path(
         os.environ['STORAGE_ROOT']
     ) / 'acoustic_model').expanduser().resolve()
@@ -102,16 +112,16 @@ def prepare_and_train(
         it_dt = it_dt.map(model.transform)
 
         print('it_tr:')
-        print(it_tr)
+        print(repr(it_tr))
         print('it_dt:')
-        print(it_dt)
+        print(repr(it_dt))
 
         print('Storage dir:', storage_dir)
 
         trainer.test_run(it_tr.catch(), it_dt.catch())
         trainer.train(
-            it_tr.prefetch(4, 8, catch_filter_exception=True),
-            it_dt.prefetch(4, 8, catch_filter_exception=True),
+            it_tr[:100].prefetch(4, 8, catch_filter_exception=True),
+            it_dt[:10].prefetch(4, 8, catch_filter_exception=True),
             resume=resume,
         )
     finally:
@@ -126,7 +136,6 @@ def resume():
 
 @ex.main
 def main(_config, _run):
-    # ToDo: perhaps short explanation why a makefile is written here
     write_makefile_and_config(
         _config['trainer']['storage_dir'], _config, _run,
         backend='yaml'
