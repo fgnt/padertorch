@@ -13,6 +13,8 @@ class Model(pt.Model):
 
     def __init__(self):
         super().__init__()
+        # self.norm = torch.nn.BatchNorm1d(28)
+        self.drop = torch.nn.Dropout(0.5)
         self.l = torch.nn.Linear(28 * 28, 10)
 
     def forward(self, inputs):
@@ -21,8 +23,9 @@ class Model(pt.Model):
         if isinstance(clean, np.ndarray):
             clean = torch.tensor(clean)
 
+        # clean = self.norm(clean)
         image = torch.reshape(clean, [-1])
-
+        image = self.drop(image)
         return self.l(image)
 
     def review(self, inputs, output):

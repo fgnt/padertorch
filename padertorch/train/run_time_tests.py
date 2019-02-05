@@ -24,6 +24,9 @@ def nested_test_assert_allclose(struct1, struct2):
             array1, array2,
             rtol=1e-5,
             atol=1e-5,
+            err_msg='Validation step has not been deterministic.\n'
+                    'This might be caused by layers changing their internal\n'
+                    'state such as BatchNorm'
         )
 
     pb.utils.nested.nested_op(
@@ -41,6 +44,8 @@ def test_run(
 ):
     """
     Run a test on the trainer instance (i.e. model test).
+
+    Does not work with layers updating their state such as BatchNorm
 
     Tests:
      - forward (train and validate)

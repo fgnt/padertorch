@@ -124,6 +124,9 @@ class Trainer(Configurable):
         """
         Run a test on the trainer instance (i.e. model test).
 
+        Also tests weather validation step is deterministic.
+        !!Does not work with layers changing their internal state such as BatchNorm!!
+
         Tests:
          - forward (train and validate)
          - deterministic output in eval
