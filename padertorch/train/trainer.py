@@ -106,6 +106,7 @@ class Trainer(Configurable):
             self.gpu_device = None
 
         self.storage_dir = Path(storage_dir).expanduser().resolve()
+        self.timer = ContextTimerDict()
         self.reset_timer()
         self.iteration = None
         self.epoch = None
@@ -118,7 +119,7 @@ class Trainer(Configurable):
         self.loss_weights = loss_weights
 
     def reset_timer(self):
-        self.timer = ContextTimerDict()
+        self.timer.clear()
 
     def test_run(self, train_iterator, validation_iterator):
         """
@@ -233,8 +234,6 @@ class Trainer(Configurable):
                 for hook in hooks:
                     hook.pre_step(self)
 
-                # Count up iteration up to infinity if not any stop condition,
-                # (e.g. `StopIteration` exception) is reached.
                 for self.iteration, example in self.timer(
                     key='time_per_data_loading',
                     iterable=enumerate(
@@ -540,8 +539,12 @@ class ContextTimerDict:
     {'test': array([0.1, 0.1]), 'test_2': array([0.1]), 'test_3': array([1.96e-06, 4.80e-06, 3.87e-06])}
 """
     def __init__(self):
-        self.timings = defaultdict(list)
         self.timestamp = time.perf_counter  # time.process_time
+        self.timings = defaultdict(list)
+        self.clear()
+
+    def clear(self):
+        self.timings.clear()
 
     @contextlib.contextmanager
     def __getitem__(self, item):
