@@ -1,6 +1,7 @@
 import unittest
+
 import torch
-from padertorch.modules.conv1d import TCN
+from padertorch.contrib.je.conv1d import TCN
 
 
 class TestTCN(unittest.TestCase):

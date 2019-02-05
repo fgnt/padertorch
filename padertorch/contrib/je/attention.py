@@ -72,7 +72,7 @@ class SelfAttention(Module):
     """
     def __init__(
             self, input_size, hidden_size, key_size, value_size,
-            num_heads=8, mask=True, norm=None, activation='leaky_relu'
+            num_heads=8, mask=True, norm='layer', activation='leaky_relu'
     ):
         assert hidden_size
         super().__init__()
@@ -89,8 +89,11 @@ class SelfAttention(Module):
         elif norm == 'batch':
             self.hidden_norm = torch.nn.BatchNorm1d(hidden_size)
             self.out_norm = torch.nn.BatchNorm1d(hidden_size)
+        elif norm == 'layer':
+            self.hidden_norm = torch.nn.LayerNorm(hidden_size)
+            self.out_norm = torch.nn.LayerNorm(hidden_size)
         else:
-            raise ValueError(f'{norm} normalization  not known.')
+            raise ValueError(f'{norm} normalization not known.')
 
     def forward(self, x):
         h = self.multiheadattention(x, x, x)
@@ -114,7 +117,7 @@ def self_attention_stack(
         num_layers: int = 3,
         num_heads: int = 8,
         mask: bool = True,
-        norm: str = None,
+        norm: str = 'layer',
         activation: str = 'leaky_relu'
 ):
     """
