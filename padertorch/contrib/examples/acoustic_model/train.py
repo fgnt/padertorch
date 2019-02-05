@@ -11,6 +11,7 @@ export STORAGE_ROOT=/net/vol/$USER/sacred/torch/examples && mkdir -p $STORAGE_RO
 python -m padertorch.contrib.examples.acoustic_model.train
 
 """
+# ToDo: why export STORAGE_ROOT if in one liner?
 import os
 import datetime
 from pathlib import Path
@@ -35,6 +36,7 @@ ex = sacred.Experiment('AM')
 
 
 def get_basedir():
+    # ToDo: Improve error message if no STORAGE_ROOT is set
     basedir = (Path(
         os.environ['STORAGE_ROOT']
     ) / 'acoustic_model').expanduser().resolve()
@@ -124,6 +126,7 @@ def resume():
 
 @ex.main
 def main(_config, _run):
+    # ToDo: perhaps short explanation why a makefile is written here
     write_makefile_and_config(
         _config['trainer']['storage_dir'], _config, _run,
         backend='yaml'
