@@ -99,7 +99,7 @@ class MaskEstimator(pt.Module):
         num_channels = x[0].shape[0]
         h = [obs_single_channel for obs in x for obs_single_channel in obs]
         h = pack_sequence(h)
-        h = PackedSequence(self.normalization(h.data), h.batch_sizes)
+        # h = PackedSequence(self.normalization(h.data), h.batch_sizes) # only works with torch 1.0 and higher
         h = PackedSequence(self.input_dropout(h.data), h.batch_sizes)
 
         if not self.fix_states:

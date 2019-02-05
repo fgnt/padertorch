@@ -17,7 +17,6 @@ import types
 import numpy as np
 import progressbar
 import torch
-from cached_property import cached_property
 from tensorboardX import SummaryWriter
 
 import paderbox as pb
@@ -602,7 +601,7 @@ class ProgressBarHook(BaseHook):
         if epoch == 1 and self.pbar.max_value is progressbar.UnknownLength:
             if hasattr(self, 'num_epochs'):
                 # sets the max length of the bar after the first epoch
-                self.pbar.max_value = iteration * self.num_epochs
+                self.pbar.max_value = (iteration +1) * self.num_epochs
         if self.trigger(iteration, epoch) and iteration > 1:
             self.pbar.update(iteration)
 
