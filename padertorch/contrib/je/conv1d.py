@@ -140,8 +140,8 @@ class Conv1d(Module):
     def __init__(
             self, input_size, output_size, condition_size=0, kernel_size=5,
             dilation=1, stride=1, transpose=False, padding='both', bias=True,
-            groups=1, norm=None, dropout=0., activation='leaky_relu',
-            gated=False
+            groups=1, dropout=0., activation='leaky_relu', gated=False,
+            norm=None
     ):
         super().__init__()
         self.kernel_size = kernel_size
@@ -177,27 +177,29 @@ class Conv1d(Module):
                 torch.nn.init.zeros_(self.gate_conv.bias)
 
     def forward(self, x, h=None):
+
+        x_ = x
         if self.training and self.dropout > 0.:
-            x = F.dropout(x, self.dropout)
+            x_ = F.dropout(x_, self.dropout)
 
         if h is not None:
-            x = torch.cat(
-                (x, Scale(padding=self.padding)(h, x.shape[-1])), dim=1)
+            x_ = torch.cat(
+                (x_, Scale(padding=self.padding)(h, x_.shape[-1])), dim=1)
 
         if not self.transpose:
-            x = Pad(
+            x_ = Pad(
                 kernel_size=1 + self.dilation * (self.kernel_size - 1),
                 stride=self.stride,
                 side=self.padding
-            )(x)
+            )(x_)
 
-        y = self.conv(x)
+        y = self.conv(x_)
         if self.norm is not None:
             y = self.norm(y)
         y = self.activation(y)
 
         if self.gated:
-            g = self.gate_conv(x)
+            g = self.gate_conv(x_)
             y = y * torch.sigmoid(g)
 
         if self.transpose:
@@ -210,29 +212,28 @@ class Conv1d(Module):
 class MultiScaleConv1d(Module):
     def __init__(
             self, input_size, hidden_size, output_size, condition_size=0,
-            kernel_size=2, n_scales=1, dilation=False, stride=1,
-            transpose=False, padding='both', norm=None, dropout=0.,
-            activation='leaky_relu', gated=False
+            kernel_size=3, n_scales=1, dilation=1, stride=1, transpose=False,
+            padding='both', dropout=0., activation='leaky_relu', gated=False,
+            residual=False, norm=None
     ):
         assert hidden_size % n_scales == 0, (hidden_size, n_scales)
         super().__init__()
-        if dilation is True or dilation == 1:
-            kernel_sizes = n_scales * [kernel_size]
-            dilations = [2 ** i for i in range(n_scales)]
-        elif dilation is False or dilation == 0:
-            kernel_sizes = [
-                1 + (kernel_size - 1) * 2**i for i in range(n_scales)
-            ]
-            dilations = n_scales * [1]
-        else:
-            raise ValueError('dilation not a boolean.')
+
+        # kernel_sizes = n_scales * [kernel_size]
+        # dilations = [2 ** i for i in range(n_scales)]
+
+        kernel_sizes = [
+            1 + (kernel_size - 1) * 2**i for i in range(n_scales)
+        ]
+        dilations = n_scales * [dilation]
+
         self.convs = nn.ModuleList([
             Conv1d(
                 input_size=input_size, output_size=hidden_size // n_scales,
                 condition_size=condition_size, kernel_size=kernel_sizes[i],
                 dilation=dilations[i], stride=stride, transpose=transpose,
-                padding=padding, norm=None, dropout=dropout,
-                activation=activation, gated=gated
+                padding=padding, dropout=dropout, activation=activation,
+                gated=gated, norm=None
             )
             for i in range(n_scales)
         ])
@@ -241,6 +242,7 @@ class MultiScaleConv1d(Module):
             activation='identity', norm=None
         )
 
+        self.residual = residual
         if norm is None:
             self.norm = None
         elif norm == 'batch':
@@ -250,7 +252,7 @@ class MultiScaleConv1d(Module):
 
     def forward(self, x, h=None):
         y = self.out(torch.cat([conv(x, h) for conv in self.convs], dim=1))
-        if y.shape == x.shape:
+        if self.residual and y.shape == x.shape:
             y = y + x
         if self.norm is not None:
             y = self.norm(y)
@@ -264,8 +266,8 @@ class TCN(Module):
     def __init__(
             self, input_size, output_size, hidden_sizes=256, condition_size=0,
             num_layers=5, kernel_sizes=3, n_scales=None, dilations=1, strides=1,
-            transpose=False, pool_sizes=1, padding='both', norm=None,
-            dropout=0., activation='leaky_relu', gated=False
+            transpose=False, pool_sizes=1, padding='both', dropout=0.,
+            activation='leaky_relu', gated=False, residual=False, norm=None
     ):
         super().__init__()
 
@@ -284,10 +286,12 @@ class TCN(Module):
         self.pool_sizes = to_list(pool_sizes, num_layers)
         self.transpose = transpose
         self.padding = padding
+        self.residual = residual
 
         convs = list()
         for i in range(num_layers):
             if n_scales is None:
+                assert residual is False
                 if i == num_layers - 1:
                     output_size_ = output_size
                     norm = None
@@ -315,8 +319,9 @@ class TCN(Module):
                     output_size=output_size_, condition_size=condition_size,
                     kernel_size=self.kernel_sizes[i], n_scales=self.n_scales[i],
                     dilation=self.dilations[i], stride=self.strides[i],
-                    transpose=transpose, padding=padding, norm=norm,
-                    dropout=dropout, activation=activation, gated=gated
+                    transpose=transpose, padding=padding, dropout=dropout,
+                    activation=activation, gated=gated, residual=residual,
+                    norm=norm
                 ))
             input_size = output_size_
         self.convs = nn.ModuleList(convs)
