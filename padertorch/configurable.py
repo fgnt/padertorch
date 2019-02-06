@@ -938,7 +938,17 @@ class _DogmaticConfig:
                 self[k] = v
 
             if hasattr(factory, 'finalize_dogmatic_config'):
-                factory.finalize_dogmatic_config(self)
+                try:
+                    factory.finalize_dogmatic_config(config=self)
+                except TypeError as e:
+                    if 'finalize_dogmatic_config() missing 1 ' \
+                       'required positional argument' in str(e):
+                        raise TypeError(
+                            f'{factory.__name__}.{e} \n'
+                            f'finalize_dogmatic_config has to be'
+                            f' a classmethod') from e
+                    else:
+                        raise
 
             delta = set(self.data.keys()) - set(self.keys())
 
