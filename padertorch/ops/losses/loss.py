@@ -46,6 +46,7 @@ def softmax_cross_entropy(x, t):
         raise ValueError(f'Incompatible types: {type(x)}, {type(t)}')
 
     assert x.size()[:-1] == t.size(), f'{x.size()}, {t.size()}'
+    # remember torch.nn.CrossentropyLoss already includes softmax
     loss_fn = torch.nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
     return loss_fn(pt.ops.move_axis(x, -1, 1), t)
 
@@ -71,10 +72,8 @@ def deep_clustering_loss(x, t):
     ) / N ** 2
 
 
-def pit_mse_loss(estimate, target):
+def pit_loss(estimate, target, loss_fn=torch.nn.functional.mse_loss):
     """Does not support batch dimension. Does not support PackedSequence.
-
-    TODO: Allow to replace `mse_loss` with other functions.
 
     Parameters:
         estimate: Padded sequence with shape (T, K, F)
@@ -86,11 +85,15 @@ def pit_mse_loss(estimate, target):
     )
     candidates = []
     for permutation in itertools.permutations(range(sources)):
-        candidates.append(torch.nn.functional.mse_loss(
+        candidates.append(loss_fn(
             estimate,
             target[:, permutation, :]
         ))
     return torch.min(torch.stack(candidates))
+
+# this function is kept at the moment for backwards compatibility
+# ToDo: remove this function
+pit_mse_loss = pit_loss
 
 
 def _batch_diag(bmat):
