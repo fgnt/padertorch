@@ -1,3 +1,12 @@
+"""
+Advanced training script for a mask_estimator. Uses sacred and configurable
+to create a config, instantiate the model and Trainer and write everything
+to a model file.
+May be called as follows:
+python -m padertorch.contrib.examples.mask_estimator.advanced_train -F $STORAGE_ROOT/name/of/model
+
+
+"""
 from pathlib import Path
 from warnings import warn
 
@@ -99,10 +108,12 @@ def restart(validation_length):
 
 @ex.command
 def validate(_config):
-    import torch
     import numpy as np
-    import tensorboardX
+    import os
     from padertorch.contrib.jensheit.evaluation import evaluate_masks
+    from functools import partial
+    from paderbox.io import dump_json
+    from concurrent.futures import ThreadPoolExecutor
     assert len(ex.current_run.observers) == 1, (
         'FileObserver` missing. Add a `FileObserver` with `-F foo/bar/`.'
     )
@@ -111,35 +122,22 @@ def validate(_config):
         f'model_dir has already bin evaluatet, {storage_dir}')
     trainer, provider = initialize_trainer_provider(task='validate')
     trainer.model.cpu()
-    writer = tensorboardX.SummaryWriter(str(trainer.storage_dir))
     eval_iterator = provider.get_eval_iterator()
+    evaluation_json = dict(snr=dict(), pesq=dict())
     provider.opts.multichannel = True
     batch_size = 1
     provider.opts.batch_size = batch_size
-    for checkpoints in trainer.checkpoint_dir.glob('*0.pth'):
-        print(checkpoints)
-        iteration = checkpoints.name.split('_')[1].split('.')[0]
-        checkpoint = torch.load(
-            checkpoints)  # trainer.checkpoint_dir / 'ckpt_best_loss.pth')
-        checkpoint = checkpoint['model']
-        trainer.model.load_state_dict(checkpoint)
-        evaluation_json = dict(snr=dict(), pesq=dict())
-        # with ThreadPoolExecutor(max_workers=4) as executor:
-        for example in eval_iterator:
-            example_id, snr, pesq = evaluate_masks(example, model=trainer.model,
-                                                   transform=provider.transformer)
+    with ThreadPoolExecutor(os.cpu_count()) as executor:
+        for example_id, snr, pesq in executor.map(
+                partial(evaluate_masks, model=trainer.model,
+                        transform=provider.transformer), eval_iterator):
             evaluation_json['snr'][example_id] = snr
             evaluation_json['pesq'][example_id] = pesq
-        evaluation_json['pesq_mean'] = np.mean(
-            [value for value in evaluation_json['pesq'].values()])
-        evaluation_json['snr_mean'] = np.mean(
-            [value for value in evaluation_json['snr'].values()])
-        writer.add_scalar('validation/pesq', evaluation_json['pesq_mean'],
-                          iteration)
-        writer.add_scalar('validation/snr', evaluation_json['snr_mean'],
-                          iteration)
-        # dump_json(evaluation_json, storage_dir / 'results.json')
-    writer.close()
+    evaluation_json['pesq_mean'] = np.mean(
+        [value for value in evaluation_json['pesq'].values()])
+    evaluation_json['snr'] = np.mean(
+        [value for value in evaluation_json['snr'].values()])
+    dump_json(evaluation_json, storage_dir / 'results.json')
 
 
 @ex.command
