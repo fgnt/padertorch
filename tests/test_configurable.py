@@ -41,8 +41,8 @@ class Test:
         }
         np.testing.assert_equal(config, expect)
 
-        # with np.testing.assert_raises_regex(TypeError, "missing keys: {'a'}"):
-        #     config = A.get_config({'e': {'factory': bar}})
+        with np.testing.assert_raises_regex(Exception, "missing keys: {'a'}"):
+            config = A.get_config({'e': {'factory': bar}})
 
         config = A.get_config({'e': {'factory': bar, 'a': 10}})
         expect = {
