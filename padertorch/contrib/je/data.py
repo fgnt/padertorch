@@ -7,12 +7,14 @@ from padertorch import Configurable
 from cached_property import cached_property
 import numbers
 from torch.utils.data.dataloader import default_collate
+from padertorch.utils import to_list
 
 
 class DataProvider(Configurable):
     def __init__(
             self, database_name, training_set_names, validation_set_names=None,
             label_encoders=None, transforms=None, max_workers=0,
+            map_buffer_size=100, required_keys='spectrogram',
             normalize_features=None, subset_size=None, storage_dir=None,
             fragmenters=None, shuffle_buffer_size=1000, batch_size=None,
             collate_fn=None
@@ -22,7 +24,9 @@ class DataProvider(Configurable):
         self.validation_set_names = validation_set_names
         self.label_encoders = label_encoders
         self.transforms = transforms
-        self.num_workers = min(2*batch_size, max_workers)
+        self.num_workers = min(map_buffer_size, max_workers)
+        self.map_buffer_size = map_buffer_size
+        self.required_keys = to_list(required_keys)
         self.normalize_features = normalize_features
         self.subset_size = subset_size
         self.storage_dir = storage_dir
@@ -105,7 +109,12 @@ class DataProvider(Configurable):
         if map_fn:
             data_pipe = data_pipe.map(
                 Compose(map_fn), num_workers=self.num_workers,
-                buffer_size=2*self.batch_size
+                buffer_size=self.map_buffer_size
+            )
+
+        if self.required_keys is not None:
+            data_pipe = data_pipe.map(
+                lambda ex: {key: ex[key] for key in self.required_keys}
             )
 
         if training:
