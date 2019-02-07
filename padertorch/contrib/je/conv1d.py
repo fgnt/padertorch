@@ -137,12 +137,36 @@ class MaxUnpool1d(Module):
 
 
 class Conv1d(Module):
+    """
+    Wrapper for torch.nn.Conv1d or torch.nn.ConvTransose1d, adds additonal
+    options of applying an activation, using a gated convolution
+    or normalizing the network output
+    """
     def __init__(
-            self, input_size, output_size, condition_size=0, kernel_size=5,
+            self, input_size, output_size, condition_size=0, kernel_size=5, # ToDo: why kernel_size=5 and not keep it without default?
             dilation=1, stride=1, transpose=False, padding='both', bias=True,
             groups=1, dropout=0., activation='leaky_relu', gated=False,
             norm=None
     ):
+        """
+
+        Args:
+            input_size:
+            output_size:
+            condition_size:
+            kernel_size:
+            dilation:
+            stride:
+            transpose: if true uses ConvTransose1d (fractionally-strided convolution)
+                    else: used Conv1d
+            padding:
+            bias:
+            groups:
+            dropout:
+            activation:
+            gated:
+            norm: may be None or 'batch'
+        """
         super().__init__()
         self.kernel_size = kernel_size
         self.dilation = dilation
@@ -161,6 +185,8 @@ class Conv1d(Module):
         torch.nn.init.xavier_uniform_(self.conv.weight)
         if bias:
             torch.nn.init.zeros_(self.conv.bias)
+
+        # ToDo: do you need a batchnorm during the conv layer?
         if norm is None:
             self.norm = None
         elif norm == 'batch':
@@ -172,11 +198,13 @@ class Conv1d(Module):
                 input_size + condition_size, output_size,
                 kernel_size=kernel_size, dilation=dilation, stride=stride,
                 bias=bias, groups=groups)
+            # ToDo: why this specific initialization?
             torch.nn.init.xavier_uniform_(self.gate_conv.weight)
             if bias:
                 torch.nn.init.zeros_(self.gate_conv.bias)
 
     def forward(self, x, h=None):
+        # ToDo: what does h stand for?
 
         x_ = x
         if self.training and self.dropout > 0.:
@@ -194,10 +222,12 @@ class Conv1d(Module):
             )(x_)
 
         y = self.conv(x_)
+        # ToDo: why normalization after network and not before?
         if self.norm is not None:
             y = self.norm(y)
         y = self.activation(y)
 
+        # ToDo: Does this still make sense if you are using transpose?
         if self.gated:
             g = self.gate_conv(x_)
             y = y * torch.sigmoid(g)
