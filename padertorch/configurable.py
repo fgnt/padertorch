@@ -875,7 +875,7 @@ class _DogmaticConfig:
             parameters = inspect.signature(factory).parameters.values()
             p: inspect.Parameter
 
-            parameter_names = tuple([
+            parameter_names = tuple(['factory']) + tuple([
                 p.name
                 for p in parameters
                 if p.kind in [
@@ -892,7 +892,8 @@ class _DogmaticConfig:
                 parameter_names = tuple(
                     collections.OrderedDict.fromkeys(parameter_names)
                 )
-            return tuple(['factory']) + parameter_names
+
+            return parameter_names
         else:
             return tuple(self.data.keys())
 
@@ -905,6 +906,50 @@ class _DogmaticConfig:
 
     def __setitem__(self, key, value):
         self.data[key] = self.normalize(value)
+
+    def _update_factory_kwargs(self):
+        assert 'factory' in self.data, self.data
+
+        # Force factory to be the class/function
+        factory = import_class(self.data['factory'])
+
+        # Freeze the mutable_idx (i.e. all updates to the config of
+        # this level)
+        mutable_idx_old = self.data.mutable_idx
+        self.data.mutable_idx = len(self.data.maps) - 1
+
+        # Get the defaults from the factory signature
+        defaults = self.get_signature(factory)
+        for k, v in defaults.items():
+            self[k] = v
+
+
+        if hasattr(factory, 'finalize_dogmatic_config'):
+            try:
+                factory.finalize_dogmatic_config(config=self)
+            except TypeError as e:
+                if 'finalize_dogmatic_config() missing 1 ' \
+                   'required positional argument' in str(e):
+                    raise TypeError(
+                        f'{factory.__name__}.{e} \n'
+                        f'finalize_dogmatic_config has to be'
+                        f' a classmethod') from e
+                else:
+                    raise
+
+        delta = set(self.data.keys()) - set(self.keys())
+
+        if len(delta) > 1:
+            # (delta, self.data.keys(), parameter_names)
+            from IPython.lib.pretty import pretty
+            raise Exception(
+                f'Too many keywords for the factory {factory}.\n'
+                f'Delta: {delta}\n'
+                f'signature: {inspect.signature(factory)}\n'
+                f'current config with fallbacks:\n{pretty(self.data)}'
+            )
+
+        self.data.mutable_idx = mutable_idx_old
 
     def __getitem__(self, key):
         """Return the value for the key.
@@ -922,47 +967,7 @@ class _DogmaticConfig:
         if 'factory' in self.data \
                 and key != 'factory' \
                 and self.data.mutable_idx != (len(self.data.maps) - 1):
-            factory = self.data['factory']
-
-            # Force factory to be the class/function
-            factory = import_class(factory)
-
-            # Freeze the mutable_idx (i.e. all updates to the config of
-            # this level)
-            mutable_idx_old = self.data.mutable_idx
-            self.data.mutable_idx = len(self.data.maps) - 1
-
-            # Get the defaults from the factory signature
-            defaults = self.get_signature(factory)
-            for k, v in defaults.items():
-                self[k] = v
-
-            if hasattr(factory, 'finalize_dogmatic_config'):
-                try:
-                    factory.finalize_dogmatic_config(config=self)
-                except TypeError as e:
-                    if 'finalize_dogmatic_config() missing 1 ' \
-                       'required positional argument' in str(e):
-                        raise TypeError(
-                            f'{factory.__name__}.{e} \n'
-                            f'finalize_dogmatic_config has to be'
-                            f' a classmethod') from e
-                    else:
-                        raise
-
-            delta = set(self.data.keys()) - set(self.keys())
-
-            if len(delta) > 1:
-                # (delta, self.data.keys(), parameter_names)
-                from IPython.lib.pretty import pretty
-                raise Exception(
-                    f'Too many keywords for the factory {factory}.\n'
-                    f'Delta: {delta}\n'
-                    f'signature: {inspect.signature(factory)}\n'
-                    f'current config with fallbacks:\n{pretty(self.data)}'
-                )
-
-            self.data.mutable_idx = mutable_idx_old
+            self._update_factory_kwargs()
 
         if 'cls' in self.keys():
             from IPython.lib.pretty import pretty
@@ -988,6 +993,8 @@ class _DogmaticConfig:
     def to_dict(self):
         """Export the Configurable object to a dict."""
         result_dict = {}
+        if 'factory' in self.keys():
+            self._update_factory_kwargs()
         for k in self.keys():
             try:
                 v = self[k]
@@ -1019,7 +1026,12 @@ class _DogmaticConfig:
 
         return result_dict
 
+    def __str__(self):
+        # Keep the str representer simple (only one dict)
+        return f'{self.__class__.__name__}({self.data.to_dict()})'
+
     def __repr__(self):
+        # Keep the repr representer verbose (show all dicts)
         maps = ', '.join([repr(m) for m in self.data.maps])
         return (f'{self.__class__.__name__}({maps},'
                 f' mutable_idx={self.data.mutable_idx})')
