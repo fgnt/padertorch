@@ -535,7 +535,7 @@ class ContextTimerDict:
     ...     raise Exception
     >>> timer
     ContextTimerDict: {'test': array([0.1, 0.1]), 'test_2': array([0.1]), 'test_3': array([1.96e-06, 4.80e-06, 3.87e-06])}
->>> timer.as_dict
+    >>> timer.as_dict
     {'test': array([0.1, 0.1]), 'test_2': array([0.1]), 'test_3': array([1.96e-06, 4.80e-06, 3.87e-06])}
 """
     def __init__(self):
@@ -566,11 +566,13 @@ class ContextTimerDict:
 
     def __call__(self, key, iterable):
         iterator = iter(iterable)
-        while True:
-            with self[key]:
-                example = next(iterator)
-            yield example
-
+        try:
+            while True:
+                with self[key]:
+                    example = next(iterator)
+                yield example
+        except StopIteration:
+            pass
 
 
 # ToDO: write function for those to functions outside of trainer
