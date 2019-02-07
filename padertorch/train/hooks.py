@@ -289,7 +289,8 @@ class _Metric:
         self._symlink_name = f'ckpt_best_{metric_key}.{CKPT_EXT}'
 
         assert criterion in ('min', 'max'), criterion
-        self._value = float('inf') if criterion == 'min' else -float('inf')
+        # self._value = float('inf') if criterion == 'min' else -float('inf')
+        self._value = None
 
     def __repr__(self):
         return (
@@ -317,7 +318,9 @@ class _Metric:
             previous one. Has to work for cost and gain objectives
             => See init for details.
         """
-        if self._criterion == 'min':
+        if self._value is None:
+            return True
+        elif self._criterion == 'min':
             return value < self._value
         elif self._criterion == 'max':
             return value > self._value
