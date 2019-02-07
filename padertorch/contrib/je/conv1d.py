@@ -10,36 +10,31 @@ from torch import nn
 
 
 class Pad(Module):
-    def __init__(
-            self, kernel_size, stride=1, side='both', mode='constant'
-    ):
+    def __init__(self, side='both', mode='constant'):
         super().__init__()
-        self.kernel_size = kernel_size
-        self.stride = stride
         self.side = side
         self.mode = mode
 
-    def forward(self, x):
+    def forward(self, x, size):
         """
         expects time axis to be on the last dim
         :param x:
         :return:
         """
-        if self.stride is None:
-            return x
-        k = self.kernel_size - 1
-        if k > 0:
-            tail = (x.shape[-1] - 1) % self.stride
-            if self.side == 'front':
-                pad = (k - tail, 0)
-            elif self.side == 'both':
-                pad = ((k - tail) // 2, math.ceil((k - tail) / 2))
-            elif self.side == 'end':
-                pad = (0, k - tail)
-            else:
-                raise ValueError
-            x = F.pad(x, pad, mode=self.mode)
+        if self.side == 'front':
+            pad = (size, 0)
+        elif self.side == 'both':
+            pad = (size // 2, math.ceil(size / 2))
+        elif self.side == 'end':
+            pad = (0, size)
+        else:
+            raise ValueError
+        x = F.pad(x, pad, mode=self.mode)
         return x
+
+    @staticmethod
+    def get_size(nframes, kernel_size, stride):
+        return kernel_size - 1 - ((nframes - 1) % stride)
 
 
 class Cut(Module):
@@ -48,9 +43,6 @@ class Cut(Module):
         self.side = side
 
     def forward(self, x, size):
-        if self.side is None:
-            assert size == 0
-            return x
         if size > 0:
             if self.side == 'front':
                 x = x[..., size:]
@@ -88,10 +80,8 @@ class Scale(Module):
         else:
             stride = int(np.ceil((x.shape[-1] - 1) / (size - 1e-10)))
             assert stride <= (x.shape[-1] - 1) / (size - 1)
-            x = Pad(
-                kernel_size=stride, stride=stride,
-                side=self.padding, mode="replicate"
-            )(x)
+            x = Pad(side=self.padding, mode="replicate")(
+                x, size=(stride - 1 - ((x.shape[-1] - 1) % stride)))
         if 1 < stride:
             x = F.avg_pool1d(x, stride)
         if x.shape[-1] > size:
@@ -113,11 +103,10 @@ class MaxPool1d(Module):
     def forward(self, x):
         if self.kernel_size < 2:
             return x, None
-        x = Pad(
-            kernel_size=self.kernel_size,
-            stride=self.kernel_size,
-            side=self.padding
-        )(x)
+        x = Pad(side=self.padding)(
+            x,
+            size=self.kernel_size - 1 - ((x.shape[-1] - 1) % self.kernel_size)
+        )
         return nn.MaxPool1d(
             kernel_size=self.kernel_size, return_indices=True
         )(x)
@@ -214,12 +203,10 @@ class Conv1d(Module):
             x_ = torch.cat(
                 (x_, Scale(padding=self.padding)(h, x_.shape[-1])), dim=1)
 
-        if not self.transpose:
-            x_ = Pad(
-                kernel_size=1 + self.dilation * (self.kernel_size - 1),
-                stride=self.stride,
-                side=self.padding
-            )(x_)
+        if self.padding and not self.transpose:
+            x_ = Pad(side=self.padding)(
+                x_, size=((1 + self.dilation * (self.kernel_size - 1))
+                          - 1 - ((x_.shape[-1] - 1) % self.stride)))
 
         y = self.conv(x_)
         # ToDo: why normalization after network and not before?
@@ -232,7 +219,7 @@ class Conv1d(Module):
             g = self.gate_conv(x_)
             y = y * torch.sigmoid(g)
 
-        if self.transpose:
+        if self.padding and self.transpose:
             k = 1 + self.dilation * (self.kernel_size - 1)
             y = Cut(side=self.padding)(y, size=k - self.stride)
 
@@ -252,7 +239,7 @@ class MultiScaleConv1d(Module):
         # kernel_sizes = n_scales * [kernel_size]
         # dilations = [2 ** i for i in range(n_scales)]
 
-        kernel_sizes = [
+        self.kernel_sizes = [
             1 + (kernel_size - 1) * 2**i for i in range(n_scales)
         ]
         dilations = n_scales * [dilation]
@@ -260,7 +247,7 @@ class MultiScaleConv1d(Module):
         self.convs = nn.ModuleList([
             Conv1d(
                 input_size=input_size, output_size=hidden_size // n_scales,
-                condition_size=condition_size, kernel_size=kernel_sizes[i],
+                condition_size=condition_size, kernel_size=self.kernel_sizes[i],
                 dilation=dilations[i], stride=stride, transpose=transpose,
                 padding=padding, dropout=dropout, activation=activation,
                 gated=gated, norm=None
@@ -281,7 +268,14 @@ class MultiScaleConv1d(Module):
             raise ValueError(f'{norm} normalization not known.')
 
     def forward(self, x, h=None):
-        y = self.out(torch.cat([conv(x, h) for conv in self.convs], dim=1))
+        y = [conv(x, h) for conv in self.convs]
+        tails = [y_.shape[-1] - y[-1].shape[-1] for y_ in y]
+        y = [
+            Cut(side='both')(y_, size=tail) if tail >= 0
+            else Pad(side='both')(y_, size=-tail)
+            for y_, tail in zip(y, tails)
+        ]
+        y = self.out(torch.cat(y, dim=1))
         if self.residual and y.shape == x.shape:
             y = y + x
         if self.norm is not None:
@@ -296,7 +290,7 @@ class TCN(Module):
     def __init__(
             self, input_size, output_size, hidden_sizes=256, condition_size=0,
             num_layers=5, kernel_sizes=3, n_scales=None, dilations=1, strides=1,
-            transpose=False, pool_sizes=1, padding='both', dropout=0.,
+            transpose=False, pool_sizes=1, paddings='both', dropout=0.,
             activation='leaky_relu', gated=False, residual=False, norm=None
     ):
         super().__init__()
@@ -315,7 +309,7 @@ class TCN(Module):
         self.strides = to_list(strides, num_layers)
         self.pool_sizes = to_list(pool_sizes, num_layers)
         self.transpose = transpose
-        self.padding = padding
+        self.paddings = to_list(paddings, num_layers)
         self.residual = residual
 
         convs = list()
@@ -334,7 +328,7 @@ class TCN(Module):
                     kernel_size=self.kernel_sizes[i],
                     dilation=self.dilations[i],
                     stride=self.strides[i], transpose=transpose,
-                    padding=padding, norm=norm, dropout=dropout,
+                    padding=self.paddings[i], norm=norm, dropout=dropout,
                     activation=activation, gated=gated
                 ))
             else:
@@ -349,7 +343,7 @@ class TCN(Module):
                     output_size=output_size_, condition_size=condition_size,
                     kernel_size=self.kernel_sizes[i], n_scales=self.n_scales[i],
                     dilation=self.dilations[i], stride=self.strides[i],
-                    transpose=transpose, padding=padding, dropout=dropout,
+                    transpose=transpose, padding=self.paddings[i], dropout=dropout,
                     activation=activation, gated=gated, residual=residual,
                     norm=norm
                 ))
@@ -361,11 +355,11 @@ class TCN(Module):
         for i, conv in enumerate(self.convs):
             pool_size = self.pool_sizes[i]
             if self.transpose:
-                pool = MaxUnpool1d(kernel_size=pool_size, padding=self.padding)
+                pool = MaxUnpool1d(kernel_size=pool_size, padding='end')
                 x = pool(x, indices=pool_indices[i])
             x = conv(x, h)
             if not self.transpose:
-                pool = MaxPool1d(kernel_size=pool_size, padding=self.padding)
+                pool = MaxPool1d(kernel_size=pool_size, padding='end')
                 x, pool_indices[i] = pool(x)
         if self.transpose:
             return x
