@@ -11,16 +11,16 @@ from pathlib import Path
 from warnings import warn
 
 import sacred
-from sacred.utils import apply_backspaces_and_linefeeds
-
 from paderbox.database.chime import Chime3
+from paderbox.database.keys import OBSERVATION, NOISE_IMAGE, SPEECH_IMAGE
 from paderbox.io import dump_json, load_json
 from paderbox.utils.nested import deflatten, flatten
 from padertorch.configurable import config_to_instance
-from padertorch.contrib.jensheit.data import MaskProvider
+from padertorch.contrib.jensheit.data import SequenceProvider, MaskTransformer
 from padertorch.models.mask_estimator import MaskEstimatorModel
 from padertorch.train.optimizer import Adam
 from padertorch.train.trainer import Trainer
+from sacred.utils import apply_backspaces_and_linefeeds
 
 ex = sacred.Experiment('Train Mask Estimator')
 
@@ -39,12 +39,14 @@ def config():
         'keep_all_checkpoints': False
     })
     provider_opts = deflatten({
-        'database.factory': Chime3
+        'database.factory': Chime3,
+        'transform.factory': MaskTransformer,
+        'audio_keys': [OBSERVATION, NOISE_IMAGE, SPEECH_IMAGE]
     })
     Trainer.get_config(
         trainer_opts
     )
-    MaskProvider.get_config(
+    SequenceProvider.get_config(
         provider_opts
     )
     validation_length = 100  # number of examples taken from the validation iterator

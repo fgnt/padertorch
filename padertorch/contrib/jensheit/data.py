@@ -6,6 +6,7 @@ from dataclasses import dataclass, asdict
 from dataclasses import field
 from scipy import signal
 
+from paderbox.utils.nested import nested_op
 from paderbox.database.chime import Chime3
 from paderbox.database.iterator import AudioReader
 from paderbox.database.keys import *
@@ -17,6 +18,7 @@ from padertorch.data.fragmenter import Fragmenter
 from padertorch.data.transforms import Compose
 from padertorch.data.utils import Padder
 from padertorch.modules.mask_estimator import MaskKeys as M_K
+from functools import partial
 
 WINDOW_MAP = Dispatcher(
     blackman=signal.blackman,
@@ -90,9 +92,15 @@ class MaskTransformer(Parameterized):
 class SequenceProvider(Parameterized):
     @dataclass
     class opts:
-        database: Dict = dict_func({
-            'factory': Chime3,
-        })
+        reference_channel: int = 0
+        collate: Dict = dict_func(dict(
+            factory=Padder,
+            to_torch=False,
+            sort_by_key=NUM_SAMPLES,
+            padding=False,
+            padding_keys=None
+        ))
+        database: Dict = dict_func({})
         audio_keys: List = field(default_factory=lambda: [OBSERVATION])
         shuffle: bool = True
         batch_size: int = 1
@@ -101,22 +109,27 @@ class SequenceProvider(Parameterized):
         multichannel: bool = False
         backend: str = 't'
         drop_last: bool = False
-        collate: Dict = dict_func({
-            'factory': Padder,
-        })
-        transformer: Dict = dict_func({})
 
-    def __init__(self, database, transformer, collate, **kwargs):
+    def __init__(self, database, collate, transform=None, **kwargs):
         self.database = database
-        self.transformer = transformer
+        self.transform = transform if transform is not None else lambda x: x
         self.collate = collate
         super().__init__(**kwargs)
+        self.fragmenter = Fragmenter(
+            fragment_steps={key: 1 for key in self.opts.audio_keys},
+            fragment_lengths={key: 1 for key in self.opts.audio_keys},
+            axis=0
+        )
 
     def to_train_structure(self, example):
         """Function to be mapped on an iterator."""
         out_dict = example[AUDIO_DATA]
         out_dict[EXAMPLE_ID] = example[EXAMPLE_ID]
         out_dict[NUM_SAMPLES] = example[NUM_SAMPLES]
+        if isinstance(example[NUM_SAMPLES], dict):
+            out_dict[NUM_SAMPLES] = example[NUM_SAMPLES][OBSERVATION]
+        else:
+            out_dict[NUM_SAMPLES] = example[NUM_SAMPLES]
         return out_dict
 
     def to_eval_structure(self, example):
@@ -138,74 +151,34 @@ class SequenceProvider(Parameterized):
             read_fn=self.database.read_fn
         )(example)
 
-    def get_iterator(self, datasets, shuffle=False):
-        iterator = self.database.get_iterator_by_names(datasets)
+    def get_map_iterator(self, iterator, shuffle=False, randn_channels=False):
+
         if shuffle:
             iterator = iterator.shuffle()
-        iterator = iterator.map(self.read_audio)\
-            .map(self.database.add_num_samples)
         if not self.opts.multichannel:
-            iterator.fragment(Fragmenter(
-                fragment_steps={key: 1 for key in self.opts.audio_keys},
-            ))
-        return iterator
-
-    def transformer(self, example):
-        return example
-
-    def get_train_iterator(self, filter_fn=lambda x: True):
-        return self.get_iterator(
-            self.database.datasets_train, shuffle=self.opts.shuffle)\
-            .map(self.to_train_structure)\
-            .map(self.transformer)\
+            iterator.fragment(
+                partial(self.fragmenter, random_onset=randn_channels))
+        return iterator.map(self.transform)\
             .batch(self.opts.batch_size, self.opts.drop_last)\
             .map(self.collate)\
             .prefetch(self.opts.num_workers,self.opts.buffer_size,
                       self.opts.backend)
 
+    def get_train_iterator(self, filter_fn=lambda x: True):
+        iterator = self.database.get_iterator_by_names(
+            self.database.datasets_train)
+        iterator = iterator.map(self.read_audio)\
+            .map(self.database.add_num_samples)\
+            .map(self.to_train_structure)
+        return self.get_map_iterator(iterator, shuffle=self.opts.shuffle,
+                                     randn_channels=True)
+
     def get_eval_iterator(self, num_examples=-1, transform_fn=lambda x: x,
                           filter_fn=lambda x: True):
-        return self.get_iterator(self.database.datasets_eval, shuffle=False)\
-            .map(self.to_eval_structure)\
-            .map(self.transformer)\
-            .batch(self.opts.batch_size, self.opts.drop_last)\
-            .map(self.collate)[:num_examples]\
-            .prefetch(self.opts.num_workers, self.opts.buffer_size,
-                      self.opts.backend)
+        iterator = self.database.get_iterator_by_names(
+            self.database.datasets_eval)
+        iterator = iterator.map(self.read_audio)\
+            .map(self.database.add_num_samples)\
+            .map(self.to_eval_structure)[:num_examples]
+        return self.get_map_iterator(iterator, shuffle=False)
 
-
-class MaskProvider(SequenceProvider):
-    @dataclass
-    class opts(SequenceProvider.opts):
-        reference_channel: int = 0
-        audio_keys: List = field(default_factory=lambda: [
-            OBSERVATION, SPEECH_IMAGE, NOISE_IMAGE
-        ])
-        transformer: Dict = dict_func({
-            'factory': MaskTransformer,
-        })
-        collate: Dict = dict_func(dict(
-            factory=Padder,
-            to_torch=False,
-            sort_by_key=NUM_SAMPLES,
-            padding=False,
-            padding_keys=None
-        ))
-        num_channels = None
-        choose_channel = None
-
-    def to_train_structure(self, example):
-        out_dict = super().to_train_structure(example)
-        if isinstance(example[NUM_SAMPLES], dict):
-            out_dict[NUM_SAMPLES] = example[NUM_SAMPLES][OBSERVATION]
-        else:
-            out_dict[NUM_SAMPLES] = example[NUM_SAMPLES]
-        return out_dict
-
-    def to_eval_structure(self, example):
-        out_dict = super().to_eval_structure(example)
-        if isinstance(example[NUM_SAMPLES], dict):
-            out_dict[NUM_SAMPLES] = example[NUM_SAMPLES][OBSERVATION]
-        else:
-            out_dict[NUM_SAMPLES] = example[NUM_SAMPLES]
-        return out_dict
