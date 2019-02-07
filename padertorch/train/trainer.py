@@ -346,6 +346,7 @@ class Trainer(Configurable):
         else:
             assert 'loss' in review, review
 
+        assert review['loss'].dim() == 0, review['loss']
         return review
 
     def step(self, example):
