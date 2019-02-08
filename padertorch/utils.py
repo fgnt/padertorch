@@ -44,6 +44,9 @@ def to_list(x, length=None):
     [{'a': 1}]
     >>> to_list({'a': 1}.keys())
     ['a']
+    >>> from pathlib import Path
+    >>> to_list(Path('/foo/bar'))
+    [PosixPath('/foo/bar')]
     """
     # Important cases (change type):
     #  - generator -> list
@@ -53,8 +56,8 @@ def to_list(x, length=None):
     # Important cases (list of original object):
     #  - dict -> list of dict
 
-    def to_list_helper(x):
-        return [x] * (1 if length is None else length)
+    def to_list_helper(x_):
+        return [x_] * (1 if length is None else length)
 
     if isinstance(x, collections.Mapping):
         x = to_list_helper(x)
