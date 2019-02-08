@@ -26,6 +26,12 @@ def normalize_axis(x, axis):
 
 def to_list(x, length=None):
     """
+    Often a list is required, but for convenience it is desired to enter a
+    single object, e.g. string.
+
+    Complicated corner cases are e.g. `range()` and `dict.values()`, which are
+    handled here.
+
     >>> to_list(1)
     [1]
     >>> to_list([1])
@@ -46,11 +52,19 @@ def to_list(x, length=None):
     #  - np.array -> list (discussable)
     # Important cases (list of original object):
     #  - dict -> list of dict
-    if not isinstance(x, collections.Iterable) \
-            or isinstance(x, collections.Mapping):
-        x = [x] * (1 if length is None else length)
-    elif not isinstance(x, collections.Sequence):
+
+    def to_list_helper(x):
+        return [x] * (1 if length is None else length)
+
+    if isinstance(x, collections.Mapping):
+        x = to_list_helper(x)
+    if isinstance(x, collections.Sequence):
+        pass
+    elif isinstance(x, collections.Iterable):
         x = list(x)
+    else:
+        x = to_list_helper(x)
+
     if length is not None:
         assert len(x) == length
     return x
