@@ -246,6 +246,14 @@ class Trainer(Configurable):
                     for hook in hooks:
                         hook.post_step(self, example, model_output, review)
 
+                if self.iteration == 0:
+                    # Also raised, when train_iterator has only one element
+                    # When someone has a use case for a train_iterator with one
+                    # element, change this code.
+                    raise Exception(
+                        f'Got an empty train iterator: {train_iterator}'
+                    )
+
                 # Fix for next loop
                 self.iteration += 1
 
