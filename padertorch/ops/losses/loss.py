@@ -117,14 +117,14 @@ def _batch_inverse(bmat):
 
 def kl_normal_multivariate_normal(q, p):
     """
+    Args:
+        q: Normal posterior distributions (B1, ..., BN, D)
+        p: Multivariate Normal prior distributions (K1, ..., KN, D)
+        device: device to perform computation (cpu seems to be faster for small D)
 
-    p: (B1, ..., BN, D)
-    q: (K1, ..., KN, D)
-    output: (B1, ..., BN, K1, ..., KN)
-    :param q: Normal posterior distributions (B1, ..., BN, D)
-    :param p: multivariate Gaussian prior distributions (K1, ..., KN, D)
-    :return: kl between all posteriors in batch and all components
+    Returns: kl between all posteriors in batch and all components
         (B1, ..., BN, K1, ..., KN)
+
     """
     batch_shape = q.loc.shape[:-1]
     D = q.loc.shape[-1]

@@ -45,30 +45,30 @@ class Trainer(Configurable):
     ):
         """
 
-        :param model: a `padertorch.base.Model` object or dict of Models
-        :param storage_dir: The structure of produced storage_dir is:
-            .
-            ├── checkpoints
-            │   ├── ckpt_7122.pth
-            │   ├── ckpt_14244.pth
-            │   ├── ckpt_best_loss.pth -> ckpt_7122.pth
-            │   ├── ckpt_latest.pth -> ckpt_14244.pth
-            │   └── ckpt_state.json
-            ├── events.out.tfevents.1548851867.ntsim5
-        :param optimizer: a `padertorch.train.optimizer.Optimizer` object
-                    or dict of Optimizers
-        :param loss_weights: dict of weights for model with multiple losses
-        :param summary_trigger: `pytorch.train.trigger.IntervalTrigger` object
-                    or tuple describing the interval when summaries
-                    are written to event files
-        :param checkpoint_trigger: `padertorch.train.trigger.IntervalTrigger`
-                    object or tuple describing the interval when checkpoints
-                    are saved
-        :param keep_all_checkpoints: flag if False only latest and best
-                    checkpoints are kept otherwise all checkpoints are kept
-        :param max_trigger: `padertorch.train.trigger.EndTrigger` object
-                    or tuple describing the endpoint of the training
-        :param device: defines the device which shall be used, if None cpu is used.
+        Args:
+            model: a `padertorch.base.Model` object or dict of Models
+            storage_dir: The structure of produced storage_dir is:
+                .
+                ├── checkpoints
+                │   ├── ckpt_7122.pth
+                │   ├── ckpt_14244.pth
+                │   ├── ckpt_best_loss.pth -> ckpt_7122.pth
+                │   ├── ckpt_latest.pth -> ckpt_14244.pth
+                │   └── ckpt_state.json
+                ├── events.out.tfevents.1548851867.ntsim5
+            optimizer: a `padertorch.train.optimizer.Optimizer` object
+                or dict of Optimizers
+            loss_weights: dict of weights for model with multiple losses
+            summary_trigger: `pytorch.train.trigger.IntervalTrigger` object
+                or tuple describing the interval when summaries
+                are written to event files
+            checkpoint_trigger: `padertorch.train.trigger.IntervalTrigger`
+                object or tuple describing the interval when checkpoints
+                are saved
+            keep_all_checkpoints: flag if False only latest and best
+                checkpoints are kept otherwise all checkpoints are kept
+            max_trigger: `padertorch.train.trigger.EndTrigger` object
+                or tuple describing the endpoint of the training
         """
         if isinstance(optimizer, dict):
             # Special case see Janek's example
@@ -188,6 +188,7 @@ class Trainer(Configurable):
                 checkpoints.
             resume:
                 Whether to resume a training or start a fresh one.
+            device: defines the device which shall be used, if None cpu is used.
 
         """
         if resume:
@@ -262,8 +263,13 @@ class Trainer(Configurable):
         except StopTraining:
             pass
         finally:
-            for hook in hooks:
-                hook.close(self)
+            try:
+                for hook in hooks:
+                    hook.close(self)
+            except Exception:
+                print('Exception in finally. May hide actual exception!!!\n'
+                      'You may comment this finally block for debugging.')
+                raise
 
     _start_non_validation_time = None
 
@@ -319,7 +325,6 @@ class Trainer(Configurable):
               'when you have multiple models.'
         assert isinstance(self.model, torch.nn.Module), (self.model, msg)
         assert isinstance(self.optimizer, Optimizer), (self.optimizer, msg)
-        assert self.device == 'cpu' or isinstance(self.device, int), (self.device, msg)
         # Todo: backup OutOfMemory
         example = pt.data.example_to_device(
             example, self.device
@@ -330,7 +335,7 @@ class Trainer(Configurable):
     def _maybe_add_loss_to_review(self, review):
         if 'losses' in review:
             assert 'loss' not in review, review
-            losses = review['losses']
+            losses = list(review['losses'].items())
 
             loss = 0.
             loss_weights = self.loss_weights
@@ -339,10 +344,12 @@ class Trainer(Configurable):
                     'You can not have multiple losses without specifying '
                     f'loss_weights. losses: {losses}'
                 )
-            for key, value in losses.items():
+            # shift losses to cpu if not all losses on same device
+            if not all([l.device == losses[0][1].device for k, l in losses]):
+                losses = [(k, l.cpu()) for k, l in losses]
+            for key, value in losses:
                 weight = loss_weights[key] if loss_weights is not None else 1.
-                # ToDo: Why force loss to be cpu?
-                loss = loss + (weight * value).cpu()
+                loss = loss + (weight * value)
             review['loss'] = loss
         else:
             assert 'loss' in review, review
@@ -498,21 +505,12 @@ class Trainer(Configurable):
         print(f"Loaded checkpoint '{checkpoint_path}' (iteration {iteration})")
 
     def to(self, device):
-        # ToDo: Should device == None be supported?
-        #       Effect: no device movement.
-        #       Useful for multi device models, where the model should not
-        #       be moved.
+        assert device is None or device == 'cpu' or isinstance(device, int), device
+        self.model.to(device)
         if isinstance(self.optimizer, dict):
-            # ToDo: remove device[key] from default Trainer.
-            #       overwrite this property in Custom Trainer.
-            for key in self.model.keys():
-                device_ = device[key] if isinstance(device, dict) else device
-                self.model[key].to(device_)
-                if key in self.optimizer:
-                    self.optimizer[key].to(device_)
+            for key in self.optimizer.keys():
+                self.optimizer[key].to(device)
         else:
-            assert device == 'cpu' or isinstance(device, int)
-            self.model.to(device)
             self.optimizer.to(device)
 
     def cpu(self):

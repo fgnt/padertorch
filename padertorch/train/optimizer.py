@@ -40,6 +40,8 @@ class Optimizer:
         )
 
     def to(self, device):
+        if device is None:
+            return
         self.check_if_set()
         for state in self.optimizer.state.values():
             for k, v in state.items():
@@ -50,7 +52,7 @@ class Optimizer:
         return self.to('cpu')
 
     def cuda(self, device=None):
-        assert isinstance(device, int), device
+        assert device is None or isinstance(device, int), device
         if device is None:
             device = torch.device('cuda')
         return self.to(device)
