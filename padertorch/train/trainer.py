@@ -71,7 +71,7 @@ class Trainer(Configurable):
                     or tuple describing the endpoint of the training
         :param device: defines the device which shall be used, if None cpu is used.
         """
-        if isinstance(model, dict):
+        if isinstance(optimizer, dict):
             # Special case see Janek's example
             # ToDo: Hint to example
 
@@ -311,8 +311,8 @@ class Trainer(Configurable):
         assert isinstance(self.optimizer, Optimizer), (self.optimizer, msg)
         assert self.device == 'cpu' or isinstance(self.device, int), (self.device, msg)
         # Todo: backup OutOfMemory
-        example = pt.data.batch_to_device(
-            example, self.device != 'cpu', self.device
+        example = pt.data.example_to_device(
+            example, self.device
         )
         model_out = self.model(example)
         return model_out, self.model.review(example, model_out)
@@ -331,6 +331,7 @@ class Trainer(Configurable):
                 )
             for key, value in losses.items():
                 weight = loss_weights[key] if loss_weights is not None else 1.
+                # ToDo: Why force loss to be cpu?
                 loss = loss + (weight * value).cpu()
             review['loss'] = loss
         else:
@@ -459,7 +460,8 @@ class Trainer(Configurable):
             ),
             str(checkpoint_path)
         )
-        self.to(self.device)
+        if self.device != 'cpu':
+            self.to(self.device)
         print(f"{datetime.now()}: Saved model and optimizer state "
               f"at iteration {self.iteration} to {checkpoint_path}")
 
@@ -496,6 +498,13 @@ class Trainer(Configurable):
             assert device == 'cpu' or isinstance(device, int)
             self.model.to(device)
             self.optimizer.to(device)
+
+    def cpu(self):
+        return self.to('cpu')
+
+    def cuda(self, device):
+        assert isinstance(device, int)
+        return self.to(device)
 
 
 class ContextTimerDict:

@@ -97,7 +97,7 @@ def main(_run, batch_size, datasets, debug, experiment_dir):
         iterable = tqdm(iterable, total=len(iterable), disable=not IS_MASTER)
         for batch in iterable:
             entry = dict()
-            model_output = model(pt.data.batch_to_device(batch))
+            model_output = model(pt.data.example_to_device(batch))
 
             example_id = batch['example_id'][0]
             s = batch['s'][0]

@@ -46,6 +46,13 @@ class Optimizer:
                 if torch.is_tensor(v):
                     state[k] = v.to(device)
 
+    def cpu(self):
+        return self.to('cpu')
+
+    def cuda(self, device):
+        assert isinstance(device, int), device
+        return self.to(device)
+
     def load_state_dict(self, key):
         self.check_if_set()
         return self.optimizer.load_state_dict(key)

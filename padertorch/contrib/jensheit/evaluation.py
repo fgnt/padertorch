@@ -3,7 +3,7 @@ import numpy as np
 import paderbox as pb
 from paderbox.database import keys as DB_K
 from paderbox.utils.numpy_utils import morph
-from padertorch.data import batch_to_device
+from padertorch.data import example_to_device
 from padertorch.modules.mask_estimator import MaskKeys as M_K
 
 __all__ = [
@@ -46,7 +46,7 @@ def beamforming(observation, speech_mask, noise_mask,
 
 
 def evaluate_masks(example, model, transform):
-    model_out = model(batch_to_device(example))
+    model_out = model(example_to_device(example))
     speech_image = example[DB_K.SPEECH_IMAGE][0]
     speech_pred, image_cont, noise_cont = beamforming(
         example[M_K.OBSERVATION_STFT][0],

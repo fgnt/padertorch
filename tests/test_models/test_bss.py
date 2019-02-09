@@ -37,7 +37,7 @@ class TestDeepClusteringModel(unittest.TestCase):
         assert callable(getattr(self.model, 'review', None))
 
     def test_forward(self):
-        inputs = pt.data.batch_to_device(self.inputs)
+        inputs = pt.data.example_to_device(self.inputs)
         model_out = self.model(inputs)
 
         for embedding, num_frames in zip(model_out, self.num_frames):
@@ -45,7 +45,7 @@ class TestDeepClusteringModel(unittest.TestCase):
             assert embedding.shape == expected_shape, embedding.shape
 
     def test_review(self):
-        inputs = pt.data.batch_to_device(self.inputs)
+        inputs = pt.data.example_to_device(self.inputs)
         mask = self.model(inputs)
         review = self.model.review(inputs, mask)
 
@@ -53,7 +53,7 @@ class TestDeepClusteringModel(unittest.TestCase):
         assert 'dc_loss' in review['losses'], review['losses'].keys()
 
     def test_minibatch_equal_to_single_example(self):
-        inputs = pt.data.batch_to_device(self.inputs)
+        inputs = pt.data.example_to_device(self.inputs)
         mask = self.model(inputs)
         review = self.model.review(inputs, mask)
         actual_loss = review['losses']['dc_loss']
@@ -67,7 +67,7 @@ class TestDeepClusteringModel(unittest.TestCase):
                 'Y_abs': [observation],
                 'target_mask': [target_mask],
             }
-            inputs = pt.data.batch_to_device(inputs)
+            inputs = pt.data.example_to_device(inputs)
             mask = self.model(inputs)
             review = self.model.review(inputs, mask)
             reference_loss.append(review['losses']['dc_loss'])
@@ -116,14 +116,14 @@ class TestPermutationInvariantTrainingModel(unittest.TestCase):
         assert callable(getattr(self.model, 'review', None))
 
     def test_forward(self):
-        inputs = pt.data.batch_to_device(self.inputs)
+        inputs = pt.data.example_to_device(self.inputs)
         mask = self.model(inputs)
 
         for m, t in zip(mask, inputs['X_abs']):
             np.testing.assert_equal(m.size(), t.size())
 
     def test_review(self):
-        inputs = pt.data.batch_to_device(self.inputs)
+        inputs = pt.data.example_to_device(self.inputs)
         mask = self.model(inputs)
         review = self.model.review(inputs, mask)
 
@@ -131,7 +131,7 @@ class TestPermutationInvariantTrainingModel(unittest.TestCase):
         assert 'pit_mse_loss' in review['losses'], review['losses'].keys()
 
     def test_minibatch_equal_to_single_example(self):
-        inputs = pt.data.batch_to_device(self.inputs)
+        inputs = pt.data.example_to_device(self.inputs)
 
         self.model.eval()
         mask = self.model(inputs)
@@ -149,7 +149,7 @@ class TestPermutationInvariantTrainingModel(unittest.TestCase):
                 'Y_abs': [observation],
                 'X_abs': [target],
             }
-            inputs = pt.data.batch_to_device(inputs)
+            inputs = pt.data.example_to_device(inputs)
 
             self.model.eval()
             mask = self.model(inputs)
@@ -168,10 +168,10 @@ class TestPermutationInvariantTrainingModel(unittest.TestCase):
     def test_evaluation_mode_deterministic(self):
         self.model.eval()
 
-        inputs = pt.data.batch_to_device(self.inputs)
+        inputs = pt.data.example_to_device(self.inputs)
         mask1 = self.model(inputs)[0]
 
-        inputs = pt.data.batch_to_device(self.inputs)
+        inputs = pt.data.example_to_device(self.inputs)
         mask2 = self.model(inputs)[0]
 
         np.testing.assert_allclose(
