@@ -44,6 +44,8 @@ def to_list(x, length=None):
     [{'a': 1}]
     >>> to_list({'a': 1}.keys())
     ['a']
+    >>> to_list('ab')
+    ['ab']
     >>> from pathlib import Path
     >>> to_list(Path('/foo/bar'))
     [PosixPath('/foo/bar')]
@@ -61,7 +63,9 @@ def to_list(x, length=None):
 
     if isinstance(x, collections.Mapping):
         x = to_list_helper(x)
-    if isinstance(x, collections.Sequence):
+    elif isinstance(x, str):
+        x = to_list_helper(x)
+    elif isinstance(x, collections.Sequence):
         pass
     elif isinstance(x, collections.Iterable):
         x = list(x)
