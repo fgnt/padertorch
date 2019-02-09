@@ -453,35 +453,17 @@ class Trainer(Configurable):
         if checkpoint_path is None:
             checkpoint_path = self.default_checkpoint_path()
 
-        def state_to_cpu(state):
-            if isinstance(state, dict):
-                return {
-                    key: state_to_cpu(tensor)
-                    for key, tensor in
-                    state.items()
-                }
-            elif isinstance(state, (tuple, list)):
-                return [
-                    state_to_cpu(tensor)
-                    for tensor in
-                    state
-                ]
-            elif isinstance(state, torch.Tensor):
-                return state.cpu()
-            else:
-                return state
-
         if isinstance(self.optimizer, dict):
             optimizer_state_dict = {
-                k: state_to_cpu(opti.state_dict())
+                k: opti.state_dict()
                 for k, opti in self.optimizer.items()
             }
         else:
-            optimizer_state_dict = state_to_cpu(self.optimizer.state_dict())
+            optimizer_state_dict = self.optimizer.state_dict()
 
         torch.save(
             dict(
-                model=state_to_cpu(self.model.state_dict()),
+                model=self.model.state_dict(),
                 iteration=self.iteration,
                 epoch=self.epoch,
                 optimizer=optimizer_state_dict,
@@ -492,10 +474,11 @@ class Trainer(Configurable):
         print(f"{datetime.now()}: Saved model and optimizer state "
               f"at iteration {self.iteration} to {checkpoint_path}")
 
-    def load_checkpoint(self):
+    def load_checkpoint(self, map_location='cpu'):
         checkpoint_path = self.checkpoint_dir / 'ckpt_latest.pth'
         assert checkpoint_path.is_file(), checkpoint_path
-        checkpoint_dict = torch.load(str(checkpoint_path), map_location='cpu')
+        checkpoint_dict = torch.load(str(checkpoint_path),
+                                     map_location=map_location)
 
         self.model.load_state_dict(checkpoint_dict['model'])
         if isinstance(self.optimizer, dict):
@@ -515,6 +498,10 @@ class Trainer(Configurable):
         print(f"Loaded checkpoint '{checkpoint_path}' (iteration {iteration})")
 
     def to(self, device):
+        # ToDo: Should device == None be supported?
+        #       Effect: no device movement.
+        #       Useful for multi device models, where the model should not
+        #       be moved.
         if isinstance(self.optimizer, dict):
             # ToDo: remove device[key] from default Trainer.
             #       overwrite this property in Custom Trainer.
