@@ -152,6 +152,9 @@ class StandardNormal(Model):
 
 class DictTrainer(pt.trainer.Trainer):
     def _step(self, example):
+        example = pt.data.batch_to_device(
+            example, self.device != 'cpu', self.device
+        )
         review = dict()
         vae_out = self.model['vae'](example)
         pb.utils.nested.nested_update(review, self.model['vae'].review(

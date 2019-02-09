@@ -1,5 +1,4 @@
 import torch
-from padertorch.configurable import Configurable
 from torch import optim
 
 
@@ -40,19 +39,12 @@ class Optimizer:
             self.parameters, grad_clips
         )
 
-    def cuda(self, device):
+    def to(self, device):
         self.check_if_set()
         for state in self.optimizer.state.values():
             for k, v in state.items():
                 if torch.is_tensor(v):
-                    state[k] = v.cuda(device)
-
-    def cpu(self):
-        self.check_if_set()
-        for state in self.optimizer.state.values():
-            for k, v in state.items():
-                if torch.is_tensor(v):
-                    state[k] = v.cpu()
+                    state[k] = v.to(device)
 
     def load_state_dict(self, key):
         self.check_if_set()

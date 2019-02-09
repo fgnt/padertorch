@@ -4,7 +4,6 @@
 """
 import contextlib
 import itertools
-import os
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -43,7 +42,7 @@ class Trainer(Configurable):
             checkpoint_trigger=(1, 'epoch'),
             keep_all_checkpoints=False,
             max_trigger=(1, 'epoch'),
-            gpu=0 if torch.cuda.is_available() else None
+            device=0 if torch.cuda.is_available() else 'cpu'
     ):
         """
 
@@ -70,9 +69,9 @@ class Trainer(Configurable):
                     checkpoints are kept otherwise all checkpoints are kept
         :param max_trigger: `padertorch.train.trigger.EndTrigger` object
                     or tuple describing the endpoint of the training
-        :param gpu: defines the gpu which shall be used, if None cpu is used
+        :param device: defines the device which shall be used, if None cpu is used.
         """
-        if isinstance(optimizer, dict):
+        if isinstance(model, dict):
             # Special case see Janek's example
             # ToDo: Hint to example
 
@@ -97,13 +96,8 @@ class Trainer(Configurable):
                 f'Got: type: {type(model)}\n{model}'
             )
 
-        self.use_cuda = gpu is not None
-        self.gpu_device = None
-        if self.use_cuda:
-            self.gpu_device = int(gpu)
-            self.model.cuda(self.gpu_device)
-        else:
-            self.gpu_device = None
+        self.device = device
+        self.to(device)
 
         self.storage_dir = Path(storage_dir).expanduser().resolve()
         self.timer = ContextTimerDict()
@@ -246,12 +240,7 @@ class Trainer(Configurable):
                     else:
                         for hook in hooks:
                             hook.pre_step(self)
-
                     with self.timer['time_per_train_step']:
-                        example = pt.data.batch_to_device(
-                            example, self.use_cuda, self.gpu_device
-                        )
-                        # Todo: backup OutOfMemory
                         model_output, review = self.train_step(example)
 
                     for hook in hooks:
@@ -287,9 +276,6 @@ class Trainer(Configurable):
             self.model.eval()
             try:
                 for i, example in enumerate(validation_iterator):
-                    example = pt.data.batch_to_device(
-                        example, self.use_cuda, self.gpu_device
-                    )
                     yield self.validation_step(example)
             finally:
                 self.model.train()
@@ -323,6 +309,11 @@ class Trainer(Configurable):
               'when you have multiple models.'
         assert isinstance(self.model, torch.nn.Module), (self.model, msg)
         assert isinstance(self.optimizer, Optimizer), (self.optimizer, msg)
+        assert self.device == 'cpu' or isinstance(self.device, int), (self.device, msg)
+        # Todo: backup OutOfMemory
+        example = pt.data.batch_to_device(
+            example, self.device != 'cpu', self.device
+        )
         model_out = self.model(example)
         return model_out, self.model.review(example, model_out)
 
@@ -340,8 +331,7 @@ class Trainer(Configurable):
                 )
             for key, value in losses.items():
                 weight = loss_weights[key] if loss_weights is not None else 1.
-                loss += weight * value
-
+                loss = loss + (weight * value).cpu()
             review['loss'] = loss
         else:
             assert 'loss' in review, review
@@ -451,9 +441,7 @@ class Trainer(Configurable):
     def save_checkpoint(self, checkpoint_path=None):
         if checkpoint_path is None:
             checkpoint_path = self.default_checkpoint_path()
-        if self.use_cuda:
-            self.cpu()
-
+        self.to('cpu')
         if isinstance(self.optimizer, dict):
             optimizer_state_dict = {
                 k: opti.state_dict()
@@ -471,8 +459,7 @@ class Trainer(Configurable):
             ),
             str(checkpoint_path)
         )
-        if self.use_cuda:
-            self.cuda(self.gpu_device)
+        self.to(self.device)
         print(f"{datetime.now()}: Saved model and optimizer state "
               f"at iteration {self.iteration} to {checkpoint_path}")
 
@@ -498,21 +485,17 @@ class Trainer(Configurable):
 
         print(f"Loaded checkpoint '{checkpoint_path}' (iteration {iteration})")
 
-    def cpu(self):
-        self.model.cpu()
+    def to(self, device):
         if isinstance(self.optimizer, dict):
-            for opti in self.optimizer.values():
-                opti.cpu()
+            for key in self.model.keys():
+                device_ = device[key] if isinstance(device, dict) else device
+                self.model[key].to(device_)
+                if key in self.optimizer:
+                    self.optimizer[key].to(device_)
         else:
-            self.optimizer.cpu()
-
-    def cuda(self, device):
-        self.model.cuda(device)
-        if isinstance(self.optimizer, dict):
-            for opti in self.optimizer.values():
-                opti.cuda(device)
-        else:
-            self.optimizer.cuda(device)
+            assert device == 'cpu' or isinstance(device, int)
+            self.model.to(device)
+            self.optimizer.to(device)
 
 
 class ContextTimerDict:
