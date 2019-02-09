@@ -49,8 +49,10 @@ class Optimizer:
     def cpu(self):
         return self.to('cpu')
 
-    def cuda(self, device):
+    def cuda(self, device=None):
         assert isinstance(device, int), device
+        if device is None:
+            device = torch.device('cuda')
         return self.to(device)
 
     def load_state_dict(self, key):

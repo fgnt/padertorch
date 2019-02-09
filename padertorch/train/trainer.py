@@ -510,8 +510,10 @@ class Trainer(Configurable):
     def cpu(self):
         return self.to('cpu')
 
-    def cuda(self, device):
-        assert isinstance(device, int)
+    def cuda(self, device=None):
+        assert isinstance(device, int), device
+        if device is None:
+            device = torch.device('cuda')
         return self.to(device)
 
 
