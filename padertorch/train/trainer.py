@@ -457,7 +457,7 @@ class Trainer(Configurable):
             return {
                 key: tensor.cpu()
                 for key, tensor in
-                state_dict
+                state_dict.items()
             }
 
         if isinstance(self.optimizer, dict):
