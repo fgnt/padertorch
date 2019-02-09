@@ -505,7 +505,11 @@ class Trainer(Configurable):
         print(f"Loaded checkpoint '{checkpoint_path}' (iteration {iteration})")
 
     def to(self, device):
-        assert device is None or device == 'cpu' or isinstance(device, int), device
+        if device is None:
+            # Do nothing
+            return
+
+        assert device == 'cpu' or isinstance(device, int), device
         self.model.to(device)
         if isinstance(self.optimizer, dict):
             for key in self.optimizer.keys():
@@ -517,7 +521,7 @@ class Trainer(Configurable):
         return self.to('cpu')
 
     def cuda(self, device=None):
-        assert isinstance(device, int), device
+        assert device is None or isinstance(device, int), device
         if device is None:
             device = torch.device('cuda')
         return self.to(device)
