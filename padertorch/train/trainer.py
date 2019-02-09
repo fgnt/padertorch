@@ -503,6 +503,8 @@ class Trainer(Configurable):
 
     def to(self, device):
         if isinstance(self.optimizer, dict):
+            # ToDo: remove device[key] from default Trainer.
+            #       overwrite this property in Custom Trainer.
             for key in self.model.keys():
                 device_ = device[key] if isinstance(device, dict) else device
                 self.model[key].to(device_)
