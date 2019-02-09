@@ -342,7 +342,7 @@ class Trainer(Configurable):
     def _maybe_add_loss_to_review(self, review):
         if 'losses' in review:
             assert 'loss' not in review, review
-            losses = list(review['losses'].items())
+            losses = review['losses']
 
             loss = 0.
             loss_weights = self.loss_weights
@@ -351,10 +351,7 @@ class Trainer(Configurable):
                     'You can not have multiple losses without specifying '
                     f'loss_weights. losses: {losses}'
                 )
-            # shift losses to cpu if not all losses on same device
-            if not all([l.device == losses[0][1].device for k, l in losses]):
-                losses = [(k, l.cpu()) for k, l in losses]
-            for key, value in losses:
+            for key, value in losses.items():
                 weight = loss_weights[key] if loss_weights is not None else 1.
                 loss = loss + (weight * value)
             review['loss'] = loss
@@ -535,9 +532,8 @@ class Trainer(Configurable):
         return self.to(device)
 
 
-class _MultiDeviceTrainer(Trainer):
+class MultiDeviceTrainer(Trainer):
     """
-    ToDo: Move to contrib
 
     A Trainer that does not change the model device.
     The losses may be located on different devices, so this trainer moves all
@@ -548,8 +544,6 @@ class _MultiDeviceTrainer(Trainer):
     """
 
     def _maybe_add_loss_to_review(self, review):
-        # ToDo: remove `.cpu()` in super(). Wieso?
-        # Wird doch nur noch verschoben wenn nicht alle auf einem device
         if 'losses' in review:
             review['losses'] = {
                 k: v.cpu()
