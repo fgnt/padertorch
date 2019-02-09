@@ -527,6 +527,31 @@ class Trainer(Configurable):
         return self.to(device)
 
 
+class _MultiDeviceTrainer(Trainer):
+    """
+    ToDo: Proposal
+
+    A Trainer that does not change the model device.
+    The losses may be located on different devices, so this trainer moves all
+    losses to the cpu.
+
+    Note: The device argument of the Trainer.train is used to move the example
+          to the device.
+    """
+
+    def _maybe_add_loss_to_review(self, review):
+        # ToDo: remove `.cpu()` in super().
+        if 'losses' in review:
+            review['losses'] = {
+                k: v.cpu()
+                for k, v in review['losses'].items()
+            }
+        return super()._maybe_add_loss_to_review(review)
+
+    def to(self, device):
+        pass
+
+
 class ContextTimerDict:
     """
     To be able to keep the measurements, we need to create the object before.
