@@ -18,16 +18,19 @@ import paderbox as pb
 
 def nested_test_assert_allclose(struct1, struct2):
     def assert_func(array1, array2):
-        array1 = pt.utils.to_numpy(array1)
-        array2 = pt.utils.to_numpy(array2)
-        np.testing.assert_allclose(
-            array1, array2,
-            rtol=1e-5,
-            atol=1e-5,
-            err_msg='Validation step has not been deterministic.\n'
-                    'This might be caused by layers changing their internal\n'
-                    'state such as BatchNorm'
-        )
+        if array1 is None:
+            assert array2 is None, 'Validation step has not been deterministic'
+        else:
+            array1 = pt.utils.to_numpy(array1)
+            array2 = pt.utils.to_numpy(array2)
+            np.testing.assert_allclose(
+                array1, array2,
+                rtol=1e-5,
+                atol=1e-5,
+                err_msg='Validation step has not been deterministic.\n'
+                        'This might be caused by layers changing their\n'
+                        'internal state such as BatchNorm'
+            )
 
     pb.utils.nested.nested_op(
         assert_func,
@@ -40,6 +43,7 @@ def test_run(
         trainer: 'pt.Trainer',
         train_iterator,
         validation_iterator,
+        device=0 if torch.cuda.is_available() else 'cpu',
         test_with_known_iterator_length=False,
 ):
     """
@@ -169,6 +173,7 @@ def test_run(
             trainer.train(
                 sub_train_iterator,
                 sub_validation_iterator,
+                device=device
             )
 
         def assert_step(x):

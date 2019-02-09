@@ -113,7 +113,12 @@ class Trainer(Configurable):
     def reset_timer(self):
         self.timer.clear()
 
-    def test_run(self, train_iterator, validation_iterator):
+    def test_run(
+            self,
+            train_iterator,
+            validation_iterator,
+            device=0 if torch.cuda.is_available() else 'cpu'
+    ):
         """
         Run a test on the trainer instance (i.e. model test).
 
@@ -130,6 +135,7 @@ class Trainer(Configurable):
             self,
             train_iterator,
             validation_iterator,
+            device=device
         )
 
     def train(
@@ -205,8 +211,7 @@ class Trainer(Configurable):
         # Change model to train mode (e.g. activate dropout)
         self.model.train()
 
-        self.device = device
-        self.to(self.device)
+        self.to(device)
 
         hooks = self.get_default_hooks(
             hooks,
@@ -518,6 +523,7 @@ class Trainer(Configurable):
                 self.optimizer[key].to(device)
         else:
             self.optimizer.to(device)
+        self.device = device
 
     def cpu(self):
         return self.to('cpu')
@@ -531,7 +537,7 @@ class Trainer(Configurable):
 
 class _MultiDeviceTrainer(Trainer):
     """
-    ToDo: Proposal
+    ToDo: Move to contrib
 
     A Trainer that does not change the model device.
     The losses may be located on different devices, so this trainer moves all
@@ -542,7 +548,8 @@ class _MultiDeviceTrainer(Trainer):
     """
 
     def _maybe_add_loss_to_review(self, review):
-        # ToDo: remove `.cpu()` in super().
+        # ToDo: remove `.cpu()` in super(). Wieso?
+        # Wird doch nur noch verschoben wenn nicht alle auf einem device
         if 'losses' in review:
             review['losses'] = {
                 k: v.cpu()
