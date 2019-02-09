@@ -188,8 +188,10 @@ class Trainer(Configurable):
                 checkpoints.
             resume:
                 Whether to resume a training or start a fresh one.
-            device: defines the device which shall be used, if None cpu is used.
-
+            device:
+                Defines the device which shall be used ('cpu', 0, 1, ...).
+                If None, the device of the model will not be changed and the
+                example to the model is moved to the cpu.
         """
         if resume:
             self.load_checkpoint()
