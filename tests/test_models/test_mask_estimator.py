@@ -100,7 +100,7 @@ class TestMaskEstimatorModel(unittest.TestCase):
         assert callable(getattr(self.model, 'review', None))
 
     def test_forward(self):
-        inputs = pt.data.batch_to_device(self.inputs)
+        inputs = pt.data.example_to_device(self.inputs)
         model_out = self.model(inputs)
         for mask, num_frames in zip(model_out[K.SPEECH_MASK_PRED],
                                     self.num_frames):
@@ -112,7 +112,7 @@ class TestMaskEstimatorModel(unittest.TestCase):
             assert mask.shape == expected_shape, mask.shape
 
     def test_review(self):
-        inputs = pt.data.batch_to_device(self.inputs)
+        inputs = pt.data.example_to_device(self.inputs)
         mask = self.model(inputs)
         review = self.model.review(inputs, mask)
 
@@ -120,7 +120,7 @@ class TestMaskEstimatorModel(unittest.TestCase):
         assert 'loss' not in review['scalars'], review['scalars'].keys()
 
     def test_minibatch_equal_to_single_example(self):
-        inputs = pt.data.batch_to_device(self.inputs)
+        inputs = pt.data.example_to_device(self.inputs)
         model = self.model
         model.eval()
         mask = model(inputs)
@@ -139,7 +139,7 @@ class TestMaskEstimatorModel(unittest.TestCase):
                 K.SPEECH_MASK_TARGET: [target_mask],
                 K.NOISE_MASK_TARGET: [noise_mask]
             }
-            inputs = pt.data.batch_to_device(inputs)
+            inputs = pt.data.example_to_device(inputs)
             mask = model(inputs)
             review = model.review(inputs, mask)
             reference_loss.append(review['loss'])
