@@ -42,7 +42,6 @@ class Trainer(Configurable):
             checkpoint_trigger=(1, 'epoch'),
             keep_all_checkpoints=False,
             max_trigger=(1, 'epoch'),
-            device=0 if torch.cuda.is_available() else 'cpu'
     ):
         """
 
@@ -96,8 +95,7 @@ class Trainer(Configurable):
                 f'Got: type: {type(model)}\n{model}'
             )
 
-        self.device = device
-        self.to(device)
+        self.device = None  # Dummy value, will be set in Trainer.train
 
         self.storage_dir = Path(storage_dir).expanduser().resolve()
         self.timer = ContextTimerDict()
@@ -143,6 +141,7 @@ class Trainer(Configurable):
             metrics={'loss': 'min'},
             n_best_checkpoints=1,
             resume=False,
+            device=0 if torch.cuda.is_available() else 'cpu'
     ):
         """
         A simplified training loop::
@@ -202,6 +201,9 @@ class Trainer(Configurable):
 
         # Change model to train mode (e.g. activate dropout)
         self.model.train()
+
+        self.device = device
+        self.to(self.device)
 
         hooks = self.get_default_hooks(
             hooks,
