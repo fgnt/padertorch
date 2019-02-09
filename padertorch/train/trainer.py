@@ -450,26 +450,32 @@ class Trainer(Configurable):
     def save_checkpoint(self, checkpoint_path=None):
         if checkpoint_path is None:
             checkpoint_path = self.default_checkpoint_path()
-        self.to('cpu')
+
+        def state_to_cpu(state_dict):
+            return {
+                key: tensor.cpu()
+                for key, tensor in
+                state_dict
+            }
+
         if isinstance(self.optimizer, dict):
             optimizer_state_dict = {
-                k: opti.state_dict()
+                k: state_to_cpu(opti.state_dict())
                 for k, opti in self.optimizer.items()
             }
         else:
-            optimizer_state_dict = self.optimizer.state_dict()
+            optimizer_state_dict = state_to_cpu(self.optimizer.state_dict())
 
         torch.save(
             dict(
-                model=self.model.state_dict(),
+                model=state_to_cpu(self.model.state_dict()),
                 iteration=self.iteration,
                 epoch=self.epoch,
                 optimizer=optimizer_state_dict,
             ),
             str(checkpoint_path)
         )
-        if self.device != 'cpu':
-            self.to(self.device)
+
         print(f"{datetime.now()}: Saved model and optimizer state "
               f"at iteration {self.iteration} to {checkpoint_path}")
 
