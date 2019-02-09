@@ -40,6 +40,9 @@ def get_blstm_stack(
     """
     assert batch_first is False, batch_first
 
+    if isinstance(hidden_size, int):
+        hidden_size = [hidden_size]
+
     for size in hidden_size:
         if size != output_size:
             raise ValueError(
