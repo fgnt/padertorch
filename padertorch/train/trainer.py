@@ -453,12 +453,23 @@ class Trainer(Configurable):
         if checkpoint_path is None:
             checkpoint_path = self.default_checkpoint_path()
 
-        def state_to_cpu(state_dict):
-            return {
-                key: tensor.cpu()
-                for key, tensor in
-                state_dict.items()
-            }
+        def state_to_cpu(state):
+            if isinstance(state, dict):
+                return {
+                    key: state_to_cpu(tensor)
+                    for key, tensor in
+                    state.items()
+                }
+            elif isinstance(state, (tuple, list)):
+                return [
+                    state_to_cpu(tensor)
+                    for tensor in
+                    state
+                ]
+            elif isinstance(state, torch.Tensor):
+                return state.cpu()
+            else:
+                return state
 
         if isinstance(self.optimizer, dict):
             optimizer_state_dict = {
