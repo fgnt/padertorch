@@ -918,6 +918,22 @@ class _DogmaticConfig:
     def __setitem__(self, key, value):
         self.data[key] = self.normalize(value)
 
+    def update(self, dictionary: dict, **kwargs):
+        dictionary.update()
+        for key, value in dictionary.items():
+            self[key] = value
+        for key, value in kwargs.items():
+            self[key] = value
+
+    def setdefault(self, key, default):
+        """
+        If key is in the _DogmaticConfig, return its value.
+        If not, insert key with a value of default and return default.
+        """
+        if key not in self.data.keys():
+            self[key] = default
+        return self[key]
+
     def _update_factory_kwargs(self):
         assert 'factory' in self.data, self.data
 
