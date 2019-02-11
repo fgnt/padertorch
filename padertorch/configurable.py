@@ -806,14 +806,25 @@ class _DogmaticConfig:
         - The value of factory keys are forced to be the object and
           not the str. (i.e. import_class).
         - pathlib.Path to str
+
+        >>> import torch
+        >>> from IPython.lib.pretty import pprint
+        >>> pprint(_DogmaticConfig.normalize({
+        ...     'model': {'factory': 'torch.nn.Linear'},
+        ...     'storage_dir': Path('abc')
+        ... }), max_width=79-8)
+        {'model': {'factory': torch.nn.modules.linear.Linear},
+         'storage_dir': 'abc'}
         """
         if isinstance(dictionary, collections.Mapping):
             if 'factory' in dictionary:
                 dictionary['factory'] = cls._force_factory_type(
                     dictionary['factory']
                 )
-            for v in dictionary.values():
-                cls.normalize(v)
+            dictionary = {
+                k: cls.normalize(v)
+                for k, v in dictionary.items()
+            }
         elif isinstance(dictionary, (tuple, list)):
             dictionary = [
                 cls.normalize(v)
@@ -822,7 +833,7 @@ class _DogmaticConfig:
         elif isinstance(dictionary, Path):
             dictionary = str(dictionary)
         else:
-            return dictionary
+            pass
 
         return dictionary
 
