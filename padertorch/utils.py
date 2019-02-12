@@ -77,16 +77,24 @@ def to_list(x, length=None):
     return x
 
 
-def to_numpy(array):
+def to_numpy(array, detach=False):
     """
     >>> t = torch.zeros(2)
     >>> t
     tensor([0., 0.])
-    >>> as_numpy(t), np.zeros(2, dtype=np.float32)
+    >>> to_numpy(t), np.zeros(2, dtype=np.float32)
+    (array([0., 0.], dtype=float32), array([0., 0.], dtype=float32))
+
+    >>> t = torch.zeros(2, requires_grad=True)
+    >>> t
+    tensor([0., 0.], requires_grad=True)
+    >>> to_numpy(t, detach=True), np.zeros(2, dtype=np.float32)
     (array([0., 0.], dtype=float32), array([0., 0.], dtype=float32))
     """
     if isinstance(array, torch.Tensor):
         array = array.cpu()
+        if detach:
+            array = array.detach()
 
     # torch only supports np.asarray for cpu tensors
     return np.asarray(array)
