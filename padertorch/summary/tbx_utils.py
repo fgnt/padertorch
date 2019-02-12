@@ -1,8 +1,8 @@
 import torch
 
 __all__ = [
-    'masks_to_images',
-    'stft_to_images'
+    'mask_to_image',
+    'stft_to_image',
 ]
 
 
@@ -30,7 +30,7 @@ def mask_to_image(mask, batch_first=False):
                          images.shape)
 
 
-def stft_to_images(signal, batch_first=False):
+def stft_to_image(signal, batch_first=False):
     """
     For more details of the output shape, see the tensorboardx docs.
 
