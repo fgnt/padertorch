@@ -32,11 +32,25 @@ def mask_to_image(mask, batch_first=False):
 
 def stft_to_image(signal, batch_first=False):
     """
-    For more details of the output shape, see the tensorboardx docs.
+        For more details of the output shape, see the tensorboardx docs
+    Args:
+        mask: Shape (frames, batch [optional], features)
+        batch_first: if true mask shape (batch [optional], frames, features]
 
-    :param masks: Shape (batch, frames, features)
-    :param format: Defines the shape of masks, normally 'tbf'.
-    :return: Shape(batch, features, frames, 1)
+    Returns: Shape(features, frames)
+
     """
-    return mask_to_image(signal / torch.max(torch.abs(signal)),
-                         batch_first=batch_first)
+    return spectrogram_to_image(torch.abs(signal), batch_first=batch_first)
+
+
+def spectrogram_to_image(signal, batch_first=False):
+    """
+        For more details of the output shape, see the tensorboardx docs
+    Args:
+        mask: Shape (frames, batch [optional], features)
+        batch_first: if true mask shape (batch [optional], frames, features]
+
+    Returns: Shape(features, frames)
+
+    """
+    return mask_to_image(signal / torch.max(signal), batch_first=batch_first)

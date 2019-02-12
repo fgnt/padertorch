@@ -9,7 +9,7 @@ from padertorch.ops.mappings import TORCH_POOLING_FN_MAP
 from paderbox.database import keys as K
 
 from einops import rearrange
-from padertorch.summary import mask_to_image
+from padertorch.summary import mask_to_image, stft_to_image
 
 class MaskLossKeys:
     NOISE_MASK = 'noise_mask_loss'
@@ -76,19 +76,18 @@ class MaskEstimatorModel(pt.Model):
         speech_mask = output[M_K.SPEECH_MASK_PRED][0]
         observation = batch[M_K.OBSERVATION_ABS][0]
         images = dict()
-        images['speech_mask'] = mask_to_image(speech_mask)
-        images['observed_stft'] = mask_to_image(
-            torch.abs(observation) / torch.max(torch.abs(observation))
-        )
+        images['speech_mask'] = mask_to_image(speech_mask, True)
+        images['observed_stft'] = stft_to_image(observation, True)
+
         if M_K.NOISE_MASK_PRED in output:
             noise_mask = output[M_K.NOISE_MASK_PRED][0]
-            images['noise_mask'] = mask_to_image(noise_mask)
+            images['noise_mask'] = mask_to_image(noise_mask, True)
         if batch is not None and M_K.SPEECH_MASK_TARGET in batch:
             images['speech_mask_target'] = mask_to_image(
-                batch[M_K.SPEECH_MASK_TARGET][0])
+                batch[M_K.SPEECH_MASK_TARGET][0], True)
             if M_K.NOISE_MASK_TARGET in batch:
                 images['noise_mask_target'] = mask_to_image(
-                    batch[M_K.NOISE_MASK_TARGET][0])
+                    batch[M_K.NOISE_MASK_TARGET][0], True)
         return images
 
     # ToDo: add scalar review
