@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 
 __all__ = [
@@ -16,18 +17,21 @@ def mask_to_image(mask, batch_first=False):
     Returns: Shape(features, frames)
 
     """
-    images = torch.clamp(mask * 255, 0, 255)
-    images = images.type(torch.ByteTensor)
-    if images.dim() == 2:
-        return images.cpu().numpy().transpose(1, 0)[::-1]
-    elif images.dim() == 3:
+    if torch.is_tensor(mask):
+        mask = mask.cpu().detach().numpy()
+    image = np.clip(mask * 255, 0, 255)
+    image = image.astype(np.uint8)
+    if image.ndim == 2:
+        image = image[None]
+    elif image.ndim == 3:
         if batch_first:
-            return images[0].cpu().numpy().transpose(1, 0)[::-1]
+            image = image
         else:
-            return images[:, 0].cpu().numpy().transpose(1, 0)[::-1]
+            image = image.transpose(1,0,2)
     else:
         raise ValueError('Either the signal has ndim 2 or 3',
-                         images.shape)
+                         image.shape)
+    return image[:1].transpose(0,2,1)[:, ::-1]
 
 
 def stft_to_image(signal, batch_first=False):
@@ -40,7 +44,9 @@ def stft_to_image(signal, batch_first=False):
     Returns: Shape(features, frames)
 
     """
-    return spectrogram_to_image(torch.abs(signal), batch_first=batch_first)
+    if torch.is_tensor(signal):
+        signal = signal.cpu().detach().numpy()
+    return spectrogram_to_image(np.abs(signal), batch_first=batch_first)
 
 
 def spectrogram_to_image(signal, batch_first=False):
@@ -53,4 +59,6 @@ def spectrogram_to_image(signal, batch_first=False):
     Returns: Shape(features, frames)
 
     """
-    return mask_to_image(signal / torch.max(signal), batch_first=batch_first)
+    if torch.is_tensor(signal):
+        signal = signal.cpu().detach().numpy()
+    return mask_to_image(signal / np.max(signal), batch_first=batch_first)
