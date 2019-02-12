@@ -9,6 +9,8 @@ from padertorch.ops.mappings import TORCH_POOLING_FN_MAP
 from paderbox.database import keys as K
 
 from einops import rearrange
+from padertorch.summary import masks_to_images
+
 class MaskLossKeys:
     NOISE_MASK = 'noise_mask_loss'
     SPEECH_MASK = 'speech_mask_loss'
@@ -74,18 +76,18 @@ class MaskEstimatorModel(pt.Model):
         speech_mask = output[M_K.SPEECH_MASK_PRED][0]
         observation = batch[M_K.OBSERVATION_ABS][0]
         images = dict()
-        images['speech_mask'] = masks_to_images(speech_mask)
-        images['observed_stft'] = masks_to_images(
+        images['speech_mask'] = mask_to_images(speech_mask)
+        images['observed_stft'] = mask_to_images(
             torch.abs(observation) / torch.max(torch.abs(observation))
         )
         if M_K.NOISE_MASK_PRED in output:
             noise_mask = output[M_K.NOISE_MASK_PRED][0]
-            images['noise_mask'] = masks_to_images(noise_mask)
+            images['noise_mask'] = mask_to_images(noise_mask)
         if batch is not None and M_K.SPEECH_MASK_TARGET in batch:
-            images['speech_mask_target'] = masks_to_images(
+            images['speech_mask_target'] = mask_to_images(
                 batch[M_K.SPEECH_MASK_TARGET][0])
             if M_K.NOISE_MASK_TARGET in batch:
-                images['noise_mask_target'] = masks_to_images(
+                images['noise_mask_target'] = mask_to_images(
                     batch[M_K.NOISE_MASK_TARGET][0])
         return images
 
@@ -188,16 +190,3 @@ class MaskEstimatorModel(pt.Model):
                 losses[MaskLossKeys.WEIGHTED_MASK] = weighted_loss
             losses[MaskLossKeys.MASK] = loss
         return losses
-
-
-def masks_to_images(masks):
-    """
-    For more details of the output shape, see the tensorboardx docs.
-
-    :param masks: Shape (frames, batch, features)
-    :param format: Defines the shape of masks, normally 'tbf'.
-    :return: Shape(batch, features, frames, 1)
-    """
-    images = torch.clamp(masks * 255, 0, 255)
-    images = images.type(torch.ByteTensor)
-    return images[0].cpu().numpy().transpose(1, 0)[::-1]
