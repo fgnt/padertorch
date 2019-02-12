@@ -1,5 +1,6 @@
-import padertorch as pts
+import padertorch as pt
 import numpy as np
+import pytest
 
 
 def foo(b=1, c=2):
@@ -10,7 +11,7 @@ def bar(a, b=3, d=4):
     pass
 
 
-class A(pts.configurable.Configurable):
+class A(pt.configurable.Configurable):
     @classmethod
     def finalize_dogmatic_config(cls, config):
         config['e'] = {
@@ -69,3 +70,63 @@ class Test:
             }
         }
         np.testing.assert_equal(config, expect)
+
+
+class B(pt.Configurable):
+
+    @classmethod
+    def finalize_dogmatic_config(cls, config):
+        config['a'] = 1
+        config['b'] = 2  # Should raise an Exception
+
+    def __init__(self, a):
+        pass
+
+
+def test_wrong_finalize_dogmatic_config():
+    """
+    >>> B.get_config()
+    Traceback (most recent call last):
+    ...
+    Exception: Tried to set an unexpected keyword argument for <class 'tests.test_configurable.B'> in finalize_dogmatic_config.
+    See details below and stacktrace above.
+    <BLANKLINE>
+    Too many keywords for the factory <class 'tests.test_configurable.B'>.
+    Redundant keys: {'b'}
+    Signature: (a)
+    Current config with fallbacks:
+    NestedChainMap({'factory': tests.test_configurable.B}, {'a': 1, 'b': 2})
+    >>> B.get_config(updates={'C': 3})
+    Traceback (most recent call last):
+    ...
+    Exception: padertorch.Configurable.get_config(updates=...) got an unexpected keyword argument in updates for <class 'tests.test_configurable.B'>.
+    See details below.
+    <BLANKLINE>
+    Too many keywords for the factory <class 'tests.test_configurable.B'>.
+    Redundant keys: {'C'}
+    Signature: (a)
+    Current config with fallbacks:
+    NestedChainMap({'C': 3, 'factory': tests.test_configurable.B}, {})
+    """
+
+    import doctest
+    # doctest.run_docstring_examples does not raise an Exception
+    # doctest.run_docstring_examples(
+    #     test_wrong_finalize_dogmatic_config, globals(),
+    #     optionflags=doctest.ELLIPSIS,
+    # )
+
+    f = test_wrong_finalize_dogmatic_config
+    globs = globals()
+    verbose = False
+    name = "NoName",
+    compileflags = None
+    optionflags = doctest.ELLIPSIS
+
+    finder = doctest.DocTestFinder(verbose=verbose, recurse=False)
+    runner = doctest.DocTestRunner(verbose=verbose, optionflags=optionflags)
+    for test in finder.find(f, name, globs=globs):
+        test_results: doctest.TestResults = runner.run(
+            test, compileflags=compileflags)
+
+        assert not test_results.failed, (test_results, 'See above stdout')

@@ -868,6 +868,14 @@ class _DogmaticConfig:
             mutable_idx=mutable_idx,
         )
 
+        if 'factory' in self.data:
+            self._check_redundant_keys(
+                'padertorch.Configurable.get_config(updates=...) got an '
+                f'unexpected keyword argument in updates for '
+                f'{self.data["factory"]}.\n'
+                'See details below.\n'
+            )
+
     def get_sub_config(self, key, mutable_idx=None):
         if mutable_idx is None:
             mutable_idx = self.data.mutable_idx
@@ -903,10 +911,39 @@ class _DogmaticConfig:
                 parameter_names = tuple(
                     collections.OrderedDict.fromkeys(parameter_names)
                 )
-
             return parameter_names
         else:
             return tuple(self.data.keys())
+
+    def _check_redundant_keys(self, msg):
+        assert 'factory' in self.data
+        factory = import_class(self.data['factory'])
+        parameters = inspect.signature(factory).parameters.values()
+        p: inspect.Parameter
+
+        if inspect.Parameter.VAR_KEYWORD in [p.kind for p in parameters]:
+            pass
+        else:
+            parameter_names = set([
+                p.name
+                for p in parameters
+                if p.kind in [
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    inspect.Parameter.KEYWORD_ONLY,
+                ]
+            ]) | {'factory'}
+
+            redundant_keys = set(self.data.keys()) - parameter_names
+
+            if len(redundant_keys) != 0:
+                from IPython.lib.pretty import pretty
+                raise Exception(
+                    f'{msg}\n'
+                    f'Too many keywords for the factory {factory}.\n'
+                    f'Redundant keys: {redundant_keys}\n'
+                    f'Signature: {inspect.signature(factory)}\n'
+                    f'Current config with fallbacks:\n{pretty(self.data)}'
+                )
 
     def __contains__(self, item):
         raise NotImplementedError(
@@ -917,6 +954,13 @@ class _DogmaticConfig:
 
     def __setitem__(self, key, value):
         self.data[key] = self.normalize(value)
+
+        if 'factory' in self.data.keys():
+            self._check_redundant_keys(
+                'Tried to set an unexpected keyword argument for '
+                f'{self.data["factory"]} in finalize_dogmatic_config.\n'
+                'See details below and stacktrace above.\n'
+            )
 
     def update(self, dictionary: dict, **kwargs):
         dictionary.update()
@@ -949,7 +993,6 @@ class _DogmaticConfig:
         defaults = self.get_signature(factory)
         for k, v in defaults.items():
             self[k] = v
-
 
         if hasattr(factory, 'finalize_dogmatic_config'):
             try:
