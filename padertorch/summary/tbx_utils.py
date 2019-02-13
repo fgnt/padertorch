@@ -11,6 +11,7 @@ __all__ = [
     'mask_to_image',
     'stft_to_image',
     'spectrogram_to_image',
+    'review_dict',
 ]
 
 
@@ -108,3 +109,49 @@ def spectrogram_to_image(signal, batch_first=False, color='viridis'):
         # gray image
         return signal.transpose(1, 0)[None, ::-1, :]
 
+
+def review_dict(
+        *,
+        loss: torch.Tensor=None,
+        losses: dict=None,
+        scalars: dict=None,
+        histograms: dict=None,
+        audios: dict=None,
+        images: dict=None,
+):
+    """
+    This is a helper function to build the review dict.
+    The main purpose is for auto completion of the review dict, prevent typos
+    and documentation what is expected for the values.
+
+    ToDo: Text for expected shapes
+
+    Args:
+        loss:
+            Scalar torch.Tensor. If not None, expect losses to be None.
+        losses:
+            Dict of scalar torch.Tensor. If not None, expect loss to be None.
+        scalars:
+            Dict of scalars that are reported to tensorboard. Losses and loss
+            are also reported as scalars.
+        histograms:
+            Dict of ???.
+        audios:
+            Dict of ???.
+        images:
+            Dict of torch.Tensor with Shape(batch, features, frames, 1).
+
+    Returns:
+        dict of the args that are not None
+
+    """
+
+    review = locals()
+
+    for k, v in list(review.items()):
+        if v is None:
+            del review[k]
+
+    assert operator.xor(loss is None, losses is None), (loss, losses)
+
+    return review
