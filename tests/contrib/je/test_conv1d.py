@@ -24,7 +24,7 @@ class TestTCN(unittest.TestCase):
                                 output_size=latent_dim,
                                 condition_size=condition_size,
                                 n_scales=n_scales, norm='batch',
-                                pool_sizes=pool_size, padding=padding
+                                pool_sizes=pool_size, paddings=padding
                             )
                         )
                     )
@@ -37,7 +37,7 @@ class TestTCN(unittest.TestCase):
                                 output_size=input_size,
                                 condition_size=condition_size, transpose=True,
                                 n_scales=n_scales, norm='batch',
-                                pool_sizes=pool_size, padding=padding
+                                pool_sizes=pool_size, paddings=padding
                             )
                         )
                     )
