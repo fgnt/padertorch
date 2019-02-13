@@ -10,7 +10,7 @@ from padertorch.utils import to_numpy
 __all__ = [
     'mask_to_image',
     'stft_to_image',
-    'review',
+    'spectrogram_to_image',
 ]
 
 
