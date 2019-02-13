@@ -19,9 +19,12 @@ class A(pt.configurable.Configurable):
             'b': 5
         }
         if config['e']['factory'] == foo:
-            config['e']['c'] = 6
-        if config['e']['factory'] == bar:
+            cfg_e = config['e']
+            cfg_e['c'] = 6
+        elif config['e']['factory'] == bar:
             config['e']['d'] = 7
+        else:
+            raise ValueError(config['e']['factory'])
         return config
 
     def __init__(self, e, f=0):
@@ -40,7 +43,7 @@ class Test:
                 'c': 6
             }
         }
-        np.testing.assert_equal(config, expect)
+        assert config == expect
 
         with np.testing.assert_raises_regex(Exception, "missing keys: {'a'}"):
             config = A.get_config({'e': {'factory': bar}})
@@ -56,7 +59,7 @@ class Test:
                 'a': 10
             }
         }
-        np.testing.assert_equal(config, expect)
+        assert config == expect
 
         config = A.get_config({'e': {'factory': bar, 'a': 10}})
         expect = {
@@ -69,7 +72,7 @@ class Test:
                 'a': 10
             }
         }
-        np.testing.assert_equal(config, expect)
+        assert config == expect
 
 
 class B(pt.Configurable):

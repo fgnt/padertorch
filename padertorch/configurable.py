@@ -858,10 +858,7 @@ class _DogmaticConfig:
 
         """
         assert len(maps) >= 1, maps
-        maps = [
-            self.normalize(m)
-            for m in maps
-        ] + [{}]
+        maps = list(maps)+ [{}]
 
         self.data = NestedChainMap(
             *maps,
