@@ -84,6 +84,7 @@ class B(pt.Configurable):
 
 
 def test_wrong_finalize_dogmatic_config():
+    # Doctest may raise an error. This is expected.
     """
     >>> B.get_config()
     Traceback (most recent call last):
