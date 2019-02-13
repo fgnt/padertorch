@@ -46,7 +46,7 @@ class TestMaskEstimatorModel(unittest.TestCase):
     def setUp(self):
         self.model_class= pt.models.mask_estimator.MaskEstimatorModel
         self.model = self.model_class.from_config(
-            self.model_class.get_config({'normalization': lambda x: x}))
+            self.model_class.get_config())
         self.T = 100
         self.B = 4
         self.F = 513
@@ -80,7 +80,6 @@ class TestMaskEstimatorModel(unittest.TestCase):
         config = pt.Trainer.get_config(
             updates=pb.utils.nested.deflatten({
                 'model.factory': self.model_class,
-                'model.normalization': lambda x:x,
                 'storage_dir': None,  # will be overwritten
                 'max_trigger': None,  # will be overwritten
             })
