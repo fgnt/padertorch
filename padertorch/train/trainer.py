@@ -72,7 +72,7 @@ class Trainer(Configurable):
         """
         if isinstance(optimizer, dict):
             # Special case see Janek's example
-            # ToDo: Hint to example
+            # TODO: Hint to example
 
             model = torch.nn.ModuleDict(model)
             assert set(model.keys()) == set(optimizer.keys()), \
@@ -299,6 +299,9 @@ class Trainer(Configurable):
             self.model.eval()
             try:
                 for i, example in enumerate(validation_iterator):
+                    example = pt.data.batch_to_device(
+                        example, self.use_cuda, self.gpu_device
+                    )
                     yield self.validation_step(example)
             finally:
                 self.model.train()
@@ -332,7 +335,7 @@ class Trainer(Configurable):
               'when you have multiple models.'
         assert isinstance(self.model, torch.nn.Module), (self.model, msg)
         assert isinstance(self.optimizer, Optimizer), (self.optimizer, msg)
-        # Todo: backup OutOfMemory
+        # TODO: backup OutOfMemory
         example = pt.data.example_to_device(
             example, self.device
         )
@@ -401,7 +404,7 @@ class Trainer(Configurable):
                 'disable validation.'
             )
             raise NotImplementedError(
-                'ToDo: Check SimpleCheckpointHook for errors'
+                'TODO: Check SimpleCheckpointHook for errors'
             )
             hooks.append(SimpleCheckpointHook(
                 self.checkpoint_trigger,
@@ -432,8 +435,8 @@ class Trainer(Configurable):
         return hooks
 
     def clip_grad(self):
-        # Todo: report clipped and unclipped
-        # Todo: allow clip=None but still report grad_norm
+        # TODO: report clipped and unclipped
+        # TODO: allow clip=None but still report grad_norm
 
         summary = dict(scalars=dict(), histograms=dict())
         if isinstance(self.optimizer, dict):
@@ -616,6 +619,6 @@ class ContextTimerDict:
             pass
 
 
-# ToDO: write function for those to functions outside of trainer
+# TODO: write function for those to functions outside of trainer
 # torch.manual_seed(seed)
 # torch.cuda.manual_seed(seed)
