@@ -24,7 +24,7 @@ class Module(nn.Module, Configurable, abc.ABC):
     """Abstract base class for configurable Modules."""
 
     @abc.abstractmethod
-    def forward(self, *args, **kwargs):
+    def forward(self, *args, **kwargs):  # pylint: disable=arguments-differ
         """Define the I/O behavior of Module()."""
         pass
 
@@ -116,7 +116,7 @@ class Model(Module, Configurable, abc.ABC):
     """
 
     @abc.abstractmethod
-    def forward(self, inputs):
+    def forward(self, inputs):  # pylint: disable=arguments-differ
         """Define the I/O behavior of Model().
 
         Args:

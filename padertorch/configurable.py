@@ -307,6 +307,7 @@ class Configurable:
             # This fix is active when the script is called with
             # "python -m <script> ..."
             # but not when it is called with "python <script>.py ..."
+            # pylint: disable=self-cls-assignment
             cls = import_class(class_to_str(cls))
 
         if updates is None:
@@ -1103,18 +1104,18 @@ class _DogmaticConfig:
         return (f'{self.__class__.__name__}({maps},'
                 f' mutable_idx={self.data.mutable_idx})')
 
-    def _repr_pretty_(self, p, cycle):
+    def _repr_pretty_(self, pp, cycle):
         if cycle:
-            p.text(f'{self.__class__.__name__}(...)')
+            pp.text(f'{self.__class__.__name__}(...)')
         else:
             name = self.__class__.__name__
             pre, post = f'{name}(', ')'
-            with p.group(len(pre), pre, post):
+            with pp.group(len(pre), pre, post):
                 for idx, m in enumerate(self.data.maps):
                     if idx:
-                        p.text(',')
-                        p.breakable()
-                    p.pretty(m)
-                p.text(',')
-                p.breakable()
-                p.text(f'mutable_idx={self.data.mutable_idx})')
+                        pp.text(',')
+                        pp.breakable()
+                    pp.pretty(m)
+                pp.text(',')
+                pp.breakable()
+                pp.text(f'mutable_idx={self.data.mutable_idx})')
