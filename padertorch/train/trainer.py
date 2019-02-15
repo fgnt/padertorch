@@ -299,9 +299,6 @@ class Trainer(Configurable):
             self.model.eval()
             try:
                 for i, example in enumerate(validation_iterator):
-                    example = pt.data.batch_to_device(
-                        example, self.use_cuda, self.gpu_device
-                    )
                     yield self.validation_step(example)
             finally:
                 self.model.train()
