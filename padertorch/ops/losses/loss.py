@@ -80,6 +80,7 @@ def pit_loss(estimate, target, loss_fn=torch.nn.functional.mse_loss):
         target: Padded sequence with shape (T, K, F)
     """
     sources = estimate.size()[1]
+    assert sources < 30, f'Are you sure? sources={sources}'
     assert estimate.size() == target.size(), (
         f'{estimate.size()} != {target.size()}'
     )
