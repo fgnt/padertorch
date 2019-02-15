@@ -34,24 +34,69 @@ def zeros(shape, dtype=None):
     return torch.zeros(*shape, dtype=dtype)
 
 
+def broadcast_to(tensor, shape):
+    """
+
+    Replace with https://github.com/pytorch/pytorch/pull/17160 when/if it is
+    merged.
+
+    >>> broadcast_to(torch.ones(3), (4, 3)).shape
+    torch.Size([4, 3])
+    >>> broadcast_to(torch.ones(1, 3), (4, 3)).shape
+    torch.Size([4, 3])
+    """
+    delta_len = tensor.dim() - len(shape)
+    if delta_len > 0:
+        # add singleton dimensions
+        tensor = tensor[[slice(None)] * delta_len]
+
+    return tensor.expand(shape)
+
+
 def matrix_diag(x):
-    """Apply the diag matrix operation along the batch axis."""
+    """
+    Apply the diag matrix operation on the last axis.
+
+    >>> matrix_diag(torch.ones(2))
+    tensor([[1., 0.],
+            [0., 1.]])
+    >>> matrix_diag(torch.ones(3, 4)).shape
+    torch.Size([3, 4, 4])
+
+    """
     if x.dim() == 1:
         return torch.diag(x)
     feature_dim = x.shape[-1]
     mat = x.reshape((-1, feature_dim))
+
+    # TODO: Find a way to remove the python loop without the multiplication
+    #       with the eye matrix.
     diags = torch.stack([torch.diag(vec) for vec in mat])
     return diags.reshape((*x.shape, feature_dim))
 
 
 def matrix_eye_like(x):
-    """Apply the eye matrix operation along the batch axis."""
-    if x.dim() == 1:
-        return torch.eye(*tensor.size())
+    """
+    Returns a eye matrix with `x.ndim() + 1` dimensions.
+
+    Note: Usually the matrix from torch.eye is enough, because torch supports
+          broadcasting.
+
+    >>> matrix_eye_like(torch.ones(2) + 10)
+    tensor([[1., 0.],
+            [0., 1.]])
+    >>> matrix_eye_like(torch.ones(3, 2)).shape
+    torch.Size([3, 2, 2])
+    >>> matrix_eye_like(torch.ones(4, 3, 2)).shape
+    torch.Size([4, 3, 2, 2])
+
+    """
     feature_dim = x.shape[-1]
-    mat = x.reshape(-1, feature_dim)
-    eyes = torch.stack([torch.eye(*vec.size()) for vec in mat])
-    return eyes.reshape((*x.shape, feature_dim))
+    eye = torch.eye(feature_dim)
+    if x.dim() == 1:
+        return eye
+    else:
+        return broadcast_to(eye, [*x.shape, feature_dim])
 
 
 def batch_tril(x):
