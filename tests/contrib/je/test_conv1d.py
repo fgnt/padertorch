@@ -29,7 +29,7 @@ class TestTCN(unittest.TestCase):
                         )
                     )
                     z, pool_indices = enc(x, h)
-                    # self.assertEquals(z.shape, (batch_size, latent_dim, n_frames))
+                    # self.assertEqual(z.shape, (batch_size, latent_dim, n_frames))
                     dec = TCN.from_config(
                         TCN.get_config(
                             updates=dict(
@@ -42,4 +42,4 @@ class TestTCN(unittest.TestCase):
                         )
                     )
                     x_hat = dec(z, h, pool_indices=pool_indices[::-1])
-                    self.assertEquals(x_hat.shape, (batch_size, input_size, n_frames))
+                    self.assertEqual(x_hat.shape, (batch_size, input_size, n_frames))
