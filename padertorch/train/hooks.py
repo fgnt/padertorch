@@ -59,25 +59,20 @@ class Priority(IntEnum):
     SUMMARY = 50
 
 
-class BaseHook:
-
-    def __init__(self, trigger=None):
-        """
-        :param trigger: Length of step between occurences or Trigger.
-            It consists of an integer and either 'epoch' or 'iteration'
-        """
-        # if trigger is not None:  # CB: use case?
-        self.trigger = IntervalTrigger.new(trigger)
-
+class Hook:
     @property
     def priority(self):
         return Priority.DEFAULT
-
+    
     def pre_step(self, trainer: 'pt.Trainer'):
         """
         function is called before each iteration of the train iterator
-        :param trainer:
-        :return:
+
+        Args:
+            trainer:
+
+        Returns:
+
         """
         pass
 
@@ -85,11 +80,14 @@ class BaseHook:
                   review):
         """
         function is called after each train step
-        :param trainer:
-        :param example:
-        :param model_output:
-        :param review:
-        :return:
+
+        Args:
+            trainer:
+            example:
+            model_output:
+            review:
+
+        Returns:
         """
         pass
 
@@ -97,10 +95,27 @@ class BaseHook:
         pass
 
     def set_last(self, iteration, epoch):
+        pass
+
+
+class TriggeredHook(Hook):
+
+    def __init__(self, trigger=None):
+        """
+
+        Args:
+            trigger: tuple or Trigger.
+                When Tuple, the first entry is the trigger interval length and
+                the second the unit (i.e. 'epoch' or 'iteration').
+                Example: (1, 'epoch')
+        """
+        self.trigger = IntervalTrigger.new(trigger)
+
+    def set_last(self, iteration, epoch):
         self.trigger.set_last(iteration, epoch)
 
 
-class SummaryHook(BaseHook):
+class SummaryHook(TriggeredHook):
     def __init__(
             self,
             trigger,
@@ -227,7 +242,7 @@ class SummaryHook(BaseHook):
         self.writer.close()
 
 
-class SimpleCheckpointHook(BaseHook):
+class SimpleCheckpointHook(TriggeredHook):
     """ Can be used to keep all checkpoints, e.g. for continuous evaluation
             (keep_all = False) or to only store the most recent checkpoint
             (keep_all = True).
@@ -552,7 +567,7 @@ class CheckpointedValidationHook(ValidationHook):
                 checkpoint.unlink()
 
 
-class ProgressBarHook(BaseHook):
+class ProgressBarHook(TriggeredHook):
     """ Adds a progress bar to the console output. """
     def __init__(self, max_trigger, max_it_len=None, update_interval=10):
         """
@@ -622,7 +637,7 @@ class ProgressBarHook(BaseHook):
         self.pbar.finish()
 
 
-class StopTrainingHook(BaseHook):
+class StopTrainingHook(TriggeredHook):
     """ Raises a StopTraining exception if triggered. """
     def __init__(self, trigger):
         super().__init__(EndTrigger.new(trigger))
