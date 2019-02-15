@@ -332,7 +332,10 @@ class _Metric:
 
     @property
     def values(self):
-        return [self._value] if abs(self._value) != float('Inf') else []
+        if self._value is None:
+            return []
+        else:
+            return [self._value]
 
     def is_better(self, value):
         """ Decides whether current metric value is better than best
