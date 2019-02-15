@@ -169,6 +169,9 @@ class SummaryHook(TriggeredHook):
         iteration = trainer.iteration
         timer_dict = trainer.timer.as_dict
         prefix = self.summary_prefix
+
+        time_prefix = f'{prefix}_timings'
+
         for key, scalar in self.summary['scalars'].items():
             self.writer.add_scalar(
                 f'{prefix}/{key}', np.mean(scalar), iteration)
@@ -185,29 +188,42 @@ class SummaryHook(TriggeredHook):
         #       next summary.
         time_per_data_loading = timer_dict.pop('time_per_data_loading', [0])
         time_per_train_step = timer_dict.pop('time_per_train_step', [0])
+        time_per_backward = timer_dict.pop('time_per_backward', [0])
+
         time_per_step = (
                 np.mean(time_per_data_loading) + np.mean(time_per_train_step)
         )
         if time_per_step > 0:
             self.writer.add_scalar(
-                f'{prefix}/time_per_step', time_per_step, iteration)
+                f'{prefix}_timings/time_per_step', time_per_step, iteration)
+
+            sum_time_per_train_step = np.sum(time_per_train_step)
+            sum_time_per_data_loading = np.sum(time_per_data_loading)
+            sum_time_per_backward = np.sum(time_per_backward)
+
             total_train_time = (
-                    np.sum(time_per_data_loading) + np.sum(time_per_train_step)
+                    sum_time_per_data_loading + sum_time_per_train_step
             )
             self.writer.add_scalar(
-                f'{prefix}/time_rel_data_loading',
-                np.sum(time_per_data_loading) / total_train_time,
+                f'{time_prefix}/time_rel_data_loading',
+                sum_time_per_data_loading / total_train_time,
                 iteration
             )
             self.writer.add_scalar(
-                f'{prefix}/time_rel_train_step',
-                np.sum(time_per_train_step) / total_train_time,
+                f'{time_prefix}/time_rel_train_step',
+                sum_time_per_train_step / total_train_time,
                 iteration
             )
+            if sum_time_per_train_step > 0:
+                self.writer.add_scalar(
+                    f'{time_prefix}/time_rel_backward',
+                    sum_time_per_backward / sum_time_per_train_step,
+                    iteration
+                )
 
         for key, scalar in timer_dict.items():
             self.writer.add_scalar(
-                f'{prefix}/{key}', scalar.mean(), iteration)
+                f'{time_prefix}/{key}', scalar.mean(), iteration)
         for key, histogram in self.summary['histograms'].items():
             self.writer.add_histogram(
                 f'{prefix}/{key}', np.array(histogram), iteration

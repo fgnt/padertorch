@@ -312,14 +312,16 @@ class Trainer(Configurable):
             self.optimizer.zero_grad()
 
         model_out, review = self.step(example)
-        self.backward(review)
-        grad_summary = self.clip_grad()
 
-        if isinstance(self.optimizer, dict):
-            for opti in self.optimizer.values():
-                opti.step()
-        else:
-            self.optimizer.step()
+        with self.timer['time_per_backward']:
+            self.backward(review)
+            grad_summary = self.clip_grad()
+
+            if isinstance(self.optimizer, dict):
+                for opti in self.optimizer.values():
+                    opti.step()
+            else:
+                self.optimizer.step()
 
         nested_update(review, grad_summary)
         return model_out, review
