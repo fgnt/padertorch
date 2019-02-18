@@ -34,22 +34,17 @@ def zeros(shape, dtype=None):
     return torch.zeros(*shape, dtype=dtype)
 
 
-def broadcast_to(tensor, shape):
+def broadcast_to(tensor: torch.Tensor, shape):
     """
-
-    Replace with https://github.com/pytorch/pytorch/pull/17160 when/if it is
-    merged.
+    Alias for torch.Tensor.expand. Use torch.Tensor.expand.
 
     >>> broadcast_to(torch.ones(3), (4, 3)).shape
     torch.Size([4, 3])
     >>> broadcast_to(torch.ones(1, 3), (4, 3)).shape
     torch.Size([4, 3])
+    >>> broadcast_to(torch.ones(4, 1), (4, 3)).shape
+    torch.Size([4, 3])
     """
-    delta_len = tensor.dim() - len(shape)
-    if delta_len > 0:
-        # add singleton dimensions
-        tensor = tensor[[slice(None)] * delta_len]
-
     return tensor.expand(shape)
 
 
