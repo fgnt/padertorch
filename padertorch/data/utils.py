@@ -83,8 +83,8 @@ class Padder(Configurable):
 
                 dims = np.array(
                     [[idx for idx in array.shape] for array in batch]).T
-                axis = [idx for idx, dim in enumerate(dims) if
-                        not all(dim == dim[::-1])]
+                axis = [idx for idx, dim in enumerate(dims)
+                        if not all(dim == dim[0])]
 
                 assert len(axis) in [0, 1], (
                     f'only one axis is allowed to differ, '
