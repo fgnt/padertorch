@@ -299,10 +299,11 @@ class Spectrogram(Transform):
 
 
 class LabelEncoder(object):
-    def __init__(self, key='scene', input_mapping=None):
+    def __init__(self, key='scene', input_mapping=None, oov_label=None):
         assert key is not None
         self.key = key
         self.input_mapping = input_mapping
+        self.oov_label = oov_label
         self.label2idx = None
         self.idx2label = None
 
@@ -316,7 +317,12 @@ class LabelEncoder(object):
         if labels is None:
             labels = self._read_labels_from_iterator(iterator)
         if self.input_mapping is not None:
-            labels = sorted({self.input_mapping[label] for label in labels})
+            labels = sorted({
+                self.input_mapping[label] if label in self.input_mapping
+                else label for label in labels
+            })
+        if self.oov_label is not None and self.oov_label not in labels:
+            labels.append(self.oov_label)
         if storage_dir and not file.exists():
             with file.open('w') as f:
                 json.dump(labels, f, sort_keys=True, indent=4)
@@ -328,6 +334,8 @@ class LabelEncoder(object):
         def encode_label(label):
             if self.input_mapping is not None:
                 label = self.input_mapping[label]
+            if self.oov_label is not None and label not in self.label2idx:
+                label = self.oov_label
             return self.label2idx[label]
         return nested_op(encode_label, labels)
 
