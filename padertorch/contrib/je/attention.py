@@ -5,7 +5,7 @@ from padertorch.base import Module
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 
 
-def scaled_dot_product_attention(q, k, v, mask=False):
+def scaled_dot_product_attention(q, k, v, mask=None):
     """
     >>> q = torch.zeros((2, 3, 4))
     >>> k = torch.zeros((2, 6, 4))
@@ -27,10 +27,10 @@ def scaled_dot_product_attention(q, k, v, mask=False):
     :return:
     """
     y = q@k.transpose(-2, -1)/np.sqrt(k.shape[-1])
-    if mask is True:
-        assert q.shape[1] == v.shape[1], (q.shape[1], v.shape[1])
-        mask = torch.ones_like(y).cumsum(-1) <= torch.ones_like(y).cumsum(-2)
-        y = y + torch.log(mask.float())
+    if mask is not None:
+        assert torch.is_tensor(mask)
+        # mask = torch.ones_like(y).cumsum(-1) <= torch.ones_like(y).cumsum(-2)
+        y = y + torch.log((mask > 0).float())
     return torch.softmax(y, dim=-1)@v
 
 
@@ -48,21 +48,18 @@ class MultiHeadAttention(Module):
     >>> attn(q, k, v).shape
     torch.Size([2, 3, 8])
     """
-    def __init__(
-            self, input_size, output_size, num_heads=1, mask=False
-    ):
+    def __init__(self, input_size, output_size, num_heads=1):
         assert output_size % num_heads == 0
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size
         self.num_heads = num_heads
-        self.mask = mask
         self.lin_queue = torch.nn.Linear(input_size, output_size)
         self.lin_key = torch.nn.Linear(input_size, output_size)
         self.lin_value = torch.nn.Linear(input_size, output_size)
         self.out = torch.nn.Linear(output_size, output_size)
 
-    def forward(self, q, k, v):
+    def forward(self, q, k, v, mask=None):
         B, Tq, _ = q.shape
         B, Tk, _ = k.shape
         q = self.lin_queue(q).view(
@@ -74,92 +71,108 @@ class MultiHeadAttention(Module):
         v = self.lin_value(v).view(
             B, Tk, self.num_heads, self.output_size//self.num_heads
         ).transpose(1, 2)
-        x = scaled_dot_product_attention(q, k, v).contiguous().view(
-            B, Tq, self.output_size)
+        if mask is not None:
+            mask = mask[:, None]
+        x = scaled_dot_product_attention(q, k, v, mask=mask)
+        x = x.transpose(1, 2).contiguous().view(B, Tq, self.output_size)
         return self.out(x)
 
 
-class SelfAttention(Module):
+class Norm(Module):
+    # ToDo: replace by general norm module
+    def __init__(self, method, size):
+        super().__init__()
+        self.method = method
+
+        if method is None:
+            self.norm = None
+        elif method == 'batch':
+            self.norm = torch.nn.BatchNorm1d(size)
+        elif method == 'layer':
+            self.norm = torch.nn.LayerNorm(size)
+        else:
+            raise ValueError(f'{method} normalization not known.')
+
+    def forward(self, y):
+        if self.method == 'batch':
+            y = self.norm(y.transpose(1, -1)).transpose(1, -1)
+        elif self.method == 'layer':
+            y = self.norm(y)
+        return y
+
+
+class TransformerBlock(Module):
     """
     https://arxiv.org/abs/1706.03762
     """
     def __init__(
-            self, input_size, hidden_size, num_heads=1, mask=True,
-            activation='leaky_relu', residual=False, norm=None
+            self, input_size, hidden_size, num_heads=1,
+            activation='leaky_relu', residual=False, norm='layer'
     ):
-        assert hidden_size
         super().__init__()
         self.activation = ACTIVATION_FN_MAP[activation]()
         self.residual = residual
         self.multiheadattention = MultiHeadAttention(
-            input_size, hidden_size, num_heads, mask
+            input_size, hidden_size, num_heads
         )
         self.hidden = torch.nn.Linear(hidden_size, hidden_size)
         self.out = torch.nn.Linear(hidden_size, hidden_size)
 
-        if norm is None:
-            self.hidden_norm = None
-            self.out_norm = None
-        elif norm == 'batch':
-            self.hidden_norm = torch.nn.BatchNorm1d(hidden_size)
-            self.out_norm = torch.nn.BatchNorm1d(hidden_size)
-        else:
-            raise ValueError(f'{norm} normalization not known.')
+        self.norm_hidden = Norm(norm, hidden_size)
+        self.norm_output = Norm(norm, hidden_size)
 
-    def forward(self, x):
-        h = self.multiheadattention(x, x, x)
-        if self.residual and h.shape == x.shape:
-            h = h + x
-        if self.hidden_norm is not None:
-            h = self.hidden_norm(h.transpose(1, -1)).transpose(1, -1)
+    def forward(self, q, k, v, mask=None):
+        h = self.multiheadattention(q, k, v, mask=mask)
+        if self.residual and h.shape == q.shape:
+            h = h + q
+        h = self.norm_hidden(h)
         y = self.out(self.activation(self.hidden(h)))
         if self.residual and y.shape == h.shape:
             y = y + h
-        if self.out_norm is not None:
-            y = self.out_norm(y.transpose(1, -1)).transpose(1, -1)
+        y = self.norm_output(y)
         return y
 
 
-def self_attention_stack(
-        input_size: int,
-        hidden_size: int,
-        num_layers: int = 3,
-        num_heads: int = 1,
-        mask: bool = True,
-        activation: str = 'leaky_relu',
-        residual: bool = False,
-        norm: str = None
-):
-    """
-    https://arxiv.org/abs/1706.03762
+class Transformer(Module):
+    def __init__(
+            self, input_size, hidden_size, num_layers, num_heads=1,
+            activation='leaky_relu', residual=False, norm='layer'
+    ):
+        """
+        https://arxiv.org/abs/1706.03762
 
-    Args:
-        input_size:
-        hidden_size:
-        num_layers:
-        num_heads:
-        mask:
-        activation:
-        residual:
-        norm:
+        Args:
+            input_size:
+            hidden_size:
+            num_layers:
+            num_heads:
+            activation:
+            residual:
+            norm:
 
-    Returns:
+        Returns:
 
-    >>> x = torch.zeros((2, 3, 8))
-    >>> attn = self_attention_stack(8, 6, 1)
-    >>> attn(x).shape
-    torch.Size([2, 3, 6])
-    >>> attn = self_attention_stack(8, 6, 2)
-    >>> attn(x).shape
-    torch.Size([2, 3, 6])
-    """
-    layers = []
-    for i in range(num_layers):
-        layers.append(
-            SelfAttention(
-                input_size, hidden_size, num_heads, mask, activation, residual,
-                norm
+        >>> x = torch.zeros((2, 3, 8))
+        >>> attn = Transformer(8, 6, 1, 1)
+        >>> attn(x).shape
+        torch.Size([2, 3, 6])
+        >>> attn = Transformer(8, 6, 1, 2)
+        >>> attn(x).shape
+        torch.Size([2, 3, 6])
+        """
+        super().__init__()
+        stack = list()
+        for _ in range(num_layers):
+            stack.append(
+                TransformerBlock(
+                    input_size, hidden_size, num_heads, activation, residual,
+                    norm
+                )
             )
-        )
-        input_size = hidden_size
-    return torch.nn.Sequential(*layers)
+            input_size = hidden_size
+        self.stack = torch.nn.ModuleList(stack)
+
+    def forward(self, x, mask=None):
+        for layer in self.stack:
+            x = layer(x, x, x, mask=mask)
+        return x
