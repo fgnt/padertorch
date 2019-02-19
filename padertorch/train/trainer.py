@@ -13,7 +13,6 @@ import numpy as np
 import torch
 import tensorboardX
 
-from paderbox.utils.nested import nested_update
 import padertorch as pt
 from padertorch.configurable import Configurable
 from padertorch.train.optimizer import Optimizer, Adam
@@ -315,7 +314,7 @@ class Trainer(Configurable):
 
         with self.timer['time_per_backward']:
             self.backward(review)
-            grad_summary = self.clip_grad()
+            review = self.clip_grad(review)
 
             if isinstance(self.optimizer, dict):
                 for opti in self.optimizer.values():
@@ -323,7 +322,6 @@ class Trainer(Configurable):
             else:
                 self.optimizer.step()
 
-        nested_update(review, grad_summary)
         return model_out, review
 
     def validation_step(self, example):
@@ -433,11 +431,13 @@ class Trainer(Configurable):
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
         return hooks
 
-    def clip_grad(self):
+    def clip_grad(self, summary: dict):
         # TODO: report clipped and unclipped
         # TODO: allow clip=None but still report grad_norm
 
-        summary = dict(scalars=dict(), histograms=dict())
+        summary.setdefault('scalars', {})
+        summary.setdefault('histograms', {})
+
         if isinstance(self.optimizer, dict):
             for key, opti in self.optimizer.items():
                 grad_norm = opti.clip_grad()
