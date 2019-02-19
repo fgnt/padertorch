@@ -28,13 +28,12 @@ class PermutationInvariantTrainingModel(pt.Model):
     def __init__(
             self,
             F=257,
-            recurrent_layers=2,
+            recurrent_layers=3,
             units=600,
             K=2,
             dropout_input=0.,
             dropout_hidden=0.,
             dropout_linear=0.,
-            output_activation='identity'
     ):
         """
 
@@ -69,7 +68,7 @@ class PermutationInvariantTrainingModel(pt.Model):
         assert dropout_linear <= 0.5, dropout_linear
         self.dropout_linear = torch.nn.Dropout(dropout_linear)
 
-        self.linear1 = torch.nn.Linear(2 * units, F * K)
+        self.linear1 = torch.nn.Linear(2 * units, 2 * units)
         self.linear2 = torch.nn.Linear(2 * units, F * K)
 
     def forward(self, batch):
@@ -90,6 +89,7 @@ class PermutationInvariantTrainingModel(pt.Model):
         h_data = self.dropout_input(h.data)
 
         # Why not mu-law?
+        h_data = pt.ops.sequence.log1p(h_data)
         h = PackedSequence(h_data, h.batch_sizes)
 
         # Returns tensor with shape (t, b, num_directions * hidden_size)
@@ -97,12 +97,15 @@ class PermutationInvariantTrainingModel(pt.Model):
 
         h_data = self.dropout_linear(h.data)
         h_data = self.linear1(h_data)
-        h_data = pt.relu(h_data)
+        h_data = pt.clamp(h_data, min=0)
         h_data = self.linear2(h_data)
+        h_data = pt.clamp(h_data, min=0)
         h = PackedSequence(h_data, h.batch_sizes)
-        h_data = self.output_activation(h.data)
-        h_data = einops.rearrange(h_data, 'tb (k f) -> tb k f', k=self.K)
-        mask = PackedSequence(h_data, h.batch_sizes,)
+
+        mask = PackedSequence(
+            einops.rearrange(h.data, 'tb (k f) -> tb k f', k=self.K),
+            h.batch_sizes,
+        )
         return pt.ops.unpack_sequence(mask)
 
     def review(self, batch, model_out):
