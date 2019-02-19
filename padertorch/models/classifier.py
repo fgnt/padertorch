@@ -19,6 +19,7 @@ class Classifier(Model):
     torch.Size([8, 10])
     >>> review = classifier.review(inputs, outputs)
     """
+
     def __init__(self, net, class_axis=-1, feature_key=0, target_key=1):
         super().__init__()
         self.net = net
@@ -27,10 +28,10 @@ class Classifier(Model):
         self.target_key = target_key
 
     @classmethod
-    def get_signature(cls):
-        signature = super().get_signature()
-        signature['net'] = {'cls': modules.fully_connected_stack}
-        return signature
+    def finalize_dogmatic_config(cls, config):
+        config['net'] = {
+            'factory': modules.fully_connected_stack
+        }
 
     def forward(self, inputs):
         return self.net(inputs[self.feature_key])
