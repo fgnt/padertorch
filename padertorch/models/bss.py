@@ -68,9 +68,9 @@ class PermutationInvariantTrainingModel(pt.Model):
 
         assert dropout_linear <= 0.5, dropout_linear
         self.dropout_linear = torch.nn.Dropout(dropout_linear)
-        self.linear = torch.nn.Linear(2 * units, F * K)
-        self.output_activation \
-            = pt.mappings.ACTIVATION_FN_MAP[output_activation]()
+
+        self.linear1 = torch.nn.Linear(2 * units, F * K)
+        self.linear2 = torch.nn.Linear(2 * units, F * K)
 
     def forward(self, batch):
         """
@@ -96,8 +96,9 @@ class PermutationInvariantTrainingModel(pt.Model):
         h, _ = self.blstm(h)
 
         h_data = self.dropout_linear(h.data)
-        h_data = self.linear(h_data)
-        h_data = pt.sigmoid(h_data)
+        h_data = self.linear1(h_data)
+        h_data = pt.relu(h_data)
+        h_data = self.linear2(h_data)
         h = PackedSequence(h_data, h.batch_sizes)
         h_data = self.output_activation(h.data)
         h_data = einops.rearrange(h_data, 'tb (k f) -> tb k f', k=self.K)
