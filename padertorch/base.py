@@ -4,6 +4,7 @@ This module defines abstract base classes which allow subclassed modules
 to be used in models and subclassed models to be configurable and trainable
 by instances of pytorch.train.Trainer.
 """
+import io
 import abc
 from pathlib import Path
 import json
@@ -33,10 +34,29 @@ class Module(nn.Module, Configurable, abc.ABC):
             cls,
             config_path: Path,
             checkpoint_path: Path,
-            in_config_path: str = 'trainer.kwargs.model',
+            in_config_path: str = 'trainer.model',
             in_checkpoint_path: str = 'model',
+
+            map_location='cpu',
+            consider_mpi=False
     ) -> 'Module':
-        """Instantiate the module from given config and checkpoint."""
+        """Instantiate the module from given config and checkpoint.
+
+        Args:
+            config_path: 
+            checkpoint_path: 
+            in_config_path: 
+            in_checkpoint_path: 
+            map_location: 
+            consider_mpi:
+                If True and mpi is used, only read config_path and
+                checkpoint_path once and broadcast the content with mpi.
+                Reduces the io load.
+
+        Returns:
+        
+        
+        """
         config_path = Path(config_path).expanduser().resolve()
         checkpoint_path = Path(checkpoint_path).expanduser().resolve()
 
@@ -45,22 +65,45 @@ class Module(nn.Module, Configurable, abc.ABC):
 
         # Load config
         assert config_path.is_file(), f'Expected {config_path} is file.'
-        if config_path.suffix == '.json':
-            with config_path.open() as fp:
-                configurable_config = json.load(fp)
-        elif config_path.suffix == '.yaml':
-            import yaml
-            with config_path.open() as fp:
-                configurable_config = yaml.safe_load(fp)
+
+        def load_config(config_path):
+            if config_path.suffix == '.json':
+                with config_path.open() as fp:
+                    configurable_config = json.load(fp)
+            elif config_path.suffix == '.yaml':
+                import yaml
+                with config_path.open() as fp:
+                    configurable_config = yaml.safe_load(fp)
+            else:
+                raise ValueError(config_path)
+            return configurable_config
+
+        if consider_mpi:
+            from paderbox.utils import mpi
+            configurable_config = mpi.call_on_master_and_broadcast(
+                load_config,
+                config_path=config_path,
+            )
         else:
-            raise ValueError(config_path)
+            configurable_config = load_config(config_path=config_path)
 
         for part in in_config_path.split('.'):
             configurable_config = configurable_config[part]
         module = cls.from_config(configurable_config)
 
         # Load weights
-        checkpoint = torch.load(checkpoint_path)
+        if consider_mpi:
+            from paderbox.utils import mpi
+            checkpoint_path_content = mpi.call_on_master_and_broadcast(
+                Path(checkpoint_path).read_bytes,
+            )
+            checkpoint = torch.load(
+                io.BytesIO(checkpoint_path_content),
+                map_location=map_location,
+            )
+        else:
+            checkpoint = torch.load(checkpoint_path, map_location=map_location)
+
         for part in in_checkpoint_path.split('.'):
             try:
                 checkpoint = checkpoint[part]
