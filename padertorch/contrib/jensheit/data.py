@@ -6,8 +6,6 @@ from dataclasses import dataclass, asdict
 from dataclasses import field
 from scipy import signal
 
-from paderbox.utils.nested import nested_op
-from paderbox.database.chime import Chime3
 from paderbox.database.iterator import AudioReader
 from paderbox.database.keys import *
 from paderbox.speech_enhancement.mask_module import biased_binary_mask
@@ -15,7 +13,6 @@ from paderbox.transform import stft, istft
 from paderbox.utils.mapping import Dispatcher
 from padertorch.contrib.jensheit import Parameterized, dict_func
 from padertorch.data.fragmenter import Fragmenter
-from padertorch.data.transforms import Compose
 from padertorch.data.utils import Padder
 from padertorch.modules.mask_estimator import MaskKeys as M_K
 from functools import partial
