@@ -248,19 +248,20 @@ def test_single_model():
                     'training/grad_norm': 3,
                     'training/grad_norm_': 3,
                     'training/loss': 3,
-                    'training/time_per_step': 3,
-                    'training/time_rel_data_loading': 3,
-                    'training/time_rel_train_step': 3,
+                    'training_timings/time_per_step': 3,
+                    'training_timings/time_rel_backward': 3,
+                    'training_timings/time_rel_data_loading': 3,
+                    'training_timings/time_rel_train_step': 3,
                     'validation/loss': 3,
                     # non validation time can only be measured between
                     # validations:
                     #  => # of non_val_time - 1 == # of val_time
-                    'validation/non_validation_time': 2,
-                    'validation/validation_time': 3,
+                    'validation_timings/non_validation_time': 2,
+                    'validation_timings/validation_time': 3,
                 }
                 pprint(c)
                 assert c == expect, c
-                assert len(events) == 27, (len(events), events)
+                assert len(events) == 30, (len(events), events)
 
                 np.testing.assert_allclose(
                     np.add(time_rel_data_loading, time_rel_train_step),
@@ -380,20 +381,21 @@ def test_single_model():
                         tags.append(value['tag'])
 
                 c = dict(collections.Counter(tags))
-                assert len(events) == 18, (len(events), events)
+                assert len(events) == 20, (len(events), events)
                 expect = {
                     'training/grad_norm': 2,
                     'training/grad_norm_': 2,
                     'training/loss': 2,
-                    'training/time_per_step': 2,
-                    'training/time_rel_data_loading': 2,
-                    'training/time_rel_train_step': 2,
+                    'training_timings/time_per_step': 2,
+                    'training_timings/time_rel_backward': 2,
+                    'training_timings/time_rel_data_loading': 2,
+                    'training_timings/time_rel_train_step': 2,
                     'validation/loss': 2,
                     # non validation time can only be measured between
                     # validations:
                     #  => # of non_val_time - 1 == # of val_time
-                    'validation/non_validation_time': 1,
-                    'validation/validation_time': 2,
+                    'validation_timings/non_validation_time': 1,
+                    'validation_timings/validation_time': 2,
                 }
                 assert c == expect, c
             elif file.name == 'checkpoints':
