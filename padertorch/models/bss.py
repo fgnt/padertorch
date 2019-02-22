@@ -4,6 +4,7 @@ import torch
 from torch.nn.utils.rnn import PackedSequence
 from pth_bss import data
 
+
 class PermutationInvariantTrainingModel(pt.Model):
     """
     Implements a variant of Permutation Invariant Training [1].
@@ -69,7 +70,7 @@ class PermutationInvariantTrainingModel(pt.Model):
         self.linear1 = torch.nn.Linear(2 * units, 2 * units)
         self.linear2 = torch.nn.Linear(2 * units, F * K)
 
-    def pre_batch_transform(self,inputs, return_keys=None):
+    def pre_batch_transform(self, inputs, return_keys=None):
         return data.pre_batch_transform(inputs, return_keys)
 
     def post_batch_transform(self, batch):
@@ -101,9 +102,9 @@ class PermutationInvariantTrainingModel(pt.Model):
 
         h_data = self.dropout_linear(h.data)
         h_data = self.linear1(h_data)
-        h_data = pt.relu(h_data)
+        h_data = torch.nn.ReLU()(h_data)
         h_data = self.linear2(h_data)
-        h_data = pt.relu(h_data)
+        h_data = torch.nn.ReLU()(h_data)
         h = PackedSequence(h_data, h.batch_sizes)
 
         mask = PackedSequence(
