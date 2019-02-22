@@ -10,7 +10,7 @@ source toolbox/jenkins_common.bash
 # Cuda
 source toolbox/bash/cuda.bash
 
-pip install --user -e --no-deps .
+pip install --user -e .
 
 # Unittets
 # It seems, that jenkins currentliy does not work with matlab: Error: Segmentation violation
