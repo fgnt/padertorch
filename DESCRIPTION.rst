@@ -1,5 +1,18 @@
-Shallow wrapper functions around PyTorch
+PyTorch Framework
 ========================================
+
+When first working with padertorch, have a look at contrib/examples
+
+A simple example on how to use the padertorch Trainer may be found in
+contrib/examples/mask_estimator/simple_train.py
+
+For an examples on how to use the Configurable in combination with the Trainer
+refer to: contrib/examples/pit/train.py
+
+All other examples show different approaches for using padertorch and may be
+interpreted as specific to the use case and the likes of the example owner
+
+# ToDo:
 
 This module contains functions and classes where the vanilla API is messed up.
 
@@ -14,35 +27,14 @@ Examples, why the API is seriously broken:
 - torch.transpose(input, dim0, dim1) although input is already defined
 
 Milestones:
-0. Input pipeline
-   - Needs to support filter
-   - Infinite iterators?
-   - I/O bound tasks
-   - Janek tests own loader using toolbox iterator
-   - Christoph tests ...
-   - Jens tests the PyTorch dataloader and checks, if it supports infinite data
-   - Thomas enforces, that a benchmark is possible
-1. Implement parameterized models (e.g. with nt.options.Options)
-   - Acoustic model (CBJ)
-   - Mask estimator (JHeit)
-   - SequenceVAE (Janek, Thomas)
 2. Make it possible to decode (=predict) both models
    - Does the batch axis stay? Christoph always wants to allow independent axis.
      Christoph investigates if all ops support independent axis.
    - How do I reconstruct the trained model?
-3. Implement how to combine both models
-   - Warm-start (use case for Thomas)
-   - Fine-tune a combination
-   - Does the source code need to support API compatibility?
-   - How to remap parts of the model? Important for warm-start.
-4. Merry christmas.
-5. Can we use `torch.stft` in BeamNet?
-50. Shall all wrappers support `PackedSequence`?
+
 51. Sequence normalization and batch norm with tracking from batch to batch
   - Sequence norm
   - Batch norm
-99. Trainer/ framework
-100. Resume training
 
 
 Structures:
