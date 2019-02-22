@@ -295,7 +295,6 @@ class ValidationHook(SummaryHook):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
             assert all([len(value) == 0 for value in self.summary.values()])
             assert len(trainer.timer.timings) == 0, trainer.timer
-            print('Starting Validation')
             at_least_one_value = False
             for model_out, review in trainer.validate(self.iterator):
                 at_least_one_value = True
@@ -306,7 +305,6 @@ class ValidationHook(SummaryHook):
                 )
             self.dump_summary(trainer)
             assert len(trainer.timer.timings) == 0, trainer.timer
-            print('Finished Validation')
 
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
         pass
@@ -456,7 +454,7 @@ class CheckpointedValidationHook(ValidationHook):
 
         assert isinstance(metrics, dict) and metrics,  \
             'The metrics dict must not be empty!'
-        self._checkpoint_dir = Path(checkpoint_dir)
+        self._checkpoint_dir = Path(checkpoint_dir).expanduser().resolve()
         self.metrics = self._convert_metrics_to_internal_layout(metrics)
         self._keep_all = keep_all
         if init_from_json:
@@ -552,7 +550,8 @@ class CheckpointedValidationHook(ValidationHook):
 
         trainer.save_checkpoint(checkpoint_path)
         self.latest_checkpoint = checkpoint_path
-        # create relative symlink to latest checkpoint
+
+        # Create relative symlink to latest checkpoint
         if self.latest_symlink_path.is_symlink():
             self.latest_symlink_path.unlink()
         self.latest_symlink_path.symlink_to(checkpoint_path.name)
@@ -577,10 +576,14 @@ class CheckpointedValidationHook(ValidationHook):
         """
         if self._keep_all:
             return
-        used_checkpoints = self.best_checkpoints | {self.latest_checkpoint}
+
+        used_checkpoints \
+            = set(self.best_checkpoints).union({self.latest_checkpoint})
+
         stored_checkpoints = [
             path for path in self._checkpoint_dir.glob(f'ckpt_*.{CKPT_EXT}')
             if path.is_file() and not path.is_symlink()]
+
         for checkpoint in stored_checkpoints:
             if checkpoint not in used_checkpoints:
                 checkpoint.unlink()

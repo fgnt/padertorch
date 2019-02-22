@@ -59,7 +59,9 @@ def test_run(
     """
     print('Start test run')
     with contextlib.ExitStack() as exit_stack:
-        storage_dir = Path(exit_stack.enter_context(tempfile.TemporaryDirectory()))
+        storage_dir = Path(
+            exit_stack.enter_context(tempfile.TemporaryDirectory())
+        ).expanduser().resolve()
 
         exit_stack.enter_context(mock.patch.object(
             trainer,
@@ -245,7 +247,9 @@ def test_run(
                     'ckpt_2.pth',
                     'ckpt_4.pth',
                 }
-                assert checkpoint_names == expect, (checkpoint_names, expect)
+                if checkpoint_names != expect:
+                    os.system(f'ls -lha {file}')
+                    raise AssertionError((checkpoint_names, expect))
 
                 ckpt_best = (file / 'ckpt_best_loss.pth').resolve().name
                 ckpt_last = (file / 'ckpt_latest.pth').resolve().name

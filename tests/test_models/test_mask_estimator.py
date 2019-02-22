@@ -85,11 +85,11 @@ class TestMaskEstimatorModel(unittest.TestCase):
             })
         )
 
-        pt.train.run_time_tests.test_run_from_config(
+        pt.train.runtime_tests.test_run_from_config(
             config, it_tr, it_dt,
             test_with_known_iterator_length=False,
         )
-        pt.train.run_time_tests.test_run_from_config(
+        pt.train.runtime_tests.test_run_from_config(
             config, it_tr, it_dt,
             test_with_known_iterator_length=True,
         )
