@@ -3,8 +3,8 @@ Example call:
 
 export STORAGE=<your desired storage root>
 mkdir -p $STORAGE/pth_models/pit
-python -m padertorch.contrib.ldrude.train_pit print_config
-python -m padertorch.contrib.ldrude.train_pit
+python -m padertorch.contrib.examples.pit.train print_config
+python -m padertorch.contrib.examples.pit.train
 
 TODO: Enable shuffle
 TODO: Change to sacred IDs again, otherwise I can not apply `unique` to `_id`.
@@ -42,17 +42,20 @@ def config():
     # Start with an empty dict to allow tracking by Sacred
     trainer = {
         "model": {
-            "factory": pt.models.bss.PermutationInvariantTrainingModel
+            "factory": pt.models.bss.PermutationInvariantTrainingModel,
+            "dropout_input": 0.,
+            "dropout_hidden": 0.,
+            "dropout_linear": 0
         },
         "storage_dir": None,
         "optimizer": {
             "factory": pt.optimizer.Adam
         },
         "summary_trigger": (1000, "iteration"),
-        "max_trigger": (500_000, "iteration"),
+        "max_trigger": (350_000, "iteration"),
         "loss_weights": {
-            "pit_ips_loss": 0.0,
-            "pit_mse_loss": 1.0,
+            "pit_ips_loss": 1.0,
+            "pit_mse_loss": 0.0,
         }
     }
     pt.Trainer.get_config(trainer)
