@@ -1,6 +1,8 @@
 """
 Example calls:
-mpiexec -np 8 python -m padertorch.contrib.ldrude.evaluate_pit with model_path=/net/vol/ldrude/projects/2017/project_dc_storage/pth_models/pit/93
+
+python -m padertorch.contrib.examples.pit.evaluate with model_path=<model path>
+mpiexec -np 8 python -m padertorch.contrib.examples.pit.evaluate with model_path=<model path>
 
 TODO: Add input mir_sdr result to be able to calculate gains.
 TODO: Add pesq, stoi, invasive_sxr.
@@ -39,7 +41,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 
 
 mpl.use("Agg")
-nickname = Path(__file__).stem
+nickname = "pit"
 ex = Experiment(nickname)
 path_template = Path(os.environ["STORAGE"]) / "pth_evaluate" / nickname
 
@@ -69,7 +71,10 @@ def basedir(_config):
 @ex.capture
 def get_model(_run, model_path, checkpoint_name):
     model_path = Path(model_path)
-    model = pt.Module.from_storage_dir(model_path, checkpoint_name)
+    model = pt.Module.from_storage_dir(
+        model_path,
+        checkpoint_name=checkpoint_name
+    )
 
     # TODO: Can this run info be stored more elegantly?
     checkpoint_path = model_path / 'checkpoints' / checkpoint_name
@@ -83,6 +88,7 @@ def main(_run, batch_size, datasets, debug, experiment_dir):
     if IS_MASTER:
         sacred.commands.print_config(_run)
 
+    # TODO: Substantially faster to load the model once and distribute via MPI
     model = get_model()
     db = MerlMixtures()
 
@@ -124,8 +130,6 @@ def main(_run, batch_size, datasets, debug, experiment_dir):
         for partial_summary in summary_list:
             for dataset, values in partial_summary.items():
                 summary[dataset].update(values)
-
-        # summary = dict(itertools.chain(*summary_list))
 
         for dataset, values in summary.items():
             print(f'{dataset}: {len(values)}')
