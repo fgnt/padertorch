@@ -95,10 +95,11 @@ class MaskEstimatorModel(pt.Model):
     def add_audios(self, batch, output):
         audio_dict = dict()
         if K.OBSERVATION in batch:
-            audio_dict.update({K.OBSERVATION: batch[K.OBSERVATION][0][0]})
+            audio_dict.update({K.OBSERVATION: maybe_remove_channel(
+                batch[K.OBSERVATION][0])})
         if K.SPEECH_IMAGE in batch:
             audio_dict.update({
-            K.SPEECH_IMAGE: batch[K.SPEECH_IMAGE][0][0]
+            K.SPEECH_IMAGE: maybe_remove_channel(batch[K.SPEECH_IMAGE][0])
             })
         return audio_dict
 
@@ -189,3 +190,12 @@ class MaskEstimatorModel(pt.Model):
                 losses[MaskLossKeys.WEIGHTED_MASK] = weighted_loss
             losses[MaskLossKeys.MASK] = loss
         return losses
+
+def maybe_remove_channel(signal, exp_dim=1, ref_channel=0):
+    if signal.dim() == exp_dim + 1:
+        return signal[ref_channel]
+    elif signal.dim() == exp_dim:
+        return signal
+    else:
+        raise ValueError(f'Either the signal has ndim {exp_dim} or'
+                         f' {exp_dim +1}', signal.shape)
