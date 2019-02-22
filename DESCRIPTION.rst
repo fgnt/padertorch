@@ -1,15 +1,15 @@
 PyTorch Framework
-========================================
+=================
 
-When first working with padertorch, have a look at contrib/examples
+When first working with padertorch, have a look at `padertorch/contrib/examples`
 
-A simple example on how to use the padertorch Trainer may be found in
-contrib/examples/mask_estimator/simple_train.py
+A simple example on how to use the `padertorch.Trainer` may be found in
+`padertorch/contrib/examples/mask_estimator/simple_train.py`
 
-For an examples on how to use the Configurable in combination with the Trainer
-refer to: contrib/examples/pit/train.py
+For an examples on how to use the `Configurable` in combination with the `Trainer`
+refer to: `padertorch/contrib/examples/pit/train.py`
 
-All other examples show different approaches for using padertorch and may be
+All other examples show different approaches for using `padertorch` and may be
 interpreted as specific to the use case and the likes of the example owner
 
 # ToDo:
