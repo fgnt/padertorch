@@ -192,6 +192,8 @@ class MaskEstimatorModel(pt.Model):
         return losses
 
 def maybe_remove_channel(signal, exp_dim=1, ref_channel=0):
+    assert signal.shape[0] < 20, f'The first dim is supposed to be the ' \
+        f'channel dimension, however the shape is {signal.shape}'
     if signal.dim() == exp_dim + 1:
         return signal[ref_channel]
     elif signal.dim() == exp_dim:
