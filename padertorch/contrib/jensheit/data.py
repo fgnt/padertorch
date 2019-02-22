@@ -97,7 +97,6 @@ class SequenceProvider(Parameterized):
             padding=False,
             padding_keys=None
         ))
-        database: Dict = dict_func({})
         audio_keys: List = field(default_factory=lambda: [OBSERVATION])
         shuffle: bool = True
         batch_size: int = 1
