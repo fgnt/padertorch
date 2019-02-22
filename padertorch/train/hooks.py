@@ -603,7 +603,6 @@ class ProgressBarHook(TriggeredHook):
         :param disable: bool use to disable the entire progressbar wrapper
         """
         super().__init__((update_interval, 'iteration'))
-        self.update_intervall = update_interval
         if isinstance(max_trigger, EndTrigger):
             length, unit = max_trigger.period, max_trigger.unit
         elif isinstance(max_trigger, (tuple, list)):
