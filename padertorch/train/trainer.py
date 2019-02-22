@@ -16,7 +16,7 @@ import tensorboardX
 import padertorch as pt
 from padertorch.configurable import Configurable
 from padertorch.train.optimizer import Optimizer, Adam
-from padertorch.train.run_time_tests import test_run
+from padertorch.train.runtime_tests import test_run
 from padertorch.train.hooks import *
 from padertorch.train.trigger import AnyTrigger
 
