@@ -295,6 +295,7 @@ class ValidationHook(SummaryHook):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
             assert all([len(value) == 0 for value in self.summary.values()])
             assert len(trainer.timer.timings) == 0, trainer.timer
+            print('Starting Validation')
             at_least_one_value = False
             for model_out, review in trainer.validate(self.iterator):
                 at_least_one_value = True
@@ -305,6 +306,7 @@ class ValidationHook(SummaryHook):
                 )
             self.dump_summary(trainer)
             assert len(trainer.timer.timings) == 0, trainer.timer
+            print('Finished Validation')
 
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
         pass
