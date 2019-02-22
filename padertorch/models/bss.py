@@ -1,8 +1,9 @@
 import einops
-import padertorch as pt
 import torch
 from torch.nn.utils.rnn import PackedSequence
-from pth_bss import data
+
+import padertorch as pt
+from padertorch.ops.mappings import ACTIVATION_FN_MAP
 
 
 class PermutationInvariantTrainingModel(pt.Model):
@@ -18,12 +19,7 @@ class PermutationInvariantTrainingModel(pt.Model):
     [1] Kolbaek 2017, https://arxiv.org/pdf/1703.06284.pdf
 
     TODO: Input normalization
-    TODO: Mu-Law as input transform/ at least a logarithm
-    TODO: Dropout
-    TODO: Mask sensitive loss. See paderflow for more ideas
-    TODO: Sigmoid output
     TODO: Batch normalization
-    TODO: Phase discounted MSE loss
 
     """
     def __init__(
@@ -35,6 +31,7 @@ class PermutationInvariantTrainingModel(pt.Model):
             dropout_input=0.,
             dropout_hidden=0.,
             dropout_linear=0.,
+            output_activation='relu'
     ):
         """
 
@@ -47,6 +44,7 @@ class PermutationInvariantTrainingModel(pt.Model):
             dropout_hidden: Vertical forget ratio dropout between each
                 recurrent layer
             dropout_linear: Dropout forget ratio before first linear layer
+            output_activation: Different activations. Default is 'ReLU'.
         """
         super().__init__()
 
@@ -69,12 +67,7 @@ class PermutationInvariantTrainingModel(pt.Model):
         self.dropout_linear = torch.nn.Dropout(dropout_linear)
         self.linear1 = torch.nn.Linear(2 * units, 2 * units)
         self.linear2 = torch.nn.Linear(2 * units, F * K)
-
-    def pre_batch_transform(self, inputs, return_keys=None):
-        return data.pre_batch_transform(inputs, return_keys)
-
-    def post_batch_transform(self, batch):
-        return data.post_batch_transform(batch)
+        self.output_activation = ACTIVATION_FN_MAP[output_activation]()
 
     def forward(self, batch):
         """
@@ -93,7 +86,6 @@ class PermutationInvariantTrainingModel(pt.Model):
 
         h_data = self.dropout_input(h.data)
 
-        # Why not mu-law?
         h_data = pt.ops.sequence.log1p(h_data)
         h = PackedSequence(h_data, h.batch_sizes)
 
@@ -104,7 +96,7 @@ class PermutationInvariantTrainingModel(pt.Model):
         h_data = self.linear1(h_data)
         h_data = torch.nn.ReLU()(h_data)
         h_data = self.linear2(h_data)
-        h_data = torch.nn.ReLU()(h_data)
+        h_data = self.output_activation(h_data)
         h = PackedSequence(h_data, h.batch_sizes)
 
         mask = PackedSequence(
@@ -114,6 +106,8 @@ class PermutationInvariantTrainingModel(pt.Model):
         return pt.ops.unpack_sequence(mask)
 
     def review(self, batch, model_out):
+        # TODO: Maybe calculate only one loss? May be much faster.
+
         pit_mse_loss = list()
         for mask, observation, target in zip(
                 model_out,
