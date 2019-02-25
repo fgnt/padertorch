@@ -179,7 +179,7 @@ class Spectrogram(Transform):
         return np.linalg.pinv(self.fbanks)
 
     def stft(self, x):
-        # ToDo: switch to toolbox stft?
+        # ToDo: switch to paderbox stft?
         noverlap = self.frame_length - self.frame_step
         if self.padded:
             pad_width = x.ndim * [(0, 0)]
