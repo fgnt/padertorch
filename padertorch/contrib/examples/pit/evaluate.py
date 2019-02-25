@@ -1,6 +1,16 @@
 """
-Example calls:
-mpiexec -np 8 python -m padertorch.contrib.ldrude.evaluate_pit with model_path=/net/vol/ldrude/projects/2017/project_dc_storage/pth_models/pit/93
+Example call on NT infrastructure:
+
+export STORAGE=<your desired storage root>
+mkdir -p $STORAGE/pth_evaluate/evaluate
+mpiexec -np 8 python -m padertorch.contrib.examples.pit.evaluate with model_path=<model_path>
+
+
+Example call on PC2 infrastructure:
+
+export STORAGE=<your desired storage root>
+mkdir -p $STORAGE/pth_evaluate/evaluate
+python -m padertorch.contrib.examples.pit.evaluate init with model_path=<model_path>
 
 TODO: Add input mir_sdr result to be able to calculate gains.
 TODO: Add pesq, stoi, invasive_sxr.
@@ -69,7 +79,10 @@ def basedir(_config):
 @ex.capture
 def get_model(_run, model_path, checkpoint_name):
     model_path = Path(model_path)
-    model = pt.Module.from_storage_dir(model_path, checkpoint_name)
+    model = pt.Module.from_storage_dir(
+        model_path,
+        checkpoint_name=checkpoint_name
+    )
 
     # TODO: Can this run info be stored more elegantly?
     checkpoint_path = model_path / 'checkpoints' / checkpoint_name
@@ -78,8 +91,58 @@ def get_model(_run, model_path, checkpoint_name):
     return model
 
 
-@ex.automain
+@ex.command
+def init(_config, _run):
+    """Create a storage dir, write Makefile. Do not start any evaluation."""
+    experiment_dir = Path(_config['experiment_dir'])
+
+    config_path = Path(experiment_dir) / "config.json"
+    pb.io.dump_json(_config, config_path)
+
+    makefile_path = Path(experiment_dir) / "Makefile"
+    makefile_path.write_text(
+        "SHELL := /bin/bash\n"
+        "\n"
+        "evaluate:\n"
+        f"\tpython -m {pt.configurable.resolve_main_python_path()} "
+        "with config.json\n"
+        "\n"
+        "ccsalloc:\n"
+        "\tccsalloc "
+        "--notifyuser=awe "
+        "--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g "
+        "--time=1h "
+        "--join "
+        f"--stdout={experiment_dir / 'stdout'} "
+        f"--tracefile={experiment_dir / 'trace_%reqid.trace'} "
+        "-N evaluate_pit "
+        "ompi "
+        "-- "
+        "make evaluate_with_virtualenv\n"
+        "\n"
+        'evaluate_with_virtualenv:\n'
+        '\t'
+        'cd /scratch/hpc-prf-nt2/ldrude/python/project_dc && '
+        'source .env && '
+        'cd - && '
+        'make evaluate\n'
+    )
+
+    sacred.commands.print_config(_run)
+    print()
+    print('Initialized storage dir. Now run these commands:')
+    print(f"cd {experiment_dir}")
+    print(f"make evaluate")
+    print()
+    print('or')
+    print()
+    print('make ccsalloc')
+
+
+@ex.main
 def main(_run, batch_size, datasets, debug, experiment_dir):
+    experiment_dir = Path(experiment_dir)
+
     if IS_MASTER:
         sacred.commands.print_config(_run)
 
@@ -133,3 +196,8 @@ def main(_run, batch_size, datasets, debug, experiment_dir):
         result_json_path = experiment_dir / 'result.json'
         print(f"Exporting result: {result_json_path}")
         pb.io.dump_json(summary, result_json_path)
+
+
+if __name__ == '__main__':
+    with pb.utils.debug_utils.debug_on(Exception):
+        ex.run_commandline()

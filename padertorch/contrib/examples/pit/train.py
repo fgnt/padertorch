@@ -1,10 +1,19 @@
 """
-Example call:
+Example call on NT infrastructure:
 
 export STORAGE=<your desired storage root>
 mkdir -p $STORAGE/pth_models/pit
 python -m padertorch.contrib.examples.pit.train print_config
 python -m padertorch.contrib.examples.pit.train
+
+
+Example call on PC2 infrastructure:
+
+export STORAGE=<your desired storage root>
+mkdir -p $STORAGE/pth_models/pit
+python -m padertorch.contrib.examples.pit.train init
+make ccsalloc
+
 
 TODO: Enable shuffle
 TODO: Change to sacred IDs again, otherwise I can not apply `unique` to `_id`.
@@ -80,12 +89,51 @@ def prepare_iterable_captured(
     )
 
 
+@ex.command
+def init(_config, _run):
+    """Create a storage dir, write Makefile. Do not start any training."""
+    storage_dir = Path(_config['trainer']['storage_dir'])
+    write_makefile_and_config_json(storage_dir, _config, _run)
+
+    makefile_path = Path(storage_dir) / "Makefile"
+    with makefile_path.open("a") as f:
+        f.write('\n')
+        f.write('ccsalloc:\n')
+        f.write(
+            '\tccsalloc -N pit '
+            '--res=rset=1:ncpus=4:gtx1080=1:vmem=50g '
+            '--join '
+            f'-o {storage_dir / "train.%reqid.out"} '
+            '-t 100h '
+            '-m ae '
+            'make train_with_virtualenv\n'
+        )
+        f.write('\n')
+        f.write('train_with_virtualenv:\n')
+        f.write(
+            '\t'
+            'cd /scratch/hpc-prf-nt2/ldrude/python/project_dc && '
+            'source .env && '
+            'cd - '
+            'make train\n'
+        )
+
+    sacred.commands.print_config(_run)
+    print()
+    print('Initialized storage dir. Now run these commands:')
+    print(f"cd {_config['trainer']['storage_dir']}")
+    print(f"make train")
+    print()
+    print('or')
+    print()
+    print('make ccsalloc')
+
+
 @ex.capture
-def prepare_and_train(
-        _config, _run, train_dataset, validate_dataset, resume=False
-):
+def prepare_and_train(_config, _run, train_dataset, validate_dataset):
     sacred.commands.print_config(_run)
     trainer = pt.Trainer.from_config(_config["trainer"])
+    checkpoint_path = trainer.checkpoint_dir / 'ckpt_latest.pth'
 
     db = MerlMixtures()
     trainer.test_run(
@@ -95,21 +143,45 @@ def prepare_and_train(
     trainer.train(
         prepare_iterable_captured(db, train_dataset),
         prepare_iterable_captured(db, validate_dataset),
-        resume=resume
+        resume=checkpoint_path.is_file()
     )
 
 
 @ex.main
 def main(_config, _run):
-    write_makefile_and_config_json(
-        _config['trainer']['storage_dir'], _config, _run
-    )
+    """Main does resume directly.
+
+    It also writes the `Makefile` and `config.json` again, even when you are
+    resuming from an initialized storage dir. This way, the `config.json` is
+    always up to date. Historic configuration can be found in Sacred's folder.
+    """
+    storage_dir = Path(_config['trainer']['storage_dir'])
+    write_makefile_and_config_json(storage_dir, _config, _run)
+
+    makefile_path = Path(storage_dir) / "Makefile"
+    with makefile_path.open("a") as f:
+        f.write('\n')
+        f.write('ccsalloc:\n')
+        f.write(
+            '\tccsalloc -N pit '
+            '--res=rset=1:ncpus=4:gtx1080=1:vmem=50g '
+            '--join '
+            f'-o {storage_dir / "train.%reqid.out"} '
+            '-t 100h '
+            '-m ae '
+            'make train_with_virtualenv\n'
+        )
+        f.write('\n')
+        f.write('train_with_virtualenv:\n')
+        f.write(
+            '\t'
+            'cd /scratch/hpc-prf-nt2/ldrude/python/project_dc && '
+            'source .env && '
+            'cd - '
+            'make train\n'
+        )
+
     prepare_and_train()
-
-
-@ex.command
-def resume():
-    return prepare_and_train(resume=True)
 
 
 if __name__ == '__main__':

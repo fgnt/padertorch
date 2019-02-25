@@ -135,9 +135,11 @@ def write_makefile_and_config_json(storage_dir, _config, _run):
 
     makefile_path = Path(storage_dir) / "Makefile"
     makefile_path.write_text(
-        "resume:\n"
+        "SHELL := /bin/bash\n"
+        "\n"
+        "train:\n"
         f"\tpython -m {pt.configurable.resolve_main_python_path()} "
-        "resume with config.json\n"
+        "with config.json\n"
     )
 
 
