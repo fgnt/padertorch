@@ -105,7 +105,7 @@ def restart(validation_length):
     )
     trainer.load_checkpoint()
     trainer.test_run(train_iterator, eval_iterator)
-    trainer.train(train_iterator, eval_iterator)
+    trainer.train(train_iterator, eval_iterator, resume=True)
 
 
 @ex.command
