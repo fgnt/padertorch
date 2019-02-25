@@ -6,6 +6,128 @@ import padertorch as pt
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 
 
+class MultiChannelPermutationInvariantTraining(pt.Model):
+    """
+
+    """
+    def __init__(
+            self,
+            F=257,
+            C=6,
+            recurrent_layers=3,
+            units=600,
+            K=2,
+            dropout_input=0.,
+            dropout_hidden=0.,
+            dropout_linear=0.,
+    ):
+        """
+
+        Args:
+            F: Number of frequency bins, fft_size / 2 + 1
+            recurrent_layers:
+            units: results in `units` forward and `units` backward units
+            C: Number of microphone streams
+            K: Number of output streams/ speakers
+            dropout_input: Dropout forget ratio before first recurrent layer
+            dropout_hidden: Vertical forget ratio dropout between each
+                recurrent layer
+            dropout_linear: Dropout forget ratio before first linear layer
+        """
+        super().__init__()
+
+        self.K = K
+        self.F = F*C
+
+        assert dropout_input <= 0.5, dropout_input
+        self.dropout_input = torch.nn.Dropout(dropout_input)
+
+        assert dropout_hidden <= 0.5, dropout_hidden
+        self.blstm = torch.nn.LSTM(
+            F*C,
+            units,
+            recurrent_layers,
+            bidirectional=True,
+            dropout=dropout_hidden,
+        )
+
+        assert dropout_linear <= 0.5, dropout_linear
+        self.dropout_linear = torch.nn.Dropout(dropout_linear)
+        # self.projection_layer = torch.nn.Linear(F * C, F * 4)
+        self.linear1 = torch.nn.Linear(2 * units, 2 * units)
+        self.linear2 = torch.nn.Linear(2 * units, F * K)
+
+    def forward(self, batch):
+        """
+
+        Args:
+            batch: Dictionary with lists of tensors
+
+        Returns: List of mask tensors
+
+        """
+
+        h = pt.ops.pack_sequence(batch['Y_abs_array'])
+        _, F = h.data.size()
+        assert F == self.F, f'self.F = {self.F} != F = {F}'
+
+        h_data = self.dropout_input(h.data)
+
+        # Why not mu-law?
+        h_data = pt.ops.sequence.log1p(h_data)
+        h = PackedSequence(h_data, h.batch_sizes)
+
+        # Returns tensor with shape (t, b, num_directions * hidden_size)
+        h, _ = self.blstm(h)
+
+        h_data = self.dropout_linear(h.data)
+        h_data = self.linear1(h_data)
+        h_data = pt.clamp(h_data, min=0)
+        h_data = self.linear2(h_data)
+        h_data = pt.clamp(h_data, min=0)
+        h = PackedSequence(h_data, h.batch_sizes)
+
+        mask = PackedSequence(
+            einops.rearrange(h.data, 'tb (k f) -> tb k f', k=self.K),
+            h.batch_sizes,
+        )
+        return pt.ops.unpack_sequence(mask)
+
+    def review(self, batch, model_out):
+        # TODO: Maybe calculate only one loss? May be much faster.
+
+        pit_mse_loss = list()
+        for mask, observation, target in zip(
+                model_out,
+                batch['Y_abs'],
+                batch['X_abs']
+        ):
+            pit_mse_loss.append(pt.ops.losses.loss.pit_mse_loss(
+                mask * observation[:, None, :],
+                target
+            ))
+
+        pit_ips_loss = list()
+        for mask, observation, target, cos_phase_diff in zip(
+                model_out,
+                batch['Y_abs'],
+                batch['X_abs'],
+                batch['cos_phase_difference']
+        ):
+            pit_ips_loss.append(pt.ops.losses.loss.pit_mse_loss(
+                mask * observation[:, None, :],
+                target * cos_phase_diff
+            ))
+
+        return {
+            'losses': {
+                'pit_mse_loss': torch.mean(torch.stack(pit_mse_loss)),
+                'pit_ips_loss': torch.mean(torch.stack(pit_ips_loss)),
+
+            }
+        }
+
+
 class PermutationInvariantTrainingModel(pt.Model):
     """
     Implements a variant of Permutation Invariant Training [1].
