@@ -20,6 +20,7 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
             dropout_input=0.,
             dropout_hidden=0.,
             dropout_linear=0.,
+            use_phase_diff=False
     ):
         """
 
@@ -38,13 +39,14 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
 
         self.K = K
         self.F = F*C
-
+        if use_phase_diff:
+            self.F = F*C*2 # Inter Phase differences have same dim as spectrum
         assert dropout_input <= 0.5, dropout_input
         self.dropout_input = torch.nn.Dropout(dropout_input)
 
         assert dropout_hidden <= 0.5, dropout_hidden
         self.blstm = torch.nn.LSTM(
-            F*C,
+            1024,
             units,
             recurrent_layers,
             bidirectional=True,
@@ -53,7 +55,7 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
 
         assert dropout_linear <= 0.5, dropout_linear
         self.dropout_linear = torch.nn.Dropout(dropout_linear)
-        # self.projection_layer = torch.nn.Linear(F * C, F * 4)
+        self.projection_layer = torch.nn.Linear(self.F, 1024)
         self.linear1 = torch.nn.Linear(2 * units, 2 * units)
         self.linear2 = torch.nn.Linear(2 * units, F * K)
 
