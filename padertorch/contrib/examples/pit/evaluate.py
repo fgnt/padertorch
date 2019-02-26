@@ -113,7 +113,8 @@ def get_model(_run, model_path, checkpoint_name):
     model_path = Path(model_path)
     model = pt.Module.from_storage_dir(
         model_path,
-        checkpoint_name=checkpoint_name
+        checkpoint_name=checkpoint_name,
+        consider_mpi=True  # Loads the weights only on master
     )
 
     # TODO: Can this run info be stored more elegantly?
