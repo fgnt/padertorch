@@ -38,7 +38,7 @@ class Module(nn.Module, Configurable, abc.ABC):
             in_checkpoint_path: str = 'model',
 
             map_location='cpu',
-            consider_mpi=False
+            consider_mpi=False,
     ) -> 'Module':
         """Instantiate the module from given config and checkpoint.
 
@@ -121,6 +121,7 @@ class Module(nn.Module, Configurable, abc.ABC):
             checkpoint_name: str = 'ckpt_best_loss.pth',
             in_config_path: str = 'trainer.model',
             in_checkpoint_path: str = 'model',
+            consider_mpi=False,
     ) -> 'Module':
         """Instantiate the module from a given storage directory.
 
@@ -148,7 +149,8 @@ class Module(nn.Module, Configurable, abc.ABC):
             config_path=storage_dir / config_name,
             checkpoint_path=storage_dir / 'checkpoints' / checkpoint_name,
             in_config_path=in_config_path,
-            in_checkpoint_path=in_checkpoint_path
+            in_checkpoint_path=in_checkpoint_path,
+            consider_mpi=consider_mpi,
         )
 
 

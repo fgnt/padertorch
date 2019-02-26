@@ -16,6 +16,7 @@ TODO: Add input mir_sdr result to be able to calculate gains.
 TODO: Add pesq, stoi, invasive_sxr.
 TODO: mpi: For mpi I need to know the experiment dir before.
 TODO: Change to sacred IDs again, otherwise I can not apply `unique` to `_id`.
+TODO: Maybe a shuffle helps here, too, to more evenly distribute work with MPI.
 """
 import os
 import warnings
@@ -44,6 +45,37 @@ from padertorch.contrib.ldrude.utils import (
 )
 
 
+MAKEFILE_TEMPLATE = """
+SHELL := /bin/bash\n
+\n
+evaluate:\n
+\tpython -m {main_python_path}  with config.json\n
+\n
+ccsalloc:\n
+\tccsalloc \\\n
+\t\t--notifyuser=awe \\\n
+\t\t--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\\n
+\t\t--time=1h \\\n
+\t\t--join \\\n
+\t\t--stdout={experiment_dir}/stdout \\\n
+\t\t--tracefile={experiment_dir}/'trace_%reqid.trace' \\\n
+\t\t-N evaluate_pit \\\n
+\t\tompi \\\n
+\t\t-x STORAGE \\\n
+\t\t-x NT_MERL_MIXTURES_DIR \\\n
+\t\t-x NT_DATABASE_JSONS_DIR \\\n
+\t\t-x KALDI_ROOT \\\n
+\t\t-x LD_PRELOAD \\\n
+\t\t-x CONDA_EXE \\\n
+\t\t-x CONDA_PREFIX \\\n
+\t\t-x CONDA_PYTHON_EXE \\\n
+\t\t-x CONDA_DEFAULT_ENV \\\n
+\t\t-x PATH \\\n
+\t\t-- \\\n
+\t\tpython -m {main_python_path} with config.json\n
+"""
+
+
 # Unfortunately need to disable this since conda scipy needs update
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -60,9 +92,9 @@ def config():
     model_path = ''
     assert len(model_path) > 0, 'Set the model path on the command line.'
     checkpoint_name = 'ckpt_best_loss.pth'
-    experiment_dir = get_new_folder(
+    experiment_dir = str(get_new_folder(
         path_template, mkdir=False, consider_mpi=True,
-    )
+    ))
     batch_size = 1
     datasets = ["mix_2_spk_min_cv", "mix_2_spk_min_tt"]
     locals()  # Fix highlighting
@@ -81,7 +113,8 @@ def get_model(_run, model_path, checkpoint_name):
     model_path = Path(model_path)
     model = pt.Module.from_storage_dir(
         model_path,
-        checkpoint_name=checkpoint_name
+        checkpoint_name=checkpoint_name,
+        consider_mpi=True  # Loads the weights only on master
     )
 
     # TODO: Can this run info be stored more elegantly?
@@ -100,33 +133,10 @@ def init(_config, _run):
     pb.io.dump_json(_config, config_path)
 
     makefile_path = Path(experiment_dir) / "Makefile"
-    makefile_path.write_text(
-        "SHELL := /bin/bash\n"
-        "\n"
-        "evaluate:\n"
-        f"\tpython -m {pt.configurable.resolve_main_python_path()} "
-        "with config.json\n"
-        "\n"
-        "ccsalloc:\n"
-        "\tccsalloc "
-        "--notifyuser=awe "
-        "--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g "
-        "--time=1h "
-        "--join "
-        f"--stdout={experiment_dir / 'stdout'} "
-        f"--tracefile={experiment_dir / 'trace_%reqid.trace'} "
-        "-N evaluate_pit "
-        "ompi "
-        "-- "
-        "make evaluate_with_virtualenv\n"
-        "\n"
-        'evaluate_with_virtualenv:\n'
-        '\t'
-        'cd /scratch/hpc-prf-nt2/ldrude/python/project_dc && '
-        'source .env && '
-        'cd - && '
-        'make evaluate\n'
-    )
+    makefile_path.write_text(MAKEFILE_TEMPLATE.format(
+        main_python_path=pt.configurable.resolve_main_python_path(),
+        experiment_dir=experiment_dir
+    ))
 
     sacred.commands.print_config(_run)
     print()

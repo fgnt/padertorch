@@ -129,20 +129,6 @@ def has_checkpoints(model_dir):
     return checkpoint_dir.is_dir() and len(checkpoint_dir.glob('ckpt_*')) > 0
 
 
-def write_makefile_and_config_json(storage_dir, _config, _run):
-    config_path = Path(storage_dir) / "config.json"
-    pb.io.dump_json(_config, config_path)
-
-    makefile_path = Path(storage_dir) / "Makefile"
-    makefile_path.write_text(
-        "SHELL := /bin/bash\n"
-        "\n"
-        "train:\n"
-        f"\tpython -m {pt.configurable.resolve_main_python_path()} "
-        "with config.json\n"
-    )
-
-
 def decorator_append_file_storage_observer_with_lazy_basedir(
         experiment: sacred.Experiment,
 
