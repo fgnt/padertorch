@@ -46,33 +46,33 @@ from padertorch.contrib.ldrude.utils import (
 
 
 MAKEFILE_TEMPLATE = """
-SHELL := /bin/bash\n
-\n
-evaluate:\n
-\tpython -m {main_python_path}  with config.json\n
-\n
-ccsalloc:\n
-\tccsalloc \\\n
-\t\t--notifyuser=awe \\\n
-\t\t--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\\n
-\t\t--time=1h \\\n
-\t\t--join \\\n
-\t\t--stdout={experiment_dir}/stdout \\\n
-\t\t--tracefile={experiment_dir}/'trace_%reqid.trace' \\\n
-\t\t-N evaluate_pit \\\n
-\t\tompi \\\n
-\t\t-x STORAGE \\\n
-\t\t-x NT_MERL_MIXTURES_DIR \\\n
-\t\t-x NT_DATABASE_JSONS_DIR \\\n
-\t\t-x KALDI_ROOT \\\n
-\t\t-x LD_PRELOAD \\\n
-\t\t-x CONDA_EXE \\\n
-\t\t-x CONDA_PREFIX \\\n
-\t\t-x CONDA_PYTHON_EXE \\\n
-\t\t-x CONDA_DEFAULT_ENV \\\n
-\t\t-x PATH \\\n
-\t\t-- \\\n
-\t\tpython -m {main_python_path} with config.json\n
+SHELL := /bin/bash
+
+evaluate:
+\tpython -m {main_python_path}  with config.json
+
+ccsalloc:
+\tccsalloc \\
+\t\t--notifyuser=awe \\
+\t\t--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\
+\t\t--time=1h \\
+\t\t--join \\
+\t\t--stdout={experiment_dir}/stdout \\
+\t\t--tracefile={experiment_dir}/'trace_%reqid.trace' \\
+\t\t-N evaluate_{nickname} \\
+\t\tompi \\
+\t\t-x STORAGE \\
+\t\t-x NT_MERL_MIXTURES_DIR \\
+\t\t-x NT_DATABASE_JSONS_DIR \\
+\t\t-x KALDI_ROOT \\
+\t\t-x LD_PRELOAD \\
+\t\t-x CONDA_EXE \\
+\t\t-x CONDA_PREFIX \\
+\t\t-x CONDA_PYTHON_EXE \\
+\t\t-x CONDA_DEFAULT_ENV \\
+\t\t-x PATH \\
+\t\t-- \\
+\t\tpython -m {main_python_path} with config.json
 """
 
 
@@ -135,7 +135,8 @@ def init(_config, _run):
     makefile_path = Path(experiment_dir) / "Makefile"
     makefile_path.write_text(MAKEFILE_TEMPLATE.format(
         main_python_path=pt.configurable.resolve_main_python_path(),
-        experiment_dir=experiment_dir
+        experiment_dir=experiment_dir,
+        nickname=nickname
     ))
 
     sacred.commands.print_config(_run)

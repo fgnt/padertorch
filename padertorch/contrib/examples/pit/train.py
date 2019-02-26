@@ -34,21 +34,21 @@ from padertorch.contrib.ldrude.utils import (
 
 
 MAKEFILE_TEMPLATE = """
-SHELL := /bin/bash\n
-\n
-train:\n
-\tpython -m {main_python_path} with config.json\n
-\n
-ccsalloc:\n
-\tccsalloc \\\n
-\t\t--notifyuser=awe \\\n
-\t\t--res=rset=1:ncpus=4:gtx1080=1:vmem=50g:ompthreads=1 \\\n
-\t\t--time=100h \\\n
-\t\t--join \\\n
-\t\t--stdout={storage_dir / 'stdout'} \\\n
-\t\t--tracefile={storage_dir / 'trace_%reqid.trace'} \\\n
-\t\t-N train_pit \\\n
-\t\tpython -m {main_python_path} with config.json\n
+SHELL := /bin/bash
+
+train:
+\tpython -m {main_python_path} with config.json
+
+ccsalloc:
+\tccsalloc \\
+\t\t--notifyuser=awe \\
+\t\t--res=rset=1:ncpus=4:gtx1080=1:vmem=50g:ompthreads=1 \\
+\t\t--time=100h \\
+\t\t--join \\
+\t\t--stdout={experiment_dir}/stdout \\
+\t\t--tracefile={experiment_dir}/trace_%reqid.trace \\
+\t\t-N train_{nickname} \\
+\t\tpython -m {main_python_path} with config.json
 """
 
 
@@ -118,7 +118,8 @@ def init(_config, _run):
     makefile_path = Path(experiment_dir) / "Makefile"
     makefile_path.write_text(MAKEFILE_TEMPLATE.format(
         main_python_path=pt.configurable.resolve_main_python_path(),
-        experiment_dir=experiment_dir
+        experiment_dir=experiment_dir,
+        nickname=nickname
     ))
 
     sacred.commands.print_config(_run)
@@ -166,7 +167,8 @@ def main(_config, _run):
     makefile_path = Path(experiment_dir) / "Makefile"
     makefile_path.write_text(MAKEFILE_TEMPLATE.format(
         main_python_path=pt.configurable.resolve_main_python_path(),
-        experiment_dir=experiment_dir
+        experiment_dir=experiment_dir,
+        nickname=nickname
     ))
 
     prepare_and_train()
