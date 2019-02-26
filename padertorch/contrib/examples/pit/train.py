@@ -29,9 +29,27 @@ import paderbox as pb
 from padertorch.contrib.ldrude.data import prepare_iterable
 from padertorch.contrib.ldrude.utils import (
     decorator_append_file_storage_observer_with_lazy_basedir,
-    write_makefile_and_config_json,
     get_new_folder
 )
+
+
+MAKEFILE_TEMPLATE = """
+SHELL := /bin/bash\n
+\n
+train:\n
+\tpython -m {main_python_path} with config.json\n
+\n
+ccsalloc:\n
+\tccsalloc \\\n
+\t\t--notifyuser=awe \\\n
+\t\t--res=rset=1:ncpus=4:gtx1080=1:vmem=50g:ompthreads=1 \\\n
+\t\t--time=100h \\\n
+\t\t--join \\\n
+\t\t--stdout={storage_dir / 'stdout'} \\\n
+\t\t--tracefile={storage_dir / 'trace_%reqid.trace'} \\\n
+\t\t-N train_pit \\\n
+\t\tpython -m {main_python_path} with config.json\n
+"""
 
 
 nickname = "pit"
@@ -93,25 +111,15 @@ def prepare_iterable_captured(
 @ex.command
 def init(_config, _run):
     """Create a storage dir, write Makefile. Do not start any training."""
-    storage_dir = Path(_config['trainer']['storage_dir'])
-    write_makefile_and_config_json(storage_dir, _config, _run)
+    experiment_dir = Path(_config['trainer']['storage_dir'])
+    config_path = experiment_dir / "config.json"
+    pb.io.dump_json(_config, config_path)
 
-    makefile_path = Path(storage_dir) / "Makefile"
-    main_path = pt.configurable.resolve_main_python_path()
-    with makefile_path.open("a") as f:
-        f.write(
-            "\n"
-            "ccsalloc:\n"
-            "\tccsalloc \\\n"
-            "\t\t--notifyuser=awe \\\n"
-            "\t\t--res=rset=1:ncpus=4:gtx1080=1:vmem=50g:ompthreads=1 \\\n"
-            "\t\t--time=100h \\\n"
-            "\t\t--join \\\n"
-            f"\t\t--stdout={storage_dir / 'stdout'} \\\n"
-            f"\t\t--tracefile={storage_dir / 'trace_%reqid.trace'} \\\n"
-            "\t\t-N train_pit \\\n"
-            f"\t\tpython -m {main_path} with config.json\n"
-        )
+    makefile_path = Path(experiment_dir) / "Makefile"
+    makefile_path.write_text(MAKEFILE_TEMPLATE.format(
+        main_python_path=pt.configurable.resolve_main_python_path(),
+        experiment_dir=experiment_dir
+    ))
 
     sacred.commands.print_config(_run)
     print()
@@ -121,6 +129,7 @@ def init(_config, _run):
     print()
     print('or')
     print()
+    print(f"cd {_config['trainer']['storage_dir']}")
     print('make ccsalloc')
 
 
@@ -150,25 +159,15 @@ def main(_config, _run):
     resuming from an initialized storage dir. This way, the `config.json` is
     always up to date. Historic configuration can be found in Sacred's folder.
     """
-    storage_dir = Path(_config['trainer']['storage_dir'])
-    write_makefile_and_config_json(storage_dir, _config, _run)
+    experiment_dir = Path(_config['trainer']['storage_dir'])
+    config_path = experiment_dir / "config.json"
+    pb.io.dump_json(_config, config_path)
 
-    makefile_path = Path(storage_dir) / "Makefile"
-    main_path = pt.configurable.resolve_main_python_path()
-    with makefile_path.open("a") as f:
-        f.write(
-            "\n"
-            "ccsalloc:\n"
-            "\tccsalloc \\\n"
-            "\t\t--notifyuser=awe \\\n"
-            "\t\t--res=rset=1:ncpus=4:gtx1080=1:vmem=50g:ompthreads=1 \\\n"
-            "\t\t--time=100h \\\n"
-            "\t\t--join \\\n"
-            f"\t\t--stdout={storage_dir / 'stdout'} \\\n"
-            f"\t\t--tracefile={storage_dir / 'trace_%reqid.trace'} \\\n"
-            "\t\t-N train_pit \\\n"
-            f"\t\tpython -m {main_path} with config.json\n"
-        )
+    makefile_path = Path(experiment_dir) / "Makefile"
+    makefile_path.write_text(MAKEFILE_TEMPLATE.format(
+        main_python_path=pt.configurable.resolve_main_python_path(),
+        experiment_dir=experiment_dir
+    ))
 
     prepare_and_train()
 

@@ -45,6 +45,37 @@ from padertorch.contrib.ldrude.utils import (
 )
 
 
+MAKEFILE_TEMPLATE = """
+SHELL := /bin/bash\n
+\n
+evaluate:\n
+\tpython -m {main_python_path}  with config.json\n
+\n
+ccsalloc:\n
+\tccsalloc \\\n
+\t\t--notifyuser=awe \\\n
+\t\t--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\\n
+\t\t--time=1h \\\n
+\t\t--join \\\n
+\t\t--stdout={experiment_dir}/stdout \\\n
+\t\t--tracefile={experiment_dir}/'trace_%reqid.trace' \\\n
+\t\t-N evaluate_pit \\\n
+\t\tompi \\\n
+\t\t-x STORAGE \\\n
+\t\t-x NT_MERL_MIXTURES_DIR \\\n
+\t\t-x NT_DATABASE_JSONS_DIR \\\n
+\t\t-x KALDI_ROOT \\\n
+\t\t-x LD_PRELOAD \\\n
+\t\t-x CONDA_EXE \\\n
+\t\t-x CONDA_PREFIX \\\n
+\t\t-x CONDA_PYTHON_EXE \\\n
+\t\t-x CONDA_DEFAULT_ENV \\\n
+\t\t-x PATH \\\n
+\t\t-- \\\n
+\t\tpython -m {main_python_path} with config.json\n
+"""
+
+
 # Unfortunately need to disable this since conda scipy needs update
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -101,37 +132,10 @@ def init(_config, _run):
     pb.io.dump_json(_config, config_path)
 
     makefile_path = Path(experiment_dir) / "Makefile"
-    makefile_path.write_text(
-        "SHELL := /bin/bash\n"
-        "\n"
-        "evaluate:\n"
-        f"\tpython -m {pt.configurable.resolve_main_python_path()} "
-        "with config.json\n"
-        "\n"
-        "ccsalloc:\n"
-        "\tccsalloc \\\n"
-        "\t\t--notifyuser=awe \\\n"
-        "\t\t--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\\n"
-        "\t\t--time=1h \\\n"
-        "\t\t--join \\\n"
-        f"\t\t--stdout={experiment_dir / 'stdout'} \\\n"
-        f"\t\t--tracefile={experiment_dir / 'trace_%reqid.trace'} \\\n"
-        "\t\t-N evaluate_pit \\\n"
-        "\t\tompi \\\n"
-        '\t\t-x STORAGE \\\n'
-        '\t\t-x NT_MERL_MIXTURES_DIR \\\n'
-        '\t\t-x NT_DATABASE_JSONS_DIR \\\n'
-        '\t\t-x KALDI_ROOT \\\n'
-        '\t\t-x LD_PRELOAD \\\n'
-        '\t\t-x CONDA_EXE \\\n'
-        '\t\t-x CONDA_PREFIX \\\n'
-        '\t\t-x CONDA_PYTHON_EXE \\\n'
-        '\t\t-x CONDA_DEFAULT_ENV \\\n'
-        '\t\t-x PATH \\\n'
-        "\t\t-- \\\n"
-        f"\t\tpython -m {pt.configurable.resolve_main_python_path()} "
-        "with config.json\n"
-    )
+    makefile_path.write_text(MAKEFILE_TEMPLATE.format(
+        main_python_path=pt.configurable.resolve_main_python_path(),
+        experiment_dir=experiment_dir
+    ))
 
     sacred.commands.print_config(_run)
     print()
