@@ -43,7 +43,7 @@ path_template = Path(os.environ["STORAGE"]) / "pth_models" / nickname
 @ex.config
 def config():
     debug = False
-    batch_size = 4
+    batch_size = 6
 
     train_dataset = "mix_2_spk_min_tr"
     validate_dataset = "mix_2_spk_min_cv"
@@ -54,11 +54,12 @@ def config():
             "factory": pt.models.bss.PermutationInvariantTrainingModel,
             "dropout_input": 0.,
             "dropout_hidden": 0.,
-            "dropout_linear": 0
+            "dropout_linear": 0.
         },
         "storage_dir": None,
         "optimizer": {
-            "factory": pt.optimizer.Adam
+            "factory": pt.optimizer.Adam,
+            "gradient_clipping": 1
         },
         "summary_trigger": (1000, "iteration"),
         "max_trigger": (350_000, "iteration"),
@@ -96,26 +97,20 @@ def init(_config, _run):
     write_makefile_and_config_json(storage_dir, _config, _run)
 
     makefile_path = Path(storage_dir) / "Makefile"
+    main_path = pt.configurable.resolve_main_python_path()
     with makefile_path.open("a") as f:
-        f.write('\n')
-        f.write('ccsalloc:\n')
         f.write(
-            '\tccsalloc -N pit '
-            '--res=rset=1:ncpus=4:gtx1080=1:vmem=50g '
-            '--join '
-            f'-o {storage_dir / "train.%reqid.out"} '
-            '-t 100h '
-            '-m ae '
-            'make train_with_virtualenv\n'
-        )
-        f.write('\n')
-        f.write('train_with_virtualenv:\n')
-        f.write(
-            '\t'
-            'cd /scratch/hpc-prf-nt2/ldrude/python/project_dc && '
-            'source .env && '
-            'cd - '
-            'make train\n'
+            "\n"
+            "ccsalloc:\n"
+            "\tccsalloc \\\n"
+            "\t\t--notifyuser=awe \\\n"
+            "\t\t--res=rset=1:ncpus=4:gtx1080=1:vmem=50g:ompthreads=1 \\\n"
+            "\t\t--time=100h \\\n"
+            "\t\t--join \\\n"
+            f"\t\t--stdout={storage_dir / 'stdout'} \\\n"
+            f"\t\t--tracefile={storage_dir / 'trace_%reqid.trace'} \\\n"
+            "\t\t-N train_pit \\\n"
+            f"\t\tpython -m {main_path} with config.json\n"
         )
 
     sacred.commands.print_config(_run)
@@ -159,26 +154,20 @@ def main(_config, _run):
     write_makefile_and_config_json(storage_dir, _config, _run)
 
     makefile_path = Path(storage_dir) / "Makefile"
+    main_path = pt.configurable.resolve_main_python_path()
     with makefile_path.open("a") as f:
-        f.write('\n')
-        f.write('ccsalloc:\n')
         f.write(
-            '\tccsalloc -N pit '
-            '--res=rset=1:ncpus=4:gtx1080=1:vmem=50g '
-            '--join '
-            f'-o {storage_dir / "train.%reqid.out"} '
-            '-t 100h '
-            '-m ae '
-            'make train_with_virtualenv\n'
-        )
-        f.write('\n')
-        f.write('train_with_virtualenv:\n')
-        f.write(
-            '\t'
-            'cd /scratch/hpc-prf-nt2/ldrude/python/project_dc && '
-            'source .env && '
-            'cd - '
-            'make train\n'
+            "\n"
+            "ccsalloc:\n"
+            "\tccsalloc \\\n"
+            "\t\t--notifyuser=awe \\\n"
+            "\t\t--res=rset=1:ncpus=4:gtx1080=1:vmem=50g:ompthreads=1 \\\n"
+            "\t\t--time=100h \\\n"
+            "\t\t--join \\\n"
+            f"\t\t--stdout={storage_dir / 'stdout'} \\\n"
+            f"\t\t--tracefile={storage_dir / 'trace_%reqid.trace'} \\\n"
+            "\t\t-N train_pit \\\n"
+            f"\t\tpython -m {main_path} with config.json\n"
         )
 
     prepare_and_train()

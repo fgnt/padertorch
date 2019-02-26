@@ -16,6 +16,7 @@ TODO: Add input mir_sdr result to be able to calculate gains.
 TODO: Add pesq, stoi, invasive_sxr.
 TODO: mpi: For mpi I need to know the experiment dir before.
 TODO: Change to sacred IDs again, otherwise I can not apply `unique` to `_id`.
+TODO: Maybe a shuffle helps here, too, to more evenly distribute work with MPI.
 """
 import os
 import warnings
@@ -60,9 +61,9 @@ def config():
     model_path = ''
     assert len(model_path) > 0, 'Set the model path on the command line.'
     checkpoint_name = 'ckpt_best_loss.pth'
-    experiment_dir = get_new_folder(
+    experiment_dir = str(get_new_folder(
         path_template, mkdir=False, consider_mpi=True,
-    )
+    ))
     batch_size = 1
     datasets = ["mix_2_spk_min_cv", "mix_2_spk_min_tt"]
     locals()  # Fix highlighting
@@ -108,24 +109,28 @@ def init(_config, _run):
         "with config.json\n"
         "\n"
         "ccsalloc:\n"
-        "\tccsalloc "
-        "--notifyuser=awe "
-        "--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g "
-        "--time=1h "
-        "--join "
-        f"--stdout={experiment_dir / 'stdout'} "
-        f"--tracefile={experiment_dir / 'trace_%reqid.trace'} "
-        "-N evaluate_pit "
-        "ompi "
-        "-- "
-        "make evaluate_with_virtualenv\n"
-        "\n"
-        'evaluate_with_virtualenv:\n'
-        '\t'
-        'cd /scratch/hpc-prf-nt2/ldrude/python/project_dc && '
-        'source .env && '
-        'cd - && '
-        'make evaluate\n'
+        "\tccsalloc \\\n"
+        "\t\t--notifyuser=awe \\\n"
+        "\t\t--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\\n"
+        "\t\t--time=1h \\\n"
+        "\t\t--join \\\n"
+        f"\t\t--stdout={experiment_dir / 'stdout'} \\\n"
+        f"\t\t--tracefile={experiment_dir / 'trace_%reqid.trace'} \\\n"
+        "\t\t-N evaluate_pit \\\n"
+        "\t\tompi \\\n"
+        '\t\t-x STORAGE \\\n'
+        '\t\t-x NT_MERL_MIXTURES_DIR \\\n'
+        '\t\t-x NT_DATABASE_JSONS_DIR \\\n'
+        '\t\t-x KALDI_ROOT \\\n'
+        '\t\t-x LD_PRELOAD \\\n'
+        '\t\t-x CONDA_EXE \\\n'
+        '\t\t-x CONDA_PREFIX \\\n'
+        '\t\t-x CONDA_PYTHON_EXE \\\n'
+        '\t\t-x CONDA_DEFAULT_ENV \\\n'
+        '\t\t-x PATH \\\n'
+        "\t\t-- \\\n"
+        f"\t\tpython -m {pt.configurable.resolve_main_python_path()} "
+        "with config.json\n"
     )
 
     sacred.commands.print_config(_run)
