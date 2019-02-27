@@ -4,6 +4,7 @@ from torch.nn.utils.rnn import PackedSequence
 
 import padertorch as pt
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
+from padertorch.summary import mask_to_image, stft_to_image
 
 
 class MultiChannelPermutationInvariantTraining(pt.Model):
@@ -116,18 +117,30 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
                 batch['X_abs'],
                 batch['cos_phase_difference']
         ):
+            estimation = mask * observation[:, None, :]
             pit_ips_loss.append(pt.ops.losses.loss.pit_mse_loss(
-                mask * observation[:, None, :],
+                estimation,
                 target * cos_phase_diff
             ))
-
-        return {
+        losses = {
             'losses': {
                 'pit_mse_loss': torch.mean(torch.stack(pit_mse_loss)),
                 'pit_ips_loss': torch.mean(torch.stack(pit_ips_loss)),
 
             }
         }
+
+        estimation = model_out[0]*batch['Y_abs'][0]
+
+        images = dict()
+        images['observation'] = stft_to_image(batch['Y_abs'][0], True)
+        images['mask'] = mask_to_image(model_out[0], True)
+        images['estimation'] = stft_to_image(estimation, True)
+        images['target'] = stft_to_image(batch['X_abs'][0], True)
+
+        return dict(scalars=losses,
+                    images=images
+                    )
 
 
 class PermutationInvariantTrainingModel(pt.Model):
@@ -200,6 +213,7 @@ class PermutationInvariantTrainingModel(pt.Model):
             batch: Dictionary with lists of tensors
 
         Returns: List of mask tensors
+            Each list element has shape (T, K, F)
 
         """
 
@@ -255,13 +269,21 @@ class PermutationInvariantTrainingModel(pt.Model):
                 target * cos_phase_diff
             ))
 
-        return {
-            'losses': {
+        losses = {
                 'pit_mse_loss': torch.mean(torch.stack(pit_mse_loss)),
                 'pit_ips_loss': torch.mean(torch.stack(pit_ips_loss)),
-
-            }
         }
+        #estimation = model_out[0][:]*batch['Y_abs'][0]
+
+        b = 0
+        images = dict()
+        images['observation'] = stft_to_image(batch['Y_abs'][b])
+        images['mask'] = mask_to_image(model_out[b])
+        images['target'] = stft_to_image(batch['X_abs'][b])
+
+        return dict(losses=losses,
+                    images=images
+                    )
 
 
 class DeepClusteringModel(pt.Model):
