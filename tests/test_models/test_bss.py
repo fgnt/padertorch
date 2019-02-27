@@ -108,6 +108,12 @@ class TestPermutationInvariantTrainingModel(unittest.TestCase):
                     size=(num_frames_, self.K, self.F)
                 )).astype(np.float32)
                 for num_frames_ in self.num_frames
+            ],
+            'cos_phase_difference': [
+                np.abs(np.random.normal(
+                    size=(num_frames_, self.K, self.F)
+                )).astype(np.float32)
+                for num_frames_ in self.num_frames
             ]
         }
 
@@ -141,13 +147,15 @@ class TestPermutationInvariantTrainingModel(unittest.TestCase):
         actual_loss = review['losses']['pit_mse_loss']
 
         reference_loss = list()
-        for observation, target in zip(
+        for observation, target, cos_phase_difference in zip(
             self.inputs['Y_abs'],
             self.inputs['X_abs'],
+            self.inputs['cos_phase_difference'],
         ):
             inputs = {
                 'Y_abs': [observation],
                 'X_abs': [target],
+                'cos_phase_difference': [cos_phase_difference],
             }
             inputs = pt.data.example_to_device(inputs)
 
