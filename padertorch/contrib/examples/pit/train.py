@@ -45,8 +45,8 @@ ccsalloc:
 \t\t--res=rset=1:ncpus=4:gtx1080=1:vmem=50g:ompthreads=1 \\
 \t\t--time=100h \\
 \t\t--join \\
-\t\t--stdout={experiment_dir}/stdout \\
-\t\t--tracefile={experiment_dir}/trace_%reqid.trace \\
+\t\t--stdout=stdout \\
+\t\t--tracefile=trace_%reqid.trace \\
 \t\t-N train_{nickname} \\
 \t\tpython -m {main_python_path} with config.json
 """
