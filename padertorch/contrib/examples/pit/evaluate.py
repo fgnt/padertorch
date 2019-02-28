@@ -30,6 +30,7 @@ import matplotlib as mpl
 import sacred.commands
 from sacred import Experiment
 from tqdm import tqdm
+import torch
 
 import paderbox as pb
 import padertorch as pt
@@ -119,8 +120,6 @@ def get_model(_run, model_path, checkpoint_name):
         consider_mpi=True  # Loads the weights only on master
     )
 
-    model.eval()
-
     # TODO: Can this run info be stored more elegantly?
     checkpoint_path = model_path / 'checkpoints' / checkpoint_name
     _run.info['checkpoint_path'] = str(checkpoint_path.expanduser().resolve())
@@ -165,36 +164,38 @@ def main(_run, batch_size, datasets, debug, experiment_dir):
     model = get_model()
     db = MerlMixtures()
 
-    summary = defaultdict(dict)
-    for dataset in datasets:
-        iterable = prepare_iterable(
-            db, dataset, batch_size,
-            return_keys=None,
-            prefetch=False,
-            iterator_slice=slice(RANK, 20 if debug else None, SIZE)
-        )
-        iterable = tqdm(iterable, total=len(iterable), disable=not IS_MASTER)
-        for batch in iterable:
-            entry = dict()
-            model_output = model(pt.data.example_to_device(batch))
-
-            example_id = batch['example_id'][0]
-            s = batch['s'][0]
-            Y = batch['Y'][0]
-            mask = model_output[0].numpy()
-
-            Z = mask * Y[:, None, :]
-            z = istft(
-                einops.rearrange(Z, "t k f -> k t f"),
-                size=512, shift=128
+    model.eval()
+    with torch.no_grad():
+        summary = defaultdict(dict)
+        for dataset in datasets:
+            iterable = prepare_iterable(
+                db, dataset, batch_size,
+                return_keys=None,
+                prefetch=False,
+                iterator_slice=slice(RANK, 20 if debug else None, SIZE)
             )
+            iterable = tqdm(iterable, total=len(iterable), disable=not IS_MASTER)
+            for batch in iterable:
+                entry = dict()
+                model_output = model(pt.data.example_to_device(batch))
 
-            s = s[:, :z.shape[1]]
-            z = z[:, :s.shape[1]]
-            entry['mir_eval'] \
-                = pb.evaluation.mir_eval_sources(s, z, return_dict=True)
+                example_id = batch['example_id'][0]
+                s = batch['s'][0]
+                Y = batch['Y'][0]
+                mask = model_output[0].numpy()
 
-            summary[dataset][example_id] = entry
+                Z = mask * Y[:, None, :]
+                z = istft(
+                    einops.rearrange(Z, "t k f -> k t f"),
+                    size=512, shift=128
+                )
+
+                s = s[:, :z.shape[1]]
+                z = z[:, :s.shape[1]]
+                entry['mir_eval'] \
+                    = pb.evaluation.mir_eval_sources(s, z, return_dict=True)
+
+                summary[dataset][example_id] = entry
 
     summary_list = COMM.gather(summary, root=MASTER)
 
