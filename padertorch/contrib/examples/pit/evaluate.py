@@ -12,6 +12,8 @@ export STORAGE=<your desired storage root>
 mkdir -p $STORAGE/pth_evaluate/evaluate
 python -m padertorch.contrib.examples.pit.evaluate init with model_path=<model_path>
 
+TODO: Add link resolve to keep track of which step we evaluate
+
 TODO: Add input mir_sdr result to be able to calculate gains.
 TODO: Add pesq, stoi, invasive_sxr.
 TODO: mpi: For mpi I need to know the experiment dir before.
@@ -57,8 +59,8 @@ ccsalloc:
 \t\t--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\
 \t\t--time=1h \\
 \t\t--join \\
-\t\t--stdout={experiment_dir}/stdout \\
-\t\t--tracefile={experiment_dir}/'trace_%reqid.trace' \\
+\t\t--stdout=stdout \\
+\t\t--tracefile=trace_%reqid.trace \\
 \t\t-N evaluate_{nickname} \\
 \t\tompi \\
 \t\t-x STORAGE \\
@@ -116,6 +118,8 @@ def get_model(_run, model_path, checkpoint_name):
         checkpoint_name=checkpoint_name,
         consider_mpi=True  # Loads the weights only on master
     )
+
+    model.eval()
 
     # TODO: Can this run info be stored more elegantly?
     checkpoint_path = model_path / 'checkpoints' / checkpoint_name
@@ -177,7 +181,7 @@ def main(_run, batch_size, datasets, debug, experiment_dir):
             example_id = batch['example_id'][0]
             s = batch['s'][0]
             Y = batch['Y'][0]
-            mask = model_output[0].detach().numpy()
+            mask = model_output[0].numpy()
 
             Z = mask * Y[:, None, :]
             z = istft(
