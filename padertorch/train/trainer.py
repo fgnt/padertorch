@@ -202,7 +202,7 @@ class Trainer(Configurable):
             self.load_checkpoint()
         else:
             assert not self.checkpoint_dir.exists(),\
-                f'A checkpoint directory already exists. If you want to' \
+                f'A checkpoint directory already exists. If you want to ' \
                 f'restart the training set resume to True.'
         torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = False
