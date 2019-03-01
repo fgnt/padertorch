@@ -9,8 +9,6 @@ from unittest import mock
 
 import numpy as np
 import torch
-import paderbox as pb
-import tqdm
 
 import padertorch as pt
 import paderbox as pb
