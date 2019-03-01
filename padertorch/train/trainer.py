@@ -165,7 +165,7 @@ class Trainer(Configurable):
         checkpoints, cleanup checkpoints that are stale (not best according
         to metrics and not last) and display a progessbar.
         The code is designed that many aspects can be customized.
-        (e.g. test_run_time_tests.py DictTrainer for multi model trainer)
+        (e.g. test_runtime_tests.py DictTrainer for multi model trainer)
 
         Args:
             train_iterator:
@@ -293,8 +293,9 @@ class Trainer(Configurable):
                 train_end_time - self._start_non_validation_time
             )
 
+        # Disable backward mode with `no_grad()`.
         with self.timer['validation_time'], torch.no_grad():
-            # Change model to eval mode (e.g. deactivate dropout)
+            # Change model to eval mode (e.g. deactivate dropout).
             self.model.eval()
             try:
                 for i, example in enumerate(validation_iterator):

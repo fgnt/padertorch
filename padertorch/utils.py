@@ -96,5 +96,16 @@ def to_numpy(array, detach=False):
         if detach:
             array = array.detach()
 
-    # torch only supports np.asarray for cpu tensors
-    return np.asarray(array)
+    try:
+        # torch only supports np.asarray for cpu tensors
+        return np.asarray(array)
+    except RuntimeError as e:
+        import sys
+        raise type(e)(str(e) + (
+            '\n\n'
+            'It is likely, that you are evaluating a model in train mode.\n'
+            'You may want to call `model.eval()` first and use a context\n'
+            'manager, which disables gradients: `with torch.no_grad(): ...`.\n'
+            'If you want to detach anyway, use `detach=True` as argument.'
+            )
+        ) from e

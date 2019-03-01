@@ -137,9 +137,11 @@ class Module(nn.Module, Configurable, abc.ABC):
 
         Args:
             storage_dir: Path which was provided during training.
+            config_name: In case you config has a different name.
             checkpoint_name: In case the name is not default.
             in_config_path: In case you want to load an inner module.
             in_checkpoint_path: In case you want to load an inner module.
+            consider_mpi: If you use MPI: Only load on master, the distribute.
 
         Returns:
 
