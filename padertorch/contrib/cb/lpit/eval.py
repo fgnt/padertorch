@@ -33,6 +33,7 @@ from paderbox.database.iterator import AudioReader
 from paderbox.transform import istft
 # from tf_bss.sacred_helper import generate_path
 
+import cbj
 from cbj.sacred_helper import (
     decorator_append_file_storage_observer_with_lazy_basedir,
 )
@@ -136,6 +137,9 @@ def main(
         consider_mpi=True,
     )
 
+    if mpi.IS_MASTER:
+        os.symlink(checkpoint_path, storage_dir / 'checkpoint')
+
     db: pb.database.wsj_bss.WsjBss = model.db
 
     it = model.get_iterable('cv_dev93')
@@ -159,36 +163,71 @@ def main(
             except pb.database.iterator.FilterException:
                 continue
 
-            predict = model(example)
+            predict = pt.utils.to_numpy(model(example))
 
-            estimate = einops.rearrange(
-                example.Feature[..., None] * predict,
+            # example['audio_data']['speech_image']
+            # example['audio_data']['noise_image']
+
+            observation = it_example['audio_data']['observation']
+            speech_image = it_example['audio_data']['speech_image']
+            noise_image = it_example['audio_data']['noise_image']
+
+            Observation = model.feature_extractor(observation)
+            Speech_image = model.feature_extractor(speech_image)
+            Noise_image = model.feature_extractor(noise_image)
+
+            # target = np.array([*speech_image])
+            target = speech_image
+
+            Estimate = einops.rearrange(
+                Observation[..., None] * predict,
                 'D T F K -> D K T F'.lower()
             )[0]
+
+            Estimate_clean = einops.rearrange(
+                Speech_image[..., None] * predict,
+                'KSource D T F Ktaget -> D KSource Ktaget T F'.lower()
+            )[0]
+
+            Estimate_noise = einops.rearrange(
+                Noise_image[..., None] * predict,
+                'D T F Ktaget -> D Ktaget T F'.lower()
+            )[0]
+
             target = einops.rearrange(
-                example.Target, 'K D T F -> D K T F'.lower()
+                target, 'Kplus1 D N -> D Kplus1 N'.lower()
             )[0]
 
             istft_kwargs = model.feature_extractor.kwargs.copy()
             del istft_kwargs['pad']
 
             estimate = pb.transform.istft(
-                estimate,
+                Estimate,
                 **istft_kwargs,
-            )
-            target = pb.transform.istft(
-                target,
+            )[..., :observation.shape[-1]]
+            estimate_clean = pb.transform.istft(
+                Estimate_clean,
                 **istft_kwargs,
-            )
+            )[..., :observation.shape[-1]]
+            estimate_noise = pb.transform.istft(
+                Estimate_noise,
+                **istft_kwargs,
+            )[..., :observation.shape[-1]]
 
             mir_eval = pb.evaluation.mir_eval_sources(
                 reference=target,
                 estimation=estimate,
                 return_dict=True,
             )
+            invasive_sxr = pb.evaluation.output_sxr(
+                estimate_clean,
+                estimate_noise,
+                return_dict=True,
+            )
 
             summary[example_id] = {
                 'mir_eval': mir_eval,
+                'invasive': invasive_sxr,
             }
 
     summaries = pb.utils.mpi.gather(list(summary.items()))
@@ -197,12 +236,25 @@ def main(
 
         summary = dict(itertools.chain(*summaries))
 
+        scores = {
+            'mir_eval': {
+                metric: np.mean([e['mir_eval'][metric] for e in summary.values()])
+                for metric in ['sdr', 'sir', 'sar']
+            },
+            'invasive': {
+                metric: np.mean([e['invasive'][metric] for e in summary.values()])
+                for metric in ['sdr', 'sir', 'snr']
+            }
+        }
+
         pb.io.dump_json(
             {
-                'details': summary
+                'details': summary,
+                'scores': scores,
             },
             storage_dir / 'result.json'
         )
+        print('scores', scores)
 
 
 if __name__ == '__main__':

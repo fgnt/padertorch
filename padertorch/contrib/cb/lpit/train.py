@@ -168,13 +168,14 @@ def resume(_config):
 
 @ex.command
 def init(_config, _run):
-    storage_dir = _config['trainer']['storage_dir']
+    storage_dir = Path(_config['trainer']['storage_dir'])
     write_makefile_and_config(
         storage_dir, _config, _run,
         backend='yaml'
     )
 
-    with open(Path(storage_dir) / 'Makefile', 'a') as fd:
+    with open(storage_dir / 'Makefile', 'a') as fd:
+        experiment_name = ex.path
         fd.write(
             '\n'
             'evalfolder := $(patsubst checkpoints/%.pth,eval/%,$(wildcard checkpoints/*.pth))\n'
@@ -188,8 +189,12 @@ def init(_config, _run):
                 '--group=hpc-prf-nt3 '
                 '--res=rset=40:mem=4G:ncpus=1 '
                 '-t 6h '
+                f'--name={experiment_name}_{storage_dir.name}_eval '
                 'ompi -- '
                 'python -m padertorch.contrib.cb.lpit.eval with model_path=. checkpoint=$<'
+            '\n'
+            '\n'
+            'allEval: $(evalfolder)'
             '\n'
         )
 
