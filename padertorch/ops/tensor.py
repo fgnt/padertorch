@@ -16,7 +16,7 @@ def move_axis(a: torch.Tensor, source: int, destination: int):
         destination: Destination positions for each of the original axis.
     Returns: Tensor with moved axis.
 
-    >>> x = zeros((3, 4, 5))
+    >>> x = torch.zeros((3, 4, 5))
     >>> move_axis(x, 0, -1).size()
     torch.Size([4, 5, 3])
 
@@ -28,10 +28,6 @@ def move_axis(a: torch.Tensor, source: int, destination: int):
     permutation = [d for d in range(len(a.size())) if not d == source]
     permutation.insert(destination, source)
     return a.permute(permutation)
-
-
-def zeros(shape, dtype=None):
-    return torch.zeros(*shape, dtype=dtype)
 
 
 def broadcast_to(tensor: torch.Tensor, shape):
