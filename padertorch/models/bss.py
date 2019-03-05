@@ -73,7 +73,6 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
 
         h_data = self.dropout_input(h.data)
 
-        # Why not mu-law?
         h_data = pt.ops.sequence.log1p(h_data)
         h = PackedSequence(h_data, h.batch_sizes)
 

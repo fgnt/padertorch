@@ -63,6 +63,7 @@ def prepare_iterable(
         iterator
         .map(audio_reader)
         .map(partial(pre_batch_transform, return_keys=return_keys))
+        .shuffle(reshuffle=False)
         .batch(batch_size)
         .map(lambda batch: sorted(
             batch,
@@ -71,6 +72,7 @@ def prepare_iterable(
         ))
         .map(pt.data.utils.collate_fn)
         .map(post_batch_transform)
+        .tile(reps=50, shuffle=True)  # Simulates reshuffle to some degree
     )
 
     if prefetch:
