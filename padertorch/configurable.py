@@ -569,6 +569,14 @@ def _split_factory_kwargs(config):
 
 
 def config_to_instance(config):
+    """Is called by `Module.from_config()`. If possible, use that directly.
+
+    Args:
+        config:
+
+    Returns:
+
+    """
     if isinstance(config, dict):
         if 'factory' in config:
             factory, kwargs = _split_factory_kwargs(config)

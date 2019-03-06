@@ -116,6 +116,42 @@ class Model(pt.Model, pt.train.hooks.Hook):
 
     @classmethod
     def finalize_dogmatic_config(cls, config):
+        """
+        >>> from IPython.lib.pretty import pprint
+        >>> pprint(Model.get_config())
+        {'factory': 'model.Model',
+         'blstm': {'factory': 'padertorch.contrib.examples.acoustic_model.model.get_blstm_stack',
+          'input_size': 257,
+          'hidden_size': [512],
+          'output_size': 512,
+          'bidirectional': True,
+          'batch_first': False,
+          'dropout': 0.3},
+         'dense': {'factory': 'padertorch.modules.fully_connected.fully_connected_stack',
+          'input_size': 1024,
+          'hidden_size': [1024, 1024],
+          'output_size': 514,
+          'activation': 'relu',
+          'dropout': 0.3},
+         'feature_extractor': {'factory': 'cbj.pytorch.feature_extractor.FeatureExtractor',
+          'type': 'stft',
+          'size': 512,
+          'shift': 128,
+          'window_length': 512,
+          'pad': True,
+          'fading': True,
+          'output_size': 257},
+         'db': {'factory': 'paderbox.database.wsj_bss.database.WsjBss',
+          'json_path': '/home/cbj/storage/database_jsons/wsj_bss.json',
+          'datasets_train': None,
+          'datasets_eval': None,
+          'datasets_test': None},
+         'sources': 2,
+         'aux_loss': {'factory': 'model.AuxiliaryLoss',
+          'stft_size': 512,
+          'permutation_alignment': False,
+          'iterations': 5}}
+        """
 
         config['db'] = {
             'factory': pb.database.wsj_bss.WsjBss,
@@ -134,10 +170,11 @@ class Model(pt.Model, pt.train.hooks.Hook):
             'factory': get_blstm_stack,
             'input_size': config['feature_extractor']['output_size'],
             # 'hidden_size': [256, 256],
-            'hidden_size': [512],
-            'output_size': 512,
+            'hidden_size': [600, 600],
+            'output_size': 600,
             'bidirectional': True,
-            'dropout': 0.3,
+            # 'dropout': 0.3,
+            'dropout': 0.,
         }
 
         assert config['feature_extractor']['output_size'] == config['blstm']['input_size'], config
@@ -146,10 +183,10 @@ class Model(pt.Model, pt.train.hooks.Hook):
             'factory': pt.modules.fully_connected_stack,
             'input_size': config['blstm']['output_size'] * 2,
             # 'hidden_size': [500, 500],
-            'hidden_size': [1024, 1024],
+            'hidden_size': [600],
             'output_size': config['feature_extractor']['output_size'] * config['sources'],
             'activation': 'relu',
-            'dropout': 0.3,
+            'dropout': 0.0,
         }
 
         assert config['dense']['input_size'] == config['blstm']['output_size'] * 2, config
@@ -168,6 +205,8 @@ class Model(pt.Model, pt.train.hooks.Hook):
             sources,
             # permutation_alignment=False,
             aux_loss,
+            output_activation='softmax',
+            pit_loss='mse',
     ):
         super().__init__()
         self.blstm = blstm
@@ -177,6 +216,13 @@ class Model(pt.Model, pt.train.hooks.Hook):
         self.db = db
         self.sources = sources
         self.aux_loss = aux_loss
+
+        self.pit_loss = pit_loss
+
+        if output_activation == 'softmax':
+            self.output_activation = torch.nn.Softmax(dim=-1)
+        else:
+            self.output_activation = pt.ops.mappings.ACTIVATION_FN_MAP[output_activation]()
 
     def get_iterable(self, dataset):
         if isinstance(self.db, pb.database.wsj_bss.WsjBss):
@@ -205,27 +251,35 @@ class Model(pt.Model, pt.train.hooks.Hook):
 
         if self.use_guide:
             assert self.sources == 2, self.sources
-            Clean = self.feature_extractor(example['audio_data']['speech_image'])
-
-            Clean = np.abs(Clean).astype(np.float32)
+            Speech_image = self.feature_extractor(example['audio_data']['speech_image'])
+            Clean = np.abs(Speech_image).astype(np.float32)
         else:
             Clean = None
+            Speech_image = None
 
         return self.NNInput(
             Observation=Observation,
             Feature=np.abs(Observation).astype(np.float32),
             Target=Clean,
+            Speech_image=Speech_image,
         )
 
     @dataclass
     class NNInput:
-        Observation: torch.tensor
+        Observation: np.ndarray
         Feature: torch.tensor
         Target: torch.tensor
+        Speech_image: np.ndarray
         # alignment: torch.tensor
         # kaldi_transcription: tuple
 
     def forward(self, example: NNInput):
+        if isinstance(example, (tuple, list)):
+            # Batch Mode
+            return [
+                self.forward(e) for e in example
+            ]
+
         tensor, _ = self.blstm(example.Feature)
         predict = self.dense(tensor)
         # shape = list(predict.shape)
@@ -242,9 +296,9 @@ class Model(pt.Model, pt.train.hooks.Hook):
             k=self.sources,
         )
 
-        return torch.nn.Softmax(dim=-1)(predict)
+        return self.output_activation(predict)
 
-    def review(self, inputs: NNInput, predict):
+    def review(self, inputs: NNInput, predict, summary=None):
         """
 
         >>> np.set_string_function(lambda a: f'array(shape={a.shape}, dtype={a.dtype})')
@@ -281,7 +335,17 @@ class Model(pt.Model, pt.train.hooks.Hook):
         """
         from padertorch.contrib.cb.summary import ReviewSummary
 
-        summary = ReviewSummary()
+        if summary is None:
+            summary = ReviewSummary()
+
+        if isinstance(inputs, (tuple, list)):
+            assert isinstance(predict, (tuple, list)), (type(predict), predict)
+            assert len(predict) == len(inputs), (len(predict), len(inputs), predict, inputs)
+            # Batch Mode
+            for i, p in zip(inputs, predict):
+                summary = self.review(inputs=i, predict=p, summary=summary)
+
+            return summary
 
         # predict.shape == D T F K
 
@@ -298,41 +362,56 @@ class Model(pt.Model, pt.train.hooks.Hook):
 
             assert inputs.Feature.shape == predict.shape[:-1], (inputs.Feature.shape, predict.shape)
 
-            mask_mse_loss = pt.ops.loss.pit_loss(
-                einops.rearrange(
-                    inputs.Feature[..., None] * predict,
-                    'D T F K -> (D T) K F'.lower()
-                ),
-                einops.rearrange(target, 'K D T F -> (D T) K F'.lower()),
+            predict_amp = einops.rearrange(
+                inputs.Feature[..., None] * predict,
+                'D T F K -> (D T) K F'.lower()
             )
 
-            for i, p in enumerate(einops.rearrange(target, 'K T F -> K T F'.lower())):
-                summary.add_image(
-                    f'clean_{i}', pt.summary.spectrogram_to_image(p)
+
+            # pit mse
+            if self.pit_loss == 'mse':
+                mask_mse_loss = pt.ops.loss.pit_loss(
+                    predict_amp,
+                    einops.rearrange(target, 'K D T F -> (D T) K F'.lower()),
                 )
 
-            # images = {
-            #     f'clean_{i}': pt.summary.spectrogram_to_image(p)
-            #     for i, p in enumerate(einops.rearrange(target, 'K T F -> K T F'.lower()))
-            # }
+            elif 'ips' in self.pit_loss:
+                # pit ips: Ideal Phase Sensitive
+                # pit nips: Nonnegativ Ideal Phase Sensitive
 
-            # scalars = {
-            #     'reconstruction_mse': mask_mse_loss
-            # }
-            summary.add_scalar(
-                'reconstruction_mse', mask_mse_loss
-            )
+                cos_phase_diff = np.cos(
+                    np.angle(inputs.Observation)
+                    - np.angle(inputs.Speech_image)
+                ).astype(np.float32)
+
+                cos_phase_diff = target.new(cos_phase_diff)
+
+                if 'ips' == self.pit_loss:
+                    mask_mse_loss = pt.ops.losses.loss.pit_loss(
+                        predict_amp,
+                        einops.rearrange(target * cos_phase_diff,
+                                         'K D T F -> (D T) K F'.lower())
+                    )
+                elif 'nips' == self.pit_loss:
+                    mask_mse_loss = pt.ops.losses.loss.pit_loss(
+                        predict_amp,
+                        einops.rearrange(target * cos_phase_diff,
+                                         'K D T F -> (D T) K F'.lower())
+                    )
+                else:
+                    raise ValueError(self.pit_loss)
+            else:
+                raise ValueError(self.pit_loss)
+
+            summary.add_scalar(f'reconstruction_{self.pit_loss}', mask_mse_loss)
             summary.add_to_loss(mask_mse_loss)
+
+            for i, p in enumerate(einops.rearrange(target, 'K D T F -> D K T F'.lower())[0]):
+                summary.add_image(f'clean_{i}', pt.summary.spectrogram_to_image(p))
         else:
             aux_loss = self.aux_loss(predict, inputs.Observation)
             summary.add_to_loss(aux_loss)
-            # scalars = {
-            #     'aux_loss': aux_loss
-            # }
-            summary.add_scalar(
-                'aux_loss', aux_loss
-            )
-            # images = {}
+            summary.add_scalar('aux_loss', aux_loss)
 
         for i, mask in enumerate(
                 einops.rearrange(
@@ -340,39 +419,8 @@ class Model(pt.Model, pt.train.hooks.Hook):
                     'D T F K -> D K T F'.lower()
                 )[0, :, :, :]
         ):
-            summary.add_image(
-                f'mask_{i}', pt.summary.mask_to_image(mask)
-            )
+            summary.add_image(f'mask_{i}', pt.summary.mask_to_image(mask))
 
-        summary.add_image(
-            'Observation', pt.summary.stft_to_image(inputs.Observation[0])
-        )
+        summary.add_image('Observation', pt.summary.stft_to_image(inputs.Observation[0]))
 
         return summary
-
-        return pt.summary.review_dict(
-            loss=loss,
-            scalars={
-                # 'aux_loss': aux_loss,
-                # 'regularisation': regularisation,
-                **scalars,
-            },
-            images={
-                **images,
-                **{
-                    f'mask_{i}': pt.summary.mask_to_image(mask)
-                    for i, mask in enumerate(
-                        einops.rearrange(
-                            predict,
-                            'D T F K -> D K T F'.lower()
-                        )[0, :, :, :]
-                        # predict.permute(2, 0, 1),
-                    )
-                },
-                # **{
-                #     f'pdf_{i}': pt.summary.spectrogram_to_image(p)
-                #     for i, p in enumerate(einops.rearrange(pdf, 'T F K -> K T F'.lower()))
-                # },
-                'Observation': pt.summary.stft_to_image(inputs.Observation[0])
-            }
-        )
