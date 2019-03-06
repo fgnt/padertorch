@@ -9,7 +9,7 @@ mpiexec -np 8 python -m padertorch.contrib.examples.pit.evaluate with model_path
 Example call on PC2 infrastructure:
 
 export STORAGE=<your desired storage root>
-mkdir -p $STORAGE/pth_evaluate/evaluate
+mkdir -p $STORAGE/pth_evaluate/pit
 python -m padertorch.contrib.examples.pit.evaluate init with model_path=<model_path>
 
 TODO: Add link resolve to keep track of which step we evaluate
