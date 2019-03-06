@@ -5,6 +5,7 @@ from torch.nn.utils.rnn import PackedSequence
 import padertorch as pt
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 from padertorch.summary import mask_to_image, stft_to_image
+from paderbox.transform import istft
 
 
 class MultiChannelPermutationInvariantTraining(pt.Model):
@@ -14,13 +15,13 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
     def __init__(
             self,
             F=257,
-            C=6,
             recurrent_layers=3,
             units=600,
             K=2,
             dropout_input=0.,
             dropout_hidden=0.,
             dropout_linear=0.,
+            output_activation='relu',
             use_phase_diff=False
     ):
         """
@@ -39,15 +40,19 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
         super().__init__()
 
         self.K = K
-        self.F = F*C
+        self.F = F
+        self.use_pd = use_phase_diff
+        self.output_activation = ACTIVATION_FN_MAP[output_activation]()
         if use_phase_diff:
-            self.F = F*C*2 # Inter Phase differences have same dim as spectrum
+            # inter phase differences have same length as spectrum,
+            # one for cosine one for sine
+            self.F = F*3
         assert dropout_input <= 0.5, dropout_input
         self.dropout_input = torch.nn.Dropout(dropout_input)
 
         assert dropout_hidden <= 0.5, dropout_hidden
         self.blstm = torch.nn.LSTM(
-            1024,
+            self.F,
             units,
             recurrent_layers,
             bidirectional=True,
@@ -56,7 +61,6 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
 
         assert dropout_linear <= 0.5, dropout_linear
         self.dropout_linear = torch.nn.Dropout(dropout_linear)
-        self.projection_layer = torch.nn.Linear(self.F, 1024)
         self.linear1 = torch.nn.Linear(2 * units, 2 * units)
         self.linear2 = torch.nn.Linear(2 * units, F * K)
 
@@ -69,14 +73,20 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
         Returns: List of mask tensors
 
         """
+        h = pt.ops.pack_sequence(batch['Y_abs'])
+        h_data = pt.ops.sequence.log1p(h.data)
 
-        h = pt.ops.pack_sequence(batch['Y_abs_array'])
+        if self.use_pd:
+            cos_pd = pt.ops.pack_sequence(batch['cos_inter_phase_difference'])
+            sin_pd = pt.ops.pack_sequence(batch['sin_inter_phase_difference'])
+
+            input_data = torch.cat((h_data, cos_pd.data, sin_pd.data), dim=-1)
+            h = PackedSequence(input_data, h.batch_sizes)
         _, F = h.data.size()
         assert F == self.F, f'self.F = {self.F} != F = {F}'
 
         h_data = self.dropout_input(h.data)
 
-        h_data = pt.ops.sequence.log1p(h_data)
         h = PackedSequence(h_data, h.batch_sizes)
 
         # Returns tensor with shape (t, b, num_directions * hidden_size)
@@ -84,9 +94,9 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
 
         h_data = self.dropout_linear(h.data)
         h_data = self.linear1(h_data)
-        h_data = pt.clamp(h_data, min=0)
+        h_data = self.output_activation(h_data)
         h_data = self.linear2(h_data)
-        h_data = pt.clamp(h_data, min=0)
+        h_data = self.output_activation(h_data)
         h = PackedSequence(h_data, h.batch_sizes)
 
         mask = PackedSequence(
@@ -122,23 +132,27 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
                 target * cos_phase_diff
             ))
         losses = {
-            'losses': {
                 'pit_mse_loss': torch.mean(torch.stack(pit_mse_loss)),
                 'pit_ips_loss': torch.mean(torch.stack(pit_ips_loss)),
-
-            }
         }
 
-        estimation = model_out[0]*batch['Y_abs'][0]
-
+        b = 0
         images = dict()
-        images['observation'] = stft_to_image(batch['Y_abs'][0], True)
-        images['mask'] = mask_to_image(model_out[0], True)
-        images['estimation'] = stft_to_image(estimation, True)
-        images['target'] = stft_to_image(batch['X_abs'][0], True)
+        audios = dict()
+        images['observation'] = stft_to_image(batch['Y_abs'][b])
+        for i in range(model_out[b].shape[1]):
+            images[f'mask_{i}'] = mask_to_image(model_out[b][:, i, :])
+            images[f'target_{i}'] = stft_to_image(batch['X_abs'][b][:, i, :])
+            images[f'estimation_{i}'] = stft_to_image(
+                batch['Y_abs'][b]*model_out[b][:, i, :])
 
-        return dict(scalars=losses,
-                    images=images
+            audios[f'target_{i}'] = istft(batch['X_abs'][b][:, i, :].numpy(), 512, 128)
+            audios[f'estimation_{i}'] = istft(
+                batch['Y_abs'][b]*model_out[b][:, i, :].numpy(), 512, 128)
+
+        return dict(losses=losses,
+                    images=images,
+                    audios=audios
                     )
 
 
@@ -231,7 +245,7 @@ class PermutationInvariantTrainingModel(pt.Model):
 
         h_data = self.dropout_linear(h.data)
         h_data = self.linear1(h_data)
-        h_data = torch.nn.ReLU()(h_data)
+        h_data = self.output_activation(h_data)
         h_data = self.linear2(h_data)
         h_data = self.output_activation(h_data)
         h = PackedSequence(h_data, h.batch_sizes)
@@ -277,8 +291,10 @@ class PermutationInvariantTrainingModel(pt.Model):
         b = 0
         images = dict()
         images['observation'] = stft_to_image(batch['Y_abs'][b])
-        images['mask'] = mask_to_image(model_out[b])
-        images['target'] = stft_to_image(batch['X_abs'][b])
+        for i in model_out[b].shape[1]:
+            images[f'mask_{i}'] = mask_to_image(model_out[b][:, i, :])
+            images[f'target_{i}'] = stft_to_image(batch['X_abs'][b][:, 0, :])
+            images[f'estimation_{i}'] = stft_to_image(batch['X_abs'][b][:, 0, :])
 
         return dict(losses=losses,
                     images=images
