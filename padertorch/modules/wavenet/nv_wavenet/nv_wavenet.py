@@ -72,14 +72,14 @@ class NVWaveNet:
                        skip_biases,
                        use_embed_tanh):
         try:
-            from . import nv_wavenet_ext
+            import nv_wavenet_ext
         except ImportError as e:
             raise ImportError(
                 f"{str(e)}. Probably you haven't compiled nv_wavenet. "
                 f"nv_wavenet can be compiled as follows:\n\n"
                 f"cd {Path(__file__).parent}\n"
                 f"make\n"
-                f"python build.py\n"
+                f"python build.py install\n"
             )
         self.R = nv_wavenet_ext.num_res_channels()
         self.S = nv_wavenet_ext.num_skip_channels() 
@@ -170,33 +170,37 @@ class NVWaveNet:
         len(skip_weights) = {}
         len(skip_biases) = {}
         len(res_weights) = {}
-        len(res_biases) = {}""".format(len(dilate_weights),
-                                       len(dilate_biases),
-                                       len(skip_weights),
-                                       len(skip_biases),
-                                       len(res_weights)-1,
-                                       len(res_biases)-1)
+        len(res_biases) = {}""".format(
+            len(dilate_weights),
+            len(dilate_biases),
+            len(skip_weights),
+            len(skip_biases),
+            len(res_weights)-1,
+            len(res_biases)-1
+        )
 
         self.num_layers = len(res_biases)
-        self.layers = interleave_lists(dilate_weights_prev,
-                                       dilate_weights_curr,
-                                       dilate_biases,
-                                       res_weights,
-                                       res_biases,
-                                       skip_weights,
-                                       skip_biases)
+        self.layers = interleave_lists(
+            dilate_weights_prev,
+            dilate_weights_curr,
+            dilate_biases,
+            res_weights,
+            res_biases,
+            skip_weights,
+            skip_biases
+        )
 
     def infer(self, cond_input, implementation):
         # cond_input is channels x batch x num_layers x samples
         try:
-            from . import nv_wavenet_ext
+            import nv_wavenet_ext
         except ImportError as e:
             raise ImportError(
                 f"{str(e)}. Probably you haven't compiled nv_wavenet. "
                 f"nv_wavenet can be compiled as follows:\n\n"
                 f"cd {Path(__file__).parent}\n"
                 f"make\n"
-                f"python build.py\n"
+                f"python build.py install\n"
             )
         assert(cond_input.size()[0:3:2] == (2*self.R, self.num_layers)), \
         """Inputs are channels x batch x num_layers x samples.
@@ -207,17 +211,19 @@ class NVWaveNet:
         sample_count = cond_input.size(3)
         cond_input = column_major(cond_input)
         samples = torch.cuda.IntTensor(batch_size, sample_count)
-        nv_wavenet_ext.infer(samples,
-                             sample_count,
-                             batch_size,
-                             self.embedding_prev,
-                             self.embedding_curr,
-                             self.conv_out,
-                             self.conv_end,
-                             cond_input,
-                             self.num_layers,
-                             self.use_embed_tanh,
-                             self.max_dilation,
-                             implementation,
-                             *self.layers)
+        nv_wavenet_ext.infer(
+            samples,
+            sample_count,
+            batch_size,
+            self.embedding_prev,
+            self.embedding_curr,
+            self.conv_out,
+            self.conv_end,
+            cond_input,
+            self.num_layers,
+            self.use_embed_tanh,
+            self.max_dilation,
+            implementation,
+            self.layers
+        )
         return samples
