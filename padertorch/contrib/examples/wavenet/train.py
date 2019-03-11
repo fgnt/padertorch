@@ -12,15 +12,15 @@ from pathlib import Path
 from paderbox.utils.nested import deflatten
 from paderbox.utils.timer import timeStamped
 from padertorch.contrib.je.data import DataProvider
-from padertorch.data.fragmenter import Fragmenter
-from padertorch.data.transforms import ReadAudio, Spectrogram
+from padertorch.contrib.je.transforms import ReadAudio, STFT, Spectrogram, \
+    MelTransform, SegmentAxis, Fragmenter
 from padertorch.models.wavenet import WaveNet
 from padertorch.train.optimizer import Adam
 from padertorch.train.trainer import Trainer
 from sacred import Experiment as Exp
 from sacred.observers import FileStorageObserver
 
-nickname = 'wavenet'
+nickname = 'wavenet-training'
 ex = Exp(nickname)
 storage_dir = str(
     Path(os.environ['STORAGE_ROOT']) / nickname / timeStamped('')[1:]
@@ -37,38 +37,60 @@ def config():
         'training_set_names': 'train',
         'validation_set_names': 'test_core',
         'transforms.reader.factory': ReadAudio,
+        'transforms.reader.input_sample_rate': 16000,
+        'transforms.reader.target_sample_rate': 16000,
+        'transforms.stft.factory': STFT,
+        'transforms.stft.frame_step': 160,
+        'transforms.stft.frame_length': 400,
+        'transforms.stft.fft_length': 512,
+        'transforms.stft.keep_input': True,
         'transforms.spectrogram.factory': Spectrogram,
-        'max_workers': 16,
+        'transforms.mel_transform.factory': MelTransform,
+        'transforms.mel_transform.n_mels': 80,
+        'required_keys.audio_data': 'float32',
+        'required_keys.spectrogram': 'float32',
         'normalize_features': ['spectrogram'],
         'subset_size': 1000,
         'storage_dir': storage_dir,
-        'fragmenters.factory': Fragmenter,
-        'fragmenters.fragment_steps.audio_data': 16000,
-        'fragmenters.fragment_steps.spectrogram': 100,
-        'fragmenters.drop_last': True,
-        'fragmenters.axis': -1,
-        'shuffle_buffer_size': 1000,
+        'segmenters.factory': SegmentAxis,
+        'segmenters.axis': 1,
+        'segmenters.segment_steps.audio_data': 16000,
+        'segmenters.segment_steps.spectrogram': 100,
+        'segmenters.segment_lengths.audio_data': 16000,
+        'segmenters.segment_lengths.spectrogram': 102,
+        'segmenters.pad': False,
+        'fragmenter.factory': Fragmenter,
+        'fragmenter.split_axes.audio_data': (0, 1),
+        'fragmenter.split_axes.spectrogram': (0, 1),
+        'fragmenter.squeeze': True,
+        'max_workers': 16,
+        'prefetch_buffer': 10,
+        'shuffle_buffer': 1000,
         'batch_size': 4
     })
+    data_config['transforms']['mel_transform']['sample_rate'] = \
+        data_config['transforms']['reader']['target_sample_rate']
+    data_config['transforms']['mel_transform']['fft_length'] = \
+        data_config['transforms']['stft']['fft_length']
     DataProvider.get_config(data_config)
-    data_config['transforms']['spectrogram']['sample_rate'] = \
-        data_config['transforms']['reader']['sample_rate']
 
     # Trainer configuration
     train_config = deflatten({
         'model.factory':  WaveNet,
+        'model.audio_key': 'audio_data',
+        'model.feature_key': 'spectrogram',
         'model.wavenet.n_cond_channels': data_config['transforms'][
-            'spectrogram']['n_mels'],
+            'mel_transform']['n_mels'],
         'model.wavenet.upsamp_window': data_config['transforms'][
-            'spectrogram']['frame_length'],
+            'stft']['frame_length'],
         'model.wavenet.upsamp_stride': data_config['transforms'][
-            'spectrogram']['frame_step'],
-        'model.sample_rate': data_config['transforms']['reader']['sample_rate'],
+            'stft']['frame_step'],
+        'model.sample_rate': data_config['transforms']['reader']['target_sample_rate'],
         'optimizer.factory': Adam,
         'storage_dir': storage_dir,
         'summary_trigger': (100, 'iteration'),
         'checkpoint_trigger': (1, 'epoch'),
-        'max_trigger': (20, 'epoch')
+        'max_trigger': (100, 'epoch')
     })
     Trainer.get_config(train_config)
 
@@ -77,15 +99,14 @@ def config():
 def train(data_config, train_config):
     data_config['transforms'] = OrderedDict(
         reader=data_config['transforms']['reader'],
-        spectrogram=data_config['transforms']['spectrogram']
+        stft=data_config['transforms']['stft'],
+        spectrogram=data_config['transforms']['spectrogram'],
+        mel_transform=data_config['transforms']['mel_transform'],
     )
     data_provider = DataProvider.from_config(data_config)
 
-    def to_tuple(example):
-        return example["spectrogram"][0], example["audio_data"]
-
-    train_iter = data_provider.get_train_iterator().map(to_tuple)
-    validation_iter = data_provider.get_validation_iterator().map(to_tuple)
+    train_iter = data_provider.get_train_iterator()
+    validation_iter = data_provider.get_validation_iterator()
 
     trainer = Trainer.from_config(train_config)
     trainer.test_run(train_iter, validation_iter)

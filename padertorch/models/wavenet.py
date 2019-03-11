@@ -19,7 +19,8 @@ class WaveNet(Model):
         return config
 
     def forward(self, inputs):
-        return self.wavenet(inputs[self.feature_key], inputs[self.audio_key])
+        cond_input = inputs[self.feature_key].transpose(1, 2)
+        return self.wavenet(cond_input, inputs[self.audio_key])
 
     def review(self, inputs, outputs):
         predictions, targets = outputs

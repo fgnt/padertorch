@@ -41,8 +41,8 @@ class Fragmenter(object):
      {'a': array([4, 5, 6, 7]), 'b': array([1, 2, 3, 4])}]
     """
     def __init__(
-            self, fragment_steps, fragment_lengths=None, axis=-1, squeeze=False,
-            drop_last=False, copy_keys=None
+            self, fragment_steps, fragment_lengths=None, axis=-1,
+            squeeze=False, drop_last=False, copy_keys=None
     ):
         self.fragment_steps = fragment_steps
         self.fragment_lengths = fragment_lengths \
@@ -88,7 +88,7 @@ class Fragmenter(object):
                     slc[self.axis] = slice(
                         int(start_idx), int(start_idx) + int(fragment_length)
                     )
-                    fragments.append(x[slc])
+                    fragments.append(x[tuple(slc)])
             return fragments
 
         features = flatten({
@@ -98,7 +98,7 @@ class Fragmenter(object):
         num_fragments = np.array(
             [len(features[key]) for key in list(features.keys())]
         )
-        assert all(num_fragments == num_fragments[0])
+        assert all(num_fragments == num_fragments[0]), (list(features.keys()), num_fragments)
         fragments = list()
         for i in range(int(num_fragments[0])):
             fragment = deepcopy(copies)

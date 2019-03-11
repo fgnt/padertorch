@@ -2,36 +2,40 @@ from collections import OrderedDict
 from functools import partial
 from paderbox.database import JsonDatabase
 from paderbox.io.data_dir import database_jsons
-from padertorch.data.transforms import Compose, GlobalNormalize
+from padertorch.contrib.je.transforms import Compose, GlobalNormalize
 from padertorch import Configurable
 from cached_property import cached_property
 import numbers
 from torch.utils.data.dataloader import default_collate
-from padertorch.utils import to_list
+import numpy as np
 
 
 class DataProvider(Configurable):
     def __init__(
-            self, database_name, training_set_names, validation_set_names=None,
-            label_encoders=None, transforms=None, max_workers=0,
-            map_buffer_size=100, required_keys='spectrogram',
+            self, database_name, training_set_names,
+            validation_set_names=None, test_set_names=None,
+            label_encoders=None, transforms=None, required_keys=None,
             normalize_features=None, subset_size=None, storage_dir=None,
-            fragmenters=None, shuffle_buffer_size=1000, batch_size=None,
-            collate_fn=None
+            segmenters=None, fragmenter=None,
+            max_workers=0, prefetch_buffer=None,
+            shuffle_buffer=None,
+            batch_size=None, collate_fn=None
     ):
         self.database_name = database_name
         self.training_set_names = training_set_names
         self.validation_set_names = validation_set_names
+        self.test_set_names = test_set_names
         self.label_encoders = label_encoders
         self.transforms = transforms
-        self.num_workers = min(map_buffer_size, max_workers)
-        self.map_buffer_size = map_buffer_size
-        self.required_keys = to_list(required_keys)
+        self.required_keys = required_keys
         self.normalize_features = normalize_features
         self.subset_size = subset_size
         self.storage_dir = storage_dir
-        self.fragmenters = fragmenters
-        self.shuffle_buffer_size = shuffle_buffer_size
+        self.segmenters = segmenters
+        self.fragmenter = fragmenter
+        self.num_workers = min(prefetch_buffer, max_workers)
+        self.prefetch_buffer = prefetch_buffer
+        self.shuffle_buffer = shuffle_buffer
         self.batch_size = batch_size
         self.collate_fn = collate_fn
 
@@ -76,80 +80,97 @@ class DataProvider(Configurable):
         return Compose(self.transforms)
 
     @cached_property
+    def cleaner(self):
+        if self.required_keys is None:
+            return
+        elif isinstance(self.required_keys, str):
+            def func(example, training=False):
+                return {self.required_keys: example[self.required_keys]}
+        elif isinstance(self.required_keys, (list, tuple)):
+            def func(example, training=False):
+                return {key: example[key] for key in self.required_keys}
+        elif isinstance(self.required_keys, dict):
+            def func(example, training=False):
+                return {
+                    key: example[key] if dtype is None
+                    else example[key].astype(getattr(np, dtype))
+                    for key, dtype in self.required_keys.items()
+                }
+        else:
+            raise ValueError
+        return func
+
+    @cached_property
     def normalizer(self):
         if not self.normalize_features:
             return
         norm = GlobalNormalize(self.normalize_features)
 
-        data_pipe = self.db.get_iterator_by_names(self.training_set_names)
+        dataset = self.db.get_iterator_by_names(self.training_set_names)
         if self.subset_size is not None:
             assert isinstance(self.subset_size, numbers.Integral)
-            data_pipe = data_pipe.shuffle()[:self.subset_size]
+            dataset = dataset.shuffle()[:self.subset_size]
         if self.transform:
-            data_pipe = data_pipe.map(
-                self.transform, num_workers=self.num_workers,
-                buffer_size=2*self.batch_size
-            )
+            dataset = dataset.map(self.transform)
+            dataset = self.maybe_prefetch(dataset)
 
         norm.init_moments(
-            iterator=data_pipe, storage_dir=self.storage_dir
+            dataset=dataset, storage_dir=self.storage_dir
         )
         return norm
 
-    def _get_iterator(self, dataset_names, training=False):
+    @cached_property
+    def segmenter(self):
+        if self.segmenters is None:
+            return
+        return Compose(self.segmenters)
+
+    def maybe_prefetch(self, dataset):
+        if self.num_workers > 0:
+            assert self.prefetch_buffer is not None
+            dataset = dataset.prefetch(
+                self.num_workers, self.prefetch_buffer
+            )
+        return dataset
+
+    def get_iterator(self, dataset_names, training=False):
         if dataset_names is None:
             return None
-        data_pipe = self.db.get_iterator_by_names(dataset_names)
+        dataset = self.db.get_iterator_by_names(dataset_names)
 
-        map_fn = [
-            func for func in
-            [self.labels_encoder, self.transform, self.normalizer]
-            if func is not None
-        ]
-        if map_fn:
-            data_pipe = data_pipe.map(
-                Compose(map_fn), num_workers=self.num_workers,
-                buffer_size=self.map_buffer_size
-            )
-
-        if self.required_keys is not None:
-            data_pipe = data_pipe.map(
-                lambda ex: {key: ex[key] for key in self.required_keys}
-            )
+        for func in [
+            self.labels_encoder, self.transform, self.cleaner,
+            self.normalizer, self.segmenter, self.fragmenter
+        ]:
+            if func is not None:
+                func = partial(func, training=training)
+                dataset = dataset.map(func)
 
         if training:
-            data_pipe = data_pipe.shuffle(reshuffle=True)
+            dataset = dataset.shuffle(reshuffle=True)
 
-        if self.fragmenters is not None:
-            if isinstance(self.fragmenters, (list, tuple)):
-                fragmentations = self.fragmenters
-            elif isinstance(self.fragmenters, OrderedDict):
-                fragmentations = [
-                    fragmenter for key, fragmenter in self.fragmenters.items()
-                ]
-            elif callable(self.fragmenters):
-                fragmentations = [self.fragmenters]
-            else:
-                raise ValueError
-            for fragment_fn in fragmentations:
-                data_pipe = data_pipe.fragment(
-                    partial(fragment_fn, random_onset=training)
-                )
+        dataset = self.maybe_prefetch(dataset)
+
+        if self.fragmenter is not None:
+            dataset = dataset.unbatch()
             if training:
-                data_pipe = data_pipe.shuffle(
-                    reshuffle=True, buffer_size=self.shuffle_buffer_size
+                dataset = dataset.shuffle(
+                    reshuffle=True, buffer_size=self.shuffle_buffer
                 )
 
-        data_pipe = data_pipe.batch(self.batch_size)
+        dataset = dataset.batch(self.batch_size)
         if self.collate_fn is None:
             collate_fn = default_collate
         else:
             collate_fn = self.collate_fn
-        data_pipe = data_pipe.map(collate_fn)
-        return data_pipe
+        dataset = dataset.map(collate_fn)
+        return dataset
 
     def get_train_iterator(self):
-        return self._get_iterator(self.training_set_names, training=True)
+        return self.get_iterator(self.training_set_names, training=True)
 
     def get_validation_iterator(self):
-        return self._get_iterator(self.validation_set_names, training=False)
+        return self.get_iterator(self.validation_set_names, training=False)
+
+    def get_test_iterator(self):
+        return self.get_iterator(self.test_set_names, training=False)

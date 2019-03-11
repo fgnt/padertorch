@@ -67,7 +67,7 @@ class Conv(torch.nn.Module):
 
 class WaveNet(Module):
     def __init__(
-            self, n_cond_channels=None, upsamp_window=None, upsamp_stride=None,
+            self, n_cond_channels, upsamp_window, upsamp_stride,
             n_in_channels=256, n_layers=16, max_dilation=128,
             n_residual_channels=64, n_skip_channels=256, n_out_channels=256
     ):
@@ -91,6 +91,8 @@ class WaveNet(Module):
         self.n_residual_channels = n_residual_channels
         self.n_out_channels = n_out_channels
 
+        self.upsamp_stride = upsamp_stride
+        self.upsamp_window = upsamp_window
         self.upsample = torch.nn.ConvTranspose1d(
             n_cond_channels, n_cond_channels, upsamp_window, upsamp_stride)
         self.cond_layers = Conv(
@@ -123,7 +125,8 @@ class WaveNet(Module):
             if i < n_layers - 1:
                 res_layer = Conv(
                     n_residual_channels, n_residual_channels,
-                    w_init_gain='linear')
+                    w_init_gain='linear'
+                )
                 self.res_layers.append(res_layer)
 
             skip_layer = Conv(
@@ -134,9 +137,15 @@ class WaveNet(Module):
         cond_input = self.upsample(features)
         quantized = mu_law_encode(audio).long()
 
-        assert (cond_input.size(2) >= quantized.size(1))
-        if cond_input.size(2) > quantized.size(1):
-            cond_input = cond_input[:, :, :quantized.size(1)]
+        # expect fading!
+        fading = self.upsamp_window - self.upsamp_stride
+        assert (
+            quantized.size(1) + 2*fading
+            <= cond_input.size(2)
+            < quantized.size(1) + 2*fading + self.upsamp_stride
+        ), (cond_input.shape, quantized)
+        if cond_input.size(2) > quantized.size(1) + 2*fading:
+            cond_input = cond_input[:, :, fading:fading+quantized.size(1)]
 
         forward_input = self.embed(quantized)
         forward_input = forward_input.transpose(1, 2)
