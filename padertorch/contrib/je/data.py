@@ -14,7 +14,7 @@ class DataProvider(Configurable):
             self, database_name, training_set_names,
             validation_set_names=None, test_set_names=None,
             label_encoders=None, transforms=None,
-            normalize_features=None, subset_size=None, storage_dir=None,
+            normalizer=None, subset_size=None, storage_dir=None,
             segmenters=None, fragmenter=None,
             max_workers=0, prefetch_buffer=None,
             shuffle_buffer=None,
@@ -26,7 +26,7 @@ class DataProvider(Configurable):
         self.test_set_names = test_set_names
         self.label_encoders = label_encoders
         self.transforms = transforms
-        self.normalize_features = normalize_features
+        self.normalizer = normalizer
         self.subset_size = subset_size
         self.storage_dir = storage_dir
         self.segmenters = segmenters
@@ -36,6 +36,8 @@ class DataProvider(Configurable):
         self.shuffle_buffer = shuffle_buffer
         self.batch_size = batch_size
         self.collate_fn = collate_fn
+
+        self.init_normalizer()
 
     @cached_property
     def db(self):
@@ -77,11 +79,9 @@ class DataProvider(Configurable):
             return None
         return Compose(self.transforms)
 
-    @cached_property
-    def normalizer(self):
-        if not self.normalize_features:
+    def init_normalizer(self):
+        if self.normalizer is None:
             return
-        norm = GlobalNormalize(self.normalize_features)
 
         dataset = self.db.get_iterator_by_names(self.training_set_names)
         if self.subset_size is not None:
@@ -94,10 +94,9 @@ class DataProvider(Configurable):
                 dataset = dataset.map(self.transform)
             dataset = self.maybe_prefetch(dataset)
 
-        norm.init_moments(
+        self.normalizer.init_moments(
             dataset=dataset, storage_dir=self.storage_dir
         )
-        return norm
 
     @cached_property
     def segmenter(self):

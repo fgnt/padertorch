@@ -13,7 +13,7 @@ from paderbox.utils.nested import deflatten
 from paderbox.utils.timer import timeStamped
 from padertorch.contrib.je.data import DataProvider
 from padertorch.contrib.je.transforms import ReadAudio, STFT, Spectrogram, \
-    MelTransform, Declutter, SegmentAxis, Fragmenter
+    MelTransform, Declutter, GlobalNormalize, SegmentAxis, Fragmenter
 from padertorch.models.wavenet import WaveNet
 from padertorch.train.optimizer import Adam
 from padertorch.train.trainer import Trainer
@@ -52,11 +52,14 @@ def config():
         'transforms.declutter.required_keys': ['audio_data', 'spectrogram'],
         'transforms.declutter.dtypes.audio_data': 'float32',
         'transforms.declutter.dtypes.spectrogram': 'float32',
-        'normalize_features': ['spectrogram'],
+        'transforms.declutter.permutations.spectrogram': (0, 2, 1),
+        'normalizer.factory': GlobalNormalize,
+        'normalizer.axes': {'spectrogram': 2},
+        'normalizer.std_reduce_axes': {'spectrogram': 1},
         'subset_size': 1000,
         'storage_dir': storage_dir,
         'segmenters.factory': SegmentAxis,
-        'segmenters.axis': 1,
+        'segmenters.axis': -1,
         'segmenters.segment_steps.audio_data': 16000,
         'segmenters.segment_steps.spectrogram': 100,
         'segmenters.segment_lengths.audio_data': 16000,
@@ -64,7 +67,7 @@ def config():
         'segmenters.pad': False,
         'fragmenter.factory': Fragmenter,
         'fragmenter.split_axes.audio_data': (0, 1),
-        'fragmenter.split_axes.spectrogram': (0, 1),
+        'fragmenter.split_axes.spectrogram': (0, 2),
         'fragmenter.squeeze': True,
         'max_workers': 16,
         'prefetch_buffer': 10,

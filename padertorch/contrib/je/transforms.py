@@ -527,16 +527,38 @@ class Declutter(Transform):
 
 
 class GlobalNormalize(Transform):
-    """
-    >>> norm = GlobalNormalize(time_axis=0)
-    >>> ex = dict(spectrogram=2*np.ones(10))
-    >>> norm.init_moments([ex])
-    >>> norm(ex)
-    {'spectrogram': array([0., 0., 0., 0., 0., 0., 0., 0., 0., 0.])}
-    """
-    def __init__(self, keys=Keys.SPECTROGRAM, axes=1, verbose=False):
-        self.keys = to_list(keys)
-        self.axes = tuple(to_list(axes))
+    def __init__(
+            self, axes, std_reduce_axes=None, verbose=False
+    ):
+        """
+
+        Args:
+            axes:
+            std_reduce_axes:
+            verbose:
+
+        >>> norm = GlobalNormalize(axes={'spectrogram': 0})
+        >>> ex = dict(spectrogram=2*np.ones((2, 4)))
+        >>> norm.init_moments([ex])
+        >>> norm.moments
+        ({'spectrogram': [[2.0, 2.0, 2.0, 2.0]]}, {'spectrogram': [[0.0, 0.0, 0.0, 0.0]]})
+        >>> norm(ex)
+        {'spectrogram': array([[0., 0., 0., 0.],
+               [0., 0., 0., 0.]])}
+        >>> norm = GlobalNormalize(axes={'spectrogram': 0}, std_reduce_axes={'spectrogram': 1})
+        >>> ex = dict(spectrogram=2*np.ones((2, 4)))
+        >>> norm.init_moments([ex])
+        >>> norm.moments
+        ({'spectrogram': [[2.0, 2.0, 2.0, 2.0]]}, {'spectrogram': [[0.0]]})
+        >>> norm(ex)
+        {'spectrogram': array([[0., 0., 0., 0.],
+               [0., 0., 0., 0.]])}
+        """
+        self.axes = {key: tuple(to_list(ax)) for key, ax in axes.items()}
+        self.std_reduce_axes = {
+            key: () if std_reduce_axes is None or key not in std_reduce_axes
+            else tuple(to_list(std_reduce_axes[key])) for key in axes
+        }
         self.verbose = verbose
         self.moments = None
 
@@ -555,19 +577,19 @@ class GlobalNormalize(Transform):
                 print(f'Saved moments to {file}')
 
     def __call__(self, example, training=False):
-        example_ = {key: example[key] for key in self.keys}
+        example_ = {key: example[key] for key in self.axes}
         means, std = self.moments
         nested_update(
             example,
             nested_op(
-                lambda x, y, z: ((x-y)/(z+1e-18)).astype(x.dtype),
+                lambda x, y, z: ((x-y)/(np.array(z)+1e-18)).astype(x.dtype),
                 example_, means, std
             )
         )
         return example
 
     def invert(self, example):
-        example_ = {key: example[key] for key in self.keys}
+        example_ = {key: example[key] for key in self.axes}
         means, std = self.moments
         nested_update(
             example,
@@ -576,27 +598,37 @@ class GlobalNormalize(Transform):
         return example
 
     def _read_moments_from_dataset(self, dataset):
-        means = {key: 0 for key in self.keys}
-        energies = {key: 0 for key in self.keys}
-        counts = {key: 0 for key in self.keys}
+        means = {key: 0 for key in self.axes}
+        energies = {key: 0 for key in self.axes}
+        counts = {key: 0 for key in self.axes}
         for example in tqdm(dataset, disable=not self.verbose):
-            example = {key: example[key] for key in self.keys}
-            means = nested_op(
-                lambda x, y: y + np.sum(x, axis=self.axes, keepdims=True),
-                example, means
-            )
-            energies = nested_op(
-                lambda x, y: y + np.sum(x ** 2, axis=self.axes, keepdims=True),
-                example, energies
-            )
-            counts = nested_op(
-                lambda x, y: y + np.prod(np.array(x.shape)[self.axes]),
-                example, counts
-            )
+            for key in self.axes:
+                means[key] = nested_op(
+                    lambda x, y:
+                        y + np.sum(x, axis=self.axes[key], keepdims=True),
+                    example[key], means[key]
+                )
+                energies[key] = nested_op(
+                    lambda x, y:
+                        y + np.sum(x ** 2, axis=self.axes[key], keepdims=True),
+                    example[key], energies[key]
+                )
+                counts[key] = nested_op(
+                    lambda x, y:
+                        y + np.prod(np.array(x.shape)[self.axes[key]]),
+                    example[key], counts[key]
+                )
         means = nested_op(lambda x, c: x / c, means, counts)
-        std = nested_op(
-            lambda x, y, c: np.sqrt(np.mean(x/c - y ** 2)),
-            energies, means, counts
-        )
+        std = {}
+        for key in self.axes:
+            std[key] = nested_op(
+                lambda x, y, c: np.sqrt(
+                    np.mean(
+                        x/c - y ** 2, axis=self.std_reduce_axes[key],
+                        keepdims=True
+                    )
+                ),
+                energies[key], means[key], counts[key]
+            )
         return (nested_op(lambda x: x.tolist(), means),
                 nested_op(lambda x: x.tolist(), std))

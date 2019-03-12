@@ -94,7 +94,8 @@ class WaveNet(Module):
         self.upsamp_stride = upsamp_stride
         self.upsamp_window = upsamp_window
         self.upsample = torch.nn.ConvTranspose1d(
-            n_cond_channels, n_cond_channels, upsamp_window, upsamp_stride)
+            n_cond_channels, n_cond_channels, upsamp_window, upsamp_stride
+        )
         self.cond_layers = Conv(
             n_cond_channels, 2 * n_residual_channels * n_layers,
             w_init_gain='tanh'
