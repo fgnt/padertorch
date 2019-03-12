@@ -62,14 +62,14 @@ class DataProvider(Configurable):
         else:
             raise ValueError
         for label_encoder in label_encoders:
-            data_pipe = self.db.get_iterator_by_names(
+            dataset = self.db.get_iterator_by_names(
                 self.training_set_names
             )
             if self.subset_size is not None:
-                data_pipe = data_pipe.shuffle()[:self.subset_size]
+                dataset = dataset.shuffle()[:self.subset_size]
             label_encoder.init_labels(
                 storage_dir=self.storage_dir,
-                iterator=data_pipe
+                dataset=dataset
             )
         return Compose(label_encoders)
 
@@ -93,7 +93,7 @@ class DataProvider(Configurable):
             def func(example, training=False):
                 return {
                     key: example[key] if dtype is None
-                    else example[key].astype(getattr(np, dtype))
+                    else np.array(example[key]).astype(getattr(np, dtype))
                     for key, dtype in self.required_keys.items()
                 }
         else:

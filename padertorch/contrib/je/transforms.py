@@ -365,8 +365,8 @@ class Fragmenter(Transform):
         """
         self.split_axes = split_axes
         self.squeeze = squeeze
-        self.broadcast_keys = broadcast_keys if broadcast_keys is not None \
-            else []
+        self.broadcast_keys = to_list(broadcast_keys) \
+            if broadcast_keys is not None else []
         self.deepcopy = deepcopy
 
     def __call__(self, example, training=False):
