@@ -36,6 +36,7 @@ def config():
         'database_name': 'timit',
         'training_set_names': 'train',
         'validation_set_names': 'test_core',
+        'test_set_names': 'test_core',
         'transforms.reader.factory': ReadAudio,
         'transforms.reader.input_sample_rate': 16000,
         'transforms.reader.target_sample_rate': 16000,

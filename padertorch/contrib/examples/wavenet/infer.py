@@ -60,7 +60,7 @@ def get_dataset(data_config):
     data_provider = DataProvider.from_config(data_config)
 
     def get_spec(example):
-        return example["spectrogram"][0]
+        return example["spectrogram"]
 
     test_iter = data_provider.get_test_iterator().map(get_spec)
 
