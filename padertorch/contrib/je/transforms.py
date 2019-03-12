@@ -16,6 +16,7 @@ from padertorch.utils import to_list
 from tqdm import tqdm
 from paderbox.utils.numpy_utils import segment_axis_v2
 from copy import copy, deepcopy
+import torch
 
 
 class Transform(Configurable, abc.ABC):
@@ -490,6 +491,41 @@ class LabelEncoder(Transform):
         return sorted(labels)
 
 
+class Declutter(Transform):
+    def __init__(self, required_keys, dtypes=None, permutations=None):
+        """
+
+        Args:
+            required_keys:
+            dtypes:
+            permutations:
+
+        >>> example = {'a': np.array([[1,2,3]]), 'b': 2, 'c': 3}
+        >>> Declutter(['a', 'b'], {'a': 'float32'}, {'a': (1, 0)})(example)
+        {'a': array([[1.],
+               [2.],
+               [3.]], dtype=float32), 'b': 2}
+        """
+        self.required_keys = to_list(required_keys)
+        self.dtypes = dtypes
+        self.permutations = permutations
+
+    def __call__(self, example, training=False):
+        example = {key: example[key] for key in self.required_keys}
+        if self.dtypes is not None:
+            for key, dtype in self.dtypes.items():
+                example[key] = np.array(example[key]).astype(
+                    getattr(np, dtype)
+                )
+        if self.permutations is not None:
+            for key, perm in self.permutations.items():
+                if torch.is_tensor(example[key]):
+                    example[key] = example[key].permute(perm)
+                else:
+                    example[key] = example[key].transpose(perm)
+        return example
+
+
 class GlobalNormalize(Transform):
     """
     >>> norm = GlobalNormalize(time_axis=0)
@@ -498,9 +534,9 @@ class GlobalNormalize(Transform):
     >>> norm(ex)
     {'spectrogram': array([0., 0., 0., 0., 0., 0., 0., 0., 0., 0.])}
     """
-    def __init__(self, keys=Keys.SPECTROGRAM, time_axis=1, verbose=False):
+    def __init__(self, keys=Keys.SPECTROGRAM, axes=1, verbose=False):
         self.keys = to_list(keys)
-        self.time_axis = time_axis
+        self.axes = tuple(to_list(axes))
         self.verbose = verbose
         self.moments = None
 
@@ -546,15 +582,15 @@ class GlobalNormalize(Transform):
         for example in tqdm(dataset, disable=not self.verbose):
             example = {key: example[key] for key in self.keys}
             means = nested_op(
-                lambda x, y: y + np.sum(x, axis=self.time_axis, keepdims=True),
+                lambda x, y: y + np.sum(x, axis=self.axes, keepdims=True),
                 example, means
             )
             energies = nested_op(
-                lambda x, y: y + np.sum(x**2, axis=self.time_axis, keepdims=True),
+                lambda x, y: y + np.sum(x ** 2, axis=self.axes, keepdims=True),
                 example, energies
             )
             counts = nested_op(
-                lambda x, y: y + x.shape[self.time_axis],
+                lambda x, y: y + np.prod(np.array(x.shape)[self.axes]),
                 example, counts
             )
         means = nested_op(lambda x, c: x / c, means, counts)

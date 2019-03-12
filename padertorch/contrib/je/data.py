@@ -7,14 +7,13 @@ from padertorch import Configurable
 from cached_property import cached_property
 import numbers
 from torch.utils.data.dataloader import default_collate
-import numpy as np
 
 
 class DataProvider(Configurable):
     def __init__(
             self, database_name, training_set_names,
             validation_set_names=None, test_set_names=None,
-            label_encoders=None, transforms=None, required_keys=None,
+            label_encoders=None, transforms=None,
             normalize_features=None, subset_size=None, storage_dir=None,
             segmenters=None, fragmenter=None,
             max_workers=0, prefetch_buffer=None,
@@ -27,7 +26,6 @@ class DataProvider(Configurable):
         self.test_set_names = test_set_names
         self.label_encoders = label_encoders
         self.transforms = transforms
-        self.required_keys = required_keys
         self.normalize_features = normalize_features
         self.subset_size = subset_size
         self.storage_dir = storage_dir
@@ -80,27 +78,6 @@ class DataProvider(Configurable):
         return Compose(self.transforms)
 
     @cached_property
-    def cleaner(self):
-        if self.required_keys is None:
-            return
-        elif isinstance(self.required_keys, str):
-            def func(example, training=False):
-                return {self.required_keys: example[self.required_keys]}
-        elif isinstance(self.required_keys, (list, tuple)):
-            def func(example, training=False):
-                return {key: example[key] for key in self.required_keys}
-        elif isinstance(self.required_keys, dict):
-            def func(example, training=False):
-                return {
-                    key: example[key] if dtype is None
-                    else np.array(example[key]).astype(getattr(np, dtype))
-                    for key, dtype in self.required_keys.items()
-                }
-        else:
-            raise ValueError
-        return func
-
-    @cached_property
     def normalizer(self):
         if not self.normalize_features:
             return
@@ -139,8 +116,8 @@ class DataProvider(Configurable):
         dataset = self.db.get_iterator_by_names(dataset_names)
 
         for func in [
-            self.labels_encoder, self.transform, self.cleaner,
-            self.normalizer, self.segmenter, self.fragmenter
+            self.labels_encoder, self.transform, self.normalizer,
+            self.segmenter, self.fragmenter
         ]:
             if func is not None:
                 func = partial(func, training=training)

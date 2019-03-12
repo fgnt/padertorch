@@ -13,7 +13,7 @@ from paderbox.utils.nested import deflatten
 from paderbox.utils.timer import timeStamped
 from padertorch.contrib.je.data import DataProvider
 from padertorch.contrib.je.transforms import ReadAudio, STFT, Spectrogram, \
-    MelTransform, SegmentAxis, Fragmenter
+    MelTransform, Declutter, SegmentAxis, Fragmenter
 from padertorch.models.wavenet import WaveNet
 from padertorch.train.optimizer import Adam
 from padertorch.train.trainer import Trainer
@@ -48,8 +48,10 @@ def config():
         'transforms.spectrogram.factory': Spectrogram,
         'transforms.mel_transform.factory': MelTransform,
         'transforms.mel_transform.n_mels': 80,
-        'required_keys.audio_data': 'float32',
-        'required_keys.spectrogram': 'float32',
+        'transforms.declutter.factory': Declutter,
+        'transforms.declutter.required_keys': ['audio_data', 'spectrogram'],
+        'transforms.declutter.dtypes.audio_data': 'float32',
+        'transforms.declutter.dtypes.spectrogram': 'float32',
         'normalize_features': ['spectrogram'],
         'subset_size': 1000,
         'storage_dir': storage_dir,
@@ -103,6 +105,7 @@ def train(data_config, train_config):
         stft=data_config['transforms']['stft'],
         spectrogram=data_config['transforms']['spectrogram'],
         mel_transform=data_config['transforms']['mel_transform'],
+        declutter=data_config['transforms']['declutter']
     )
     data_provider = DataProvider.from_config(data_config)
 
