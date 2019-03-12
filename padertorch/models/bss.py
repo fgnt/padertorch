@@ -138,7 +138,6 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
 
         b = 0
         images = dict()
-        audios = dict()
         images['observation'] = stft_to_image(batch['Y_abs'][b])
         for i in range(model_out[b].shape[1]):
             images[f'mask_{i}'] = mask_to_image(model_out[b][:, i, :])
@@ -146,13 +145,8 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
             images[f'estimation_{i}'] = stft_to_image(
                 batch['Y_abs'][b]*model_out[b][:, i, :])
 
-            audios[f'target_{i}'] = istft(batch['X_abs'][b][:, i, :].numpy(), 512, 128)
-            audios[f'estimation_{i}'] = istft(
-                batch['Y_abs'][b]*model_out[b][:, i, :].numpy(), 512, 128)
-
         return dict(losses=losses,
-                    images=images,
-                    audios=audios
+                    images=images
                     )
 
 
@@ -291,7 +285,7 @@ class PermutationInvariantTrainingModel(pt.Model):
         b = 0
         images = dict()
         images['observation'] = stft_to_image(batch['Y_abs'][b])
-        for i in model_out[b].shape[1]:
+        for i in range(model_out[b].shape[1]):
             images[f'mask_{i}'] = mask_to_image(model_out[b][:, i, :])
             images[f'target_{i}'] = stft_to_image(batch['X_abs'][b][:, 0, :])
             images[f'estimation_{i}'] = stft_to_image(batch['X_abs'][b][:, 0, :])
