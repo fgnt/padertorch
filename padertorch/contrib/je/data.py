@@ -88,7 +88,10 @@ class DataProvider(Configurable):
             assert isinstance(self.subset_size, numbers.Integral)
             dataset = dataset.shuffle()[:self.subset_size]
         if self.transform:
-            dataset = dataset.map(self.transform)
+            if self.labels_encoder is not None:
+                dataset = dataset.map(self.labels_encoder)
+            if self.transform is not None:
+                dataset = dataset.map(self.transform)
             dataset = self.maybe_prefetch(dataset)
 
         norm.init_moments(
