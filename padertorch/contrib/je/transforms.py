@@ -343,7 +343,7 @@ class SegmentAxis(Transform):
 
 class Fragmenter(Transform):
     def __init__(
-            self, split_axes, squeeze=False, broadcast_keys=None,
+            self, split_axes, squeeze=True, broadcast_keys=None,
             deepcopy=False
     ):
         """
@@ -388,9 +388,8 @@ class Fragmenter(Transform):
                     for axis in sorted(
                             to_list(self.split_axes[key]), reverse=True
                     ):
-                        if self.squeeze and xi.shape[axis+1] == 1:
-                            xi = np.squeeze(xi, axis+1)
-                        xi = np.squeeze(xi, axis)
+                        if self.squeeze:
+                            xi = np.squeeze(xi, axis)
                     flat_list.append(xi)
             return flat_list
 
@@ -615,7 +614,9 @@ class GlobalNormalize(Transform):
                 )
                 counts[key] = nested_op(
                     lambda x, y:
-                        y + np.prod(np.array(x.shape)[self.axes[key]]),
+                        y + np.prod(
+                            np.array(x.shape)[np.array(self.axes[key])]
+                        ),
                     example[key], counts[key]
                 )
         means = nested_op(lambda x, c: x / c, means, counts)

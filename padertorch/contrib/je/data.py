@@ -1,21 +1,22 @@
-from collections import OrderedDict
 from functools import partial
 from paderbox.database import JsonDatabase
 from paderbox.io.data_dir import database_jsons
-from padertorch.contrib.je.transforms import Compose, GlobalNormalize
+from padertorch.contrib.je.transforms import Compose
 from padertorch import Configurable
 from cached_property import cached_property
 import numbers
 from torch.utils.data.dataloader import default_collate
+from collections import OrderedDict
+from natsort import natsorted
 
 
 class DataProvider(Configurable):
     def __init__(
             self, database_name, training_set_names,
             validation_set_names=None, test_set_names=None,
-            label_encoders=None, transforms=None,
-            normalizer=None, subset_size=None, storage_dir=None,
-            segmenters=None, fragmenter=None,
+            labels_encoder=None, transforms=None, normalizer=None,
+            subset_size=None, storage_dir=None,
+            fragmenter=None,
             max_workers=0, prefetch_buffer=None,
             shuffle_buffer=None,
             batch_size=None, collate_fn=None
@@ -24,12 +25,27 @@ class DataProvider(Configurable):
         self.training_set_names = training_set_names
         self.validation_set_names = validation_set_names
         self.test_set_names = test_set_names
-        self.label_encoders = label_encoders
-        self.transforms = transforms
+        self.labels_encoder = labels_encoder
+        if (
+            isinstance(transforms, dict)
+                and not isinstance(transforms, OrderedDict)
+        ):
+            self.transforms = list()
+            for i, key in enumerate(natsorted(transforms.keys())):
+                try:
+                    idx = int(key)
+                    assert idx == i
+                except (ValueError, AssertionError):
+                    raise ValueError(
+                        'transforms is an unordered dict '
+                        'with keys not being an enumeration.'
+                    )
+                self.transforms.append(transforms[key])
+        else:
+            self.transforms = transforms
         self.normalizer = normalizer
         self.subset_size = subset_size
         self.storage_dir = storage_dir
-        self.segmenters = segmenters
         self.fragmenter = fragmenter
         self.num_workers = min(prefetch_buffer, max_workers)
         self.prefetch_buffer = prefetch_buffer
@@ -37,6 +53,7 @@ class DataProvider(Configurable):
         self.batch_size = batch_size
         self.collate_fn = collate_fn
 
+        self.init_labels_encoder()
         self.init_normalizer()
 
     @cached_property
@@ -45,39 +62,19 @@ class DataProvider(Configurable):
             json_path=database_jsons / f'{self.database_name}.json'
         )
 
-    @cached_property
-    def labels_encoder(self):
-        if self.label_encoders is None:
-            return None
+    def init_labels_encoder(self):
+        if self.labels_encoder is None:
+            return
 
-        if isinstance(self.label_encoders, (list, tuple)):
-            label_encoders = self.label_encoders
-        elif isinstance(self.label_encoders, OrderedDict):
-            label_encoders = [
-                label_encoder
-                for key, label_encoder in self.label_encoders.items()
-            ]
-        elif callable(self.label_encoders):
-            label_encoders = [self.label_encoders]
-        else:
-            raise ValueError
-        for label_encoder in label_encoders:
-            dataset = self.db.get_iterator_by_names(
-                self.training_set_names
-            )
-            if self.subset_size is not None:
-                dataset = dataset.shuffle()[:self.subset_size]
-            label_encoder.init_labels(
-                storage_dir=self.storage_dir,
-                dataset=dataset
-            )
-        return Compose(label_encoders)
-
-    @cached_property
-    def transform(self):
-        if self.transforms is None:
-            return None
-        return Compose(self.transforms)
+        dataset = self.db.get_iterator_by_names(
+            self.training_set_names
+        )
+        if self.subset_size is not None:
+            dataset = dataset.shuffle()[:self.subset_size]
+        self.labels_encoder.init_labels(
+            storage_dir=self.storage_dir,
+            dataset=dataset
+        )
 
     def init_normalizer(self):
         if self.normalizer is None:
@@ -87,11 +84,10 @@ class DataProvider(Configurable):
         if self.subset_size is not None:
             assert isinstance(self.subset_size, numbers.Integral)
             dataset = dataset.shuffle()[:self.subset_size]
-        if self.transform:
-            if self.labels_encoder is not None:
-                dataset = dataset.map(self.labels_encoder)
-            if self.transform is not None:
-                dataset = dataset.map(self.transform)
+        if self.labels_encoder is not None:
+            dataset = dataset.map(self.labels_encoder)
+        if self.transform is not None:
+            dataset = dataset.map(self.transform)
             dataset = self.maybe_prefetch(dataset)
 
         self.normalizer.init_moments(
@@ -99,10 +95,10 @@ class DataProvider(Configurable):
         )
 
     @cached_property
-    def segmenter(self):
-        if self.segmenters is None:
-            return
-        return Compose(self.segmenters)
+    def transform(self):
+        if self.transforms is None:
+            return None
+        return Compose(self.transforms)
 
     def maybe_prefetch(self, dataset):
         if self.num_workers > 0:
@@ -119,7 +115,7 @@ class DataProvider(Configurable):
 
         for func in [
             self.labels_encoder, self.transform, self.normalizer,
-            self.segmenter, self.fragmenter
+            self.fragmenter
         ]:
             if func is not None:
                 func = partial(func, training=training)

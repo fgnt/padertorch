@@ -1,28 +1,18 @@
 """
 Example call:
 
-export STORAGE_ROOT=<your desired storage root>
-python -m padertorch.contrib.examples.wavenet.train print_config
-python -m padertorch.contrib.examples.wavenet.train
+python -m padertorch.contrib.examples.wavenet.infer with model_dir=/path/to/storage_root
 """
 import os
-from collections import OrderedDict
 from pathlib import Path
 
-from paderbox.utils.nested import deflatten
-from paderbox.utils.timer import timeStamped
+import torch
+from paderbox.io.json_module import load_json
+from padertorch import Module
 from padertorch.contrib.je.data import DataProvider
-from padertorch.contrib.je.transforms import ReadAudio, STFT, Spectrogram, \
-    MelTransform, SegmentAxis, Fragmenter
-from padertorch.models.wavenet import WaveNet
-from padertorch.train.optimizer import Adam
-from padertorch.train.trainer import Trainer
 from sacred import Experiment as Exp
 from sacred.commands import print_config
-from padertorch import Module
-from paderbox.io.json_module import load_json
 from scipy.io import wavfile
-import torch
 
 nickname = 'wavenet-inference'
 ex = Exp(nickname)
@@ -51,12 +41,6 @@ def get_model(model_dir, config_name, checkpoint_name):
 
 @ex.capture
 def get_dataset(data_config):
-    data_config['transforms'] = OrderedDict(
-        reader=data_config['transforms']['reader'],
-        stft=data_config['transforms']['stft'],
-        spectrogram=data_config['transforms']['spectrogram'],
-        mel_transform=data_config['transforms']['mel_transform'],
-    )
     data_provider = DataProvider.from_config(data_config)
 
     def get_spec(example):
@@ -75,7 +59,7 @@ def main(_run, num_examples, storage_dir):
     os.makedirs(storage_dir, exist_ok=True)
     i = 0
     for x in dataset:
-        x = model.wavenet.infer_gpu(torch.Tensor(x).transpose(1, 2))
+        x = model.wavenet.infer_gpu(torch.Tensor(x))
         for audio in x.cpu().data.numpy():
             if i >= num_examples:
                 break
