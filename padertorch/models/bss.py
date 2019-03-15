@@ -80,7 +80,7 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
             cos_pd = pt.ops.pack_sequence(batch['cos_inter_phase_difference'])
             sin_pd = pt.ops.pack_sequence(batch['sin_inter_phase_difference'])
 
-            input_data = torch.cat((h.data, cos_pd.data, sin_pd.data), dim=-1)
+            input_data = torch.cat((h_data, cos_pd.data, sin_pd.data), dim=-1)
             h = PackedSequence(input_data, h.batch_sizes)
         _, F = h.data.size()
         assert F == self.F, f'self.F = {self.F} != F = {F}'
