@@ -114,9 +114,10 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
                 batch['Y_abs'],
                 batch['X_abs']
         ):
+            # std = np.linalg.norm(observation[:, None, :])
             pit_mse_loss.append(pt.ops.losses.loss.pit_mse_loss(
-                mask * observation[:, None, :],
-                target
+                mask * observation[:, None, :], # / std,
+                target # / std
             ))
 
         pit_ips_loss = list()
