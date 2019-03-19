@@ -12,6 +12,7 @@ import json
 import torch
 from torch import nn
 
+from paderbox.utils.nested import deflatten
 from padertorch.configurable import Configurable
 
 
@@ -106,6 +107,7 @@ class Module(nn.Module, Configurable, abc.ABC):
 
         for part in in_checkpoint_path.split('.'):
             try:
+                checkpoint = deflatten(checkpoint, maxdepth=1)
                 checkpoint = checkpoint[part]
             except KeyError:
                 raise ValueError(part, in_checkpoint_path, checkpoint)

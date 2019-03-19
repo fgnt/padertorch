@@ -94,35 +94,46 @@ class Scale(Module):
         return x
 
 
-class MaxPool1d(Module):
-    def __init__(self, kernel_size, padding='both'):
+class Pool1d(Module):
+    def __init__(self, kernel_size, pooling='max', padding='both'):
         super().__init__()
         self.kernel_size = kernel_size
+        self.pooling = pooling
         self.padding = padding
 
     def forward(self, x):
         if self.kernel_size < 2:
-            return x, None
-        x = Pad(side=self.padding)(
-            x,
-            size=self.kernel_size - 1 - ((x.shape[-1] - 1) % self.kernel_size)
-        )
-        return nn.MaxPool1d(
-            kernel_size=self.kernel_size, return_indices=True
-        )(x)
+            return x, (None, None)
+        pad_size = self.kernel_size - 1 - ((x.shape[-1] - 1) % self.kernel_size)
+        x = Pad(side=self.padding)(x, size=pad_size)
+        if self.pooling == 'max':
+            x, pool_indices = nn.MaxPool1d(
+                kernel_size=self.kernel_size, return_indices=True
+            )(x)
+        elif self.pooling == 'avg':
+            x = nn.AvgPool1d(kernel_size=self.kernel_size)(x)
+            pool_indices = None
+        else:
+            raise ValueError(f'{self.pooling} pooling unknown.')
+        return x, (pool_indices, pad_size)
 
 
-class MaxUnpool1d(Module):
-    def __init__(self, kernel_size, padding='both'):
+class Unpool1d(Module):
+    def __init__(self, kernel_size, padding='end'):
         super().__init__()
         self.kernel_size = kernel_size
         self.padding = padding
 
-    def forward(self, x, indices):
+    def forward(self, x, indices=None, pad_size=None):
         if self.kernel_size < 2:
             return x
-        x = Cut(side=self.padding)(x, size=(x.shape[-1] - indices.shape[-1]))
-        return nn.MaxUnpool1d(kernel_size=self.kernel_size)(x, indices=indices)
+        if indices is None:
+            x = F.interpolate(x, scale_factor=self.kernel_size)
+        else:
+            x = nn.MaxUnpool1d(kernel_size=self.kernel_size)(
+                x, indices=indices
+            )
+        return Cut(side=self.padding)(x, size=pad_size)
 
 
 class Conv1d(Module):
@@ -289,9 +300,10 @@ class TCN(Module):
     """
     def __init__(
             self, input_size, output_size, hidden_sizes=256, condition_size=0,
-            num_layers=5, kernel_sizes=3, n_scales=None, dilations=1, strides=1,
-            transpose=False, pool_sizes=1, paddings='both', dropout=0.,
-            activation='leaky_relu', gated=False, residual=False, norm=None
+            num_layers=5, kernel_sizes=3, n_scales=None, dilations=1,
+            strides=1, transpose=False, pooling='max', pool_sizes=1,
+            paddings='both', dropout=0., activation='leaky_relu', gated=False,
+            residual=False, norm=None
     ):
         super().__init__()
 
@@ -307,6 +319,7 @@ class TCN(Module):
             n_scales, num_layers)
         self.dilations = to_list(dilations, num_layers)
         self.strides = to_list(strides, num_layers)
+        self.pooling = pooling
         self.pool_sizes = to_list(pool_sizes, num_layers)
         self.transpose = transpose
         self.paddings = to_list(paddings, num_layers)
@@ -341,26 +354,31 @@ class TCN(Module):
                 convs.append(MultiScaleConv1d(
                     input_size=input_size, hidden_size=hidden_size,
                     output_size=output_size_, condition_size=condition_size,
-                    kernel_size=self.kernel_sizes[i], n_scales=self.n_scales[i],
-                    dilation=self.dilations[i], stride=self.strides[i],
-                    transpose=transpose, padding=self.paddings[i], dropout=dropout,
+                    kernel_size=self.kernel_sizes[i],
+                    n_scales=self.n_scales[i], dilation=self.dilations[i],
+                    stride=self.strides[i], transpose=transpose,
+                    padding=self.paddings[i], dropout=dropout,
                     activation=activation, gated=gated, residual=residual,
                     norm=norm
                 ))
             input_size = output_size_
         self.convs = nn.ModuleList(convs)
 
-    def forward(self, x, h=None, pool_indices=None):
-        pool_indices = to_list(pool_indices, self.num_layers)
+    def forward(self, x, h=None, pooling_data=None):
+        pooling_data = to_list(pooling_data, self.num_layers)
         for i, conv in enumerate(self.convs):
             pool_size = self.pool_sizes[i]
             if self.transpose:
-                pool = MaxUnpool1d(kernel_size=pool_size, padding='end')
-                x = pool(x, indices=pool_indices[i])
+                unpool = Unpool1d(kernel_size=pool_size, padding='end')
+                x = unpool(
+                    x, indices=pooling_data[i][0], pad_size=pooling_data[i][1]
+                )
             x = conv(x, h)
             if not self.transpose:
-                pool = MaxPool1d(kernel_size=pool_size, padding='end')
-                x, pool_indices[i] = pool(x)
+                pool = Pool1d(
+                    kernel_size=pool_size, pooling=self.pooling, padding='end'
+                )
+                x, pooling_data[i] = pool(x)
         if self.transpose:
             return x
-        return x, pool_indices
+        return x, pooling_data

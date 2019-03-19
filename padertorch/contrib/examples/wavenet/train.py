@@ -6,14 +6,13 @@ python -m padertorch.contrib.examples.wavenet.train print_config
 python -m padertorch.contrib.examples.wavenet.train
 """
 import os
-from collections import OrderedDict
 from pathlib import Path
 
 from paderbox.utils.nested import deflatten
 from paderbox.utils.timer import timeStamped
 from padertorch.contrib.je.data import DataProvider
 from padertorch.contrib.je.transforms import ReadAudio, STFT, Spectrogram, \
-    MelTransform, Declutter, GlobalNormalize, SegmentAxis, Fragmenter
+    MelTransform, GlobalNormalize, SegmentAxis, Declutter, Reshape, Fragmenter
 from padertorch.models.wavenet import WaveNet
 from padertorch.train.optimizer import Adam
 from padertorch.train.trainer import Trainer
@@ -36,39 +35,40 @@ def config():
         'database_name': 'timit',
         'training_set_names': 'train',
         'validation_set_names': 'test_core',
-        'test_set_names': 'test_core',
-        'transforms.0.factory': ReadAudio,
-        'transforms.0.input_sample_rate': 16000,
-        'transforms.0.target_sample_rate': 16000,
-        'transforms.1.factory': STFT,
-        'transforms.1.frame_step': 160,
-        'transforms.1.frame_length': 400,
-        'transforms.1.fft_length': 512,
-        'transforms.1.keep_input': True,
-        'transforms.2.factory': Spectrogram,
-        'transforms.3.factory': MelTransform,
-        'transforms.3.n_mels': 80,
-        'transforms.4.factory': Declutter,
-        'transforms.4.required_keys': ['audio_data', 'spectrogram'],
-        'transforms.4.dtypes.audio_data': 'float32',
-        'transforms.4.dtypes.spectrogram': 'float32',
-        'transforms.4.permutations.spectrogram': (0, 2, 1),
-        'transforms.5.factory': SegmentAxis,
-        'transforms.5.axis': -1,
-        'transforms.5.segment_steps.audio_data': 16000,
-        'transforms.5.segment_steps.spectrogram': 100,
-        'transforms.5.segment_lengths.audio_data': 16000,
-        'transforms.5.segment_lengths.spectrogram': 102,
-        'transforms.5.pad': False,
-        'normalizer.factory': GlobalNormalize,
-        'normalizer.axes.spectrogram': (2, 3),
-        'normalizer.std_reduce_axes.spectrogram': 1,
-        'subset_size': 1000,
-        'storage_dir': storage_dir,
-        'fragmenter.factory': Fragmenter,
-        'fragmenter.split_axes.audio_data': (0, 1),
-        'fragmenter.split_axes.spectrogram': (0, 2),
-        'fragmenter.squeeze': True,
+        'transforms': deflatten({
+            '0.factory': ReadAudio,
+            '0.input_sample_rate': 16000,
+            '0.target_sample_rate': 16000,
+            '1.factory': STFT,
+            '1.frame_step': 160,
+            '1.frame_length': 400,
+            '1.fft_length': 512,
+            '1.keep_input': True,
+            '2.factory': Spectrogram,
+            '3.factory': MelTransform,
+            '3.n_mels': 80,
+            '4.factory': GlobalNormalize,
+            '4.axes.spectrogram': 1,
+            '4.std_reduce_axes.spectrogram': 2,
+            '5.factory': SegmentAxis,
+            '5.axis': 1,
+            '5.segment_steps.audio_data': 16000,
+            '5.segment_steps.spectrogram': 100,
+            '5.segment_lengths.audio_data': 16000,
+            '5.segment_lengths.spectrogram': 102,
+            '5.pad': True,
+            '6.factory': Declutter,
+            '6.required_keys': ['audio_data', 'spectrogram'],
+            '6.dtypes.audio_data': 'float32',
+            '6.dtypes.spectrogram': 'float32',
+            '7.factory': Reshape,
+            '7.permutations.spectrogram': (0, 1, 3, 2),
+            '8.factory': Fragmenter,
+            '8.split_axes.audio_data': (0, 1),
+            '8.split_axes.spectrogram': (0, 1),
+            '8.squeeze': True
+        }),
+        'fragment': True,
         'max_workers': 16,
         'prefetch_buffer': 10,
         'shuffle_buffer': 1000,

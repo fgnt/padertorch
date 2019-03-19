@@ -25,6 +25,7 @@ def config():
     config_name = str(Path('1') / 'config.json')
     checkpoint_name = 'ckpt_best_loss.pth'
     data_config = load_json(str(Path(model_dir) / config_name))['data_config']
+    dataset_names = 'test'
     num_examples = 3
     storage_dir = str(Path(model_dir) / 'inferred')
 
@@ -40,15 +41,14 @@ def get_model(model_dir, config_name, checkpoint_name):
 
 
 @ex.capture
-def get_dataset(data_config):
+def get_dataset(data_config, dataset_names):
     data_provider = DataProvider.from_config(data_config)
+    dataset = data_provider.get_iterator(dataset_names, shuffle=True)
 
     def get_spec(example):
         return example["spectrogram"]
 
-    test_iter = data_provider.get_test_iterator().map(get_spec)
-
-    return test_iter
+    return dataset.map(get_spec)
 
 
 @ex.automain
