@@ -104,18 +104,6 @@ def _batch_diag(bmat):
     return bmat.reshape(bmat.shape[:-2] + (-1,))[..., ::bmat.size(-1) + 1]
 
 
-def _batch_inverse(bmat):
-    """
-    Returns the inverses of a batch of square matrices.
-
-    TODO: Results might be more stable with least squares solve?
-    """
-    n = bmat.size(-1)
-    flat_bmat = bmat.reshape(-1, n, n)
-    flat_inv_bmat = torch.stack([m.inverse() for m in flat_bmat], 0)
-    return flat_inv_bmat.view(bmat.shape)
-
-
 def kl_normal_multivariate_normal(q, p):
     """
     Args:
@@ -141,7 +129,7 @@ def kl_normal_multivariate_normal(q, p):
         _batch_diag(p_scale_tril).log().sum(-1)[:, None]
         - q_scale.log().sum(-1)
     )
-    L = _batch_inverse(p_scale_tril)
+    L = p_scale_tril.inverse()
     term2 = (L.pow(2).sum(-2)[:, None, :] * q_scale.pow(2)).sum(-1)
     term3 = ((p_loc[:, None, :] - q_loc) @ L.transpose(1, 2)).pow(2.0).sum(-1)
     kl = (term1 + 0.5 * (term2 + term3 - D)).transpose(0, 1)
