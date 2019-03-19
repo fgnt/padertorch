@@ -133,7 +133,9 @@ class Unpool1d(Module):
             x = nn.MaxUnpool1d(kernel_size=self.kernel_size)(
                 x, indices=indices
             )
-        return Cut(side=self.padding)(x, size=pad_size)
+        if pad_size is not None:
+            x = Cut(side=self.padding)(x, size=pad_size)
+        return x
 
 
 class Conv1d(Module):
@@ -370,8 +372,10 @@ class TCN(Module):
             pool_size = self.pool_sizes[i]
             if self.transpose:
                 unpool = Unpool1d(kernel_size=pool_size, padding='end')
+                indices, pad_size = (None, None) if pooling_data[i] is None \
+                    else pooling_data[i]
                 x = unpool(
-                    x, indices=pooling_data[i][0], pad_size=pooling_data[i][1]
+                    x, indices=indices, pad_size=pad_size
                 )
             x = conv(x, h)
             if not self.transpose:
