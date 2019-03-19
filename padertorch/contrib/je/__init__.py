@@ -7,6 +7,7 @@ class Keys:
     AUDIO_DATA = pb_keys.AUDIO_DATA
     AUDIO_PATH = pb_keys.AUDIO_PATH
     EVENTS = pb_keys.EVENTS
+    FRAGMENT_ID = "fragment_id"
     NUM_SAMPLES = pb_keys.NUM_SAMPLES
     NUM_FRAMES = pb_keys.NUM_FRAMES
     PHONES = pb_keys.PHONES
@@ -17,8 +18,8 @@ class Keys:
     WORDS = pb_keys.WORDS
 
     @classmethod
-    def lable_keys(self):
+    def lable_keys(cls):
         return [
-            self.ACTIVITIES, self.EVENTS, self.PHONES, self.ROOMS, self.SCENE,
-            self.WORDS
+            cls.ACTIVITIES, cls.EVENTS, cls.PHONES, cls.ROOMS, cls.SCENE,
+            cls.WORDS
         ]
