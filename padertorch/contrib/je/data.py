@@ -1,60 +1,62 @@
+import numbers
+from collections import OrderedDict
 from functools import partial
+
+from cached_property import cached_property
+from natsort import natsorted
 from paderbox.database import JsonDatabase
 from paderbox.io.data_dir import database_jsons
-from padertorch.contrib.je.transforms import Compose
 from padertorch import Configurable
-from cached_property import cached_property
-import numbers
 from torch.utils.data.dataloader import default_collate
-from collections import OrderedDict
-from natsort import natsorted
 
 
 class DataProvider(Configurable):
     def __init__(
-            self, database_name, training_set_names,
-            validation_set_names=None, test_set_names=None,
-            labels_encoder=None, transforms=None, normalizer=None,
-            subset_size=None, storage_dir=None,
-            fragmenter=None,
+            self, database_name, training_set_names, validation_set_names=None,
+            transforms=None, subset_size=None, storage_dir=None,
             max_workers=0, prefetch_buffer=None,
-            shuffle_buffer=None,
+            fragment=False, shuffle_buffer=None,
             batch_size=None, collate_fn=None
     ):
         self.database_name = database_name
         self.training_set_names = training_set_names
         self.validation_set_names = validation_set_names
-        self.test_set_names = test_set_names
-        self.labels_encoder = labels_encoder
-        if (
-            isinstance(transforms, dict)
-                and not isinstance(transforms, OrderedDict)
-        ):
-            self.transforms = list()
-            for i, key in enumerate(natsorted(transforms.keys())):
-                try:
-                    idx = int(key)
-                    assert idx == i
-                except (ValueError, AssertionError):
-                    raise ValueError(
-                        'transforms is an unordered dict '
-                        'with keys not being an enumeration.'
-                    )
-                self.transforms.append(transforms[key])
-        else:
+        if isinstance(transforms, dict):
+            if not isinstance(transforms, OrderedDict):
+                self.transforms = list()
+                for i, key in enumerate(natsorted(transforms.keys())):
+                    try:
+                        idx = int(key)
+                        assert idx == i
+                    except (ValueError, AssertionError):
+                        raise ValueError(
+                            'transforms is an unordered dict '
+                            'with keys not being an enumeration.'
+                        )
+                    self.transforms.append(transforms[key])
+            else:
+                self.transforms = [
+                    transform for key, transform in transforms.items()
+                ]
+        elif isinstance(transforms, (list, tuple)):
             self.transforms = transforms
-        self.normalizer = normalizer
+        elif callable(transforms):
+            self.transforms = [transforms]
+        else:
+            raise ValueError(
+                f'transforms of type {type(transforms)} not allowed'
+            )
         self.subset_size = subset_size
         self.storage_dir = storage_dir
-        self.fragmenter = fragmenter
         self.num_workers = min(prefetch_buffer, max_workers)
         self.prefetch_buffer = prefetch_buffer
+        self.fragment = fragment
         self.shuffle_buffer = shuffle_buffer
         self.batch_size = batch_size
         self.collate_fn = collate_fn
 
-        self.init_labels_encoder()
-        self.init_normalizer()
+        self.initialized_transforms = False
+        self.get_train_iterator()
 
     @cached_property
     def db(self):
@@ -62,45 +64,7 @@ class DataProvider(Configurable):
             json_path=database_jsons / f'{self.database_name}.json'
         )
 
-    def init_labels_encoder(self):
-        if self.labels_encoder is None:
-            return
-
-        dataset = self.db.get_iterator_by_names(
-            self.training_set_names
-        )
-        if self.subset_size is not None:
-            dataset = dataset.shuffle()[:self.subset_size]
-        self.labels_encoder.init_labels(
-            storage_dir=self.storage_dir,
-            dataset=dataset
-        )
-
-    def init_normalizer(self):
-        if self.normalizer is None:
-            return
-
-        dataset = self.db.get_iterator_by_names(self.training_set_names)
-        if self.subset_size is not None:
-            assert isinstance(self.subset_size, numbers.Integral)
-            dataset = dataset.shuffle()[:self.subset_size]
-        if self.labels_encoder is not None:
-            dataset = dataset.map(self.labels_encoder)
-        if self.transform is not None:
-            dataset = dataset.map(self.transform)
-            dataset = self.maybe_prefetch(dataset)
-
-        self.normalizer.init_moments(
-            dataset=dataset, storage_dir=self.storage_dir
-        )
-
-    @cached_property
-    def transform(self):
-        if self.transforms is None:
-            return None
-        return Compose(self.transforms)
-
-    def maybe_prefetch(self, dataset):
+    def prefetch(self, dataset):
         if self.num_workers > 0:
             assert self.prefetch_buffer is not None
             dataset = dataset.prefetch(
@@ -108,44 +72,53 @@ class DataProvider(Configurable):
             )
         return dataset
 
-    def get_iterator(self, dataset_names, training=False):
+    def get_iterator(
+            self, dataset_names, training=False, shuffle=False, fragment=True,
+            batch=True
+    ):
         if dataset_names is None:
             return None
+
         dataset = self.db.get_iterator_by_names(dataset_names)
 
-        for func in [
-            self.labels_encoder, self.transform, self.normalizer,
-            self.fragmenter
-        ]:
-            if func is not None:
-                func = partial(func, training=training)
-                dataset = dataset.map(func)
+        for transform in self.transforms:
+            if not self.initialized_transforms:
+                assert dataset_names == self.training_set_names
+                subset = dataset
+                if self.subset_size is not None:
+                    assert isinstance(self.subset_size, numbers.Integral)
+                    subset = subset.shuffle()[:self.subset_size]
+                transform.init_params(
+                    storage_dir=self.storage_dir, dataset=self.prefetch(subset)
+                )
+            transform = partial(transform, training=training)
+            dataset = dataset.map(transform)
+        self.initialized_transforms = True
 
-        if training:
+        if shuffle:
             dataset = dataset.shuffle(reshuffle=True)
+        dataset = self.prefetch(dataset)
 
-        dataset = self.maybe_prefetch(dataset)
-
-        if self.fragmenter is not None:
+        if self.fragment and fragment:
             dataset = dataset.unbatch()
-            if training:
+            if self.shuffle_buffer is not None and shuffle:
                 dataset = dataset.shuffle(
                     reshuffle=True, buffer_size=self.shuffle_buffer
                 )
 
-        dataset = dataset.batch(self.batch_size)
-        if self.collate_fn is None:
-            collate_fn = default_collate
-        else:
-            collate_fn = self.collate_fn
-        dataset = dataset.map(collate_fn)
+        if batch:
+            dataset = dataset.batch(self.batch_size)
+            if self.collate_fn is None:
+                collate_fn = default_collate
+            else:
+                collate_fn = self.collate_fn
+            dataset = dataset.map(collate_fn)
         return dataset
 
     def get_train_iterator(self):
-        return self.get_iterator(self.training_set_names, training=True)
+        return self.get_iterator(
+            self.training_set_names, training=True, shuffle=True
+        )
 
     def get_validation_iterator(self):
-        return self.get_iterator(self.validation_set_names, training=False)
-
-    def get_test_iterator(self):
-        return self.get_iterator(self.test_set_names, training=False)
+        return self.get_iterator(self.validation_set_names)

@@ -2,12 +2,14 @@ import abc
 import json
 from collections import OrderedDict
 from pathlib import Path
+from functools import partial
 
 import numpy as np
 import samplerate
 import soundfile
 from paderbox.transform.module_fbank import MelTransform as MelModule
 from paderbox.transform.module_stft import STFT as STFTModule
+from paderbox.transform.module_mfcc import delta
 from paderbox.utils.nested import squeeze_nested, nested_op, nested_update, \
     flatten, deflatten
 from padertorch.configurable import Configurable
@@ -26,6 +28,9 @@ class Transform(Configurable, abc.ABC):
     @abc.abstractmethod
     def __call__(self, example, training=False):
         raise NotImplementedError
+
+    def init_params(self, values=None, storage_dir=None, dataset=None):
+        pass
 
 
 class Compose:
@@ -70,7 +75,7 @@ class Compose:
         return f'{self.__class__.__name__}({s})'
 
 
-class ReadAudio:
+class ReadAudio(Transform):
     """
     Read audio from disk. Expects an key 'audio_path' in input dict
     and adds an entry 'audio_data' with the read audio data.
@@ -237,6 +242,45 @@ class MelTransform(MelModule, Transform):
         example[Keys.SPECTROGRAM] = nested_op(
             super().__call__, example[Keys.SPECTROGRAM]
         )
+        return example
+
+
+class AddDeltas(Transform):
+    def __init__(self, axes, num_deltas=1):
+        """
+
+        Args:
+            axes:
+            num_deltas:
+
+        >>> deltas = AddDeltas(axes={'a': 1})
+        >>> example = {'a': np.zeros((3, 16))}
+        >>> deltas(example)['a'].shape
+        (3, 2, 16)
+        """
+        self.axes = axes
+        if not isinstance(num_deltas, dict):
+            num_deltas = {key: num_deltas for key in axes}
+        self.num_deltas = num_deltas
+
+    def add_deltas(self, x, key):
+        axis = self.axes[key]
+        num_deltas = self.num_deltas[key]
+        x = np.array(
+            [x] + [
+                delta(x, axis=axis, order=order)
+                for order in range(1, num_deltas + 1)
+            ]
+        )
+        if axis != 0:
+            x = np.moveaxis(x, 0, axis)
+        return x
+
+    def __call__(self, example, training=False):
+        for key, axis in self.axes.items():
+            example[key] = nested_op(
+                partial(self.add_deltas, key=key), example[key]
+            )
         return example
 
 
@@ -411,6 +455,7 @@ class Fragmenter(Transform):
         for i in range(int(num_fragments[0])):
             fragment = deepcopy(fragment_template) if self.deepcopy \
                 else copy(fragment_template)
+            fragment[Keys.FRAGMENT_ID] = i
             for key in features.keys():
                 x = features[key][i]
                 fragment[key] = deepcopy(x) if self.deepcopy else x
@@ -428,7 +473,7 @@ class LabelEncoder(Transform):
         self.label2idx = None
         self.idx2label = None
 
-    def init_labels(self, labels=None, storage_dir=None, dataset=None):
+    def init_params(self, labels=None, storage_dir=None, dataset=None):
         storage_dir = storage_dir or ""
         file = (Path(storage_dir) / f'{self.key}.json').expanduser().absolute()
         if storage_dir and file.exists():
@@ -450,6 +495,10 @@ class LabelEncoder(Transform):
             print(f'Saved {self.key} to {file}')
         self.label2idx = {label: i for i, label in enumerate(labels)}
         self.idx2label = {i: label for label, i in self.label2idx.items()}
+
+    @property
+    def num_labels(self):
+        return len(self.idx2label)
 
     def encode(self, labels):
         def encode_label(label):
@@ -491,7 +540,7 @@ class LabelEncoder(Transform):
 
 
 class Declutter(Transform):
-    def __init__(self, required_keys, dtypes=None, permutations=None):
+    def __init__(self, required_keys, dtypes=None):
         """
 
         Args:
@@ -507,7 +556,6 @@ class Declutter(Transform):
         """
         self.required_keys = to_list(required_keys)
         self.dtypes = dtypes
-        self.permutations = permutations
 
     def __call__(self, example, training=False):
         example = {key: example[key] for key in self.required_keys}
@@ -516,12 +564,6 @@ class Declutter(Transform):
                 example[key] = np.array(example[key]).astype(
                     getattr(np, dtype)
                 )
-        if self.permutations is not None:
-            for key, perm in self.permutations.items():
-                if torch.is_tensor(example[key]):
-                    example[key] = example[key].permute(perm)
-                else:
-                    example[key] = example[key].transpose(perm)
         return example
 
 
@@ -561,19 +603,21 @@ class GlobalNormalize(Transform):
         self.verbose = verbose
         self.moments = None
 
-    def init_moments(self, dataset=None, storage_dir=None):
+    def init_params(self, moments=None, dataset=None, storage_dir=None):
+        self.moments = moments
         storage_dir = storage_dir or ""
         file = (Path(storage_dir) / "moments.json").expanduser().absolute()
-        if storage_dir and file.exists():
+        if self.moments is None and storage_dir and file.exists():
             with file.open() as f:
                 self.moments = json.load(f)
             print(f'Restored moments from {file}')
         if self.moments is None:
+            assert dataset is not None
             self.moments = self._read_moments_from_dataset(dataset)
-            if storage_dir and not file.exists():
-                with file.open('w') as f:
-                    json.dump(self.moments, f, sort_keys=True, indent=4)
-                print(f'Saved moments to {file}')
+        if storage_dir and not file.exists():
+            with file.open('w') as f:
+                json.dump(self.moments, f, sort_keys=True, indent=4)
+            print(f'Saved moments to {file}')
 
     def __call__(self, example, training=False):
         example_ = {key: example[key] for key in self.axes}
@@ -633,3 +677,24 @@ class GlobalNormalize(Transform):
             )
         return (nested_op(lambda x: x.tolist(), means),
                 nested_op(lambda x: x.tolist(), std))
+
+
+class Reshape(Transform):
+    def __init__(self, permutations=None, shapes=None):
+        self.permutations = permutations
+        self.shapes = shapes
+
+    def __call__(self, example, training=False):
+        if self.permutations is not None:
+            for key, perm in self.permutations.items():
+                if torch.is_tensor(example[key]):
+                    transpose = lambda x: x.permute(perm)
+                else:
+                    transpose = lambda x: x.transpose(perm)
+                example[key] = nested_op(lambda x: transpose(x), example[key])
+        if self.shapes is not None:
+            for key, shape in self.shapes.items():
+                example[key] = nested_op(
+                    lambda x: x.reshape(shape), example[key]
+                )
+        return example
