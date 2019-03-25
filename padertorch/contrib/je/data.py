@@ -14,14 +14,16 @@ class DataProvider(Configurable):
     def __init__(
             self, database_name, training_set_names, validation_set_names=None,
             transforms=None, subset_size=None, storage_dir=None,
-            max_workers=0, prefetch_buffer=None,
+            max_workers=0, prefetch_buffer=100,
             fragment=False, shuffle_buffer=None,
             batch_size=None, collate_fn=None
     ):
         self.database_name = database_name
         self.training_set_names = training_set_names
         self.validation_set_names = validation_set_names
-        if isinstance(transforms, dict):
+        if transforms is None:
+            self.transforms = []
+        elif isinstance(transforms, dict):
             if not isinstance(transforms, OrderedDict):
                 self.transforms = list()
                 for i, key in enumerate(natsorted(transforms.keys())):
