@@ -360,6 +360,7 @@ class Trainer(Configurable):
             assert 'loss' in review, review
 
         assert review['loss'].dim() == 0, review['loss']
+        assert torch.isfinite(review['loss']), review
         return review
 
     def step(self, example):
