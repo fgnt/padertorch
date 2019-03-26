@@ -342,6 +342,21 @@ class SegmentAxis(Transform):
         {'a': array([[[0, 1, 2, 3]],
         <BLANKLINE>
                [[4, 5, 6, 7]]])}
+        >>> channel_segmenter = SegmentAxis({'a':3}, axis=0, pad=True)
+        >>> example = {'a': np.arange(12).reshape((3, 4))}
+        >>> pprint(channel_segmenter(example))
+        {'a': array([[[ 0,  1,  2,  3],
+                [ 4,  5,  6,  7],
+                [ 8,  9, 10, 11]]])}
+        >>> channel_segmenter = SegmentAxis({'a':3}, axis=0, pad=True)
+        >>> example = {'a': np.arange(12).reshape((3, 4))}
+        >>> pprint(channel_segmenter(example, training=True))
+        {'a': array([[[ 0,  1,  2,  3],
+                [ 4,  5,  6,  7],
+                [ 8,  9, 10, 11]]])}
+        # >>> channel_segmenter = SegmentAxis({'a': 5}, axis=0, pad=True)
+        # >>> example = {'a': np.arange(12).reshape((3, 4))}
+        # >>> pprint(channel_segmenter(example, training=True))
         """
         self.segment_steps = segment_steps
         self.segment_lengths = segment_lengths if segment_lengths is not None \
@@ -352,8 +367,18 @@ class SegmentAxis(Transform):
     def __call__(self, example, training=False):
         if training:
             start = np.random.rand()
-            for fragment_step in self.segment_steps.values():
-                start = int(int(start*fragment_step) / fragment_step)
+            for key in self.segment_steps:
+                value = example[key]
+                value = flatten(value) if isinstance(value, dict) else {'': value}
+                max_start = min(nested_op(
+                    lambda x:
+                        (x.shape[self.axis] - self.segment_lengths[key])
+                        / self.segment_steps[key],
+                    value
+                ).values())
+                start *= min(1., max_start)
+            for segment_step in self.segment_steps.values():
+                start = int(start*segment_step) / segment_step
         else:
             start = 0.
 
@@ -366,7 +391,11 @@ class SegmentAxis(Transform):
                 slc[self.axis] = slice(
                     int(start_idx), x.shape[self.axis]
                 )
-                x = x[slc]
+                x = x[tuple(slc)]
+            elif start_idx < 0 and self.pad:
+                pad_width = x.ndim * [(0, 0)]
+                pad_width[self.axis] = (-start_idx, 0)
+                x = np.pad(x, pad_width=pad_width, mode='constant')
             assert self.axis < x.ndim, (self.axis, x.ndim)
             x = segment_axis_v2(
                 x, segment_length, segment_step, axis=self.axis,
@@ -569,7 +598,7 @@ class Declutter(Transform):
 
 class GlobalNormalize(Transform):
     def __init__(
-            self, axes, std_reduce_axes=None, verbose=False
+            self, mean_axes, std_reduce_axes=None, verbose=False
     ):
         """
 
@@ -578,27 +607,27 @@ class GlobalNormalize(Transform):
             std_reduce_axes:
             verbose:
 
-        >>> norm = GlobalNormalize(axes={'spectrogram': 0})
+        >>> norm = GlobalNormalize(mean_axes={'spectrogram': 0})
         >>> ex = dict(spectrogram=2*np.ones((2, 4)))
-        >>> norm.init_moments([ex])
+        >>> norm.init_params(dataset=[ex])
         >>> norm.moments
         ({'spectrogram': [[2.0, 2.0, 2.0, 2.0]]}, {'spectrogram': [[0.0, 0.0, 0.0, 0.0]]})
         >>> norm(ex)
         {'spectrogram': array([[0., 0., 0., 0.],
                [0., 0., 0., 0.]])}
-        >>> norm = GlobalNormalize(axes={'spectrogram': 0}, std_reduce_axes={'spectrogram': 1})
+        >>> norm = GlobalNormalize(mean_axes={'spectrogram': 0}, std_reduce_axes={'spectrogram': 1})
         >>> ex = dict(spectrogram=2*np.ones((2, 4)))
-        >>> norm.init_moments([ex])
+        >>> norm.init_params(dataset=[ex])
         >>> norm.moments
         ({'spectrogram': [[2.0, 2.0, 2.0, 2.0]]}, {'spectrogram': [[0.0]]})
         >>> norm(ex)
         {'spectrogram': array([[0., 0., 0., 0.],
                [0., 0., 0., 0.]])}
         """
-        self.axes = {key: tuple(to_list(ax)) for key, ax in axes.items()}
+        self.mean_axes = {key: tuple(to_list(ax)) for key, ax in mean_axes.items()}
         self.std_reduce_axes = {
             key: () if std_reduce_axes is None or key not in std_reduce_axes
-            else tuple(to_list(std_reduce_axes[key])) for key in axes
+            else tuple(to_list(std_reduce_axes[key])) for key in mean_axes
         }
         self.verbose = verbose
         self.moments = None
@@ -619,20 +648,18 @@ class GlobalNormalize(Transform):
                 json.dump(self.moments, f, sort_keys=True, indent=4)
             print(f'Saved moments to {file}')
 
+    def norm(self, x, mean, std):
+        x -= mean
+        x /= (np.array(std) + 1e-18).astype(x.dtype)
+
     def __call__(self, example, training=False):
-        example_ = {key: example[key] for key in self.axes}
+        example_ = {key: example[key] for key in self.mean_axes}
         means, std = self.moments
-        nested_update(
-            example,
-            nested_op(
-                lambda x, y, z: ((x-y)/(np.array(z)+1e-18)).astype(x.dtype),
-                example_, means, std
-            )
-        )
+        nested_op(self.norm, example_, means, std)  # inplace
         return example
 
     def invert(self, example):
-        example_ = {key: example[key] for key in self.axes}
+        example_ = {key: example[key] for key in self.mean_axes}
         means, std = self.moments
         nested_update(
             example,
@@ -641,31 +668,31 @@ class GlobalNormalize(Transform):
         return example
 
     def _read_moments_from_dataset(self, dataset):
-        means = {key: 0 for key in self.axes}
-        energies = {key: 0 for key in self.axes}
-        counts = {key: 0 for key in self.axes}
+        means = {key: 0 for key in self.mean_axes}
+        energies = {key: 0 for key in self.mean_axes}
+        counts = {key: 0 for key in self.mean_axes}
         for example in tqdm(dataset, disable=not self.verbose):
-            for key in self.axes:
+            for key in self.mean_axes:
                 means[key] = nested_op(
                     lambda x, y:
-                        y + np.sum(x, axis=self.axes[key], keepdims=True),
+                        y + np.sum(x, axis=self.mean_axes[key], keepdims=True),
                     example[key], means[key]
                 )
                 energies[key] = nested_op(
                     lambda x, y:
-                        y + np.sum(x ** 2, axis=self.axes[key], keepdims=True),
+                        y + np.sum(x ** 2, axis=self.mean_axes[key], keepdims=True),
                     example[key], energies[key]
                 )
                 counts[key] = nested_op(
                     lambda x, y:
                         y + np.prod(
-                            np.array(x.shape)[np.array(self.axes[key])]
+                            np.array(x.shape)[np.array(self.mean_axes[key])]
                         ),
                     example[key], counts[key]
                 )
         means = nested_op(lambda x, c: x / c, means, counts)
         std = {}
-        for key in self.axes:
+        for key in self.mean_axes:
             std[key] = nested_op(
                 lambda x, y, c: np.sqrt(
                     np.mean(
@@ -677,6 +704,60 @@ class GlobalNormalize(Transform):
             )
         return (nested_op(lambda x: x.tolist(), means),
                 nested_op(lambda x: x.tolist(), std))
+
+
+class LocalNormalize(Transform):
+    def __init__(
+            self, mean_axes=None, std_axes=None
+    ):
+        """
+
+        Args:
+            axes:
+            std_reduce_axes:
+            verbose:
+
+        >>> norm = LocalNormalize(mean_axes={'spectrogram': 0})
+        >>> ex = dict(spectrogram=2*np.ones((2, 4)))
+        >>> norm(ex)
+        {'spectrogram': array([[0., 0., 0., 0.],
+               [0., 0., 0., 0.]])}
+        >>> norm = LocalNormalize(\
+            mean_axes={'spectrogram': 0}, std_axes={'spectrogram': (0, 1)})
+        >>> ex = dict(spectrogram=2*np.ones((2, 4)))
+        >>> norm(ex)
+        {'spectrogram': array([[0., 0., 0., 0.],
+               [0., 0., 0., 0.]])}
+        """
+        self.keys = set()
+        if mean_axes is not None:
+            self.mean_axes = {
+                key: tuple(to_list(ax)) for key, ax in mean_axes.items()
+            }
+            self.keys.update(self.mean_axes.keys())
+        else:
+            self.mean_axes = None
+        if std_axes is not None:
+            self.std_axes = {
+                key: tuple(to_list(ax)) for key, ax in std_axes.items()
+            }
+            self.keys.update(self.std_axes.keys())
+        else:
+            self.std_axes = None
+
+    def norm(self, x, key):
+        if self.mean_axes is not None and key in self.mean_axes:
+            x -= np.mean(x, axis=self.mean_axes[key], keepdims=True)
+        if self.std_axes is not None and key in self.std_axes:
+            x /= (np.sqrt(np.mean(x**2, axis=self.std_axes[key], keepdims=True)) + 1e-18).astype(x.dtype)
+
+    def __call__(self, example, training=False):
+        for key in self.keys:
+            nested_op(
+                partial(self.norm, key=key),
+                example[key]
+            )
+        return example
 
 
 class Reshape(Transform):
