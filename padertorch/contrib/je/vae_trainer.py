@@ -24,10 +24,15 @@ class Trainer(BaseTrainer):
         (mean, logvar), pooling_data = self.model['ae'](
             example, command="encode"
         )
-        latent_in = (
+        latent_in = [
             mean.transpose(1, 2).to(latent_device),
             logvar.transpose(1, 2).to(latent_device)
-        )
+        ]
+        if (
+                "mixture_idx" in example and self.model['latent'].training
+                and isinstance(self.model['latent'], (GMM, FBGMM))
+        ):
+            latent_in.append(example["mixture_idx"])
         latent_out = self.model['latent'](latent_in)
         ae_out = self.model['ae'](
             (latent_out[0].transpose(1, 2).to(ae_device), pooling_data),

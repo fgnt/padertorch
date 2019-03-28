@@ -80,7 +80,7 @@ class StandardNormal(LatentModel):
 class GMM(StandardNormal):
     def __init__(
             self, feature_size, num_classes, init_std=1.0, pool_size=None,
-            covariance_type='full', temperature=1.
+            covariance_type='full', temperature=1., quantization_rate=0.
     ):
         super(Model, self).__init__()
         self.feature_size = feature_size
@@ -88,6 +88,7 @@ class GMM(StandardNormal):
         self.pool_size = pool_size
         self.covariance_type = covariance_type
         self.temperature = temperature
+        self.quantization_rate = quantization_rate
 
         locs_init = init_std * np.random.randn(num_classes, feature_size)
 
@@ -106,12 +107,12 @@ class GMM(StandardNormal):
             scales_init = np.ones((num_classes,  feature_size)) * init_std
         else:
             raise ValueError
+        # scales_init = scales_init * ((1 / num_classes) ** (1 / feature_size))
 
         if covariance_type == 'fix':
             requires_grad.append(False)
         else:
             requires_grad.append(True)
-        # scales_init *= (1 / num_classes) ** (1 / feature_size)
 
         self.log_weights, self.locs, self.scales = [
             nn.Parameter(torch.Tensor(init), requires_grad=requires_grad_)
@@ -140,7 +141,7 @@ class GMM(StandardNormal):
                 loc=self.locs,
                 scale_tril=(
                     self.scales * mask
-                    + 0.001 * torch.diag(torch.ones_like(self.locs[0]))
+                    + 0.01 * torch.diag(torch.ones_like(self.locs[0]))
                 )
             )
         else:
@@ -150,28 +151,48 @@ class GMM(StandardNormal):
             )
 
     def forward(self, inputs):
-        mean, logvar = inputs
-        qz = D.Normal(loc=mean, scale=torch.exp(0.5 * logvar))
-        kl = kl_divergence(qz, self.gaussians)
+        assert len(inputs) in [2, 3]
+        mean, logvar = inputs[:2]
+        labels = None if len(inputs) == 2 else inputs[2]
 
+        quantize = self.training and np.random.rand() < self.quantization_rate
+        if quantize:
+            logvar = logvar.detach()
+
+        qz = D.Normal(loc=mean, scale=torch.exp(0.5 * logvar))
+        gaussians = self.gaussians
+
+        kl = kl_divergence(qz, gaussians)
         log_rho = self.log_probs - kl
         log_gamma = torch.log_softmax(log_rho, dim=-1)
+        gamma = torch.softmax(
+            log_rho / max(self.temperature, 1e-2), dim=-1
+        ).detach()
+        if labels is None:
+            if self.temperature < 1e-2:
+                labels = torch.argmax(log_gamma, dim=-1)
+            elif quantize:
+                labels = torch.distributions.Categorical(gamma).sample()
 
-        if self.temperature > 0.:
-            gamma = torch.softmax(log_rho / self.temperature, dim=-1).detach()
+        if labels is None:
             log_rho_ = (gamma * log_rho).sum(-1)
         else:
-            assert self.temperature == 0.
-            log_rho_ = log_rho[:, torch.argmax(log_gamma, dim=-1)]
+            while labels.dim() < log_rho.dim() - 1:
+                labels = labels.unsqueeze(-1)
+            labels = labels.expand(log_rho.shape[:-1])
+            log_rho_ = log_rho.gather(-1, labels[..., None]).squeeze(-1)
 
-        z = self.sample(mean, logvar)
+        if quantize:
+            locs = gaussians.loc[labels]
+            z = locs + mean - mean.detach()
+        else:
+            z = self.sample(mean, logvar)
         z, log_rho_, pool_indices, log_gamma = self.pool(
             z, log_rho_, log_gamma
         )
         return z, log_rho_, pool_indices, log_gamma
 
     def review(self, inputs, outputs):
-        mean, log_var = inputs
         # ToDo: how to encourage sparse gamma?
         _, log_rho, _, log_gamma = outputs
         kld = -log_rho
@@ -179,6 +200,7 @@ class GMM(StandardNormal):
             log_gamma, -100 * torch.ones_like(log_gamma)
         ).sum(-1)
         gamma_max_, classes_ = torch.max(torch.exp(log_gamma), -1)
+        mean, log_var = inputs[:2]
         return dict(
             losses=dict(
                 kld=kld.mean(),
@@ -365,9 +387,7 @@ class FBGMM(StandardNormal):
 
 
 class KeyValueAttention(LatentModel):
-    def __init__(
-            self, feature_size, num_classes, pool_size=None
-    ):
+    def __init__(self, feature_size, num_classes, pool_size=None):
         super().__init__()
         self.feature_size = feature_size
         self.num_classes = num_classes
