@@ -245,6 +245,22 @@ class MelTransform(MelModule, Transform):
         return example
 
 
+class Mean(Transform):
+    def __init__(self, axes, keepdims=False):
+        self.axes = axes
+        self.keepdims = keepdims
+
+    def __call__(self, example, training=False):
+        for key, axis in self.axes.items():
+            keepdims = self.keepdims[key] \
+                if isinstance(self.keepdims, dict) else self.keepdims
+            example[key] = nested_op(
+                lambda x: np.mean(x, axis=axis, keepdims=keepdims),
+                example[key]
+            )
+        return example
+
+
 class AddDeltas(Transform):
     def __init__(self, axes, num_deltas=1):
         """
