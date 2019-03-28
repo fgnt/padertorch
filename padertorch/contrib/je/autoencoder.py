@@ -99,6 +99,7 @@ class AE(Model):
         config['decoder'] = {'factory': TCN, 'transpose': True}
         config['decoder']['output_size'] = config['encoder']['input_size']
         config['decoder']['num_layers'] = config['encoder']['num_layers']
+        config['decoder']['pooling'] = config['encoder']['pooling']
         for key in [
             'hidden_sizes', 'kernel_sizes', 'n_scales', 'dilations',
             'strides', 'pool_sizes', 'paddings'
