@@ -9,6 +9,7 @@ import einops
 
 import paderbox as pb
 import padertorch as pt
+from paderbox.speech_enhancement import ideal_binary_mask
 
 import pb_bss.distribution.cwmm
 import pb_bss.permutation_alignment
@@ -224,19 +225,26 @@ class Model(pt.Model, pt.train.hooks.Hook):
         else:
             self.output_activation = pt.ops.mappings.ACTIVATION_FN_MAP[output_activation]()
 
-    def get_iterable(self, dataset):
+    def get_iterable(self, dataset, snr_range=(10, 20)):
         if isinstance(self.db, pb.database.wsj_bss.WsjBss):
             it = self.db.get_iterator_by_names(dataset)
+            it = it.shuffle(reshuffle=True)
             it = it.map(pb.database.iterator.AudioReader(
                 audio_keys=['speech_source', 'rir'],
-                read_fn=self.db.read_fn,
+                # read_fn=self.db.read_fn,
+                read_fn=pb.io.load_audio,
             ))
             it = it.map(functools.partial(
                 pb.database.wsj_bss.scenario_map_fn,
-                channel_mode='all',
-                truncate_rir=False,
-                snr_range=(20, 30),  # Too high, reviewer won't like this
-                rir_type='image_method'
+                # channel_mode='all',
+                # truncate_rir=False,
+                # snr_range=(20, 30),  # Too high, reviewer won't like this
+                snr_range=snr_range,  # Too high, reviewer won't like this
+                # rir_type='image_method',
+                pad_speech_source=True,
+                add_speech_reverberation_direct=True,
+                add_speech_reverberation_tail=True,
+                # normalize=True,
             ))
 
             return it
@@ -250,18 +258,46 @@ class Model(pt.Model, pt.train.hooks.Hook):
         # shape D T F
 
         if self.use_guide:
-            assert self.sources == 2, self.sources
+            assert self.sources in [2, 3], self.sources
+            if self.sources == 2:
+                pass
+                # assert self.pit_loss not in ['bce', 'mse_ibm'], self.pit_loss
+            elif self.sources in [2, 3]:
+                assert self.pit_loss in ['bce', 'mse_ibm', 'ce'], self.pit_loss
+            else:
+                raise ValueError(self.sources)
+
+
             Speech_image = self.feature_extractor(example['audio_data']['speech_image'])
+            Noise_image = self.feature_extractor(example['audio_data']['noise_image'])
             Clean = np.abs(Speech_image).astype(np.float32)
+
+            if self.pit_loss == 'ce':
+                target_mask = np.ascontiguousarray(
+                    ideal_binary_mask(
+                        np.array([*Speech_image, Noise_image]),
+                        source_axis=-4,
+                        one_hot=False,
+                    )
+                )
+            else:
+                target_mask = np.ascontiguousarray(
+                    ideal_binary_mask(
+                        np.array([*Speech_image, Noise_image]),
+                        source_axis=-4
+                    ), np.float32
+                )
         else:
             Clean = None
             Speech_image = None
+            target_mask = None
 
         return self.NNInput(
             Observation=Observation,
             Feature=np.abs(Observation).astype(np.float32),
             Target=Clean,
             Speech_image=Speech_image,
+            target_mask=target_mask,
         )
 
     @dataclass
@@ -270,6 +306,7 @@ class Model(pt.Model, pt.train.hooks.Hook):
         Feature: torch.tensor
         Target: torch.tensor
         Speech_image: np.ndarray
+        target_mask: np.ndarray
         # alignment: torch.tensor
         # kaldi_transcription: tuple
 
@@ -296,9 +333,17 @@ class Model(pt.Model, pt.train.hooks.Hook):
             k=self.sources,
         )
 
-        return self.output_activation(predict)
+        return self.NNOutput(
+            predict_logit=predict,
+            predict=self.output_activation(predict),
+        )
 
-    def review(self, inputs: NNInput, predict, summary=None):
+    @dataclass
+    class NNOutput:
+        predict_logit: torch.tensor
+        predict: torch.tensor
+
+    def review(self, inputs: NNInput, output: NNOutput, summary=None):
         """
 
         >>> np.set_string_function(lambda a: f'array(shape={a.shape}, dtype={a.dtype})')
@@ -339,13 +384,15 @@ class Model(pt.Model, pt.train.hooks.Hook):
             summary = ReviewSummary()
 
         if isinstance(inputs, (tuple, list)):
-            assert isinstance(predict, (tuple, list)), (type(predict), predict)
-            assert len(predict) == len(inputs), (len(predict), len(inputs), predict, inputs)
+            assert isinstance(output, (tuple, list)), (type(output), output)
+            assert len(output) == len(inputs), (len(output), len(inputs), output, inputs)
             # Batch Mode
-            for i, p in zip(inputs, predict):
-                summary = self.review(inputs=i, predict=p, summary=summary)
+            for i, o in zip(inputs, output):
+                summary = self.review(inputs=i, output=o, summary=summary)
 
             return summary
+
+        predict = output.predict
 
         # predict.shape == D T F K
 
@@ -364,17 +411,83 @@ class Model(pt.Model, pt.train.hooks.Hook):
 
             predict_amp = einops.rearrange(
                 inputs.Feature[..., None] * predict,
-                'D T F K -> (D T) K F'.lower()
+                'D T F K -> D T K F'.lower()
             )
+            D, _, K, _ = predict_amp.shape
+            assert D < 30, D
+            assert K < 30, K
 
+            predict_logit_amp = einops.rearrange(
+                inputs.Feature[..., None] * output.predict_logit,
+                'D T F K -> D T K F'.lower()
+            )
+            D = predict_amp.shape[0]
+            assert D < 30, D
 
             # pit mse
             if self.pit_loss == 'mse':
-                mask_mse_loss = pt.ops.loss.pit_loss(
-                    predict_amp,
-                    einops.rearrange(target, 'K D T F -> (D T) K F'.lower()),
+                mask_mse_loss = sum([pt.ops.loss.pit_loss(
+                    predict_amp[d],
+                    einops.rearrange(target, 'K D T F -> D T K F'.lower())[d],
+                ) for d in range(D)]) / D
+            elif self.pit_loss in ['ce']:
+                loss_fn = torch.nn.functional.cross_entropy
+                estimate = predict_logit_amp
+
+                mask_mse_loss = sum([pt.ops.loss.pit_loss(
+                    estimate[d],
+                    einops.rearrange(inputs.target_mask, 'D T F -> D T F'.lower())[d],
+                    loss_fn=loss_fn,
+                ) for d in range(D)]) / D
+
+                tmp_mask = einops.rearrange(inputs.target_mask,
+                                            'D T F -> D T F'.lower())[0]
+
+                summary.add_image(
+                    f'target_mask',
+                    pt.summary.mask_to_image(einops.rearrange(
+                        [tmp_mask == k for k in range(K)],
+                        'k t f -> t (k f)'
+                    )),
                 )
 
+            elif self.pit_loss in ['bce', 'mse_ibm']:
+
+                if self.pit_loss == 'bce':
+                    # loss_fn = torch.nn.BCELoss()
+                    loss_fn = torch.nn.functional.binary_cross_entropy_with_logits
+
+                    estimate = predict_logit_amp
+                elif self.pit_loss == 'mse_ibm':
+                    loss_fn = torch.nn.functional.mse_loss
+                    estimate = predict_amp
+                else:
+                    raise ValueError(self.pit_loss)
+
+                target_mask = inputs.target_mask
+                if self.sources == 2:
+                    assert K == 2, K
+                    assert target_mask.shape[0] == 3
+                    # Drop noise mask
+                    target_mask = target_mask[:-1, ...]
+
+                target_mask = einops.rearrange(
+                    target_mask, 'K D T F -> D T K F'.lower()
+                )
+
+                mask_mse_loss = sum([pt.ops.loss.pit_loss(
+                    estimate[d],
+                    target_mask[d],
+                    loss_fn=loss_fn,
+                ) for d in range(D)]) / D
+
+                summary.add_image(
+                    f'target_mask',
+                    pt.summary.mask_to_image(einops.rearrange(
+                        inputs.target_mask,
+                        'k d t f -> d t (k f)'
+                    )[0]),
+                )
             elif 'ips' in self.pit_loss:
                 # pit ips: Ideal Phase Sensitive
                 # pit nips: Nonnegativ Ideal Phase Sensitive
@@ -386,40 +499,43 @@ class Model(pt.Model, pt.train.hooks.Hook):
 
                 cos_phase_diff = target.new(cos_phase_diff)
 
+                # Allow different permutations for different channels
+
                 if 'ips' == self.pit_loss:
-                    mask_mse_loss = pt.ops.losses.loss.pit_loss(
-                        predict_amp,
-                        einops.rearrange(target * cos_phase_diff,
-                                         'K D T F -> (D T) K F'.lower())
-                    )
+                    pass
                 elif 'nips' == self.pit_loss:
-                    mask_mse_loss = pt.ops.losses.loss.pit_loss(
-                        predict_amp,
-                        einops.rearrange(target * cos_phase_diff,
-                                         'K D T F -> (D T) K F'.lower())
-                    )
+                    cos_phase_diff = torch.nn.ReLU()(cos_phase_diff)
                 else:
                     raise ValueError(self.pit_loss)
+
+                mask_mse_loss = sum([pt.ops.losses.loss.pit_loss(
+                    predict_amp[d],
+                    einops.rearrange(target * cos_phase_diff,
+                                     'K D T F -> D T K F'.lower())[d]
+                ) for d in range(D)]) / D
             else:
                 raise ValueError(self.pit_loss)
 
             summary.add_scalar(f'reconstruction_{self.pit_loss}', mask_mse_loss)
             summary.add_to_loss(mask_mse_loss)
 
-            for i, p in enumerate(einops.rearrange(target, 'K D T F -> D K T F'.lower())[0]):
-                summary.add_image(f'clean_{i}', pt.summary.spectrogram_to_image(p))
+            summary.add_image(f'clean', pt.summary.spectrogram_to_image(
+                einops.rearrange(target, 'K D T F -> D T (K F)'.lower())[0])
+            )
         else:
             aux_loss = self.aux_loss(predict, inputs.Observation)
             summary.add_to_loss(aux_loss)
             summary.add_scalar('aux_loss', aux_loss)
 
-        for i, mask in enumerate(
+        summary.add_image(
+            f'mask',
+            pt.summary.mask_to_image(
                 einops.rearrange(
                     predict,
-                    'D T F K -> D K T F'.lower()
-                )[0, :, :, :]
-        ):
-            summary.add_image(f'mask_{i}', pt.summary.mask_to_image(mask))
+                    'D T F K -> D T (K F)'.lower()
+                )[0, :, :]
+            ),
+        )
 
         summary.add_image('Observation', pt.summary.stft_to_image(inputs.Observation[0]))
 

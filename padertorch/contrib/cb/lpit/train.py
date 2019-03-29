@@ -179,6 +179,9 @@ def init(_config, _run):
         fd.write(
             '\n'
             'evalfolder := $(patsubst checkpoints/%.pth,eval/%,$(wildcard checkpoints/*.pth))\n'
+            'evalfolder := $(filter-out eval/ckpt_best_loss, $(evalfolder))\n'
+            'evalfolder := $(filter-out eval/ckpt_latest, $(evalfolder))\n'
+            '\n'
             '$(evalfolder): eval/%: checkpoints/%.pth\n'
             '\t# mpiexec -np 8 python -m cbj.pytorch.eval_am with model_path=. checkpoint=$^\n'
             '\tmkdir -p $@_ccs\n'
@@ -200,8 +203,9 @@ def init(_config, _run):
 
         fd.write(
             '\n'
-            'collect_wer_write_tfevents:\n'
-            '\tpython -m cbj.pytorch.collect_wer_write_tfevents'
+            'collect_scores_write_tfevents:\n'
+            '\trm -i events.out.tfevents.*.fe2.scores || true'
+            '\tpython -m padertorch.contrib.cb.lpit.collect_scores_write_tfevents'
             '\n'
         )
     print('Storage dir:', storage_dir)
@@ -227,13 +231,14 @@ def pc2(_config, _run):
         '--notifyjob=XCPU,60m',
 
         '--group=hpc-prf-nt3',
+        '--res=rset=1:ncpus=8:gtx1080=1',
     ])
     (storage_dir / 'ccs').mkdir(exist_ok=True)
     with open(Path(storage_dir) / 'Makefile', 'a') as fd:
         fd.write(
             '\n'
             'pc2resume: ccs\n'
-            f'\tccsalloc {options} --res=rset=1:ncpus=8:gtx1080=1 -t 3d make resume'
+            f'\tccsalloc {options} -t 3d make resume'
             '\n'
         )
         fd.write(

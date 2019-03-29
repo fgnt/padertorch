@@ -28,7 +28,7 @@ class ReviewSummary(collections.Mapping):
 
     def add_to_loss(self, value):
         if 'loss' in self.data:
-            self.data['loss'] += value
+            self.data['loss'] = self.data['loss'] + value
         else:
             self.data['loss'] = value
 
@@ -46,6 +46,11 @@ class ReviewSummary(collections.Mapping):
     def add_image(self, name, image):
         # Save the last added value
         image = pt.utils.to_numpy(image, detach=True)
+        if image.ndim != 3:
+            raise AssertionError(
+                'Did you forgot to call "pt.summary.*_to_image"?\n'
+                f'Expect ndim == 3, got shape {image.shape}.'
+            )
         self.data.setdefault(
             'images',
             {}

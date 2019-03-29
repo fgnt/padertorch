@@ -9,6 +9,10 @@ Other options:
 
 """
 
+if not __package__:
+    from cbj_lib import set_package
+    set_package()
+
 import sys
 import os
 import io
@@ -20,6 +24,7 @@ import sacred.commands
 
 import torch
 import einops
+from einops import rearrange
 import yaml
 
 import numpy as np
@@ -32,6 +37,8 @@ from paderbox.utils import mpi
 from paderbox.database.iterator import AudioReader
 from paderbox.transform import istft
 # from tf_bss.sacred_helper import generate_path
+
+from paderbox.utils import nested
 
 import cbj
 from cbj.sacred_helper import (
@@ -109,6 +116,74 @@ from .train import Model
 # from .model import levenshtein_distance
 
 
+def beamform(Observation, masks):
+    """
+
+    Args:
+        Observation: shape: ... D T F
+        masks: shape: T F Ktarget
+
+    Returns:
+        shape: ... Ktaget T F
+
+
+    >>> k_source, k_target, d, t, f = (2, 3, 6, 4, 5)
+    >>> Clean = np.ones([k_source, d, t, f])
+    >>> Observation = np.ones([d, t, f])
+    >>> masks = np.ones([t, f, k_target])
+    >>> beamform(Clean, masks).shape
+    (2, 3, 4, 5)
+    >>> beamform(Observation, masks).shape
+    (3, 4, 5)
+    """
+    from paderbox.speech_enhancement.beamformer import (
+        get_power_spectral_density_matrix,
+        get_mvdr_vector_souden,
+        apply_beamforming_vector,
+        blind_analytic_normalization,
+        get_gev_vector,
+    )
+
+    # Observation.shape: KSource D T F
+    # masks.shape: T F Ktarget
+    # should return: Ktaget T F
+
+    Observation = rearrange(Observation, '... d t f -> ... f d t')
+    masks = rearrange(masks, 't f ktarget -> ktarget f t')
+
+    # Remove zeros.
+    masks = np.clip(masks, 1e-10, None)
+
+    # Add broadcasting dimensions. Needed for get_power_spectral_density_matrix.
+    while masks.ndim < Observation.ndim:
+        masks = masks[None, ...]
+
+    psds = get_power_spectral_density_matrix(
+        Observation[..., None, :, :, :],
+        masks,
+    )  # shape: ..., ktarget, f, d, d
+
+    iter_shape = psds.shape[:-4]
+    ktarget, f, _, _ = psds.shape[-4:]
+    t = Observation.shape[-1]
+
+    out = np.empty([*iter_shape, ktarget, f, t], dtype=Observation.dtype)
+
+    for idx in np.ndindex(iter_shape):
+        sub_psds = psds[idx]
+
+        for target in range(len(sub_psds)):
+            target_pds = sub_psds[target]
+            distortion_pds = np.sum(np.delete(sub_psds, target, axis=0), axis=0)
+            # w = get_mvdr_vector_souden(target_pds, distortion_pds)
+            w = get_gev_vector(target_pds, distortion_pds)
+            w = blind_analytic_normalization(w, noise_psd_matrix=distortion_pds)
+
+            out[(*idx, target, slice(None), slice(None))] = apply_beamforming_vector(w, Observation[idx])
+
+    return rearrange(out, '... ktarget f t -> ... ktarget t f')
+
+
 @ex.main
 def main(
         _config,
@@ -142,12 +217,14 @@ def main(
 
     db: pb.database.wsj_bss.WsjBss = model.db
 
-    it = model.get_iterable('cv_dev93')
+    it = model.get_iterable('cv_dev93', snr_range=(20, 30))
+    it = it.copy(freeze=True).sort()
 
     summary = {}
     model.eval()
 
     from cbj.scheduler.mpi import share_master
+    # from cbj.scheduler.mpi import mpi_lazy_parallel_unordered_map
 
     with torch.no_grad():
         for it_example in share_master(
@@ -161,15 +238,16 @@ def main(
                     model.transform(it_example)
                 )
             except pb.database.iterator.FilterException:
-                continue
+                return None, 'exclude'
 
-            predict = pt.utils.to_numpy(model(example))
+            predict = pt.utils.to_numpy(model(example).predict)
 
             # example['audio_data']['speech_image']
             # example['audio_data']['noise_image']
 
             observation = it_example['audio_data']['observation']
             speech_image = it_example['audio_data']['speech_image']
+            speech_source = it_example['audio_data']['speech_source']
             noise_image = it_example['audio_data']['noise_image']
 
             Observation = model.feature_extractor(observation)
@@ -177,58 +255,88 @@ def main(
             Noise_image = model.feature_extractor(noise_image)
 
             # target = np.array([*speech_image])
-            target = speech_image
+            # target = speech_image
 
-            Estimate = einops.rearrange(
-                Observation[..., None] * predict,
-                'D T F K -> D K T F'.lower()
-            )[0]
+            Estimate = rearrange(Observation[..., None] * predict,
+                                 'D T F K -> D K T F'.lower())[0]
+            Estimate_clean = rearrange(Speech_image[..., None] * predict,
+                                       'KSource D T F Ktaget -> D KSource Ktaget T F'.lower())[0]
+            Estimate_noise = rearrange(Noise_image[..., None] * predict,
+                                       'D T F Ktaget -> D Ktaget T F'.lower())[0]
+            speech_source = rearrange(speech_source, 'Kplus1 N -> Kplus1 N'.lower())
 
-            Estimate_clean = einops.rearrange(
-                Speech_image[..., None] * predict,
-                'KSource D T F Ktaget -> D KSource Ktaget T F'.lower()
-            )[0]
+            pooled_predict = np.mean(predict, axis=0)
 
-            Estimate_noise = einops.rearrange(
-                Noise_image[..., None] * predict,
-                'D T F Ktaget -> D Ktaget T F'.lower()
-            )[0]
-
-            target = einops.rearrange(
-                target, 'Kplus1 D N -> D Kplus1 N'.lower()
-            )[0]
+            Beamformed = beamform(Observation, pooled_predict)
+            Beamformed_clean = beamform(Speech_image, pooled_predict)
+            Beamformed_noise = beamform(Noise_image, pooled_predict)
 
             istft_kwargs = model.feature_extractor.kwargs.copy()
             del istft_kwargs['pad']
 
-            estimate = pb.transform.istft(
-                Estimate,
-                **istft_kwargs,
-            )[..., :observation.shape[-1]]
-            estimate_clean = pb.transform.istft(
-                Estimate_clean,
-                **istft_kwargs,
-            )[..., :observation.shape[-1]]
-            estimate_noise = pb.transform.istft(
-                Estimate_noise,
-                **istft_kwargs,
-            )[..., :observation.shape[-1]]
+            def istft(STFTSignal):
+                return pb.transform.istft(
+                    STFTSignal, **istft_kwargs,
+                )[..., :observation.shape[-1]]
+
+            estimate = istft(Estimate)
+            estimate_clean = istft(Estimate_clean)
+            estimate_noise = istft(Estimate_noise)
+
+            beamformed = istft(Beamformed)
+            beamformed_clean = istft(Beamformed_clean)
+            beamformed_noise = istft(Beamformed_noise)
 
             mir_eval = pb.evaluation.mir_eval_sources(
-                reference=target,
-                estimation=estimate,
-                return_dict=True,
-            )
-            invasive_sxr = pb.evaluation.output_sxr(
-                estimate_clean,
-                estimate_noise,
-                return_dict=True,
-            )
+                reference=speech_source, estimation=estimate, return_dict=True)
+            bf_mir_eval = pb.evaluation.mir_eval_sources(
+                reference=speech_source, estimation=beamformed, return_dict=True)
 
-            summary[example_id] = {
+            selection = bf_mir_eval['permutation']
+
+            invasive_sxr = pb.evaluation.output_sxr(
+                # rearrange(estimate_clean, 'ksource ktaget samples -> ktaget ksource samples'),
+                rearrange(estimate_clean, 'ksource ktaget samples -> ksource ktaget samples')[:, selection, :],
+                rearrange(estimate_noise, 'ktaget samples -> ktaget samples')[selection, :],
+                return_dict=True)
+
+            bf_invasive_sxr = pb.evaluation.output_sxr(
+                # rearrange(beamformed_clean, 'ksource ktaget samples -> ktaget ksource samples'),
+                rearrange(beamformed_clean, 'ksource ktaget samples -> ksource ktaget samples')[:, selection, :],
+                rearrange(beamformed_noise, 'ktaget samples -> ktaget samples')[selection, :],
+                return_dict=True)
+
+            del mir_eval['permutation']
+            del bf_mir_eval['permutation']
+
+            summary[example_id] = nested.flatten({
                 'mir_eval': mir_eval,
                 'invasive': invasive_sxr,
-            }
+                'bf_mir_eval': bf_mir_eval,
+                'bf_invasive_sxr': bf_invasive_sxr,
+            }, sep=None)
+            # return example_id, nested.flatten({
+            #     'mir_eval': mir_eval,
+            #     'invasive': invasive_sxr,
+            #     'bf_mir_eval': bf_mir_eval,
+            #     'bf_invasive_sxr': bf_invasive_sxr,
+            # }, sep=None)
+
+        # for it_example in share_master(
+        #         it,
+        #         allow_single_worker=True,
+        # ):
+        #     calculate_scores()
+        #     # 'exclude'
+
+        # summary = {
+        #     example_id: scores
+        #     for example_id, scores in map_unordered(
+        #         calculate_scores,
+        #         it,
+        #     )
+        #     if scores != 'exclude'
+        # }
 
     summaries = pb.utils.mpi.gather(list(summary.items()))
     if pb.utils.mpi.IS_MASTER:
@@ -236,15 +344,25 @@ def main(
 
         summary = dict(itertools.chain(*summaries))
 
+        score_keys = next(iter(summary.values())).keys()
+
         scores = {
-            'mir_eval': {
-                metric: np.mean([e['mir_eval'][metric] for e in summary.values()])
-                for metric in ['sdr', 'sir', 'sar']
-            },
-            'invasive': {
-                metric: np.mean([e['invasive'][metric] for e in summary.values()])
-                for metric in ['sdr', 'sir', 'snr']
-            }
+            # score_key: {
+            #     metric: np.mean([e[score_key][metric] for e in summary.values()])
+            #     for metric in ['sdr', 'sir', 'sar']
+            # }
+            score_key: np.mean([e[score_key] for e in summary.values()])
+            for score_key in score_keys
+            # 'invasive': {
+            #     metric: np.mean([e['invasive'][metric] for e in summary.values()])
+            #     for metric in ['sdr', 'sir', 'snr']
+            # }
+        }
+        scores = nested.deflatten(scores, sep=None)
+
+        summary = {
+            k: nested.deflatten(v, sep=None)
+            for k, v in summary.items()
         }
 
         pb.io.dump_json(
