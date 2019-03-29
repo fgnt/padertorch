@@ -80,17 +80,34 @@ def pit_loss(estimate, target, loss_fn=torch.nn.functional.mse_loss):
     Parameters:
         estimate: Padded sequence with shape (T, K, F)
         target: Padded sequence with shape (T, K, F)
+
+    >>> T, K, F = 4, 2, 5
+    >>> estimate, target = torch.ones(T, K, F), torch.zeros(T, K, F)
+    >>> pit_loss(estimate, target)
+    tensor(1.)
+
+    >>> T, K, F = 4, 2, 5
+    >>> estimate, target = torch.ones(T, K, F), torch.zeros(T, F, dtype=torch.int64)
+    >>> pit_loss(estimate, target, loss_fn=torch.nn.functional.cross_entropy)
+    tensor(0.6931)
     """
     sources = estimate.size()[1]
     assert sources < 30, f'Are you sure? sources={sources}'
-    assert estimate.size() == target.size(), (
-        f'{estimate.size()} != {target.size()}'
-    )
+    if loss_fn in [torch.nn.functional.cross_entropy]:
+        estimate_shape = list(estimate.shape)
+        del estimate_shape[1]
+        assert estimate_shape == list(target.shape), (
+            f'{estimate.shape} (N, K, ...) does not match {target.shape} (N, ...)'
+        )
+    else:
+        assert estimate.size() == target.size(), (
+            f'{estimate.size()} != {target.size()}'
+        )
     candidates = []
     for permutation in itertools.permutations(range(sources)):
         candidates.append(loss_fn(
-            estimate,
-            target[:, permutation, :]
+            estimate[:, permutation, :],
+            target
         ))
     return torch.min(torch.stack(candidates))
 
