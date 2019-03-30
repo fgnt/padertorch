@@ -1,7 +1,7 @@
 from torch.nn import ModuleDict
 
 from padertorch.contrib.je.autoencoder import AE
-from padertorch.contrib.je.latent_models import StandardNormal, GMM, FBGMM
+from padertorch.contrib.je.latent_models import StandardNormal, GMM, FBGMM, HGMM
 from paderbox.utils.nested import nested_update, deflatten
 from padertorch.train.trainer import MultiDeviceTrainer as BaseTrainer
 from padertorch.train.optimizer import Adam
@@ -29,10 +29,21 @@ class Trainer(BaseTrainer):
             logvar.transpose(1, 2).to(latent_device)
         ]
         if (
-                "mixture_idx" in example and self.model['latent'].training
+                "class_label" in example and self.model['latent'].training
                 and isinstance(self.model['latent'], (GMM, FBGMM))
         ):
-            latent_in.append(example["mixture_idx"])
+            latent_in.append(example["class_label"])
+        if (
+                "scene_label" in example and self.model['latent'].training
+                and isinstance(self.model['latent'], HGMM)
+        ):
+            latent_in.append(example["scene_label"])
+        if (
+                "event_label" in example and self.model['latent'].training
+                and isinstance(self.model['latent'], HGMM)
+        ):
+            assert len(latent_in) == 3
+            latent_in.append(example["scene_label"])
         latent_out = self.model['latent'](latent_in)
         ae_out = self.model['ae'](
             (latent_out[0].transpose(1, 2).to(ae_device), pooling_data),
