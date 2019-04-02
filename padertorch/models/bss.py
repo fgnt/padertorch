@@ -8,6 +8,7 @@ from padertorch.summary import mask_to_image, stft_to_image
 from paderbox.transform import istft
 import numpy as np
 
+
 class MultiChannelPermutationInvariantTraining(pt.Model):
     """
 
