@@ -29,13 +29,11 @@ def transform(example):
 
 def get_iterators():
     db = pb.database.chime.Chime3()
-    compose = pt.data.transforms.Compose(
-        AudioReader(audio_keys=AUDIO_KEYS),
-        transform
-    )
     return (
-        db.get_iterator_by_names(db.datasets_train).map(compose),
-        db.get_iterator_by_names(db.datasets_eval).map(compose),
+        db.get_iterator_by_names(db.datasets_train).map(
+            AudioReader(audio_keys=AUDIO_KEYS), transform),
+        db.get_iterator_by_names(db.datasets_eval).map(
+            AudioReader(audio_keys=AUDIO_KEYS), transform),
     )
 
 
