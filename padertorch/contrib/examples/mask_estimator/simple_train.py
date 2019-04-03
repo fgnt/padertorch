@@ -13,7 +13,8 @@ import torch
 import paderbox as pb
 import paderbox.database.keys as K
 import padertorch as pt
-
+from padertorch.summary import mask_to_image, stft_to_image
+from padertorch.modules.mask_estimator import M_K
 
 class SimpleMaskEstimator(pt.Model):
     def __init__(self, num_features, num_units=1024, dropout=0.5,
@@ -55,30 +56,53 @@ class SimpleMaskEstimator(pt.Model):
         )
 
     def forward(self, batch):
-        x = batch['observation_abs']
+
+        # x = batch['observation_abs']
+        x = self.get_spatial_features(batch)
         out = self.net(x)
         return dict(
-            speech_mask_pred=out[..., :self.num_features],
-            noise_mask_pred=out[..., self.num_features:],
+            speech_mask_prediction=out[..., :self.num_features],
+            noise_mask_prediction=out[..., self.num_features:],
         )
 
     def review(self, batch, output):
         noise_mask_loss = torch.nn.functional.binary_cross_entropy(
-            output['speech_mask_pred'], batch['speech_mask_target']
+            output['noise_mask_prediction'], batch['noise_mask_target']
         )
         speech_mask_loss = torch.nn.functional.binary_cross_entropy(
-            output['noise_mask_pred'], batch['noise_mask_target']
+            output['speech_mask_prediction'], batch['speech_mask_target']
         )
         # CB: add image (stft/mask) and audio example?
-        return dict(loss=noise_mask_loss + speech_mask_loss)
+        return dict(loss=noise_mask_loss + speech_mask_loss,
+                    images=self.add_images(batch, output))
 
+
+    def add_images(self, batch, output):
+        speech_mask = output['speech_mask_prediction']
+        observation = batch[M_K.OBSERVATION_ABS]
+        images = dict()
+        images['speech_mask'] = mask_to_image(speech_mask, True)
+        images['observed_stft'] = stft_to_image(observation, True)
+
+        if M_K.NOISE_MASK_PRED in output:
+            noise_mask = output[M_K.NOISE_MASK_PRED]
+            images['noise_mask'] = mask_to_image(noise_mask, True)
+        if batch is not None and M_K.SPEECH_MASK_TARGET in batch:
+            images['speech_mask_target'] = mask_to_image(
+                batch[M_K.SPEECH_MASK_TARGET], True)
+            if M_K.NOISE_MASK_TARGET in batch:
+                images['noise_mask_target'] = mask_to_image(
+                    batch[M_K.NOISE_MASK_TARGET], True)
+        return images
 
 def change_example_structure(example):
     stft = pb.transform.stft
     audio_data = example[K.AUDIO_DATA]
     net_input = dict()
-    net_input['observation_abs'] = np.abs(stft(
-        audio_data[K.OBSERVATION])).astype(np.float32)
+    net_input['observation_stft'] = stft(
+        audio_data[K.OBSERVATION]).astype(np.complex64)
+    net_input['observation_abs'] = np.abs(
+        net_input['observation_stft']).astype(np.float32)
     speech_image = stft(audio_data[K.SPEECH_IMAGE])
     noise_image = stft(audio_data[K.NOISE_IMAGE])
     target_mask, noise_mask = pb.speech_enhancement.biased_binary_mask(
@@ -118,7 +142,7 @@ def train():
     print(f'Simple training for the following model: {model}')
     database = pb.database.chime.Chime3()
     train_iterator = get_train_iterator(database)
-    validation_iterator = get_validation_iterator(database)[:500]
+    validation_iterator = get_validation_iterator(database)
     trainer = pt.Trainer(model, STORAGE_ROOT / 'simple_mask_estimator',
                          optimizer=pt.train.optimizer.Adam(),
                          max_trigger=(int(1e5), 'iteration'))
@@ -139,4 +163,6 @@ if __name__ == '__main__':
             'environmental variable see getting_started.\n'
             f'Got: {STORAGE_ROOT}'
         )
+    else:
+        STORAGE_ROOT=Path(STORAGE_ROOT)
     train()
