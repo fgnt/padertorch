@@ -11,8 +11,7 @@ from padertorch.ops.mappings import ACTIVATION_FN_MAP
 
 __all__ = [
     "MaskKeys",
-    "OfflineMaskEstimator",
-    "OnlineMaskEstimator",
+    "MaskEstimator",
 ]
 
 
@@ -74,7 +73,7 @@ class MaskEstimator(pt.Module):
             use_powerspectrum: bool = False,
             separate_masks: bool = True,
             output_activation: str = 'sigmoid',
-            fix_states: bool = False
+            fix_states: bool = False,
     ):
         super().__init__()
         self.fully_connected = fully_connected
@@ -99,7 +98,7 @@ class MaskEstimator(pt.Module):
         num_channels = x[0].shape[0]
         h = [obs_single_channel for obs in x for obs_single_channel in obs]
         h = pack_sequence(h)
-        # h = PackedSequence(self.normalization(h.data), h.batch_sizes) # only works with torch 1.0 and higher
+        h = PackedSequence(self.normalization(h.data), h.batch_sizes) # only works with torch 1.0 and higher
         h = PackedSequence(self.input_dropout(h.data), h.batch_sizes)
 
         if not self.fix_states:
