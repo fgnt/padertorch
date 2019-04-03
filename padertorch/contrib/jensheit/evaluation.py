@@ -45,19 +45,19 @@ def beamforming(observation, speech_mask, noise_mask,
     return speech_pred, image_contribution, noise_contribution
 
 
-def evaluate_masks(example, model, transform):
+def evaluate_masks(example, model, stft):
     model_out = model(example_to_device(example))
     speech_image = example[DB_K.SPEECH_IMAGE][0]
     speech_pred, image_cont, noise_cont = beamforming(
         example[M_K.OBSERVATION_STFT][0],
         model_out[M_K.SPEECH_MASK_PRED][0].detach().numpy(),
         model_out[M_K.NOISE_MASK_PRED][0].detach().numpy(),
-        transform.stft(speech_image),
-        transform.stft(example[DB_K.NOISE_IMAGE][0])
+        stft(speech_image),
+        stft(example[DB_K.NOISE_IMAGE][0])
     )
     ex_id = example[DB_K.EXAMPLE_ID][0]
     pesq = pb.evaluation.pesq(example[DB_K.SPEECH_IMAGE][0][0],
-                              transform.stft.inverse(speech_pred))[0]
+                              stft.inverse(speech_pred))[0]
     snr = np.mean(-10 * np.log10(np.abs(image_cont) ** 2
                                  / np.abs(noise_cont) ** 2))
     print(ex_id, snr, pesq)

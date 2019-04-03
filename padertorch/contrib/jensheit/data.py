@@ -152,8 +152,7 @@ class SequenceProvider(Parameterized):
         if shuffle:
             iterator = iterator.shuffle()
         if not self.opts.multichannel:
-            iterator.fragment(
-                partial(self.fragmenter, random_onset=randn_channels))
+            iterator.map(partial(self.fragmenter, random_onset=randn_channels)).unbatch()
         return iterator.map(self.transform)\
             .batch(self.opts.batch_size, self.opts.drop_last)\
             .map(self.collate)\

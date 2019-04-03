@@ -132,7 +132,7 @@ def validate(_config):
     with ThreadPoolExecutor(os.cpu_count()) as executor:
         for example_id, snr, pesq in executor.map(
                 partial(evaluate_masks, model=trainer.model,
-                        transform=provider.transformer), eval_iterator):
+                        transform=provider.transformer.stft), eval_iterator):
             evaluation_json['snr'][example_id] = snr
             evaluation_json['pesq'][example_id] = pesq
     evaluation_json['pesq_mean'] = np.mean(
