@@ -2,13 +2,11 @@ import numpy as np
 import padertorch as pt
 import torch
 import torch.nn.functional as F
-from padertorch.data.utils import collate_fn
 from padertorch.modules.mask_estimator import MaskEstimator
 from padertorch.modules.mask_estimator import MaskKeys as M_K
 from padertorch.ops.mappings import TORCH_POOLING_FN_MAP
 from paderbox.database import keys as K
 
-from einops import rearrange
 from padertorch.summary import mask_to_image, stft_to_image
 
 class MaskLossKeys:
@@ -41,10 +39,12 @@ class MaskEstimatorModel(pt.Model):
     def finalize_dogmatic_config(cls, config):
         config['estimator'] = dict(factory=MaskEstimator)
 
-    def __init__(self, estimator, reduction: str = 'average'):
+    def __init__(self, estimator, reduction: str = 'average',
+                 sample_rate: int = 16000):
         super().__init__()
         self.estimator = estimator
         self.reduction = reduction
+        self.sample_rate = sample_rate
 
     def forward(self, batch):
         """
@@ -95,12 +95,12 @@ class MaskEstimatorModel(pt.Model):
     def add_audios(self, batch, output):
         audio_dict = dict()
         if K.OBSERVATION in batch:
-            audio_dict.update({K.OBSERVATION: maybe_remove_channel(
-                batch[K.OBSERVATION][0])})
+            audio_dict.update({K.OBSERVATION: (maybe_remove_channel(
+                batch[K.OBSERVATION][0]), self.sample_rate)})
         if K.SPEECH_IMAGE in batch:
             audio_dict.update({
-            K.SPEECH_IMAGE: maybe_remove_channel(batch[K.SPEECH_IMAGE][0])
-            })
+            K.SPEECH_IMAGE: (maybe_remove_channel(batch[K.SPEECH_IMAGE][0]),
+                             self.sample_rate)})
         return audio_dict
 
     def add_losses(self, batch, output):
