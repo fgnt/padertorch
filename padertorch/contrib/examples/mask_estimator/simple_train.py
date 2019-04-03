@@ -14,7 +14,6 @@ import paderbox as pb
 import paderbox.database.keys as K
 import padertorch as pt
 from padertorch.summary import mask_to_image, stft_to_image
-from padertorch.modules.mask_estimator import M_K
 
 class SimpleMaskEstimator(pt.Model):
     def __init__(self, num_features, num_units=1024, dropout=0.5,
@@ -57,8 +56,7 @@ class SimpleMaskEstimator(pt.Model):
 
     def forward(self, batch):
 
-        # x = batch['observation_abs']
-        x = self.get_spatial_features(batch)
+        x = batch['observation_abs']
         out = self.net(x)
         return dict(
             speech_mask_prediction=out[..., :self.num_features],
@@ -72,27 +70,26 @@ class SimpleMaskEstimator(pt.Model):
         speech_mask_loss = torch.nn.functional.binary_cross_entropy(
             output['speech_mask_prediction'], batch['speech_mask_target']
         )
-        # CB: add image (stft/mask) and audio example?
         return dict(loss=noise_mask_loss + speech_mask_loss,
                     images=self.add_images(batch, output))
 
 
     def add_images(self, batch, output):
         speech_mask = output['speech_mask_prediction']
-        observation = batch[M_K.OBSERVATION_ABS]
+        observation = batch['observation_abs']
         images = dict()
         images['speech_mask'] = mask_to_image(speech_mask, True)
         images['observed_stft'] = stft_to_image(observation, True)
 
-        if M_K.NOISE_MASK_PRED in output:
-            noise_mask = output[M_K.NOISE_MASK_PRED]
+        if 'noise_mask_prediction' in output:
+            noise_mask = output['noise_mask_prediction']
             images['noise_mask'] = mask_to_image(noise_mask, True)
-        if batch is not None and M_K.SPEECH_MASK_TARGET in batch:
+        if batch is not None and 'speech_mask_prediction' in batch:
             images['speech_mask_target'] = mask_to_image(
-                batch[M_K.SPEECH_MASK_TARGET], True)
-            if M_K.NOISE_MASK_TARGET in batch:
+                batch['speech_mask_target'], True)
+            if 'speech_mask_target' in batch:
                 images['noise_mask_target'] = mask_to_image(
-                    batch[M_K.NOISE_MASK_TARGET], True)
+                    batch['noise_mask_target'], True)
         return images
 
 def change_example_structure(example):
