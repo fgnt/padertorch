@@ -677,6 +677,8 @@ class InteractiveTrainer(Trainer):
 class PrintWriter:
 
     def add_scalar(self, tag, scalar_value, global_step=None, walltime=None):
+        if tag.split('/')[0] in ['training_timings', 'validation_timings']:
+            return
         print(f'{global_step}, {tag}: {scalar_value}')
 
     def add_audio(self, tag, snd_tensor, global_step=None,
