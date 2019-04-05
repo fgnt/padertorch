@@ -22,6 +22,7 @@ from padertorch.train.trigger import AnyTrigger
 
 __all__ = [
     'Trainer',
+    'InteractiveTrainer',
 ]
 
 
@@ -255,10 +256,9 @@ class Trainer(Configurable):
                     for hook in hooks:
                         hook.post_step(self, example, model_output, review)
 
-                if self.iteration == 0:
-                    # Also raised, when train_iterator has only one element
-                    # When someone has a use case for a train_iterator with one
-                    # element, change this code.
+                if self.iteration == 0 and epoch_start:
+                    # epoch_start is used to prevent raising an error,
+                    # when train_iterator has only one element
                     raise Exception(
                         f'Got an empty train iterator: {train_iterator}'
                     )
@@ -355,6 +355,9 @@ class Trainer(Configurable):
             for key, value in losses.items():
                 weight = loss_weights[key] if loss_weights is not None else 1.
                 loss = loss + (weight * value)
+                if 'scalars' not in review:
+                    review['scalars'] = {}
+                review['scalars'][f'{key}_loss_weight'] = weight
             review['loss'] = loss
         else:
             assert 'loss' in review, review
@@ -619,6 +622,81 @@ class ContextTimerDict:
         except StopIteration:
             pass
 
+
+class InteractiveTrainer(Trainer):
+    def __init__(
+            self,
+            model,
+            optimizer,
+            loss_weights=None,
+            max_trigger=(200, 'epoch'),
+            summary_trigger=(50, 'epoch')
+    ):
+        super().__init__(
+            model=model,
+            storage_dir='this/is/no/path',
+            optimizer=optimizer,
+            loss_weights=loss_weights,
+            summary_trigger=summary_trigger,
+            checkpoint_trigger=None,
+            keep_all_checkpoints=False,
+            max_trigger=max_trigger,
+        )
+
+    def get_default_hooks(
+            self,
+            hooks,
+            *,
+            train_iterator,
+            validation_iterator=None,
+            metrics,
+            n_best_checkpoints,
+    ):
+        if n_best_checkpoints != 1:
+            raise NotImplementedError(
+                f'The implementation for more than one checkpoint is not'
+                f'finished.\n'
+                f'Requested number of checkponts: {n_best_checkpoints}'
+            )
+        if validation_iterator is not None:
+            raise NotImplementedError
+
+        if hooks is None:
+            hooks = []
+        try:
+            max_it_len = len(train_iterator)
+        except TypeError:
+            # TypeError: object of type '...' has no len()
+            max_it_len = None
+        hooks = pt.utils.to_list(hooks)
+
+
+        hooks.append(SummaryHook(self.summary_trigger, writer=PrintWriter()))
+        hooks.append(ProgressBarHook(self.max_trigger, max_it_len))
+        hooks.append(StopTrainingHook(self.max_trigger))
+        hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
+        return hooks
+
+class PrintWriter:
+
+    def add_scalar(self, tag, scalar_value, global_step=None, walltime=None):
+        if tag.split('/')[0] in ['training_timings', 'validation_timings']:
+            return
+        print(f'{global_step}, {tag}: {scalar_value}')
+
+    def add_audio(self, tag, snd_tensor, global_step=None,
+                  sample_rate=44100, walltime=None):
+        pass
+
+    def add_image(self, tag, img_tensor, global_step=None, walltime=None):
+        pass
+
+    def add_histogram(self, tag, values, global_step=None,
+                      bins='tensorflow', walltime=None):
+        pass
+
+    def close(self):
+        pass
 
 # TODO: write function for those to functions outside of trainer
 # torch.manual_seed(seed)

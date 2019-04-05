@@ -7,7 +7,6 @@ by instances of pytorch.train.Trainer.
 import io
 import abc
 from pathlib import Path
-import json
 
 import torch
 from torch import nn
@@ -63,34 +62,12 @@ class Module(nn.Module, Configurable, abc.ABC):
 
         assert config_path.is_file(), config_path
         assert checkpoint_path.is_file(), checkpoint_path
-
         # Load config
-        assert config_path.is_file(), f'Expected {config_path} is file.'
-
-        def load_config(config_path):
-            if config_path.suffix == '.json':
-                with config_path.open() as fp:
-                    configurable_config = json.load(fp)
-            elif config_path.suffix == '.yaml':
-                import yaml
-                with config_path.open() as fp:
-                    configurable_config = yaml.safe_load(fp)
-            else:
-                raise ValueError(config_path)
-            return configurable_config
-
-        if consider_mpi:
-            from paderbox.utils import mpi
-            configurable_config = mpi.call_on_master_and_broadcast(
-                load_config,
-                config_path=config_path,
-            )
-        else:
-            configurable_config = load_config(config_path=config_path)
-
-        for part in in_config_path.split('.'):
-            configurable_config = configurable_config[part]
-        module = cls.from_config(configurable_config)
+        module = cls.from_file(
+            config_path,
+            in_config_path,
+            consider_mpi=False
+        )
 
         # Load weights
         if consider_mpi:

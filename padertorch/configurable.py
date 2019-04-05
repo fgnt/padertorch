@@ -365,6 +365,60 @@ class Configurable:
         new = config_to_instance(config)
         return new
 
+    @classmethod
+    def from_file(
+            cls,
+            config_path: Path,
+            in_config_path: str = '',
+
+            consider_mpi=False,
+    ):
+        """Instantiate the module from given config_file.
+
+        Args:
+            config_path:
+            in_config_path:
+            consider_mpi:
+                If True and mpi is used, only read config_path and
+                checkpoint_path once and broadcast the content with mpi.
+                Reduces the io load.
+
+        Returns:
+
+
+        """
+        config_path = Path(config_path).expanduser().resolve()
+
+        assert config_path.is_file(), config_path
+
+        assert config_path.is_file(), f'Expected {config_path} is file.'
+
+        def load_config(config_path):
+            if config_path.suffix == '.json':
+                import json
+                with config_path.open() as fp:
+                    configurable_config = json.load(fp)
+            elif config_path.suffix == '.yaml':
+                import yaml
+                with config_path.open() as fp:
+                    configurable_config = yaml.safe_load(fp)
+            else:
+                raise ValueError(config_path)
+            return configurable_config
+
+        if consider_mpi:
+            from paderbox.utils import mpi
+            configurable_config = mpi.call_on_master_and_broadcast(
+                load_config,
+                config_path=config_path,
+            )
+        else:
+            configurable_config = load_config(config_path=config_path)
+        if config_path != '':
+            for part in in_config_path.split('.'):
+                configurable_config = configurable_config[part]
+        return cls.from_config(configurable_config)
+
 
 def test_config(config, updates):
     """Test if the config updates are valid."""

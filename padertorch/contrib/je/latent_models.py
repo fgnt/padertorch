@@ -2,40 +2,11 @@ import numpy as np
 import torch
 import torch.distributions as D
 from padertorch.base import Model
-from padertorch.contrib.je.conv1d import Pool1d, Unpool1d
 from padertorch.ops.losses.loss import kl_divergence
 from torch import nn
-from torch.distributions.utils import broadcast_all
 
 
-class LatentModel(Model):
-    def pool(self, z, log_rho, *args):
-        if self.pool_size is not None and self.pool_size > 1:
-            # TODO: padding
-            pool = Pool1d(kernel_size=self.pool_size)
-            log_rho, (pool_indices_, pad_size) = pool(log_rho[:, None])
-            log_rho = log_rho[:, 0]
-            pool_indices = pool_indices_[:, 0]
-
-            batch_indices = torch.cumsum(
-                torch.ones_like(pool_indices), 0
-            ).long() - 1
-            z = z[batch_indices, pool_indices].transpose(1, 2)
-            args = [
-                arg[batch_indices, pool_indices] for arg in args
-            ]
-
-            unpool = Unpool1d(kernel_size=self.pool_size)
-            _, pool_indices_ = broadcast_all(z, pool_indices_)
-            z = unpool(
-                z, indices=pool_indices_, pad_size=pad_size
-            ).transpose(1, 2)
-        else:
-            pool_indices = None
-        return (z, log_rho, pool_indices, *args)
-
-
-class StandardNormal(LatentModel):
+class StandardNormal(Model):
     """
     >>> sn = StandardNormal(pool_size=4)
     >>> mean, logvar, logrho, indices = sn.process(torch.ones(3,4,5), torch.zeros(3,4,5), torch.randn(3,4,5))
@@ -43,15 +14,14 @@ class StandardNormal(LatentModel):
     (torch.Size([3, 4, 5]), torch.Size([3, 4, 5]), torch.Size([3, 1]), torch.Size([3, 1]))
     """
 
-    def __init__(self, feature_size, pool_size=None):
+    def __init__(self, feature_size):
         super().__init__()
         self.feature_size = feature_size
-        self.pool_size = pool_size
 
     def forward(self, inputs):
         mean, log_var = inputs
-        log_rho = 0.5 * (1 + log_var - mean.pow(2) - log_var.exp()).sum(dim=-1)
-        return self.pool(self.sample(mean, log_var), log_rho)
+        kld = -0.5 * (1 + log_var - mean.pow(2) - log_var.exp()).sum(dim=-1)
+        return self.sample(mean, log_var), kld
 
     def sample(self, mean, log_var):
         if self.training:
@@ -63,8 +33,7 @@ class StandardNormal(LatentModel):
 
     def review(self, inputs, outputs):
         mean, log_var = inputs
-        _, logrho, pool_indices = outputs
-        kld = -logrho
+        _, kld = outputs
         return dict(
             losses=dict(
                 kld=kld.mean()
@@ -79,36 +48,36 @@ class StandardNormal(LatentModel):
 
 class GMM(StandardNormal):
     def __init__(
-            self, feature_size, num_classes, init_std=1.0, pool_size=None,
-            covariance_type='full', temperature=1., quantization_rate=0.
+            self, feature_size, num_classes,
+            covariance_type='full', class_temperature=1.,
+            loc_init_std=1.0, scale_init_std=1.0
     ):
         super(Model, self).__init__()
         self.feature_size = feature_size
         self.num_classes = num_classes
-        self.pool_size = pool_size
         self.covariance_type = covariance_type
-        self.temperature = temperature
-        self.quantization_rate = quantization_rate
+        self.class_temperature = class_temperature
 
-        locs_init = init_std * np.random.randn(num_classes, feature_size)
+        locs_init = loc_init_std * np.random.randn(num_classes, feature_size)
 
-        probs_init = np.ones(num_classes) * 1 / num_classes
-        log_weights_init = np.log(probs_init)
+        class_probs_init = np.ones(num_classes) * 1 / num_classes
+        log_class_weights_init = np.log(class_probs_init)
 
-        requires_grad = 2 * [True]
         if covariance_type == 'full':
             scales_init = np.broadcast_to(
                 np.diag(
-                    np.ones(feature_size) * init_std
+                    np.ones(feature_size) * scale_init_std
                 ),
                 (num_classes, feature_size, feature_size)
             )
         elif covariance_type in ['diag', 'fix']:
-            scales_init = np.ones((num_classes,  feature_size)) * init_std
+            scales_init = (
+                    np.ones((num_classes,  feature_size)) * scale_init_std
+            )
         else:
             raise ValueError
-        # scales_init = scales_init * ((1 / num_classes) ** (1 / feature_size))
 
+        requires_grad = 2 * [True]
         if covariance_type == 'fix':
             requires_grad.append(False)
         else:
@@ -117,21 +86,21 @@ class GMM(StandardNormal):
         self.log_weights, self.locs, self.scales = [
             nn.Parameter(torch.Tensor(init), requires_grad=requires_grad_)
             for init, requires_grad_ in zip(
-                [log_weights_init, locs_init, scales_init], requires_grad
+                [log_class_weights_init, locs_init, scales_init], requires_grad
             )
         ]
 
     @property
-    def log_probs(self):
+    def log_class_probs(self):
         log_probs = torch.log_softmax(self.log_weights, dim=-1)
         log_probs = torch.max(
-            log_probs, -100 * torch.ones_like(log_probs)
+            log_probs, -20 * torch.ones_like(log_probs)
         )
         return log_probs
 
     @property
-    def probs(self):
-        return torch.exp(self.log_probs)
+    def class_probs(self):
+        return torch.exp(self.log_class_probs)
 
     @property
     def gaussians(self):
@@ -141,77 +110,271 @@ class GMM(StandardNormal):
                 loc=self.locs,
                 scale_tril=(
                     self.scales * mask
-                    + 0.01 * torch.diag(torch.ones_like(self.locs[0]))
+                    + 0.1 * torch.diag(torch.ones_like(self.locs[0]))
                 )
             )
         else:
             return D.Normal(
                 loc=self.locs,
-                scale=self.scales * + 0.001
+                scale=self.scales * + 0.1
             )
 
     def forward(self, inputs):
         assert len(inputs) in [2, 3]
         mean, logvar = inputs[:2]
-        labels = None if len(inputs) == 2 else inputs[2]
-
-        quantize = self.training and np.random.rand() < self.quantization_rate
-        if quantize:
-            logvar = logvar.detach()
+        class_labels = None if len(inputs) == 2 else inputs[2]
 
         qz = D.Normal(loc=mean, scale=torch.exp(0.5 * logvar))
-        gaussians = self.gaussians
 
-        kl = kl_divergence(qz, gaussians)
-        log_rho = self.log_probs - kl
-        log_gamma = torch.log_softmax(log_rho, dim=-1)
-        gamma = torch.softmax(
-            log_rho / max(self.temperature, 1e-2), dim=-1
-        ).detach()
-        if labels is None:
-            if self.temperature < 1e-2:
-                labels = torch.argmax(log_gamma, dim=-1)
-            elif quantize:
-                labels = torch.distributions.Categorical(gamma).sample()
-
-        if labels is None:
-            log_rho_ = (gamma * log_rho).sum(-1)
-        else:
-            while labels.dim() < log_rho.dim() - 1:
-                labels = labels.unsqueeze(-1)
-            labels = labels.expand(log_rho.shape[:-1])
-            log_rho_ = log_rho.gather(-1, labels[..., None]).squeeze(-1)
-
-        if quantize:
-            locs = gaussians.loc[labels]
-            z = locs + mean - mean.detach()
-        else:
-            z = self.sample(mean, logvar)
-        z, log_rho_, pool_indices, log_gamma = self.pool(
-            z, log_rho_, log_gamma
+        kld = kl_divergence(qz, self.gaussians)
+        log_class_posterior = torch.log_softmax(
+            (self.log_class_probs - kld) / max(self.class_temperature, 1e-2),
+            dim=-1
         )
-        return z, log_rho_, pool_indices, log_gamma
+        class_posterior = log_class_posterior.exp().detach()
+
+        if class_labels is None and self.class_temperature < 1e-2:
+            class_labels = torch.argmax(log_class_posterior, dim=-1)
+        if class_labels is None:
+            kld = (class_posterior * kld).sum(-1)
+            class_ce = -(class_posterior * self.log_class_probs).sum(-1)
+        else:
+            while class_labels.dim() < 2:
+                class_labels = class_labels[..., None]
+            class_labels = class_labels.expand(kld.shape[:-1])
+            kld = kld.gather(-1, class_labels[..., None]).squeeze(-1)
+            class_ce = -self.log_class_probs[class_labels]
+
+        z = self.sample(mean, logvar)
+        return z, kld, class_ce, log_class_posterior
 
     def review(self, inputs, outputs):
-        # ToDo: how to encourage sparse gamma?
-        _, log_rho, _, log_gamma = outputs
-        kld = -log_rho
-        log_gamma_ = torch.max(
-            log_gamma, -100 * torch.ones_like(log_gamma)
-        ).sum(-1)
-        gamma_max_, classes_ = torch.max(torch.exp(log_gamma), -1)
+        _, kld, class_ce, log_class_posterior = outputs
+        max_class_posterior_, classes_ = torch.max(
+            torch.exp(log_class_posterior), -1
+        )
         mean, log_var = inputs[:2]
         return dict(
             losses=dict(
                 kld=kld.mean(),
-                log_prob=self.log_probs.sum(),
-                log_gamma=log_gamma_.mean()
+                class_ce=class_ce.mean(),
+                log_class_prob=self.log_class_probs.sum()
+            ),
+            scalars=dict(
+                class_temperature=self.class_temperature
             ),
             histograms=dict(
                 kld_=kld.flatten(),
-                log_probs_=self.log_probs.flatten(),
-                gamma_=torch.exp(log_gamma).flatten(),
-                gamma_max_=gamma_max_.flatten(),
+                log_class_probs_=self.log_class_probs.flatten(),
+                max_class_posterior_=max_class_posterior_.flatten(),
+                classes_=classes_.flatten(),
+                mean_=mean.flatten(),
+                log_var_=log_var.flatten(),
+            )
+        )
+
+
+class HGMM(StandardNormal):
+    def __init__(
+            self, feature_size, num_scenes, num_events,
+            covariance_type='full', event_temperature=1., scene_temperature=1.,
+            loc_init_std=1.0, scale_init_std=1.0
+    ):
+        super(Model, self).__init__()
+        self.feature_size = feature_size
+        self.num_scenes = num_scenes
+        self.num_events = num_events
+        self.covariance_type = covariance_type
+        self.event_temperature = event_temperature
+        self.scene_temperature = scene_temperature
+
+        locs_init = loc_init_std * np.random.randn(
+            num_scenes, num_events, feature_size
+        )
+
+        scene_probs_init = np.ones(num_scenes) * 1 / num_scenes
+        event_probs_init = np.ones((num_scenes, num_events)) * 1 / num_events
+        log_scene_weights_init = np.log(scene_probs_init)
+        log_event_weights_init = np.log(event_probs_init)
+
+        if covariance_type == 'full':
+            scales_init = np.broadcast_to(
+                np.diag(
+                    np.ones(feature_size) * scale_init_std
+                ),
+                (num_scenes, num_events, feature_size, feature_size)
+            )
+        elif covariance_type in ['diag', 'fix']:
+            scales_init = (
+                    np.ones((num_scenes, num_events, feature_size))
+                    * scale_init_std
+            )
+        else:
+            raise ValueError
+
+        requires_grad = 3 * [True]
+        if covariance_type == 'fix':
+            requires_grad.append(False)
+        else:
+            requires_grad.append(True)
+
+        self.log_scene_weights, self.log_event_weights, self.locs, self.scales = [
+            nn.Parameter(torch.Tensor(init), requires_grad=requires_grad_)
+            for init, requires_grad_ in zip(
+                [
+                    log_scene_weights_init, log_event_weights_init,
+                    locs_init, scales_init
+                ],
+                requires_grad
+            )
+        ]
+
+    @property
+    def num_classes(self):
+        return self.num_scenes * self.num_events
+
+    @property
+    def log_scene_probs(self):
+        log_probs = torch.log_softmax(self.log_scene_weights, dim=-1)
+        log_probs = torch.max(
+            log_probs, -20 * torch.ones_like(log_probs)
+        )
+        return log_probs
+
+    @property
+    def scene_probs(self):
+        return torch.exp(self.log_scene_probs)
+
+    @property
+    def log_event_probs(self):
+        log_probs = torch.log_softmax(self.log_event_weights, dim=-1)
+        log_probs = torch.max(
+            log_probs, -20 * torch.ones_like(log_probs)
+        )
+        return log_probs
+
+    @property
+    def event_probs(self):
+        return torch.exp(self.log_event_probs)
+
+    @property
+    def log_class_probs(self):
+        log_probs = (
+                self.log_event_probs + self.log_scene_probs[:, None]
+        ).view(-1)
+        log_probs = torch.max(
+            log_probs, -20 * torch.ones_like(log_probs)
+        )
+        return log_probs
+
+    @property
+    def class_probs(self):
+        return torch.exp(self.log_class_probs)
+
+    @property
+    def gaussians(self):
+        if self.covariance_type == 'full':
+            mask = torch.tril(torch.ones_like(self.scales.data[0, 0]))
+            return D.MultivariateNormal(
+                loc=self.locs,
+                scale_tril=(
+                    self.scales * mask
+                    + 0.1 * torch.diag(torch.ones_like(self.locs[0, 0]))
+                )
+            )
+        else:
+            return D.Normal(
+                loc=self.locs,
+                scale=self.scales * + 0.1
+            )
+
+    def forward(self, inputs):
+        assert len(inputs) in [2, 3, 4]
+        mean, logvar = inputs[:2]
+        scene_labels = None if len(inputs) < 3 else inputs[2]
+        event_labels = None if len(inputs) < 4 else inputs[3]
+
+        qz = D.Normal(loc=mean, scale=torch.exp(0.5 * logvar))
+        gaussians = self.gaussians
+
+        kld = kl_divergence(qz, gaussians)
+        B, T, S, E = kld.shape
+
+        log_event_posterior = torch.log_softmax(
+            (self.log_event_probs - kld)
+            / max(self.event_temperature, 1e-2),
+            dim=-1
+        )
+        event_posterior = log_event_posterior.exp().detach()  # (B, T, S, E)
+
+        log_scene_posterior = torch.log_softmax(
+            (
+                torch.logsumexp(self.log_event_probs - kld, dim=-1).sum(1)  # (B, S)
+                + self.log_scene_probs
+            ) / max(self.scene_temperature, 1e-2),
+            dim=-1
+        )
+        scene_posterior = log_scene_posterior.exp().detach()
+        log_class_posterior = (
+            log_event_posterior + log_scene_posterior[:, None, :, None]
+        ).view((B, T, S*E))
+
+        if event_labels is None and self.event_temperature < 1e-2:
+            event_labels = torch.argmax(log_event_posterior, dim=-1)
+        if event_labels is None:
+            kld = (event_posterior * kld).sum(-1)  # (B, T, S)
+            event_ce = -(event_posterior * self.log_event_probs).sum(-1)
+        else:
+            while event_labels.dim() < 3:
+                event_labels = event_labels[..., None]
+            event_labels = event_labels.expand(kld.shape[:-1])
+            kld = kld.gather(-1, event_labels[..., None]).squeeze(-1)
+            event_ce = -self.log_event_probs[event_labels]
+
+        if scene_labels is None and self.scene_temperature < 1e-2:
+            scene_labels = torch.argmax(log_scene_posterior, dim=-1)
+        if scene_labels is None:
+            kld = (scene_posterior[:, None] * kld).sum(-1)  # (B, T)
+            event_ce = (scene_posterior[:, None] * event_ce).sum(-1)  # (B, T)
+            scene_ce = -(scene_posterior * self.log_scene_probs).sum(-1)
+        else:
+            scene_labels = scene_labels[:, None].expand(kld.shape[:-1])
+            kld = kld.gather(-1, scene_labels[..., None]).squeeze(-1)
+            event_ce = event_ce.gather(-1, scene_labels[..., None]).squeeze(-1)
+            scene_ce = -self.log_scene_probs[scene_labels]
+
+        z = self.sample(mean, logvar)
+        return (
+            z, kld, event_ce, scene_ce/float(T),
+            log_event_posterior, log_scene_posterior, log_class_posterior
+        )
+
+    def review(self, inputs, outputs):
+        (
+            _, kld, event_ce, scene_ce,
+            log_event_posterior, log_scene_posterior, log_class_posterior
+        ) = outputs
+        max_class_posterior_, classes_ = torch.max(
+            torch.exp(log_class_posterior), -1
+        )
+        mean, log_var = inputs[:2]
+        return dict(
+            losses=dict(
+                kld=kld.mean(),
+                event_ce=event_ce.mean(),
+                scene_ce=scene_ce.mean(),
+                log_scene_prob=self.log_scene_probs.sum(),
+                log_event_prob=self.log_event_probs.sum()
+            ),
+            scalars=dict(
+                scene_temperature=self.scene_temperature,
+                event_temperature=self.event_temperature
+            ),
+            histograms=dict(
+                kld_=kld.flatten(),
+                log_scene_probs_=self.log_scene_probs.flatten(),
+                log_event_probs_=self.log_event_probs.flatten(),
+                max_class_posterior_=max_class_posterior_.flatten(),
                 classes_=classes_.flatten(),
                 mean_=mean.flatten(),
                 log_var_=log_var.flatten(),
@@ -386,12 +549,11 @@ class FBGMM(StandardNormal):
         )
 
 
-class KeyValueAttention(LatentModel):
-    def __init__(self, feature_size, num_classes, pool_size=None):
+class KeyValueAttention(Model):
+    def __init__(self, feature_size, num_classes):
         super().__init__()
         self.feature_size = feature_size
         self.num_classes = num_classes
-        self.pool_size = pool_size
 
         self.keys = torch.nn.Linear(self.feature_size, num_classes)
         self.values = torch.nn.Linear(num_classes, self.feature_size)
@@ -406,10 +568,7 @@ class KeyValueAttention(LatentModel):
             log_gamma, -100 * torch.ones_like(log_gamma)
         )
         z = self.values(gamma)
-        z, _, pool_indices, log_gamma = self.pool(
-            z, -log_gamma.sum(dim=-1), log_gamma
-        )
-        return z, pool_indices, log_gamma
+        return z, log_gamma
 
     def review(self, inputs, outputs):
         _, _, log_gamma = outputs
