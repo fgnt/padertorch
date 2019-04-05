@@ -146,7 +146,7 @@ def prepare_and_train(
 
         if batch_size is not None:
             it_tr = it_tr.batch(batch_size)
-            # .map(pt.data.Sorter(lambda example: example.Observation.shape[0]))
+            it_tr = it_tr.map(pt.data.Sorter(lambda example: example.Observation.shape[-2]))
 
         trainer.train(
             it_tr.prefetch(4, 8, catch_filter_exception=True),
@@ -234,6 +234,13 @@ def pc2(_config, _run):
         '--res=rset=1:ncpus=8:gtx1080=1',
     ])
     (storage_dir / 'ccs').mkdir(exist_ok=True)
+
+    import shlex, sys
+    restart_cmd = (
+            f'python -m {pt.configurable.resolve_main_python_path()} '
+            + ' '.join(map(shlex.quote, sys.argv[1:]))
+    )
+
     with open(Path(storage_dir) / 'Makefile', 'a') as fd:
         fd.write(
             '\n'
@@ -247,6 +254,13 @@ def pc2(_config, _run):
             # '\ttail -F ccs/*'
             '''\tfind ccs -iname "*.*" | sort | tail -n 3 | xargs -n3 --delimiter='\\n' tail -F'''
             '\n'
+        )
+        fd.write(
+f"""
+.PHONY: restart_in_new_folder
+restart_in_new_folder:
+\t{restart_cmd}
+"""
         )
 
     subprocess.run(

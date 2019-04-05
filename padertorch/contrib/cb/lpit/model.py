@@ -4,7 +4,9 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
+import torch.nn.functional
 import einops
+from einops import rearrange
 
 
 import paderbox as pb
@@ -16,6 +18,8 @@ import pb_bss.permutation_alignment
 
 from cbj.pytorch.feature_extractor import FeatureExtractor
 from padertorch.contrib.examples.acoustic_model.model import get_blstm_stack
+
+from padertorch.contrib.cb.summary import ReviewSummary
 
 
 class AuxiliaryLoss:
@@ -208,6 +212,8 @@ class Model(pt.Model, pt.train.hooks.Hook):
             aux_loss,
             output_activation='softmax',
             pit_loss='mse',
+            sample_channel=False,
+            use_pack_sequence=False,
     ):
         super().__init__()
         self.blstm = blstm
@@ -217,6 +223,8 @@ class Model(pt.Model, pt.train.hooks.Hook):
         self.db = db
         self.sources = sources
         self.aux_loss = aux_loss
+        self.sample_channel = sample_channel
+        self.use_pack_sequence = use_pack_sequence
 
         self.pit_loss = pit_loss
 
@@ -234,6 +242,26 @@ class Model(pt.Model, pt.train.hooks.Hook):
                 # read_fn=self.db.read_fn,
                 read_fn=pb.io.load_audio,
             ))
+
+            def sample_channel(example):
+                channel = np.random.randint(
+                    example['audio_data']['rir'].shape[-2]
+                )
+                example['audio_data']['rir'] = np.take(
+                    example['audio_data']['rir'],
+                    (channel,),
+                    axis=-2,
+                )
+                return example
+
+            if dataset in ['train_si284']:
+                if self.sample_channel:
+                    it = it.map(sample_channel)
+            elif dataset in ['cv_dev93']:
+                pass
+            else:
+                raise ValueError(dataset)
+
             it = it.map(functools.partial(
                 pb.database.wsj_bss.scenario_map_fn,
                 # channel_mode='all',
@@ -241,9 +269,9 @@ class Model(pt.Model, pt.train.hooks.Hook):
                 # snr_range=(20, 30),  # Too high, reviewer won't like this
                 snr_range=snr_range,  # Too high, reviewer won't like this
                 # rir_type='image_method',
-                pad_speech_source=True,
+                sync_speech_source=True,
                 add_speech_reverberation_direct=True,
-                add_speech_reverberation_tail=True,
+                add_speech_reverberation_tail=False,
                 # normalize=True,
             ))
 
@@ -269,56 +297,119 @@ class Model(pt.Model, pt.train.hooks.Hook):
 
 
             Speech_image = self.feature_extractor(example['audio_data']['speech_image'])
+            Speech_reverberation_direct = self.feature_extractor(example['audio_data']['speech_reverberation_direct'])
             Noise_image = self.feature_extractor(example['audio_data']['noise_image'])
-            Clean = np.abs(Speech_image).astype(np.float32)
+            # Speech_image_abs = np.abs(Speech_image).astype(np.float32)
+            Speech_reverberation_direct_abs = np.abs(Speech_reverberation_direct).astype(np.float32)
 
             if self.pit_loss == 'ce':
-                target_mask = np.ascontiguousarray(
+
+                # Use Speech_image or Speech_reverberation_direct
+                # Consider tail?
+                binary_mask = np.ascontiguousarray(
                     ideal_binary_mask(
-                        np.array([*Speech_image, Noise_image]),
+                        np.array([*Speech_reverberation_direct, Noise_image]),
                         source_axis=-4,
                         one_hot=False,
                     )
                 )
             else:
-                target_mask = np.ascontiguousarray(
+                binary_mask = np.ascontiguousarray(
                     ideal_binary_mask(
-                        np.array([*Speech_image, Noise_image]),
+                        np.array([*Speech_reverberation_direct, Noise_image]),
                         source_axis=-4
                     ), np.float32
                 )
         else:
-            Clean = None
-            Speech_image = None
-            target_mask = None
+            # Speech_image_abs = None
+            Speech_reverberation_direct = None
+            Speech_reverberation_direct_abs = None
+            # Speech_image = None
+            binary_mask = None
 
         return self.NNInput(
             Observation=Observation,
             Feature=np.abs(Observation).astype(np.float32),
-            Target=Clean,
-            Speech_image=Speech_image,
-            target_mask=target_mask,
+            # Speech_image_abs=Speech_image_abs,
+            # Speech_image=Speech_image,
+            Speech_reverberation_direct=Speech_reverberation_direct,
+            Speech_reverberation_direct_abs=Speech_reverberation_direct_abs,
+            binary_mask=binary_mask,
         )
 
     @dataclass
     class NNInput:
         Observation: np.ndarray
         Feature: torch.tensor
-        Target: torch.tensor
-        Speech_image: np.ndarray
-        target_mask: np.ndarray
+        # Speech_image_abs: torch.tensor
+        # Speech_image: np.ndarray
+        Speech_reverberation_direct: np.ndarray
+        Speech_reverberation_direct_abs: torch.tensor
+        binary_mask: np.ndarray
         # alignment: torch.tensor
         # kaldi_transcription: tuple
 
     def forward(self, example: NNInput):
-        if isinstance(example, (tuple, list)):
-            # Batch Mode
-            return [
-                self.forward(e) for e in example
-            ]
+        """
+        >>> import paderbox as pb
+        >>> import padertorch as pt
+        >>> from dataclasses import  asdict
+        >>> example = Model.NNInput(Feature=np.zeros([6, 400, 257], dtype=np.float32), Target=None, Speech_image=None, Observation=None, target_mask=None)
+        >>> example = pt.data.example_to_device(example)
+        >>> output: Model.NNOutput = Model.from_config(Model.get_config())(example)
+        >>> pb.notebook.pprint(output.predict)
+        Tensor(shape=(6, 400, 257, 2), dtype=float32)
+        >>> pb.notebook.pprint(output.predict_logit)
+        Tensor(shape=(6, 400, 257, 2), dtype=float32)
 
-        tensor, _ = self.blstm(example.Feature)
+        >>> example = pt.data.example_to_device(example)
+        >>> output2: Model.NNOutput = Model.from_config(Model.get_config(updates=dict(use_pack_sequence=True)))([example])
+
+        """
+        if isinstance(example, (tuple, list)):
+            if self.use_pack_sequence:
+                import padertorch as pt
+                list_of_features = [ex.Feature for ex in example]
+                Feature = pt.ops.pack_sequence_include_channel(
+                    list_of_features
+                )
+
+                tensor, _ = self.blstm(Feature)
+
+                predict = pt.ops.sequence_elementwise(self.dense, tensor)
+
+                predict = pt.ops.sequence_elementwise(
+                    einops.rearrange,
+                    predict,
+                    'TBD (F K) -> TBD F K'.lower(),
+                    k=self.sources,
+                )
+
+                predict = pt.ops.unpack_sequence_include_channel_like(
+                    predict,
+                    like=list_of_features,
+                )
+
+                return [self.NNOutput(
+                    predict_logit=p,
+                    predict=self.output_activation(p),
+                ) for p in predict]
+            else:
+
+                # Batch Mode
+                return [
+                    self.forward(e)
+                    for e in example
+                ]
+
+        assert self.blstm.batch_first is False, (self.blstm, self.blstm.batch_first)
+        assert example.Feature.shape[0] < 30, example.Feature.shape
+        tensor, _ = self.blstm(
+            rearrange(example.Feature, 'd t f -> t d f')
+        )
         predict = self.dense(tensor)
+
+
         # shape = list(predict.shape)
         # shape[-1] = shape[-1] // self.sources
         # shape += [self.sources]
@@ -329,7 +420,7 @@ class Model(pt.Model, pt.train.hooks.Hook):
 
         predict = einops.rearrange(
             predict,
-            'D T (F K) -> D T F K'.lower(),
+            'T D (F K) -> D T F K'.lower(),
             k=self.sources,
         )
 
@@ -343,7 +434,7 @@ class Model(pt.Model, pt.train.hooks.Hook):
         predict_logit: torch.tensor
         predict: torch.tensor
 
-    def review(self, inputs: NNInput, output: NNOutput, summary=None):
+    def review(self, inputs: NNInput, output: NNOutput, summary=None, add_images=True):
         """
 
         >>> np.set_string_function(lambda a: f'array(shape={a.shape}, dtype={a.dtype})')
@@ -378,7 +469,6 @@ class Model(pt.Model, pt.train.hooks.Hook):
         >>> review
 
         """
-        from padertorch.contrib.cb.summary import ReviewSummary
 
         if summary is None:
             summary = ReviewSummary()
@@ -387,8 +477,13 @@ class Model(pt.Model, pt.train.hooks.Hook):
             assert isinstance(output, (tuple, list)), (type(output), output)
             assert len(output) == len(inputs), (len(output), len(inputs), output, inputs)
             # Batch Mode
-            for i, o in zip(inputs, output):
-                summary = self.review(inputs=i, output=o, summary=summary)
+            last_index = len(inputs)-1
+
+            for index, (i, o) in enumerate(zip(inputs, output)):
+                # Only the last call should add the images.
+                bool_add_images = (index == last_index)
+
+                summary = self.review(inputs=i, output=o, summary=summary, add_images=bool_add_images)
 
             return summary
 
@@ -398,58 +493,59 @@ class Model(pt.Model, pt.train.hooks.Hook):
 
         # loss = regularisation + loss
 
-        if inputs.Target is not None:
+        if inputs.Speech_reverberation_direct_abs is not None:
             # inputs.Target.shape: K D T F
             # inputs.Observation.shape: D T F
             # predict.shape: T F K
 
-            target = inputs.Target  # .mean(-3)
+            # target = inputs.Speech_reverberation_direct_abs  # .mean(-3)
             # target.shape: K T F
             # target = target / (target.sum(-3, keepdim=True) + 1e-6)
 
             assert inputs.Feature.shape == predict.shape[:-1], (inputs.Feature.shape, predict.shape)
 
-            predict_amp = einops.rearrange(
-                inputs.Feature[..., None] * predict,
-                'D T F K -> D T K F'.lower()
-            )
-            D, _, K, _ = predict_amp.shape
+            D, T, F, K = predict.shape
+
             assert D < 30, D
             assert K < 30, K
 
-            predict_logit_amp = einops.rearrange(
-                inputs.Feature[..., None] * output.predict_logit,
-                'D T F K -> D T K F'.lower()
-            )
-            D = predict_amp.shape[0]
-            assert D < 30, D
+            def get_predict_amp():
+                predict_amp = einops.rearrange(
+                    inputs.Feature[..., None] * predict,
+                    'D T F K -> D T K F'.lower()
+                )
+                return predict_amp
 
             # pit mse
             if self.pit_loss == 'mse':
+                predict_amp = get_predict_amp()
                 mask_mse_loss = sum([pt.ops.loss.pit_loss(
                     predict_amp[d],
-                    einops.rearrange(target, 'K D T F -> D T K F'.lower())[d],
+                    einops.rearrange(inputs.Speech_reverberation_direct_abs, 'K D T F -> D T K F'.lower())[d],
                 ) for d in range(D)]) / D
             elif self.pit_loss in ['ce']:
                 loss_fn = torch.nn.functional.cross_entropy
-                estimate = predict_logit_amp
+                estimate = einops.rearrange(
+                    output.predict_logit,
+                    'D T F K -> D T K F'.lower()
+                )
 
                 mask_mse_loss = sum([pt.ops.loss.pit_loss(
                     estimate[d],
-                    einops.rearrange(inputs.target_mask, 'D T F -> D T F'.lower())[d],
+                    einops.rearrange(inputs.binary_mask, 'D T F -> D T F'.lower())[d],
                     loss_fn=loss_fn,
                 ) for d in range(D)]) / D
 
-                tmp_mask = einops.rearrange(inputs.target_mask,
-                                            'D T F -> D T F'.lower())[0]
-
-                summary.add_image(
-                    f'target_mask',
-                    pt.summary.mask_to_image(einops.rearrange(
-                        [tmp_mask == k for k in range(K)],
-                        'k t f -> t (k f)'
-                    )),
-                )
+                if add_images:
+                    tmp_mask = einops.rearrange(inputs.binary_mask,
+                                                'D T F -> D T F'.lower())[0]
+                    summary.add_mask_image(
+                        f'target_mask',
+                        einops.rearrange(
+                            [tmp_mask == k for k in range(K)],
+                            'k t f -> t (k f)'
+                        ),
+                    )
 
             elif self.pit_loss in ['bce', 'mse_ibm']:
 
@@ -457,14 +553,20 @@ class Model(pt.Model, pt.train.hooks.Hook):
                     # loss_fn = torch.nn.BCELoss()
                     loss_fn = torch.nn.functional.binary_cross_entropy_with_logits
 
-                    estimate = predict_logit_amp
+                    estimate = einops.rearrange(
+                        output.predict_logit,
+                        'D T F K -> D T K F'.lower()
+                    )
                 elif self.pit_loss == 'mse_ibm':
                     loss_fn = torch.nn.functional.mse_loss
-                    estimate = predict_amp
+                    estimate = einops.rearrange(
+                        output.predict,
+                        'D T F K -> D T K F'.lower()
+                    )
                 else:
                     raise ValueError(self.pit_loss)
 
-                target_mask = inputs.target_mask
+                target_mask = inputs.binary_mask
                 if self.sources == 2:
                     assert K == 2, K
                     assert target_mask.shape[0] == 3
@@ -481,23 +583,27 @@ class Model(pt.Model, pt.train.hooks.Hook):
                     loss_fn=loss_fn,
                 ) for d in range(D)]) / D
 
-                summary.add_image(
-                    f'target_mask',
-                    pt.summary.mask_to_image(einops.rearrange(
-                        inputs.target_mask,
-                        'k d t f -> d t (k f)'
-                    )[0]),
-                )
+                if add_images:
+                    summary.add_mask_image(
+                        f'target_mask',
+                        einops.rearrange(
+                            inputs.binary_mask,
+                            'k d t f -> d t (k f)'
+                        )[0],
+                    )
             elif 'ips' in self.pit_loss:
                 # pit ips: Ideal Phase Sensitive
                 # pit nips: Nonnegativ Ideal Phase Sensitive
 
+
+                # ToDo: is Speech_reverberation_direct still a valid signal?
+
                 cos_phase_diff = np.cos(
                     np.angle(inputs.Observation)
-                    - np.angle(inputs.Speech_image)
+                    - np.angle(inputs.Speech_reverberation_direct)
                 ).astype(np.float32)
 
-                cos_phase_diff = target.new(cos_phase_diff)
+                cos_phase_diff = inputs.Speech_reverberation_direct_abs.new(cos_phase_diff)
 
                 # Allow different permutations for different channels
 
@@ -508,9 +614,10 @@ class Model(pt.Model, pt.train.hooks.Hook):
                 else:
                     raise ValueError(self.pit_loss)
 
+                predict_amp = get_predict_amp()
                 mask_mse_loss = sum([pt.ops.losses.loss.pit_loss(
                     predict_amp[d],
-                    einops.rearrange(target * cos_phase_diff,
+                    einops.rearrange(inputs.Speech_reverberation_direct_abs * cos_phase_diff,
                                      'K D T F -> D T K F'.lower())[d]
                 ) for d in range(D)]) / D
             else:
@@ -519,24 +626,26 @@ class Model(pt.Model, pt.train.hooks.Hook):
             summary.add_scalar(f'reconstruction_{self.pit_loss}', mask_mse_loss)
             summary.add_to_loss(mask_mse_loss)
 
-            summary.add_image(f'clean', pt.summary.spectrogram_to_image(
-                einops.rearrange(target, 'K D T F -> D T (K F)'.lower())[0])
-            )
+            if add_images:
+                summary.add_spectrogram_image(
+                    f'Speech_reverberation_direct',
+                    einops.rearrange(inputs.Speech_reverberation_direct_abs, 'K D T F -> D T (K F)'.lower())[0],
+                )
         else:
             aux_loss = self.aux_loss(predict, inputs.Observation)
             summary.add_to_loss(aux_loss)
             summary.add_scalar('aux_loss', aux_loss)
 
-        summary.add_image(
-            f'mask',
-            pt.summary.mask_to_image(
+        if add_images:
+            summary.add_mask_image(
+                f'mask',
                 einops.rearrange(
                     predict,
                     'D T F K -> D T (K F)'.lower()
-                )[0, :, :]
-            ),
-        )
+                )[0, :, :],
+            )
 
-        summary.add_image('Observation', pt.summary.stft_to_image(inputs.Observation[0]))
+        if add_images:
+            summary.add_stft_image('Observation', inputs.Observation[0])
 
         return summary
