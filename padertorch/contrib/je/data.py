@@ -8,12 +8,38 @@ from paderbox.database import JsonDatabase
 from paderbox.io.data_dir import database_jsons
 from padertorch import Configurable
 from torch.utils.data.dataloader import default_collate
+from padertorch import utils
+
+
+def to_list(value):
+    if isinstance(value, dict):
+        if not isinstance(value, OrderedDict):
+            l = list()
+            for i, key in enumerate(natsorted(value.keys())):
+                try:
+                    idx = int(key)
+                    assert idx == i
+                except (ValueError, AssertionError):
+                    raise ValueError(
+                        'transforms is an unordered dict '
+                        'with keys not being an enumeration.'
+                    )
+                l.append(value[key])
+        else:
+            l = [
+                transform for key, transform in value.items()
+            ]
+    else:
+        l = utils.to_list(value)
+    return l
 
 
 class DataProvider(Configurable):
     def __init__(
             self, database_name, training_set_names, validation_set_names=None,
+            pre_transform_filters=None,
             transforms=None, subset_size=None, storage_dir=None,
+            post_transform_filters=None,
             max_workers=0, prefetch_buffer=100,
             fragment=False, shuffle_buffer=None,
             batch_size=None, collate_fn=None
@@ -21,35 +47,22 @@ class DataProvider(Configurable):
         self.database_name = database_name
         self.training_set_names = training_set_names
         self.validation_set_names = validation_set_names
+        self.pre_transform_filter = None if pre_transform_filters is None \
+            else lambda ex: all([
+                fil(ex) for fil in to_list(pre_transform_filters)
+                if fil is not None
+            ])
         if transforms is None:
             self.transforms = []
-        elif isinstance(transforms, dict):
-            if not isinstance(transforms, OrderedDict):
-                self.transforms = list()
-                for i, key in enumerate(natsorted(transforms.keys())):
-                    try:
-                        idx = int(key)
-                        assert idx == i
-                    except (ValueError, AssertionError):
-                        raise ValueError(
-                            'transforms is an unordered dict '
-                            'with keys not being an enumeration.'
-                        )
-                    self.transforms.append(transforms[key])
-            else:
-                self.transforms = [
-                    transform for key, transform in transforms.items()
-                ]
-        elif isinstance(transforms, (list, tuple)):
-            self.transforms = transforms
-        elif callable(transforms):
-            self.transforms = [transforms]
         else:
-            raise ValueError(
-                f'transforms of type {type(transforms)} not allowed'
-            )
+            self.transforms = to_list(transforms)
         self.subset_size = subset_size
         self.storage_dir = storage_dir
+        self.post_transform_filter = None if post_transform_filters is None \
+            else lambda ex: all([
+                fil(ex) for fil in to_list(post_transform_filters)
+                if fil is not None
+            ])
         self.num_workers = min(prefetch_buffer, max_workers)
         self.prefetch_buffer = prefetch_buffer
         self.fragment = fragment
@@ -75,15 +88,18 @@ class DataProvider(Configurable):
         return dataset
 
     def get_iterator(
-            self, dataset_names, training=False, shuffle=False, fragment=True,
-            batch=True
+            self, dataset_names, filter=True, training=False, shuffle=False,
+            prefetch=True, fragment=True, batch=True
     ):
         if dataset_names is None:
             return None
 
         dataset = self.db.get_iterator_by_names(dataset_names)
-
+        if filter and self.pre_transform_filter is not None:
+            dataset = dataset.filter(self.pre_transform_filter, lazy=False)
         for transform in self.transforms:
+            if transform is None:
+                continue
             if not self.initialized_transforms:
                 assert dataset_names == self.training_set_names
                 subset = dataset
@@ -97,9 +113,14 @@ class DataProvider(Configurable):
             dataset = dataset.map(transform)
         self.initialized_transforms = True
 
+        if filter and self.post_transform_filter is not None:
+            dataset = dataset.filter(self.post_transform_filter, lazy=False)
+
         if shuffle:
             dataset = dataset.shuffle(reshuffle=True)
-        dataset = self.prefetch(dataset)
+
+        if prefetch:
+            dataset = self.prefetch(dataset)
 
         if self.fragment and fragment:
             dataset = dataset.unbatch()
