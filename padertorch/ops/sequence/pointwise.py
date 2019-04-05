@@ -1,4 +1,5 @@
 import torch
+import torch.nn
 from functools import partial
 
 
