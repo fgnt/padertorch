@@ -48,8 +48,9 @@ class StandardNormal(Model):
 
 class GMM(StandardNormal):
     def __init__(
-            self, feature_size, num_classes, init_std=1.0,
-            covariance_type='full', class_temperature=1.
+            self, feature_size, num_classes,
+            covariance_type='full', class_temperature=1.,
+            loc_init_std=1.0, scale_init_std=1.0
     ):
         super(Model, self).__init__()
         self.feature_size = feature_size
@@ -57,7 +58,7 @@ class GMM(StandardNormal):
         self.covariance_type = covariance_type
         self.class_temperature = class_temperature
 
-        locs_init = init_std * np.random.randn(num_classes, feature_size)
+        locs_init = loc_init_std * np.random.randn(num_classes, feature_size)
 
         class_probs_init = np.ones(num_classes) * 1 / num_classes
         log_class_weights_init = np.log(class_probs_init)
@@ -65,15 +66,16 @@ class GMM(StandardNormal):
         if covariance_type == 'full':
             scales_init = np.broadcast_to(
                 np.diag(
-                    np.ones(feature_size) * init_std
+                    np.ones(feature_size) * scale_init_std
                 ),
                 (num_classes, feature_size, feature_size)
             )
         elif covariance_type in ['diag', 'fix']:
-            scales_init = np.ones((num_classes,  feature_size)) * init_std
+            scales_init = (
+                    np.ones((num_classes,  feature_size)) * scale_init_std
+            )
         else:
             raise ValueError
-        # scales_init = scales_init * ((1 / num_classes) ** (1 / feature_size))
 
         requires_grad = 2 * [True]
         if covariance_type == 'fix':
@@ -92,7 +94,7 @@ class GMM(StandardNormal):
     def log_class_probs(self):
         log_probs = torch.log_softmax(self.log_weights, dim=-1)
         log_probs = torch.max(
-            log_probs, -100 * torch.ones_like(log_probs)
+            log_probs, -20 * torch.ones_like(log_probs)
         )
         return log_probs
 
@@ -108,13 +110,13 @@ class GMM(StandardNormal):
                 loc=self.locs,
                 scale_tril=(
                     self.scales * mask
-                    + 0.01 * torch.diag(torch.ones_like(self.locs[0]))
+                    + 0.1 * torch.diag(torch.ones_like(self.locs[0]))
                 )
             )
         else:
             return D.Normal(
                 loc=self.locs,
-                scale=self.scales * + 0.01
+                scale=self.scales * + 0.1
             )
 
     def forward(self, inputs):
@@ -137,6 +139,8 @@ class GMM(StandardNormal):
             kld = (class_posterior * kld).sum(-1)
             class_ce = -(class_posterior * self.log_class_probs).sum(-1)
         else:
+            while class_labels.dim() < 2:
+                class_labels = class_labels[..., None]
             class_labels = class_labels.expand(kld.shape[:-1])
             kld = kld.gather(-1, class_labels[..., None]).squeeze(-1)
             class_ce = -self.log_class_probs[class_labels]
@@ -172,20 +176,19 @@ class GMM(StandardNormal):
 
 class HGMM(StandardNormal):
     def __init__(
-            self, feature_size, num_scenes, num_events, init_std=1.0,
-            pool_size=None, covariance_type='full', event_temperature=1.,
-            scene_temperature=1.
+            self, feature_size, num_scenes, num_events,
+            covariance_type='full', event_temperature=1., scene_temperature=1.,
+            loc_init_std=1.0, scale_init_std=1.0
     ):
         super(Model, self).__init__()
         self.feature_size = feature_size
         self.num_scenes = num_scenes
         self.num_events = num_events
-        self.pool_size = pool_size
         self.covariance_type = covariance_type
         self.event_temperature = event_temperature
         self.scene_temperature = scene_temperature
 
-        locs_init = init_std * np.random.randn(
+        locs_init = loc_init_std * np.random.randn(
             num_scenes, num_events, feature_size
         )
 
@@ -197,15 +200,17 @@ class HGMM(StandardNormal):
         if covariance_type == 'full':
             scales_init = np.broadcast_to(
                 np.diag(
-                    np.ones(feature_size) * init_std
+                    np.ones(feature_size) * scale_init_std
                 ),
                 (num_scenes, num_events, feature_size, feature_size)
             )
         elif covariance_type in ['diag', 'fix']:
-            scales_init = np.ones((num_scenes, num_events, feature_size)) * init_std
+            scales_init = (
+                    np.ones((num_scenes, num_events, feature_size))
+                    * scale_init_std
+            )
         else:
             raise ValueError
-        # scales_init = scales_init * ((1 / self.num_classes) ** (1 / feature_size))
 
         requires_grad = 3 * [True]
         if covariance_type == 'fix':
@@ -232,7 +237,7 @@ class HGMM(StandardNormal):
     def log_scene_probs(self):
         log_probs = torch.log_softmax(self.log_scene_weights, dim=-1)
         log_probs = torch.max(
-            log_probs, -100 * torch.ones_like(log_probs)
+            log_probs, -20 * torch.ones_like(log_probs)
         )
         return log_probs
 
@@ -244,7 +249,7 @@ class HGMM(StandardNormal):
     def log_event_probs(self):
         log_probs = torch.log_softmax(self.log_event_weights, dim=-1)
         log_probs = torch.max(
-            log_probs, -100 * torch.ones_like(log_probs)
+            log_probs, -20 * torch.ones_like(log_probs)
         )
         return log_probs
 
@@ -258,7 +263,7 @@ class HGMM(StandardNormal):
                 self.log_event_probs + self.log_scene_probs[:, None]
         ).view(-1)
         log_probs = torch.max(
-            log_probs, -100 * torch.ones_like(log_probs)
+            log_probs, -20 * torch.ones_like(log_probs)
         )
         return log_probs
 
@@ -320,7 +325,9 @@ class HGMM(StandardNormal):
             kld = (event_posterior * kld).sum(-1)  # (B, T, S)
             event_ce = -(event_posterior * self.log_event_probs).sum(-1)
         else:
-            event_labels = event_labels[..., None].expand(kld.shape[:-1])
+            while event_labels.dim() < 3:
+                event_labels = event_labels[..., None]
+            event_labels = event_labels.expand(kld.shape[:-1])
             kld = kld.gather(-1, event_labels[..., None]).squeeze(-1)
             event_ce = -self.log_event_probs[event_labels]
 
