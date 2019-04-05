@@ -337,8 +337,11 @@ class Trainer(Configurable):
         example = pt.data.example_to_device(
             example, self.device
         )
-        model_out = self.model(example)
-        return model_out, self.model.review(example, model_out)
+
+        with self.timer['time_per_train_step_forward']:
+            model_out = self.model(example)
+        with self.timer['time_per_train_step_review']:
+            return model_out, self.model.review(example, model_out)
 
     def _maybe_add_loss_to_review(self, review):
         if 'losses' in review:
