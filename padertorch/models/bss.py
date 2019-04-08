@@ -72,7 +72,7 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
             observation[b] /= std
             if target is not None:
                 target[b] /= std
-            if target2 is None:
+            if target2 is not None:
                 target2[b] /= std
         return
 
