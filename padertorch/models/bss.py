@@ -6,7 +6,7 @@ import padertorch as pt
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 from padertorch.summary import mask_to_image, stft_to_image
 from paderbox.transform import istft
-import numpy as np
+
 
 
 class MultiChannelPermutationInvariantTraining(pt.Model):
@@ -64,7 +64,7 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
         self.linear1 = torch.nn.Linear(2 * units, 2 * units)
         self.linear2 = torch.nn.Linear(2 * units, F * K)
 
-    def normalize_batch(self, observation, target=None):
+    def normalize_batch(self, observation, target=None, target2=None):
         # normalizes batch in-place, only one call for forward/review needed
 
         for b in range(len(observation)):
@@ -72,6 +72,8 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
             observation[b] /= std
             if target is not None:
                 target[b] /= std
+            if target2 is None:
+                target2[b] /= std
         return
 
     def forward(self, batch):
@@ -84,7 +86,7 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
 
         """
 
-        self.normalize_batch(batch['Y_abs'], batch['X_abs'])
+        self.normalize_batch(batch['Y_abs'], batch['X_abs'], batch['X_clean'])
         h = pt.ops.pack_sequence(batch['Y_abs'])
         h_data = pt.ops.sequence.log1p(h.data)
 
@@ -145,6 +147,19 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
                 target * cos_phase_diff
             ))
 
+        pit_ips_clean_loss = list()
+        for mask, observation, target, cos_phase_diff in zip(
+                model_out,
+                batch['Y_abs'],
+                batch['X_clean'],
+                batch['cos_phase_difference']
+        ):
+            estimation = mask * observation[:, None, :]
+            pit_ips_clean_loss.append(pt.ops.losses.loss.pit_mse_loss(
+                estimation,
+                target * cos_phase_diff
+            ))
+
         binary_loss = list()
         for mask, target in zip(
                 model_out,
@@ -155,13 +170,12 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
                 target
             ))
 
-
-        else:
-            losses = {
-                'pit_mse_loss': torch.mean(torch.stack(pit_mse_loss)),
-                'pit_ips_loss': torch.mean(torch.stack(pit_ips_loss)),
-                'binary_loss': torch.mean(torch.stack(binary_loss)),
-            }
+        losses = {
+            'pit_mse_loss': torch.mean(torch.stack(pit_mse_loss)),
+            'pit_ips_loss': torch.mean(torch.stack(pit_ips_loss)),
+            'pit_ips_clean_loss': torch.mean(torch.stack(pit_ips_clean_loss)),
+            'binary_loss': torch.mean(torch.stack(binary_loss)),
+        }
 
         b = 0
         images = dict()
@@ -290,19 +304,6 @@ class PermutationInvariantTrainingModel(pt.Model):
                 mask * observation[:, None, :],
                 target
             ))
-        pit_ipsn_loss =[]
-        for mask, observation, target, cos_phase_diff in zip(
-                model_out,
-                batch['Y_norm'],
-                batch['X_norm'],
-                batch['cos_phase_difference']
-        ):
-            estimation = mask * observation[:, None, :]
-            pit_ipsn_loss.append(pt.ops.losses.loss.pit_mse_loss(
-                estimation,
-                target * cos_phase_diff
-            ))
-
 
         pit_ips_loss = list()
         for mask, observation, target, cos_phase_diff in zip(
@@ -318,9 +319,7 @@ class PermutationInvariantTrainingModel(pt.Model):
 
         losses = {
                 'pit_mse_loss': torch.mean(torch.stack(pit_mse_loss)),
-                'pit_ips_loss': torch.mean(torch.stack(pit_ips_loss)),
-                'pit_ipsn_loss': torch.mean(torch.stack(pit_ipsn_loss))
-        }
+                'pit_ips_loss': torch.mean(torch.stack(pit_ips_loss)),        }
         #estimation = model_out[0][:]*batch['Y_abs'][0]
 
         b = 0
