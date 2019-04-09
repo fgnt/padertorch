@@ -1,13 +1,13 @@
 import torch
 from padertorch.base import Model
-from padertorch.contrib.je.conv1d import TCN
+from padertorch.contrib.je.conv import CNN
 from torch import nn
 from torchvision import utils as vutils
 
 
 class AE(Model):
     def __init__(
-            self, encoder: TCN, decoder: TCN, feature_key="spectrogram",
+            self, encoder: CNN, decoder: CNN, feature_key="spectrogram",
             encoder_condition=None, decoder_condition=None
     ):
         super().__init__()
@@ -95,8 +95,8 @@ class AE(Model):
 
     @classmethod
     def finalize_dogmatic_config(cls, config):
-        config['encoder'] = {'factory': TCN}
-        config['decoder'] = {'factory': TCN, 'transpose': True}
+        config['encoder'] = {'factory': CNN}
+        config['decoder'] = {'factory': CNN, 'transpose': True}
         config['decoder']['output_size'] = config['encoder']['input_size']
         config['decoder']['num_layers'] = config['encoder']['num_layers']
         config['decoder']['pooling'] = config['encoder']['pooling']
