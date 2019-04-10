@@ -337,8 +337,11 @@ class Trainer(Configurable):
         example = pt.data.example_to_device(
             example, self.device
         )
-        model_out = self.model(example)
-        return model_out, self.model.review(example, model_out)
+
+        with self.timer['time_per_train_step_forward']:
+            model_out = self.model(example)
+        with self.timer['time_per_train_step_review']:
+            return model_out, self.model.review(example, model_out)
 
     def _maybe_add_loss_to_review(self, review):
         if 'losses' in review:
@@ -614,12 +617,25 @@ class ContextTimerDict:
 
     def __call__(self, key, iterable):
         iterator = iter(iterable)
+
+        class StopIterationIgnoredByContextlib(Exception):
+            pass
+            # contextlib.contextmanager tries to inform the user with a
+            # DeprecationWarning because of PEP 479.
+            # The cas here is still conform with PEP 479 (i.e. use __future__
+            # import).
+            # To suppress the warning, convert StopIteration to this Exception
+            # and catch it.
+
         try:
             while True:
                 with self[key]:
-                    example = next(iterator)
+                    try:
+                        example = next(iterator)
+                    except StopIteration:
+                        raise StopIterationIgnoredByContextlib
                 yield example
-        except StopIteration:
+        except StopIterationIgnoredByContextlib:
             pass
 
 

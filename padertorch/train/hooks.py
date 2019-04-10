@@ -17,7 +17,7 @@ import types
 import numpy as np
 import progressbar
 import torch
-from tensorboardX import SummaryWriter
+import tensorboardX
 
 import paderbox as pb
 from padertorch.train.trigger import IntervalTrigger, EndTrigger
@@ -119,7 +119,7 @@ class SummaryHook(TriggeredHook):
     def __init__(
             self,
             trigger,
-            writer: SummaryWriter,
+            writer: tensorboardX.SummaryWriter,
             summary_prefix='training',
     ):
         super().__init__(trigger)
@@ -190,6 +190,9 @@ class SummaryHook(TriggeredHook):
         time_per_train_step = timer_dict.pop('time_per_train_step', [0])
         time_per_backward = timer_dict.pop('time_per_backward', [0])
 
+        time_per_train_step_forward = timer_dict.pop('time_per_train_step_forward', [0])
+        time_per_train_step_review = timer_dict.pop('time_per_train_step_review', [0])
+
         time_per_step = (
                 np.mean(time_per_data_loading) + np.mean(time_per_train_step)
         )
@@ -200,6 +203,8 @@ class SummaryHook(TriggeredHook):
             sum_time_per_train_step = np.sum(time_per_train_step)
             sum_time_per_data_loading = np.sum(time_per_data_loading)
             sum_time_per_backward = np.sum(time_per_backward)
+            sum_time_per_train_step_forward = np.sum(time_per_train_step_forward)
+            sum_time_per_train_step_review = np.sum(time_per_train_step_review)
 
             total_train_time = (
                     sum_time_per_data_loading + sum_time_per_train_step
@@ -218,6 +223,16 @@ class SummaryHook(TriggeredHook):
                 self.writer.add_scalar(
                     f'{time_prefix}/time_rel_backward',
                     sum_time_per_backward / sum_time_per_train_step,
+                    iteration
+                )
+                self.writer.add_scalar(
+                    f'{time_prefix}/time_rel_forward',
+                    sum_time_per_train_step_forward / sum_time_per_train_step,
+                    iteration
+                )
+                self.writer.add_scalar(
+                    f'{time_prefix}/time_rel_review',
+                    sum_time_per_train_step_review / sum_time_per_train_step,
                     iteration
                 )
 
