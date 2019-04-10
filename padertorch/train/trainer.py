@@ -31,7 +31,8 @@ class Trainer(Configurable):
 
     @classmethod
     def finalize_dogmatic_config(cls, config):
-        config['optimizer'] = {'factory': Adam}
+        if 'optimizer' not in config.keys():
+            config['optimizer'] = {'factory': Adam}
 
     def __init__(
             self,
@@ -82,7 +83,7 @@ class Trainer(Configurable):
             # Special case see Janek's example
             # TODO: Hint to example
             model_keys = set(deflatten(model.state_dict(), maxdepth=1).keys())
-            assert model_keys == set(optimizer.keys()), (model, optimizer)
+            assert model_keys == set(optimizer.keys()), (model_keys, optimizer)
             optimizer = optimizer.copy()
             for key, opti in list(optimizer.items()):
                 if opti is None:

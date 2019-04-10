@@ -1,9 +1,134 @@
+import collections
+import numbers
+
 import numpy as np
 import torch
 import torch.distributions as D
+from paderbox.utils.nested import nested_update
 from padertorch.base import Model
+from padertorch.contrib.je.modules.conv import CNN
 from padertorch.ops.losses.loss import kl_divergence
 from torch import nn
+from torch import nn
+from torchvision import utils as vutils
+
+
+class VAE(Model):
+    def __init__(
+            self, encoder: CNN, decoder: CNN, latent_model,
+            feature_key="spectrogram", target_key=None, label_key=None
+    ):
+        super().__init__()
+        self.coders = nn.ModuleDict(dict(enc=encoder, dec=decoder))
+        self.latent_model = latent_model
+        self.feature_key = feature_key
+        self.target_key = feature_key if target_key is None \
+            else self.target_key
+        self.label_key = label_key
+
+    def encode(self, x):
+        h, pooling_data = self.coders["enc"](x)
+        h = torch.split(h, self.coders["dec"].input_size, dim=1)
+        if pooling_data[-1][0] is not None:
+            pooling_data[-1] = (
+                torch.split(
+                    pooling_data[-1][0],
+                    self.coders["dec"].input_size,
+                    dim=1
+                )[0],
+                pooling_data[-1][0]
+            )
+        return h, pooling_data
+
+    def decode(self, z, pooling_data=None):
+        return self.coders["dec"](z, pooling_data)
+
+    def forward(self, inputs):
+        x = inputs[self.feature_key]
+        h, pooling_data = self.encode(x)
+        latent_in = [h_.transpose(1, 2) for h_ in h]
+        if self.label_key is not None:
+            if isinstance(inputs, collections.Mapping):
+                latent_in.append(
+                    inputs[self.label_key] if self.label_key in inputs
+                    else None
+                )
+            elif isinstance(inputs, collections.Sequence):
+                assert isinstance(self.label_key, numbers.Integral)
+                latent_in.append(inputs[self.label_key])
+            else:
+                raise Exception
+        latent_out = list(self.latent_model(latent_in))
+        z = latent_out[0].transpose(1, 2)
+        x_hat = self.decode(z, pooling_data=pooling_data[::-1])
+        return x_hat, latent_in, latent_out
+
+    def review(self, inputs, outputs):
+        # visualization
+        x = inputs[self.target_key]
+        x_hat, latent_in, latent_out = outputs
+        mse = (x - x_hat).pow(2).sum(dim=1)
+        targets = vutils.make_grid(
+            x[:9].flip(1).unsqueeze(1),
+            normalize=True, scale_each=False, nrow=3
+        )
+        latents = vutils.make_grid(
+            latent_out[0][:9].flip(1).unsqueeze(1),
+            normalize=True, scale_each=False, nrow=3
+        )
+        reconstructions = vutils.make_grid(
+            x_hat[:9].flip(1).unsqueeze(1),
+            normalize=True, scale_each=False, nrow=3
+        )
+        review = dict(
+            losses=dict(
+                mse=mse.mean(),
+            ),
+            histograms=dict(
+                mse_=mse,
+            ),
+            images=dict(
+                targets=targets,
+                latents=latents,
+                reconstructions=reconstructions,
+            )
+        )
+        if self.latent_model is not None:
+            nested_update(
+                review,
+                self.latent_model.review(latent_in, latent_out)
+            )
+        return review
+
+    @classmethod
+    def finalize_dogmatic_config(cls, config):
+        config['encoder'] = {'factory': CNN}
+        config['decoder'] = {'factory': CNN, 'transpose': True}
+        config['decoder']['output_size'] = config['encoder']['input_size']
+        config['decoder']['num_layers'] = config['encoder']['num_layers']
+        if config['encoder']['factory'] == CNN \
+                and config['decoder']['factory'] == CNN:
+            config['decoder']['pooling'] = config['encoder']['pooling']
+            for key in [
+                'hidden_sizes', 'kernel_sizes', 'n_scales', 'dilations',
+                'strides', 'pool_sizes', 'paddings'
+            ]:
+                if isinstance(config['encoder'][key], (list, tuple)):
+                    config['decoder'][key] = config['encoder'][key][::-1]
+                else:
+                    config['decoder'][key] = config['encoder'][key]
+        if config['latent_model'] is None:
+            config['encoder']['output_size'] = config['decoder']['input_size']
+        else:
+            if config['latent_model']['factory'] in [
+                StandardNormal, GMM, HGMM
+            ]:
+                config['latent_model']['feature_size'] = \
+                    config['decoder']['input_size']
+                config['encoder']['output_size'] = \
+                    2 * config['decoder']['input_size']
+            else:
+                raise ValueError
 
 
 class StandardNormal(Model):

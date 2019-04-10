@@ -10,8 +10,8 @@ from pathlib import Path
 
 from paderbox.utils.nested import deflatten
 from paderbox.utils.timer import timeStamped
-from padertorch.contrib.je.data import DataProvider
-from padertorch.contrib.je.transforms import ReadAudio, STFT, Spectrogram, \
+from padertorch.contrib.je.data.data_provider import DataProvider
+from padertorch.contrib.je.data.transforms import ReadAudio, STFT, Spectrogram, \
     MelTransform, GlobalNormalize, SegmentAxis, Declutter, Reshape, Fragmenter
 from padertorch.models.wavenet import WaveNet
 from padertorch.train.optimizer import Adam

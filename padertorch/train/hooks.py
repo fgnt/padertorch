@@ -719,12 +719,10 @@ class LossWeightAnnealingHook(TriggeredHook):
 
 class ModelAttributeAnnealingHook(TriggeredHook):
     def __init__(
-            self, attr_name, factor, trigger, max_value=None, min_value=None,
-            model_name=None
+            self, attr_name, factor, trigger, max_value=None, min_value=None
     ):
         super().__init__(trigger)
-        self.model_name = model_name
-        self.attr_name = attr_name
+        self.attr_name = attr_name.split('.')
         self.factor = factor
         self.max_value = max_value
         self.min_value = min_value
@@ -732,13 +730,13 @@ class ModelAttributeAnnealingHook(TriggeredHook):
     def pre_step(self, trainer):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch) \
                 and trainer.iteration != 0:
-            model = trainer.model
-            if self.model_name is not None:
-                model = model[self.model_name]
+            module = trainer.model
+            for attr_name in self.attr_name[:-1]:
+                module = getattr(module, attr_name)
 
-            value = self.factor * getattr(model, self.attr_name)
+            value = self.factor * getattr(module, self.attr_name[-1])
             if self.max_value is not None:
                 value = min(value, self.max_value)
             if self.min_value is not None:
                 value = max(value, self.min_value)
-            setattr(model, self.attr_name, value)
+            setattr(module, self.attr_name[-1], value)

@@ -9,7 +9,7 @@ from pathlib import Path
 import torch
 from paderbox.io.json_module import load_json
 from padertorch import Module
-from padertorch.contrib.je.data import DataProvider
+from padertorch.contrib.je.data.data_provider import DataProvider
 from sacred import Experiment as Exp
 from sacred.commands import print_config
 from scipy.io import wavfile

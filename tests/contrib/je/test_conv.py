@@ -1,6 +1,6 @@
 import unittest
 import torch
-from padertorch.contrib.je.conv import CNN
+from padertorch.contrib.je.modules.conv import CNN
 
 
 class TestCNN(unittest.TestCase):
