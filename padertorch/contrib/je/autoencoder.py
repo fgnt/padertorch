@@ -31,8 +31,8 @@ class AE(Model):
             initrange = 1.0
             self.embed_decoder_cond.weight.data.uniform_(-initrange, initrange)
 
-    def encode(self, x, h=None):
-        z, pooling_data = self.encoder(x, h)
+    def encode(self, x):
+        z, pooling_data = self.encoder(x)
         z = torch.split(z, self.decoder.input_size, dim=1)
         if pooling_data[-1][0] is not None:
             pooling_data[-1] = (
@@ -43,16 +43,13 @@ class AE(Model):
             )
         return z, pooling_data
 
-    def decode(self, z, h=None, pooling_data=None):
-        return self.decoder(z, h, pooling_data)
+    def decode(self, z, pooling_data=None):
+        return self.decoder(z, pooling_data)
 
     def forward(self, inputs, command=None):
         if command == "encode" or command is None:
             x = inputs[self.feature_key]
-            h = None
-            if self.encoder_condition is not None:
-                h = self.embed_encoder_cond(inputs[self.encoder_condition[0]])
-            z, pooling_data = self.encode(x, h)
+            z, pooling_data = self.encode(x)
             if command == "encode":
                 return z, pooling_data
             z = z[0]
@@ -60,10 +57,7 @@ class AE(Model):
             z, pooling_data = inputs
         else:
             raise ValueError
-        h = None
-        if self.decoder_condition is not None:
-            h = self.embed_decoder_cond(inputs[self.decoder_condition[0]])
-        x_hat = self.decode(z, h, pooling_data=pooling_data[::-1])
+        x_hat = self.decode(z, pooling_data=pooling_data[::-1])
         return x_hat, z
 
     def review(self, inputs, outputs):
@@ -72,13 +66,16 @@ class AE(Model):
         mse = (x - outputs[0]).pow(2).sum(dim=1)
         features = vutils.make_grid(
             x[:9].flip(1).unsqueeze(1),
-            normalize=True, scale_each=False, nrow=3)
+            normalize=True, scale_each=False, nrow=3
+        )
         latents = vutils.make_grid(
             outputs[1][:9].flip(1).unsqueeze(1),
-            normalize=True, scale_each=False, nrow=3)
+            normalize=True, scale_each=False, nrow=3
+        )
         reconstructions = vutils.make_grid(
             outputs[0][:9].flip(1).unsqueeze(1),
-            normalize=True, scale_each=False, nrow=3)
+            normalize=True, scale_each=False, nrow=3
+        )
         return dict(
             losses=dict(
                 mse=mse.mean(),
