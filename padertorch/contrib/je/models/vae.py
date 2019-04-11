@@ -26,27 +26,13 @@ class VAE(Model):
             else self.target_key
         self.label_key = label_key
 
-    def encode(self, x):
+    def encode(self, inputs):
+        x = inputs[self.feature_key].transpose(1, 2)
         h, pooling_data = self.coders["enc"](x)
-        h = torch.split(h, self.coders["dec"].input_size, dim=1)
-        if pooling_data[-1][0] is not None:
-            pooling_data[-1] = (
-                torch.split(
-                    pooling_data[-1][0],
-                    self.coders["dec"].input_size,
-                    dim=1
-                )[0],
-                pooling_data[-1][0]
-            )
-        return h, pooling_data
-
-    def decode(self, z, pooling_data=None):
-        return self.coders["dec"](z, pooling_data)
-
-    def forward(self, inputs):
-        x = inputs[self.feature_key]
-        h, pooling_data = self.encode(x)
-        latent_in = [h_.transpose(1, 2) for h_ in h]
+        assert pooling_data[-1][0] is None
+        latent_in = list(torch.split(
+            h.transpose(1, 2), self.coders["dec"].input_size, dim=2
+        ))
         if self.label_key is not None:
             if isinstance(inputs, collections.Mapping):
                 latent_in.append(
@@ -59,25 +45,33 @@ class VAE(Model):
             else:
                 raise Exception
         latent_out = list(self.latent_model(latent_in))
-        z = latent_out[0].transpose(1, 2)
-        x_hat = self.decode(z, pooling_data=pooling_data[::-1])
-        return x_hat, latent_in, latent_out
+        return latent_out, latent_in, pooling_data
+
+    def decode(self, z, pooling_data=None):
+        z = z.transpose(1, 2)
+        x_hat = self.coders["dec"](z, pooling_data)
+        return x_hat.transpose(1, 2)
+
+    def forward(self, inputs):
+        latent_out, latent_in, pooling_data = self.encode(inputs)
+        x_hat = self.decode(latent_out[0], pooling_data=pooling_data[::-1])
+        return x_hat, latent_out, latent_in
 
     def review(self, inputs, outputs):
         # visualization
         x = inputs[self.target_key]
-        x_hat, latent_in, latent_out = outputs
+        x_hat, latent_out, latent_in = outputs
         mse = (x - x_hat).pow(2).sum(dim=1)
         targets = vutils.make_grid(
-            x[:9].flip(1).unsqueeze(1),
+            x[:9].transpose(1, 2).flip(1).unsqueeze(1),
             normalize=True, scale_each=False, nrow=3
         )
         latents = vutils.make_grid(
-            latent_out[0][:9].flip(1).unsqueeze(1),
+            latent_out[0][:9].transpose(1, 2).flip(1).unsqueeze(1),
             normalize=True, scale_each=False, nrow=3
         )
         reconstructions = vutils.make_grid(
-            x_hat[:9].flip(1).unsqueeze(1),
+            x_hat[:9].transpose(1, 2).flip(1).unsqueeze(1),
             normalize=True, scale_each=False, nrow=3
         )
         review = dict(
