@@ -710,7 +710,23 @@ class StopTraining(Exception):
 
 
 class LossWeightAnnealingHook(TriggeredHook):
+    """
+    Anneals a loss weight within the los_weights dict of the trainer.
+    """
     def __init__(self, name, factor, trigger, max_value=None, min_value=None):
+        """
+
+        Args:
+            name: key of the loss_weight
+            factor: factor by which to anneal the loss weight.
+                factor > 1. results in an increase while factor < 1. results
+                in a decrease
+            trigger:
+            max_value: upper bound of the weight
+            min_value: lower bound of the weight
+                (hint: can also be used to activate a loss weight after a
+                certain number of iterations/epochs)
+        """
         super().__init__(trigger)
         self.name = name
         self.factor = factor
@@ -729,11 +745,28 @@ class LossWeightAnnealingHook(TriggeredHook):
 
 
 class ModelAttributeAnnealingHook(TriggeredHook):
+    """
+    Anneals an attribute of the trainers model.
+    """
     def __init__(
-            self, attr_name, factor, trigger, max_value=None, min_value=None
+            self, name, factor, trigger, max_value=None, min_value=None
     ):
+        """
+
+        Args:
+            name: name of the attribute. You can use "attr1.attr11" to
+                anneal a sub attribute
+            factor: factor by which to anneal the attribute.
+                factor > 1. results in an increase while factor < 1. results
+                in a decrease
+            trigger:
+            max_value: upper bound of the weight
+            min_value: lower bound of the weight
+                (hint: can also be used to activate a loss weight after a
+                certain number of iterations/epochs)
+        """
         super().__init__(trigger)
-        self.attr_name = attr_name.split('.')
+        self.name = name.split('.')
         self.factor = factor
         self.max_value = max_value
         self.min_value = min_value
@@ -742,12 +775,12 @@ class ModelAttributeAnnealingHook(TriggeredHook):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch) \
                 and trainer.iteration != 0:
             module = trainer.model
-            for attr_name in self.attr_name[:-1]:
+            for attr_name in self.name[:-1]:
                 module = getattr(module, attr_name)
 
-            value = self.factor * getattr(module, self.attr_name[-1])
+            value = self.factor * getattr(module, self.name[-1])
             if self.max_value is not None:
                 value = min(value, self.max_value)
             if self.min_value is not None:
                 value = max(value, self.min_value)
-            setattr(module, self.attr_name[-1], value)
+            setattr(module, self.name[-1], value)
