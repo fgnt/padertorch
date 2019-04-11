@@ -11,8 +11,10 @@ from pathlib import Path
 from paderbox.utils.nested import deflatten
 from paderbox.utils.timer import timeStamped
 from padertorch.contrib.je.data.data_provider import DataProvider
-from padertorch.contrib.je.data.transforms import ReadAudio, STFT, Spectrogram, \
-    MelTransform, GlobalNormalize, SegmentAxis, Declutter, Reshape, Fragmenter
+from padertorch.contrib.je.data.transforms import (
+    ReadAudio, STFT, Spectrogram, MelTransform, GlobalNormalize, SegmentAxis,
+    Declutter, Reshape, Fragmenter
+)
 from padertorch.models.wavenet import WaveNet
 from padertorch.train.optimizer import Adam
 from padertorch.train.trainer import Trainer
@@ -48,8 +50,8 @@ def config():
             '3.factory': MelTransform,
             '3.n_mels': 80,
             '4.factory': GlobalNormalize,
-            '4.axes.spectrogram': 1,
-            '4.std_reduce_axes.spectrogram': 2,
+            '4.center_axes.spectrogram': 1,
+            '4.scale_axes.spectrogram': (1, 2),
             '5.factory': SegmentAxis,
             '5.axis': 1,
             '5.segment_steps.audio_data': 16000,
@@ -72,7 +74,7 @@ def config():
         'max_workers': 16,
         'prefetch_buffer': 10,
         'shuffle_buffer': 1000,
-        'batch_size': 4
+        'batch_size': 3
     })
     data_config['transforms']['3']['sample_rate'] = \
         data_config['transforms']['0']['target_sample_rate']
