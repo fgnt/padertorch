@@ -101,7 +101,7 @@ class CNN(Module):
 
 class Conv(Module):
     """
-    Wrapper for torch.nn.ConvXd and torch.nn.ConvTransoseXd for X\in{1,2}
+    Wrapper for torch.nn.ConvXd and torch.nn.ConvTransoseXd for X in {1,2}
     including additional options of applying an (gated) activation or
     normalizing the network output
     """
