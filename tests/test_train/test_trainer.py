@@ -249,6 +249,8 @@ def test_single_model():
                     'training/grad_norm_': 3,
                     'training/loss': 3,
                     'training_timings/time_per_step': 3,
+                    'training_timings/time_rel_forward': 3,
+                    'training_timings/time_rel_review': 3,
                     'training_timings/time_rel_backward': 3,
                     'training_timings/time_rel_data_loading': 3,
                     'training_timings/time_rel_train_step': 3,
@@ -261,7 +263,7 @@ def test_single_model():
                 }
                 pprint(c)
                 assert c == expect, c
-                assert len(events) == 30, (len(events), events)
+                assert len(events) == 36, (len(events), events)
 
                 np.testing.assert_allclose(
                     np.add(time_rel_data_loading, time_rel_train_step),
@@ -381,12 +383,14 @@ def test_single_model():
                         tags.append(value['tag'])
 
                 c = dict(collections.Counter(tags))
-                assert len(events) == 20, (len(events), events)
+                assert len(events) == 24, (len(events), events)
                 expect = {
                     'training/grad_norm': 2,
                     'training/grad_norm_': 2,
                     'training/loss': 2,
                     'training_timings/time_per_step': 2,
+                    'training_timings/time_rel_forward': 2,
+                    'training_timings/time_rel_review': 2,
                     'training_timings/time_rel_backward': 2,
                     'training_timings/time_rel_data_loading': 2,
                     'training_timings/time_rel_train_step': 2,
