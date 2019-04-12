@@ -201,3 +201,23 @@ class Model(Module, Configurable, abc.ABC):
 
         """
         pass
+
+    def modify_summary(self, summary):
+        """Modify a summary dict.
+
+        This method is primarily used by SummaryHook before dumping a summary.
+        Summary contains accumulated values from multiple reviews (lists in
+        "scalars" and "histograms", snapshots in "audios" and "images").
+        This, e.g., allows to accurately compute and add metrics based on
+        other scalars such as F-scores or Error Rates.
+
+        Args:
+            summary:
+                dict containing nested dicts with keys scalars, histograms,
+                audios, images.
+
+        Returns:
+            Modified summary dict
+
+        """
+        return summary

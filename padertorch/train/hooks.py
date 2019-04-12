@@ -152,18 +152,28 @@ class SummaryHook(TriggeredHook):
         self.summary['scalars']['loss'].append(review['loss'].item())
         for key, loss in review.get('losses', dict()).items():
             self.summary['scalars'][key].append(loss.item())
-        for key, scalar in review.get('scalars', dict()).items():
-            self.summary['scalars'][key].append(
-                scalar.item() if torch.is_tensor(scalar) else scalar)
+        for key, scalars in review.get('scalars', dict()).items():
+            self.summary['scalars'][key].extend(self._to_list(scalars))
         for key, histogram in review.get('histograms', dict()).items():
-            self.summary['histograms'][key] = np.concatenate(
-                [self.summary['histograms'].get(key, np.zeros(0)),
-                 histogram.clone().cpu().data.numpy().flatten()]
-            )[-10000:]  # do not hold more than 10K values in memory
+            self.summary['histograms'][key].extend(self._to_list(histogram))
+            # do not hold more than 1M values in memory
+            self.summary['histograms'][key] = \
+                self.summary['histograms'][key][-1000000:]
         for key, audio in review.get('audios', dict()).items():
             self.summary['audios'][key] = audio  # snapshot
         for key, image in review.get('images', dict()).items():
             self.summary['images'][key] = image  # snapshot
+
+    @staticmethod
+    def _to_list(scalars):
+        if torch.is_tensor(scalars):
+            scalars = scalars.clone().cpu().data.numpy()
+        if isinstance(scalars, np.ndarray):
+            scalars = scalars.flatten().tolist()
+        if not isinstance(scalars, (list, tuple)):
+            assert np.isscalar(scalars)
+            scalars = [scalars]
+        return scalars
 
     def dump_summary(self, trainer: 'pt.Trainer'):
         iteration = trainer.iteration
@@ -172,7 +182,8 @@ class SummaryHook(TriggeredHook):
 
         time_prefix = f'{prefix}_timings'
 
-        for key, scalar in self.summary['scalars'].items():
+        summary = trainer.model.modify_summary(self.summary)
+        for key, scalar in summary['scalars'].items():
             self.writer.add_scalar(
                 f'{prefix}/{key}', np.mean(scalar), iteration)
 
@@ -239,11 +250,11 @@ class SummaryHook(TriggeredHook):
         for key, scalar in timer_dict.items():
             self.writer.add_scalar(
                 f'{time_prefix}/{key}', scalar.mean(), iteration)
-        for key, histogram in self.summary['histograms'].items():
+        for key, histogram in summary['histograms'].items():
             self.writer.add_histogram(
                 f'{prefix}/{key}', np.array(histogram), iteration
             )
-        for key, audio in self.summary['audios'].items():
+        for key, audio in summary['audios'].items():
             if isinstance(audio, (tuple, list)):
                 assert len(audio) == 2, (len(audio), audio)
                 self.writer.add_audio(
@@ -255,7 +266,7 @@ class SummaryHook(TriggeredHook):
                     f'{prefix}/{key}', audio,
                     iteration, sample_rate=16000
                 )
-        for key, image in self.summary['images'].items():
+        for key, image in summary['images'].items():
             self.writer.add_image(f'{prefix}/{key}', image, iteration)
         self.reset_summary()
         trainer.reset_timer()
@@ -699,7 +710,23 @@ class StopTraining(Exception):
 
 
 class LossWeightAnnealingHook(TriggeredHook):
+    """
+    Anneals a loss weight within the los_weights dict of the trainer.
+    """
     def __init__(self, name, factor, trigger, max_value=None, min_value=None):
+        """
+
+        Args:
+            name: key of the loss_weight
+            factor: factor by which to anneal the loss weight.
+                factor > 1. results in an increase while factor < 1. results
+                in a decrease
+            trigger:
+            max_value: upper bound of the weight
+            min_value: lower bound of the weight
+                (hint: can also be used to activate a loss weight after a
+                certain number of iterations/epochs)
+        """
         super().__init__(trigger)
         self.name = name
         self.factor = factor
@@ -718,13 +745,28 @@ class LossWeightAnnealingHook(TriggeredHook):
 
 
 class ModelAttributeAnnealingHook(TriggeredHook):
+    """
+    Anneals an attribute of the trainers model.
+    """
     def __init__(
-            self, attr_name, factor, trigger, max_value=None, min_value=None,
-            model_name=None
+            self, name, factor, trigger, max_value=None, min_value=None
     ):
+        """
+
+        Args:
+            name: name of the attribute. You can use "attr1.attr11" to
+                anneal a sub attribute
+            factor: factor by which to anneal the attribute.
+                factor > 1. results in an increase while factor < 1. results
+                in a decrease
+            trigger:
+            max_value: upper bound of the weight
+            min_value: lower bound of the weight
+                (hint: can also be used to activate a loss weight after a
+                certain number of iterations/epochs)
+        """
         super().__init__(trigger)
-        self.model_name = model_name
-        self.attr_name = attr_name
+        self.name = name.split('.')
         self.factor = factor
         self.max_value = max_value
         self.min_value = min_value
@@ -732,13 +774,13 @@ class ModelAttributeAnnealingHook(TriggeredHook):
     def pre_step(self, trainer):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch) \
                 and trainer.iteration != 0:
-            model = trainer.model
-            if self.model_name is not None:
-                model = model[self.model_name]
+            module = trainer.model
+            for attr_name in self.name[:-1]:
+                module = getattr(module, attr_name)
 
-            value = self.factor * getattr(model, self.attr_name)
+            value = self.factor * getattr(module, self.name[-1])
             if self.max_value is not None:
                 value = min(value, self.max_value)
             if self.min_value is not None:
                 value = max(value, self.min_value)
-            setattr(model, self.attr_name, value)
+            setattr(module, self.name[-1], value)

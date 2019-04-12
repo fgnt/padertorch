@@ -4,7 +4,6 @@ import numpy as np
 import padertorch as pt
 import torch
 from torch.distributions import Normal, MultivariateNormal, kl_divergence
-from torch.distributions.kl import _batch_diag
 from torch.nn.utils.rnn import pack_padded_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
 
@@ -167,7 +166,7 @@ class TestKLLoss(unittest.TestCase):
                 np.broadcast_to(np.diag(np.random.rand(D)), (B, 1, D, D))
             )
         )
-        q_ = Normal(loc=q.loc[:, 0], scale=_batch_diag(q.scale_tril[:, 0]))
+        q_ = Normal(loc=q.loc[:, 0], scale=pt.ops.losses.loss._batch_diag(q.scale_tril[:, 0]))
 
         actual_loss = pt.ops.kl_divergence(q_, p)
         reference_loss = kl_divergence(q, p)

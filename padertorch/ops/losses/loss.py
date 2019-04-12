@@ -133,11 +133,11 @@ def kl_divergence(q, p):
         (B1, ..., BN, K1, ..., KN)
 
     """
-    assert isinstance(q, Normal)
+    assert isinstance(q, Normal), type(q)
     batch_shape = q.loc.shape[:-1]
     D = q.loc.shape[-1]
     component_shape = p.loc.shape[:-1]
-    assert p.loc.shape[-1] == D
+    assert p.loc.shape[-1] == D, (p.loc.shape[-1], D)
 
     p_loc = p.loc.contiguous().view(-1, D)
     if isinstance(p, MultivariateNormal):

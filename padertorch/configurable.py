@@ -948,7 +948,7 @@ class _DogmaticConfig:
         else:
             raise KeyError(key)
 
-    def keys(self):
+    def _key_candidates(self):
         if 'factory' in self.data:
             factory = import_class(self.data['factory'])
             parameters = inspect.signature(factory).parameters.values()
@@ -974,6 +974,9 @@ class _DogmaticConfig:
             return parameter_names
         else:
             return tuple(self.data.keys())
+
+    def keys(self):
+        return tuple(self.data.keys())
 
     def _check_redundant_keys(self, msg):
         assert 'factory' in self.data
@@ -1067,7 +1070,7 @@ class _DogmaticConfig:
                 else:
                     raise
 
-        delta = set(self.data.keys()) - set(self.keys())
+        delta = set(self.data.keys()) - set(self._key_candidates())
 
         if len(delta) > 1:
             # (delta, self.data.keys(), parameter_names)
@@ -1099,7 +1102,7 @@ class _DogmaticConfig:
                 and self.data.mutable_idx != (len(self.data.maps) - 1):
             self._update_factory_kwargs()
 
-        if 'cls' in self.keys():
+        if 'cls' in self._key_candidates():
             from IPython.lib.pretty import pretty
             factory = self.data['cls']
             factory_str = class_to_str(factory)
@@ -1123,16 +1126,16 @@ class _DogmaticConfig:
     def to_dict(self):
         """Export the Configurable object to a dict."""
         result_dict = {}
-        if 'factory' in self.keys():
+        if 'factory' in self._key_candidates():
             self._update_factory_kwargs()
-        for k in self.keys():
+        for k in self._key_candidates():
             try:
                 v = self[k]
             except KeyError as ex:
                 from IPython.lib.pretty import pretty
-                if 'factory' in self.keys() and k != 'factory':
+                if 'factory' in self._key_candidates() and k != 'factory':
                     # KeyError has a bad __repr__, use Exception
-                    missing_keys = set(self.keys()) - set(self.data.keys())
+                    missing_keys = set(self._key_candidates()) - set(self.data.keys())
                     raise Exception(
                         f'KeyError: {k}\n'
                         f'signature: {inspect.signature(self["factory"])}\n'

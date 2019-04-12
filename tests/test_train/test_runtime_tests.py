@@ -97,11 +97,11 @@ def test_single_model_2():
             t.test_run(it_tr, it_dt)
 
 
-class VAE(pt.Model):
+class AE(pt.Model):
 
     def __init__(self):
         super().__init__()
-        self.enc = torch.nn.Linear(28 * 28, 32)
+        self.enc = torch.nn.Linear(28 * 28, 16)
         self.dec = torch.nn.Linear(16, 28 * 28)
 
     def forward(self, inputs):
@@ -111,16 +111,9 @@ class VAE(pt.Model):
             clean = torch.tensor(clean)
 
         image = torch.reshape(clean, [-1])
-
-        h = self.enc(image)
-        mu, logvar = torch.split(h, h.shape[-1]//2, dim=-1)
-        qz = torch.distributions.Normal(loc=mu, scale=torch.exp(0.5 * logvar))
-        if self.training:
-            z = qz.rsample()
-        else:
-            z = mu
+        z = self.enc(image)
         x_hat = self.dec(z)
-        return x_hat, mu, logvar
+        return x_hat
 
     def review(self, inputs, outputs):
         clean = inputs['image']
@@ -131,47 +124,20 @@ class VAE(pt.Model):
         image = torch.reshape(clean, [-1])
 
         mse = (image - outputs[0]).pow(2).sum()
-        return {'losses': {'mse': mse}}
+        return {'loss': mse}
 
 
-class StandardNormal(Model):
-    def forward(self, inputs):
-        return ()
-
-    def review(self, inputs, outputs):
-        mean, logvar = inputs
-        kld = -0.5 * (
-            1 + logvar - mean.pow(2) - torch.exp(logvar)
-        ).sum()
-        return dict(
-            losses=dict(
-                kld=kld
-            )
-        )
-
-
-class DictTrainer(pt.trainer.Trainer):
-    def _step(self, example):
-        example = pt.data.example_to_device(example, self.device)
-        review = dict()
-        vae_out = self.model['vae'](example)
-        pb.utils.nested.nested_update(review, self.model['vae'].review(
-            example, vae_out))
-        latent_out = self.model['latent'](vae_out[1:])
-        pb.utils.nested.nested_update(review, self.model['latent'].review(
-            vae_out[1:], latent_out))
-        return (vae_out, latent_out), review
-
-
-def test_dict_of_models():
+def test_multiple_optimizers():
     it_tr, it_dt = get_iterators()
 
-    models = {'vae': VAE(), 'latent': StandardNormal()}
-    optimizers = {'vae': pt.optimizer.Adam(), 'latent': None}
+    model = AE()
+    optimizers = {
+        'enc': pt.optimizer.Adam(),
+        'dec': pt.optimizer.Adam()
+    }
     with tempfile.TemporaryDirectory() as tmp_dir:
-        trainer = DictTrainer(
-            models, storage_dir=tmp_dir, optimizer=optimizers,
-            loss_weights={'mse': 1., 'kld': 1.}
+        trainer = pt.Trainer(
+            model, storage_dir=tmp_dir, optimizer=optimizers
         )
 
         with assert_dir_unchanged_after_context(tmp_dir):

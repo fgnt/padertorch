@@ -52,7 +52,7 @@ MAKEFILE_TEMPLATE = """
 SHELL := /bin/bash
 
 evaluate:
-\tpython -m {main_python_path}  with config.json
+\tpython -m {main_python_path} with config.json
 
 ccsalloc:
 \tccsalloc \\
