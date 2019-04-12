@@ -110,7 +110,7 @@ class TestPadderBase(unittest.TestCase):
         self.assertTrue(all(
             [isinstance(value, list) for value in self.padded.values()]
         ))
-        self.assertEquals(
+        self.assertEqual(
             [(len(value)) for value in self.padded.values()],
             [(len(self.num_frames)) for _ in self.padded.values()]
         )

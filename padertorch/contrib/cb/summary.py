@@ -56,6 +56,18 @@ class ReviewSummary(collections.Mapping):
             {}
         )[f'{self.prefix}{name}'] = image
 
+    def add_stft_image(self, name, signal, batch_first=False, color='viridis'):
+        image = pt.summary.stft_to_image(signal, batch_first=batch_first, color=color)
+        self.add_image(name, image)
+
+    def add_spectrogram_image(self, name, signal, batch_first=False, color='viridis'):
+        image = pt.summary.spectrogram_to_image(signal, batch_first=batch_first, color=color)
+        self.add_image(name, image)
+
+    def add_mask_image(self, name, mask, batch_first=False):
+        image = pt.summary.mask_to_image(mask, batch_first=batch_first)
+        self.add_image(name, image)
+
     def __contains__(self, item):
         return item in self.data
 

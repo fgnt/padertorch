@@ -95,8 +95,10 @@ class DataProvider(Configurable):
             return None
 
         dataset = self.db.get_iterator_by_names(dataset_names)
+
         if filter and self.pre_transform_filter is not None:
             dataset = dataset.filter(self.pre_transform_filter, lazy=False)
+
         for transform in self.transforms:
             if transform is None:
                 continue

@@ -4,6 +4,7 @@ import torch
 
 __all__ = [
     'example_to_device',
+    'example_to_numpy',
     'Sorter',
 ]
 
@@ -58,6 +59,44 @@ def example_to_device(example, device=None):
         return example.__class__(
             **{
                 f: example_to_device(getattr(example, f), device=device)
+                for f in example.__dataclass_fields__
+            }
+        )
+    else:
+        return example
+
+
+def example_to_numpy(example, detach=False):
+    """
+    Moves a nested structure to numpy. Opposite of example_to_device.
+
+    Args:
+        example:
+
+    Returns:
+        example on where each tensor is converted to numpy
+
+    """
+    from padertorch.utils import to_numpy
+
+    if isinstance(example, dict):
+        return example.__class__({
+            key: example_to_numpy(value, detach=detach)
+            for key, value in example.items()
+        })
+    elif isinstance(example, (tuple, list)):
+        return example.__class__([
+            example_to_numpy(element, detach=detach)
+            for element in example
+        ])
+    elif torch.is_tensor(example):
+        return to_numpy(example, detach=detach)
+    elif isinstance(example, np.ndarray):
+        return example
+    elif hasattr(example, '__dataclass_fields__'):
+        return example.__class__(
+            **{
+                f: example_to_numpy(getattr(example, f), detach=detach)
                 for f in example.__dataclass_fields__
             }
         )

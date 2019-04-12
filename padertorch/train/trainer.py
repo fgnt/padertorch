@@ -13,6 +13,7 @@ import numpy as np
 import torch
 import tensorboardX
 
+from paderbox.utils.nested import deflatten
 import padertorch as pt
 from padertorch.configurable import Configurable
 from padertorch.train.optimizer import Optimizer, Adam
@@ -30,7 +31,8 @@ class Trainer(Configurable):
 
     @classmethod
     def finalize_dogmatic_config(cls, config):
-        config['optimizer'] = {'factory': Adam}
+        if 'optimizer' not in config.keys():
+            config['optimizer'] = {'factory': Adam}
 
     def __init__(
             self,
@@ -46,7 +48,7 @@ class Trainer(Configurable):
         """
 
         Args:
-            model: a `padertorch.base.Model` object or dict of Models
+            model: a `padertorch.base.Model` object
             storage_dir: The structure of produced storage_dir is:
                 .
                 ├── checkpoints
@@ -70,30 +72,31 @@ class Trainer(Configurable):
             max_trigger: `padertorch.train.trigger.EndTrigger` object
                 or tuple describing the endpoint of the training
         """
-        if isinstance(optimizer, dict):
-            # Special case see Janek's example
-            # TODO: Hint to example
-
-            model = torch.nn.ModuleDict(model)
-            assert set(model.keys()) == set(optimizer.keys()), \
-                (model, optimizer)
-            optimizer = optimizer.copy()
-            for key, opti in list(optimizer.items()):
-                if opti is None:
-                    del optimizer[key]
-                else:
-                    m = model[key]
-                    opti.set_parameters(m.parameters())
-        else:
-            optimizer.set_parameters(model.parameters())
-
-        self.optimizer = optimizer
-        self.model = model
         if not isinstance(model, torch.nn.Module):
             raise TypeError(
                 'Expect that the model is a subclass from padertorch.Module.\n'
                 f'Got: type: {type(model)}\n{model}'
             )
+        self.model = model
+
+        if isinstance(optimizer, dict):
+            # Special case see Janek's example
+            # TODO: Hint to example
+            model_keys = set(deflatten(model.state_dict(), maxdepth=1).keys())
+            assert model_keys == set(optimizer.keys()), (model_keys, optimizer)
+            optimizer = optimizer.copy()
+            for key, opti in list(optimizer.items()):
+                if opti is None:
+                    del optimizer[key]
+                else:
+                    assert isinstance(opti, Optimizer), opti
+                    m = getattr(model, key)
+                    opti.set_parameters(m.parameters())
+        else:
+            assert isinstance(optimizer, Optimizer), optimizer
+            optimizer.set_parameters(model.parameters())
+
+        self.optimizer = optimizer
 
         self.device = None  # Dummy value, will be set in Trainer.train
 
@@ -328,17 +331,17 @@ class Trainer(Configurable):
     def validation_step(self, example):
         return self.step(example)
 
-    def _step(self, example):
-        msg = 'Overwrite the step function of the trainer, ' \
-              'when you have multiple models.'
-        assert isinstance(self.model, torch.nn.Module), (self.model, msg)
-        assert isinstance(self.optimizer, Optimizer), (self.optimizer, msg)
+    def step(self, example):
         # TODO: backup OutOfMemory
         example = pt.data.example_to_device(
             example, self.device
         )
-        model_out = self.model(example)
-        return model_out, self.model.review(example, model_out)
+
+        with self.timer['time_per_train_step_forward']:
+            model_out = self.model(example)
+        with self.timer['time_per_train_step_review']:
+            review = self.model.review(example, model_out)
+        return model_out, self._maybe_add_loss_to_review(review)
 
     def _maybe_add_loss_to_review(self, review):
         if 'losses' in review:
@@ -365,10 +368,6 @@ class Trainer(Configurable):
         assert review['loss'].dim() == 0, review['loss']
         assert torch.isfinite(review['loss']), review
         return review
-
-    def step(self, example):
-        model_out, review = self._step(example)
-        return model_out, self._maybe_add_loss_to_review(review)
 
     def backward(self, review, retain_graph=False):
         review['loss'].backward(retain_graph=retain_graph)
@@ -614,12 +613,25 @@ class ContextTimerDict:
 
     def __call__(self, key, iterable):
         iterator = iter(iterable)
+
+        class StopIterationIgnoredByContextlib(Exception):
+            pass
+            # contextlib.contextmanager tries to inform the user with a
+            # DeprecationWarning because of PEP 479.
+            # The cas here is still conform with PEP 479 (i.e. use __future__
+            # import).
+            # To suppress the warning, convert StopIteration to this Exception
+            # and catch it.
+
         try:
             while True:
                 with self[key]:
-                    example = next(iterator)
+                    try:
+                        example = next(iterator)
+                    except StopIteration:
+                        raise StopIterationIgnoredByContextlib
                 yield example
-        except StopIteration:
+        except StopIterationIgnoredByContextlib:
             pass
 
 
