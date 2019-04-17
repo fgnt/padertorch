@@ -267,8 +267,6 @@ class SummaryHook(TriggeredHook):
                     iteration, sample_rate=16000
                 )
         for key, image in summary['images'].items():
-            image -= image.min()
-            image /= image.max()
             self.writer.add_image(f'{prefix}/{key}', image, iteration)
         self.reset_summary()
         trainer.reset_timer()
