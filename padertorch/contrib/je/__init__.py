@@ -6,6 +6,8 @@ class Keys:
     ACTIVITIES = "activities"
     AUDIO_DATA = pb_keys.AUDIO_DATA
     AUDIO_PATH = pb_keys.AUDIO_PATH
+    DELTAS = "deltas"
+    ENERGY = "energy"
     EVENTS = pb_keys.EVENTS
     FRAGMENT_ID = "fragment_id"
     NUM_SAMPLES = pb_keys.NUM_SAMPLES
@@ -14,6 +16,7 @@ class Keys:
     ROOMS = "rooms"
     SCENE = pb_keys.SCENE
     SPECTROGRAM = "spectrogram"
+    MEL_SPECTROGRAM = "mel_spectrogram"
     STFT = "stft"
     WORDS = pb_keys.WORDS
 

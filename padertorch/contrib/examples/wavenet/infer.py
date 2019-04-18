@@ -43,10 +43,12 @@ def get_model(model_dir, config_name, checkpoint_name):
 @ex.capture
 def get_dataset(data_config, dataset_names):
     data_provider = DataProvider.from_config(data_config)
-    dataset = data_provider.get_iterator(dataset_names, shuffle=True)
+    dataset = data_provider.prepare_iterable(
+        data_provider.prepare_dataset(dataset_names)
+    )
 
     def get_spec(example):
-        return example["spectrogram"]
+        return example["mel_spectrogram"]
 
     return dataset.map(get_spec)
 

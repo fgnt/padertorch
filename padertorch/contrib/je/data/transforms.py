@@ -1,8 +1,8 @@
 import abc
 import json
-from collections import OrderedDict
+from collections import OrderedDict, Mapping
 from pathlib import Path
-from functools import partial
+import numbers
 
 import numpy as np
 import samplerate
@@ -10,8 +10,7 @@ import soundfile
 from paderbox.transform.module_fbank import MelTransform as MelModule
 from paderbox.transform.module_stft import STFT as STFTModule
 from paderbox.transform.module_mfcc import delta
-from paderbox.utils.nested import squeeze_nested, nested_op, nested_update, \
-    flatten, deflatten
+from paderbox.utils.nested import flatten, deflatten, nested_op, nested_merge
 from padertorch.configurable import Configurable
 from padertorch.contrib.je import Keys
 from padertorch.utils import to_list
@@ -21,16 +20,55 @@ from copy import copy, deepcopy
 import torch
 
 
+def nested_transform(
+        transform_fn, input_path, input_dict, *args,
+        sequence_type=(tuple, list), output_path=None
+):
+    """
+
+    Args:
+        transform_fn:
+        input_path:
+        input_dict:
+        *args:
+        sequence_type:
+        output_path:
+
+    Returns:
+
+    """
+    if not isinstance(input_path, (list, tuple)):
+        input_path = input_path.split('/')
+    input_dict_ = input_dict
+    for key in input_path[:-1]:
+        input_dict_ = input_dict_[key]
+    key = input_path[-1]
+    arg1 = input_dict_[key]
+    transformed = nested_op(
+        transform_fn, arg1, *args, sequence_type=sequence_type
+    )
+    if output_path is not None:
+        if output_path == input_path:
+            input_dict_[key] = transformed
+        else:
+            nested_merge(
+                input_dict, deflatten({output_path: transformed}, sep='/'),
+                inplace=True
+            )
+    return transformed
+
+
 class Transform(Configurable, abc.ABC):
     """
     Base class for callable transformations. Not intended to be instantiated.
     """
-    @abc.abstractmethod
-    def __call__(self, example, training=False):
-        raise NotImplementedError
 
     def init_params(self, values=None, storage_dir=None, dataset=None):
         pass
+
+    @abc.abstractmethod
+    def __call__(self, example, training=False):
+        raise NotImplementedError
 
 
 class Compose:
@@ -64,13 +102,6 @@ class Compose:
         return example
 
     def __repr__(self):
-        """
-        >>> import operator
-        >>> Compose(operator.neg, abs)
-        Compose(<built-in function neg>, <built-in function abs>)
-        >>> Compose(operator.neg, abs)(1)
-        1
-        """
         s = ', '.join([repr(t) for k, t in self._transforms.items()])
         return f'{self.__class__.__name__}({s})'
 
@@ -83,11 +114,15 @@ class ReadAudio(Transform):
     """
     def __init__(
             self, input_sample_rate, target_sample_rate,
-            converter_type="sinc_fastest"
+            converter_type="sinc_fastest",
+            input_path=Keys.AUDIO_PATH,
+            output_path=Keys.AUDIO_DATA
     ):
         self.input_sample_rate = input_sample_rate
         self.target_sample_rate = target_sample_rate
         self.converter_type = converter_type
+        self.input_path = input_path
+        self.ouput_path = output_path
 
     def read(self, audio_path, start=0, stop=None):
         x, sr = soundfile.read(
@@ -101,38 +136,65 @@ class ReadAudio(Transform):
         return x.T  # (C, T)
 
     def __call__(self, example, training=False):
-        example[Keys.AUDIO_DATA] = nested_op(
-            self.read, example[Keys.AUDIO_PATH]
+        nested_transform(
+            self.read, self.input_path, example, output_path=self.ouput_path
         )
         if (
             Keys.NUM_SAMPLES not in example
             or self.target_sample_rate != self.input_sample_rate
         ):
-            example[Keys.NUM_SAMPLES] = squeeze_nested(nested_op(
-                lambda x: x.shape[-1], example[Keys.AUDIO_DATA]
-            ))
+            nested_transform(
+                lambda x: x.shape[-1], Keys.AUDIO_DATA, example,
+                output_path=Keys.NUM_SAMPLES
+            )
         for key in Keys.lable_keys():
             if f'{key}_start_times' in example and (
                     f'{key}_start_samples' not in example
                     or self.target_sample_rate != self.input_sample_rate
             ):
-                example[f'{key}_start_samples'] = squeeze_nested(nested_op(
+                nested_transform(
                     lambda x: int(x * self.target_sample_rate),
-                    example[f'{key}_start_times']
-                ))
+                    f'{key}_start_times', example,
+                    output_path=f'{key}_start_samples'
+                )
             if f'{key}_stop_times' in example and (
                     f'{key}_stop_samples' not in example
                     or self.target_sample_rate != self.input_sample_rate
             ):
-                example[f'{key}_stop_samples'] = squeeze_nested(nested_op(
+                nested_transform(
                     lambda x: int(x * self.target_sample_rate),
-                    example[f'{key}_stop_times']
-                ))
-
+                    f'{key}_stop_times', example,
+                    output_path=f'{key}_stop_samples'
+                )
         return example
 
 
 class STFT(STFTModule, Transform):
+    """
+
+    Args:
+        frame_step:
+        fft_length:
+        frame_length:
+        window:
+        symmetric_window:
+        fading:
+        pad:
+        keep_input:
+
+    >>> stft = STFT(160, 512)
+    >>> ex = dict(\
+            audio_data=np.zeros(16000), \
+            phones_start_samples=[8000, 12000], \
+            phones_stop_samples=[12000, 16000])
+    >>> ex = stft(ex)
+    >>> print(ex["num_frames"])
+    103
+    >>> print(ex["phones_start_frames"])
+    [52, 77]
+    >>> print(ex["phones_stop_frames"])
+    [78, 103]
+    """
     def __init__(
             self,
             frame_step: int,
@@ -142,33 +204,9 @@ class STFT(STFTModule, Transform):
             symmetric_window: bool = False,
             fading: bool = True,
             pad: bool = True,
-            keep_input = False
+            input_path=Keys.AUDIO_DATA,
+            output_path=Keys.STFT
     ):
-        """
-
-        Args:
-            frame_step:
-            fft_length:
-            frame_length:
-            window:
-            symmetric_window:
-            fading:
-            pad:
-            keep_input:
-
-        >>> stft = STFT(160, 512)
-        >>> ex = dict(\
-                audio_data=np.zeros(16000), \
-                phones_start_samples=[8000, 12000], \
-                phones_stop_samples=[12000, 16000])
-        >>> ex = stft(ex)
-        >>> print(ex["num_frames"])
-        103
-        >>> print(ex["phones_start_frames"])
-        [52, 77]
-        >>> print(ex["phones_stop_frames"])
-        [78, 103]
-        """
         super().__init__(
             frame_step=frame_step,
             fft_length=fft_length,
@@ -180,7 +218,8 @@ class STFT(STFTModule, Transform):
             always3d=True
         )
         self.pad = pad
-        self.keep_input = keep_input
+        self.input_path = input_path
+        self.ouput_path = output_path
 
     def prepare_audio(self, audio):
         if self.pad:
@@ -197,28 +236,30 @@ class STFT(STFTModule, Transform):
         return audio
 
     def __call__(self, example, training=False):
-        example[Keys.AUDIO_DATA] = nested_op(
-            self.prepare_audio, example[Keys.AUDIO_DATA]
+        nested_transform(
+            self.prepare_audio, self.input_path, example,
+            output_path=self.input_path
         )
-        example[Keys.STFT] = nested_op(
-            super().__call__, example[Keys.AUDIO_DATA]
+        nested_transform(
+            super().__call__, self.input_path, example,
+            output_path=self.ouput_path
         )
-        if not self.keep_input:
-            example.pop(Keys.AUDIO_DATA)
-        example[Keys.NUM_FRAMES] = squeeze_nested(nested_op(
-            lambda x: x.shape[-2], example[Keys.STFT]
-        ))
+        nested_transform(
+            lambda x: x.shape[-2], Keys.STFT, example,
+            output_path=Keys.NUM_FRAMES
+        )
         for key in Keys.lable_keys():
             if f'{key}_start_samples' in example:
-                example[f'{key}_start_frames'] = squeeze_nested(nested_op(
-                    self.sampleid2frameid,
-                    example[f'{key}_start_samples']
-                ))
+                nested_transform(
+                    self.sampleid2frameid, f'{key}_start_samples', example,
+                    output_path=f'{key}_start_frames'
+                )
             if f'{key}_stop_samples' in example:
-                example[f'{key}_stop_frames'] = squeeze_nested(nested_op(
+                nested_transform(
                     lambda x: self.sampleid2frameid(x - 1) + 1,
-                    example[f'{key}_stop_samples']
-                ))
+                    f'{key}_stop_samples', example,
+                    output_path=f'{key}_stop_frames'
+                )
         return example
 
     def invert(self, example):
@@ -226,63 +267,79 @@ class STFT(STFTModule, Transform):
 
 
 class Spectrogram(Transform):
-    def __init__(self, keep_input=False):
-        self.keep_input = keep_input
+    def __init__(self, input_path=Keys.STFT):
+        self.input_path = input_path
 
     def __call__(self, example, training=False):
-        example[Keys.SPECTROGRAM] = nested_op(
-            lambda x: x.real**2 + x.imag**2, example[Keys.STFT]
+        nested_transform(
+            lambda x: x.real**2 + x.imag**2, self.input_path, example,
+            output_path=Keys.SPECTROGRAM
         )
-        if not self.keep_input:
-            example.pop(Keys.STFT)
         return example
 
 
 class MelTransform(MelModule, Transform):
+    def __init__(
+            self,
+            sample_rate: int,
+            fft_length: int,
+            n_mels: int = 40,
+            fmin: int = 20,
+            fmax: int = None,
+            log: bool = True,
+            always3d: bool = False,
+            input_path=Keys.SPECTROGRAM,
+            output_path=Keys.MEL_SPECTROGRAM
+    ):
+        super().__init__(
+            sample_rate=sample_rate,
+            fft_length=fft_length,
+            n_mels=n_mels,
+            fmin=fmin,
+            fmax=fmax,
+            log=log,
+            always3d=always3d
+        )
+        self.input_path = input_path
+        self.output_path = output_path
+
     def __call__(self, example, training=False):
-        example[Keys.SPECTROGRAM] = nested_op(
-            super().__call__, example[Keys.SPECTROGRAM]
+        nested_transform(
+            super().__call__, self.input_path, example,
+            output_path=self.output_path
         )
         return example
 
 
-class Mean(Transform):
-    def __init__(self, axes, keepdims=False):
-        self.axes = axes
-        self.keepdims = keepdims
-
-    def __call__(self, example, training=False):
-        for key, axis in self.axes.items():
-            keepdims = self.keepdims[key] \
-                if isinstance(self.keepdims, dict) else self.keepdims
-            example[key] = nested_op(
-                lambda x: np.mean(x, axis=axis, keepdims=keepdims),
-                example[key]
-            )
-        return example
-
-
 class AddDeltas(Transform):
-    def __init__(self, axes, num_deltas=1):
+    def __init__(self, input_path, axis, num_deltas=1):
         """
 
         Args:
-            axes:
+            input_path:
+            axis:
             num_deltas:
 
-        >>> deltas = AddDeltas(axes={'a': 1})
+        >>> deltas = AddDeltas('a', 1)
         >>> example = {'a': np.zeros((3, 16))}
-        >>> deltas(example)['a_deltas'].shape
+        >>> deltas(example)['deltas'].shape
         (1, 3, 16)
         """
-        self.axes = axes
-        if not isinstance(num_deltas, dict):
-            num_deltas = {key: num_deltas for key in axes}
+        self.input_path = input_path
+        self.axis = axis
         self.num_deltas = num_deltas
 
-    def get_deltas(self, x, key):
-        axis = self.axes[key]
-        num_deltas = self.num_deltas[key]
+    def __call__(self, example, training=False):
+        nested_transform(
+            lambda x: self.get_deltas(
+                x, axis=self.axis, num_deltas=self.num_deltas
+            ),
+            self.input_path, example, output_path=Keys.DELTAS
+        )
+        return example
+
+    @staticmethod
+    def get_deltas(x, axis, num_deltas):
         x = np.array(
             [
                 delta(x, axis=axis, order=order)
@@ -291,193 +348,420 @@ class AddDeltas(Transform):
         )
         return x
 
-    def __call__(self, example, training=False):
-        for key, axis in self.axes.items():
-            example[f'{key}_deltas'] = nested_op(
-                partial(self.get_deltas, key=key), example[key]
-            )
-        return example
-
 
 class AddEnergy(Transform):
-    def __init__(self, axes, keepdims=False):
+    def __init__(self, input_path, axis=-1, keepdims=False):
         """
 
         Args:
-            axes:
+            input_path:
+            axis:
 
-        >>> energies = AddEnergy(axes={'a': 0}, keepdims=True)
+        >>> energies = AddEnergy(input_path='a', axis=0, keepdims=True)
         >>> example = {'a': np.zeros((3, 16))}
-        >>> energies(example)['a_energy'].shape
+        >>> energies(example)['energy'].shape
         (1, 16)
         """
-        self.axes = axes
+        self.input_path = input_path
+        self.axis = axis
         self.keepdims = keepdims
 
-    def get_energy(self, x, key):
-        return np.sum(x, axis=self.axes[key], keepdims=self.keepdims)
+    def __call__(self, example, training=False):
+        nested_transform(
+            lambda x: np.sum(x, axis=self.axis, keepdims=self.keepdims),
+            self.input_path, example, output_path=Keys.ENERGY
+        )
+        return example
+
+
+class Mean(Transform):
+    def __init__(self, input_path, axis, keepdims=False):
+        self.input_path = input_path
+        self.axis = axis
+        self.keepdims = keepdims
 
     def __call__(self, example, training=False):
-        for key, axis in self.axes.items():
-            example[f'{key}_energy'] = nested_op(
-                partial(self.get_energy, key=key), example[key]
+        nested_transform(
+            lambda x: np.mean(x, axis=self.axis, keepdims=self.keepdims),
+            self.input_path, example, output_path=self.input_path
+        )
+        return example
+
+
+class Log(Transform):
+    def __init__(self, input_path):
+        self.input_path = input_path
+
+    def __call__(self, example, training=False):
+        nested_transform(
+            lambda x: np.log(x + 1e-15), self.input_path, example,
+            output_path=self.input_path
+        )
+        return example
+
+
+class GlobalNormalize(Transform):
+    """
+
+    Args:
+        input_path:
+        center_axis:
+        scale_axis:
+        verbose:
+
+    >>> norm = GlobalNormalize(input_path='spectrogram', center_axis=0)
+    >>> ex = dict(spectrogram=2*np.ones((2, 4)))
+    >>> norm.init_params(dataset=[ex])
+    >>> norm.moments
+    ([[2.0, 2.0, 2.0, 2.0]], 1.0)
+    >>> norm(ex)
+    {'spectrogram': array([[0., 0., 0., 0.],
+           [0., 0., 0., 0.]])}
+    >>> norm = GlobalNormalize(\
+        input_path='spectrogram', center_axis=0, scale_axis=1)
+    >>> ex = dict(spectrogram=2*np.ones((2, 4)))
+    >>> norm.init_params(dataset=[ex])
+    >>> norm.moments
+    ([[2.0, 2.0, 2.0, 2.0]], [[0.0], [0.0]])
+    >>> norm(ex)
+    {'spectrogram': array([[0., 0., 0., 0.],
+           [0., 0., 0., 0.]])}
+    >>> norm = GlobalNormalize(\
+        input_path='spectrogram', scale_axis=1)
+    >>> ex = dict(spectrogram=2*np.ones((2, 4)))
+    >>> norm.init_params(dataset=[ex])
+    >>> norm.moments
+    (0.0, [[2.0], [2.0]])
+    >>> norm(ex)
+    {'spectrogram': array([[1., 1., 1., 1.],
+           [1., 1., 1., 1.]])}
+    """
+    def __init__(
+            self, input_path, center_axis=None, scale_axis=None, verbose=False,
+            name=None
+    ):
+        self.input_path = input_path
+        self.center_axis = None if center_axis is None \
+            else tuple(to_list(center_axis))
+        self.scale_axis = None if scale_axis is None \
+            else tuple(to_list(scale_axis))
+        self.verbose = verbose
+        self.name = name
+        self.moments = None
+
+    def init_params(self, moments=None, storage_dir=None, dataset=None):
+        self.moments = moments
+        storage_dir = storage_dir or ""
+        filename = "moments.json" if self.name is None \
+            else f"{self.name}_moments.json"
+        file = (Path(storage_dir) / filename).expanduser().absolute()
+        if self.moments is None and storage_dir and file.exists():
+            with file.open() as f:
+                self.moments = json.load(f)
+            print(f'Restored moments from {file}')
+        if self.moments is None:
+            assert dataset is not None
+            self.moments = self._read_moments_from_dataset(dataset)
+        if storage_dir and not file.exists():
+            with file.open('w') as f:
+                json.dump(self.moments, f, sort_keys=True, indent=4)
+            print(f'Saved moments to {file}')
+
+    def norm(self, x, mean, scale):
+        x -= mean
+        x /= (np.array(scale) + 1e-18).astype(x.dtype)
+        return x
+
+    def __call__(self, example, training=False):
+        means, scales = self.moments
+        nested_transform(
+            self.norm, self.input_path, example, means, scales,
+            output_path=self.input_path
+        )
+        return example
+
+    def _read_moments_from_dataset(self, dataset):
+        means = np.array(0.)
+        frame_counts_m = 0
+        energies = np.array(0.)
+        frame_counts_e = 0
+        for example in tqdm(dataset, disable=not self.verbose):
+            if self.center_axis is not None:
+                means = nested_transform(
+                    lambda x, y:
+                        y + np.sum(x, axis=self.center_axis, keepdims=True),
+                    self.input_path, example, means
+                )
+                frame_counts_m = nested_transform(
+                    lambda x, y:
+                        y + np.prod(np.array(x.shape)[np.array(self.center_axis)]),
+                    self.input_path, example, frame_counts_m
+                )
+            if self.scale_axis is not None:
+                energies = nested_transform(
+                    lambda x, y:
+                        y + np.sum(
+                            np.abs(x) ** 2, axis=self.scale_axis,
+                            keepdims=True
+                        ),
+                    self.input_path, example, energies
+                )
+                frame_counts_e = nested_transform(
+                    lambda x, y:
+                        y + np.prod(np.array(x.shape)[np.array(self.scale_axis)]),
+                    self.input_path, example, frame_counts_e
+                )
+        if self.center_axis is not None:
+            means = nested_op(lambda x, c: x / c, means, frame_counts_m)
+        if self.scale_axis is not None:
+            scales = nested_op(
+                lambda x, y, c: np.sqrt(
+                    np.mean(
+                        x/c - y ** 2, axis=self.scale_axis,
+                        keepdims=True
+                    )
+                ),
+                energies, means, frame_counts_e
             )
+        else:
+            scales = np.array(1.)
+        return (
+            nested_op(lambda x: x.tolist(), means),
+            nested_op(lambda x: x.tolist(), scales)
+        )
+
+
+class LocalNormalize(Transform):
+    """
+
+    Args:
+        input_path:
+        center_axis:
+        scale_axis:
+
+    >>> norm = LocalNormalize('spectrogram', center_axis=0)
+    >>> ex = dict(spectrogram=2*np.ones((2, 4)))
+    >>> norm(ex)
+    {'spectrogram': array([[0., 0., 0., 0.],
+           [0., 0., 0., 0.]])}
+    >>> norm = LocalNormalize(\
+            'spectrogram', center_axis=0, scale_axis=(0, 1))
+    >>> ex = dict(spectrogram=2*np.ones((2, 4)))
+    >>> norm(ex)
+    {'spectrogram': array([[0., 0., 0., 0.],
+           [0., 0., 0., 0.]])}
+    """
+    def __init__(self, input_path, center_axis=None, scale_axis=None):
+        self.input_path = input_path
+        self.center_axis = center_axis
+        self.scale_axis = scale_axis
+
+    def norm(self, x):
+        if self.center_axis is not None:
+            x -= np.mean(x, axis=self.center_axis, keepdims=True)
+        if self.scale_axis is not None:
+            x /= (np.sqrt(np.mean(
+                x ** 2, axis=self.scale_axis, keepdims=True
+            )) + 1e-18).astype(x.dtype)
+        return x
+
+    def __call__(self, example, training=False):
+        nested_transform(
+            self.norm, self.input_path, example, output_path=self.input_path
+        )
         return example
 
 
 class SegmentAxis(Transform):
+    """
+
+    Args:
+        axes:
+        segment_steps:
+        segment_lengths:
+        pad:
+
+
+    >>> time_segmenter = SegmentAxis({'a': 1, 'b': 1}, {'a': 2, 'b': 1})
+    >>> example = {'a': np.arange(10).reshape((2, 5)), 'b': np.array([[1,2]])}
+    >>> from pprint import pprint
+    >>> pprint(time_segmenter(example))
+    {'a': array([[[0, 1],
+            [2, 3]],
+    <BLANKLINE>
+           [[5, 6],
+            [7, 8]]]),
+     'b': array([[[1],
+            [2]]])}
+    >>> time_segmenter = SegmentAxis({'a/b': 1}, {'a/b': 2})
+    >>> example = {'a': {'b': np.arange(10).reshape((2, 5))}}
+    >>> pprint(time_segmenter(example))
+    {'a': {'b': array([[[0, 1],
+            [2, 3]],
+    <BLANKLINE>
+           [[5, 6],
+            [7, 8]]])}}
+    >>> time_segmenter = SegmentAxis({'a': 1, 'b': 1}, {'a':2, 'b':1}, pad=True)
+    >>> example = {'a': np.arange(10).reshape((2, 5)), 'b': np.array([[1,2]])}
+    >>> pprint(time_segmenter(example))
+    {'a': array([[[0, 1],
+            [2, 3],
+            [4, 0]],
+    <BLANKLINE>
+           [[5, 6],
+            [7, 8],
+            [9, 0]]]),
+     'b': array([[[1],
+            [2]]])}
+    >>> time_segmenter = SegmentAxis(\
+            {'a':1, 'b':1}, {'a':1, 'b':1}, {'a':2, 'b':1})
+    >>> example = {'a': np.arange(8).reshape((2, 4)), 'b': np.array([[1,2,3]])}
+    >>> pprint(time_segmenter(example))
+    {'a': array([[[0, 1],
+            [1, 2],
+            [2, 3]],
+    <BLANKLINE>
+           [[4, 5],
+            [5, 6],
+            [6, 7]]]),
+     'b': array([[[1],
+            [2],
+            [3]]])}
+    >>> channel_segmenter = SegmentAxis({'a': 0}, {'a': 1})
+    >>> example = {'a': np.arange(8).reshape((2, 4))}
+    >>> pprint(channel_segmenter(example))
+    {'a': array([[[0, 1, 2, 3]],
+    <BLANKLINE>
+           [[4, 5, 6, 7]]])}
+    >>> channel_segmenter = SegmentAxis({'a': 0}, {'a':3}, pad=True)
+    >>> example = {'a': np.arange(12).reshape((3, 4))}
+    >>> pprint(channel_segmenter(example))
+    {'a': array([[[ 0,  1,  2,  3],
+            [ 4,  5,  6,  7],
+            [ 8,  9, 10, 11]]])}
+    >>> channel_segmenter = SegmentAxis({'a': 0}, {'a':3}, pad=True)
+    >>> example = {'a': np.arange(12).reshape((3, 4))}
+    >>> pprint(channel_segmenter(example, training=True))
+    {'a': array([[[ 0,  1,  2,  3],
+            [ 4,  5,  6,  7],
+            [ 8,  9, 10, 11]]])}
+    """
     def __init__(
-            self, segment_steps, segment_lengths=None, axis=1, pad=False
+            self, axes, segment_steps, segment_lengths=None,
+            random_start=True, pad=False,
+
     ):
-        """
+        self.axes = axes
 
-        Args:
-            segment_steps:
-            segment_lengths:
-            axis:
-            squeeze:
-            pad:
+        if isinstance(segment_steps, Mapping):
+            self.segment_steps = segment_steps
+        else:
+            assert isinstance(segment_steps, numbers.Integral)
+            self.segment_steps = {key: segment_steps for key in axes}
 
+        if segment_lengths is None:
+            self.segment_lengths = self.segment_steps
+        elif isinstance(segment_lengths, Mapping):
+            self.segment_lengths = segment_lengths
+        else:
+            assert isinstance(segment_lengths, numbers.Integral)
+            self.segment_lengths = {key: segment_lengths for key in axes}
 
-        >>> time_segmenter = SegmentAxis({'a':2, 'b':1}, axis=1)
-        >>> example = {'a': np.arange(10).reshape((2, 5)), 'b': np.array([[1,2]])}
-        >>> from pprint import pprint
-        >>> pprint(time_segmenter(example))
-        {'a': array([[[0, 1],
-                [2, 3]],
-        <BLANKLINE>
-               [[5, 6],
-                [7, 8]]]),
-         'b': array([[[1],
-                [2]]])}
-        >>> time_segmenter = SegmentAxis({'a':2, 'b':1}, axis=1, pad=True)
-        >>> example = {'a': np.arange(10).reshape((2, 5)), 'b': np.array([[1,2]])}
-        >>> from pprint import pprint
-        >>> pprint(time_segmenter(example))
-        {'a': array([[[0, 1],
-                [2, 3],
-                [4, 0]],
-        <BLANKLINE>
-               [[5, 6],
-                [7, 8],
-                [9, 0]]]),
-         'b': array([[[1],
-                [2]]])}
-        >>> time_segmenter = SegmentAxis(\
-                {'a':1, 'b':1}, {'a':2, 'b':1}, axis=1)
-        >>> example = {'a': np.arange(8).reshape((2, 4)), 'b': np.array([[1,2,3]])}
-        >>> pprint(time_segmenter(example))
-        {'a': array([[[0, 1],
-                [1, 2],
-                [2, 3]],
-        <BLANKLINE>
-               [[4, 5],
-                [5, 6],
-                [6, 7]]]),
-         'b': array([[[1],
-                [2],
-                [3]]])}
-        >>> channel_segmenter = SegmentAxis({'a':1}, axis=0)
-        >>> example = {'a': np.arange(8).reshape((2, 4))}
-        >>> pprint(channel_segmenter(example))
-        {'a': array([[[0, 1, 2, 3]],
-        <BLANKLINE>
-               [[4, 5, 6, 7]]])}
-        >>> channel_segmenter = SegmentAxis({'a':3}, axis=0, pad=True)
-        >>> example = {'a': np.arange(12).reshape((3, 4))}
-        >>> pprint(channel_segmenter(example))
-        {'a': array([[[ 0,  1,  2,  3],
-                [ 4,  5,  6,  7],
-                [ 8,  9, 10, 11]]])}
-        >>> channel_segmenter = SegmentAxis({'a':3}, axis=0, pad=True)
-        >>> example = {'a': np.arange(12).reshape((3, 4))}
-        >>> pprint(channel_segmenter(example, training=True))
-        {'a': array([[[ 0,  1,  2,  3],
-                [ 4,  5,  6,  7],
-                [ 8,  9, 10, 11]]])}
-        # >>> channel_segmenter = SegmentAxis({'a': 5}, axis=0, pad=True)
-        # >>> example = {'a': np.arange(12).reshape((3, 4))}
-        # >>> pprint(channel_segmenter(example, training=True))
-        """
-        self.segment_steps = segment_steps
-        self.segment_lengths = segment_lengths if segment_lengths is not None \
-            else segment_steps
-        self.axis = axis
+        self.random_start = random_start
         self.pad = pad
 
     def __call__(self, example, training=False):
-        if training:
+
+        # get random start
+        if training and self.random_start:
             start = np.random.rand()
+
+            # find max start such that at least one segment is obtained
+            max_start = 1.
             for key in self.segment_steps:
-                value = example[key]
-                value = flatten(value) if isinstance(value, dict) else {'': value}
-                max_start = min(nested_op(
-                    lambda x:
-                        (x.shape[self.axis] - self.segment_lengths[key])
-                        / self.segment_steps[key],
-                    value
-                ).values())
-                start *= min(1., max_start)
+                # get nested structure and cast to dict
+                value = nested_transform(lambda x: x, key, example)
+                value = flatten(value) if isinstance(value, dict) \
+                    else {'': value}
+
+                max_start = min(
+                    max_start,
+                    min(nested_op(
+                        lambda x:
+                            (x.shape[self.axes[key]]
+                             - self.segment_lengths[key])
+                            / self.segment_steps[key],
+                        value
+                    ).values())
+                )
+            start *= max_start
+
+            # adjust start to match an integer index for all keys
             for segment_step in self.segment_steps.values():
                 start = int(start*segment_step) / segment_step
         else:
             start = 0.
 
-        def segment(x, key):
-            segment_step = self.segment_steps[key]
-            segment_length = self.segment_lengths[key]
-            start_idx = int(start * segment_step)
+        def segment(x, axis, step, length):
+            start_idx = int(start * step)
             if start_idx > 0:
                 slc = [slice(None)] * len(x.shape)
-                slc[self.axis] = slice(
-                    int(start_idx), x.shape[self.axis]
-                )
+                slc[axis] = slice(int(start_idx), x.shape[axis])
                 x = x[tuple(slc)]
             elif start_idx < 0 and self.pad:
+                # pad front if start_idx < 0 (this means input length is
+                # shorter than segment length and training is True).
                 pad_width = x.ndim * [(0, 0)]
-                pad_width[self.axis] = (-start_idx, 0)
+                pad_width[axis] = (-start_idx, 0)
                 x = np.pad(x, pad_width=pad_width, mode='constant')
-            assert self.axis < x.ndim, (self.axis, x.ndim)
+            assert axis < x.ndim, (axis, x.ndim)
             x = segment_axis_v2(
-                x, segment_length, segment_step, axis=self.axis,
+                x, length, step, axis=axis,
                 end='pad' if self.pad else 'cut'
             )
-            # x = np.split(x, x.shape[self.axis], axis=self.axis).squeeze(
-            #     axis=self.axis
-            # )
-            # x = [np.squeeze(xi, axis=self.axis) for xi in x]
-            # if self.squeeze and segment_length == 1:
-            #     x = [np.squeeze(xi, axis=self.axis) for xi in x]
             return x
 
         for key in self.segment_steps.keys():
-            example[key] = nested_op(lambda x: segment(x, key), example[key])
+            nested_transform(
+                lambda x: segment(
+                    x, self.axes[key], self.segment_steps[key],
+                    self.segment_lengths[key]
+                ),
+                key, example, output_path=key
+            )
         return example
 
 
 class Fragmenter(Transform):
+    """
+
+    Args:
+        split_axes:
+        squeeze:
+        broadcast_keys:
+        deepcopy:
+
+    >>> fragment = Fragmenter(split_axes={'a': 1, 'b': 1})
+    >>> example = {\
+            'a': np.array([[[0, 1],[2, 3]],[[4, 5], [6, 7]]]),\
+            'b': np.array([[[1],[2]]])\
+        }
+    >>> fragment(example)
+    [{'fragment_id': 0, 'a': array([[0, 1],
+           [4, 5]]), 'b': array([[1]])}, {'fragment_id': 1, 'a': array([[2, 3],
+           [6, 7]]), 'b': array([[2]])}]
+    >>> fragment = Fragmenter(split_axes={'a/b': 1})
+    >>> example = {\
+            'a': {'b': np.array([[[0, 1],[2, 3]],[[4, 5], [6, 7]]])}\
+        }
+    >>> fragment(example)
+    [{'fragment_id': 0, 'a': {'b': array([[0, 1],
+           [4, 5]])}}, {'fragment_id': 1, 'a': {'b': array([[2, 3],
+           [6, 7]])}}]
+    """
     def __init__(
-            self, split_axes, squeeze=True, broadcast_keys=None,
-            deepcopy=False
+            self, split_axes, squeeze=True, broadcast_keys=None, deepcopy=False
     ):
-        """
-
-        Args:
-            split_axes:
-            squeeze:
-            broadcast_keys:
-            deepcopy:
-
-        >>> decollate = Fragmenter(split_axes={'a': 1, 'b': 1})
-        >>> example = {\
-                'a': np.array([[[0, 1],[2, 3]],[[4, 5], [6, 7]]]),\
-                'b': np.array([[[1],[2]]])\
-            }
-        >>> decollate(example)
-        [{'a': array([[0, 1],
-               [4, 5]]), 'b': array([[1]])}, {'a': array([[2, 3],
-               [6, 7]]), 'b': array([[2]])}]
-        """
         self.split_axes = split_axes
         self.squeeze = squeeze
         self.broadcast_keys = to_list(broadcast_keys) \
@@ -487,37 +771,40 @@ class Fragmenter(Transform):
     def __call__(self, example, training=False):
         for key, axes in self.split_axes.items():
             for axis in to_list(axes):
-                example[key] = nested_op(
-                    lambda x: np.split(x, x.shape[axis], axis=axis)
-                    if x.shape[axis] > 0 else [],
-                    example[key]
+                nested_transform(
+                    lambda x: (
+                        np.split(x, x.shape[axis], axis=axis)
+                        if x.shape[axis] > 0 else []
+                    ),
+                    key, example, output_path=key
                 )
 
-        def flatten_list(x, key):
+        def flatten_list(x, axes):
             flat_list = list()
             for xi in x:
                 if isinstance(xi, (list, tuple)):
-                    flat_list.extend(flatten_list(xi, key))
+                    flat_list.extend(flatten_list(xi, axes))
                 elif isinstance(xi, np.ndarray):
-                    for axis in sorted(
-                            to_list(self.split_axes[key]), reverse=True
-                    ):
+                    for axis in sorted(to_list(axes), reverse=True):
                         if self.squeeze:
                             xi = np.squeeze(xi, axis)
                     flat_list.append(xi)
             return flat_list
 
         features = flatten({
-            key: nested_op(
-                lambda x: flatten_list(x, key), example[key], sequence_type=()
+            key: nested_transform(
+                lambda x: flatten_list(x, self.split_axes[key]), key, example,
+                sequence_type=()
             )
             for key in self.split_axes.keys()
-        })
+        }, sep='/')
 
         num_fragments = np.array(
-            [len(features[key]) for key in list(features.keys())]
+            [len(features[key]) for key in features.keys()]
         )
-        assert all(num_fragments == num_fragments[0]), (list(features.keys()), num_fragments)
+        assert all(num_fragments == num_fragments[0]), (
+            list(features.keys()), num_fragments
+        )
         fragment_template = dict()
         for key in self.broadcast_keys:
             fragment_template[key] = example[key]
@@ -529,27 +816,51 @@ class Fragmenter(Transform):
             for key in features.keys():
                 x = features[key][i]
                 fragment[key] = deepcopy(x) if self.deepcopy else x
-            fragment = deflatten(fragment)
+            fragment = deflatten(fragment, sep='/')
             fragments.append(fragment)
         return fragments
 
 
 class LabelEncoder(Transform):
-    def __init__(self, key='scene', input_mapping=None, oov_label=None):
-        assert key is not None
-        self.key = key
+    """
+
+    Args:
+        input_path:
+        input_mapping:
+        oov_label:
+        name:
+
+    >>> example = {'labels':['b', 'a', 'c']}
+    >>> label_encoder = LabelEncoder('labels')
+    >>> label_encoder.init_params(dataset=[example])
+    >>> label_encoder(example)
+    {'labels': [1, 0, 2]}
+    >>> example = {'labels': {'subkey': ['b', 'a', 'c']}}
+    >>> label_encoder = LabelEncoder('labels/subkey')
+    >>> label_encoder.init_params(dataset=[example])
+    >>> label_encoder(example)
+    {'labels': {'subkey': [1, 0, 2]}}
+    """
+    def __init__(
+            self, input_path, input_mapping=None, oov_label=None, name=None
+    ):
+        assert input_path is not None
+        self.input_path = input_path
         self.input_mapping = input_mapping
         self.oov_label = oov_label
         self.label2idx = None
         self.idx2label = None
+        self.name = name
 
     def init_params(self, labels=None, storage_dir=None, dataset=None):
         storage_dir = storage_dir or ""
-        file = (Path(storage_dir) / f'{self.key}.json').expanduser().absolute()
+        filename = "labels.json" if self.name is None \
+            else f'{self.name}_labels.json'
+        file = (Path(storage_dir) / filename).expanduser().absolute()
         if storage_dir and file.exists():
             with file.open() as f:
                 labels = json.load(f)
-            print(f'Restored {self.key} from {file}')
+            print(f'Restored {self.input_path} from {file}')
         if labels is None:
             labels = self._read_labels_from_dataset(dataset)
         if self.input_mapping is not None:
@@ -562,7 +873,7 @@ class LabelEncoder(Transform):
         if storage_dir and not file.exists():
             with file.open('w') as f:
                 json.dump(labels, f, sort_keys=True, indent=4)
-            print(f'Saved {self.key} to {file}')
+            print(f'Saved {self.input_path} to {file}')
         self.label2idx = {label: i for i, label in enumerate(labels)}
         self.idx2label = {i: label for label, i in self.label2idx.items()}
 
@@ -580,7 +891,10 @@ class LabelEncoder(Transform):
         return nested_op(encode_label, labels)
 
     def __call__(self, example, training=False):
-        example[self.key] = self.encode(example[self.key])
+        nested_transform(
+            self.encode, self.input_path, example, output_path=self.input_path,
+            sequence_type=()
+        )
         return example
 
     def decode(self, labels):
@@ -605,252 +919,117 @@ class LabelEncoder(Transform):
 
         labels = set()
         for example in dataset:
-            labels.update(_read_labels(example[self.key]))
+            labels.update(_read_labels(
+                nested_transform(lambda x: x, self.input_path, example)
+            ))
         return sorted(labels)
 
 
 class Declutter(Transform):
+    """
+
+    Args:
+        required_keys:
+        dtypes:
+
+    >>> example = {'a': np.array([[1,2,3]]), 'b': 2, 'c': 3}
+    >>> Declutter(['a', 'b'], {'a': 'float32'})(example)
+    {'a': array([[1., 2., 3.]], dtype=float32), 'b': 2}
+    >>> example = {'a': {'b': np.array([[1,2,3]]), 'c':2}, 'd': 3}
+    >>> Declutter(['a/b', 'd'], {'a/b': 'float32'})(example)
+    {'a': {'b': array([[1., 2., 3.]], dtype=float32)}, 'd': 3}
+    """
     def __init__(self, required_keys, dtypes=None):
-        """
-
-        Args:
-            required_keys:
-            dtypes:
-            permutations:
-
-        >>> example = {'a': np.array([[1,2,3]]), 'b': 2, 'c': 3}
-        >>> Declutter(['a', 'b'], {'a': 'float32'}, {'a': (1, 0)})(example)
-        {'a': array([[1.],
-               [2.],
-               [3.]], dtype=float32), 'b': 2}
-        """
         self.required_keys = to_list(required_keys)
         self.dtypes = dtypes
 
     def __call__(self, example, training=False):
-        example = {key: example[key] for key in self.required_keys}
+        # get nested
+        example = {
+            key: nested_transform(lambda x: x, key, example)
+            for key in self.required_keys
+        }
         if self.dtypes is not None:
             for key, dtype in self.dtypes.items():
                 example[key] = np.array(example[key]).astype(
                     getattr(np, dtype)
                 )
-        return example
+        return deflatten(example, sep='/')
 
 
-class GlobalNormalize(Transform):
-    def __init__(
-            self, center_axes=None, scale_axes=None, verbose=False, name=None
-    ):
-        """
+class Reshape(Transform):
+    """
 
-        Args:
-            center_axes:
-            scale_axes:
-            verbose:
+    Args:
+        input_path:
+        permutation:
+        shape:
 
-        >>> norm = GlobalNormalize(center_axes={'spectrogram': 0})
-        >>> ex = dict(spectrogram=2*np.ones((2, 4)))
-        >>> norm.init_params(dataset=[ex])
-        >>> norm.moments
-        ({'spectrogram': [[2.0, 2.0, 2.0, 2.0]]}, {'spectrogram': [1.0]})
-        >>> norm(ex)
-        {'spectrogram': array([[0., 0., 0., 0.],
-               [0., 0., 0., 0.]])}
-        >>> norm = GlobalNormalize(\
-            center_axes={'spectrogram': 0}, scale_axes={'spectrogram': 1})
-        >>> ex = dict(spectrogram=2*np.ones((2, 4)))
-        >>> norm.init_params(dataset=[ex])
-        >>> norm.moments
-        ({'spectrogram': [[2.0, 2.0, 2.0, 2.0]]}, {'spectrogram': [[0.0], [0.0]]})
-        >>> norm(ex)
-        {'spectrogram': array([[0., 0., 0., 0.],
-               [0., 0., 0., 0.]])}
-        >>> norm = GlobalNormalize(\
-            scale_axes={'spectrogram': 1})
-        >>> ex = dict(spectrogram=2*np.ones((2, 4)))
-        >>> norm.init_params(dataset=[ex])
-        >>> norm.moments
-        ({'spectrogram': [0.0]}, {'spectrogram': [[2.0], [2.0]]})
-        >>> norm(ex)
-        {'spectrogram': array([[1., 1., 1., 1.],
-               [1., 1., 1., 1.]])}
-        """
-        self.center_axes = {} if center_axes is None else {
-            key: tuple(to_list(ax)) for key, ax in center_axes.items()
-        }
-        self.scale_axes = {} if scale_axes is None else {
-            key: tuple(to_list(ax)) for key, ax in scale_axes.items()
-        }
-        self.verbose = verbose
-        self.name = name
-        self.moments = None
-
-    def init_params(self, moments=None, dataset=None, storage_dir=None):
-        self.moments = moments
-        storage_dir = storage_dir or ""
-        filename = "moments.json" if self.name is None else f"moments_{self.name}.json"
-        file = (Path(storage_dir) / filename).expanduser().absolute()
-        if self.moments is None and storage_dir and file.exists():
-            with file.open() as f:
-                self.moments = json.load(f)
-            print(f'Restored moments from {file}')
-        if self.moments is None:
-            assert dataset is not None
-            self.moments = self._read_moments_from_dataset(dataset)
-        if storage_dir and not file.exists():
-            with file.open('w') as f:
-                json.dump(self.moments, f, sort_keys=True, indent=4)
-            print(f'Saved moments to {file}')
-
-    def norm(self, x, mean, scale):
-        x -= mean
-        x /= (np.array(scale) + 1e-18).astype(x.dtype)
+    >>> example = {'a': np.array([[1,2,3],[1,2,3]])}
+    >>> Reshape('a', (1, 0),  (-1,))(example)
+    {'a': array([1, 1, 2, 2, 3, 3])}
+    >>> example = {'a': {'b': np.array([[1,2,3],[1,2,3]])}}
+    >>> Reshape('a/b', (1, 0), (-1,))(example)
+    {'a': {'b': array([1, 1, 2, 2, 3, 3])}}
+    """
+    def __init__(self, input_path, permutation=None, shape=None):
+        self.input_path = input_path
+        self.permutation = permutation
+        self.shape = shape
 
     def __call__(self, example, training=False):
-        means, scales = self.moments
-        example_ = {key: example[key] for key in means.keys()}
-        nested_op(self.norm, example_, means, scales)  # inplace
-        return example
-
-    def invert(self, example):
-        example_ = {key: example[key] for key in self.center_axes}
-        means, scale = self.moments
-        nested_update(
-            example,
-            nested_op(lambda x, y, z: x*z+y, example_, means, scale)
-        )
-        return example
-
-    def _read_moments_from_dataset(self, dataset):
-        means = {key: 0 for key in self.center_axes}
-        frame_counts_m = {key: 0 for key in self.center_axes}
-        energies = {key: 0 for key in self.scale_axes}
-        frame_counts_e = {key: 0 for key in self.scale_axes}
-        axes = {
-            key: self.center_axes[key] if key in self.center_axes
-            else self.scale_axes[key]
-            for key in {*self.center_axes.keys(), *self.scale_axes.keys()}
-        }
-        for example in tqdm(dataset, disable=not self.verbose):
-            for key in axes:
-                if key in means:
-                    means[key] = nested_op(
-                        lambda x, y:
-                            y + np.sum(
-                                x, axis=self.center_axes[key], keepdims=True
-                            ),
-                        example[key], means[key]
-                    )
-                    frame_counts_m[key] = nested_op(
-                        lambda x, y:
-                            y + np.prod(np.array(x.shape)[np.array(self.center_axes[key])]),
-                        example[key], frame_counts_m[key]
-                    )
-                if key in energies:
-                    energies[key] = nested_op(
-                        lambda x, y:
-                            y + np.sum(
-                                x ** 2, axis=self.scale_axes[key],
-                                keepdims=True
-                            ),
-                        example[key], energies[key]
-                    )
-                    frame_counts_e[key] = nested_op(
-                        lambda x, y:
-                            y + np.prod(np.array(x.shape)[np.array(self.scale_axes[key])]),
-                        example[key], frame_counts_e[key]
-                    )
-        means = nested_op(lambda x, c: x / c, means, frame_counts_m)
-        scales = {}
-        for key in axes:
-            if key not in means:
-                means[key] = np.array([0.])
-            if key not in energies:
-                scales[key] = np.array([1.])
-            else:
-                scales[key] = nested_op(
-                    lambda x, y, c: np.sqrt(
-                        np.mean(
-                            x/c - y ** 2, axis=self.scale_axes[key],
-                            keepdims=True
-                        )
-                    ),
-                    energies[key], means[key], frame_counts_e[key]
-                )
-        return (nested_op(lambda x: x.tolist(), means),
-                nested_op(lambda x: x.tolist(), scales))
-
-
-class LocalNormalize(Transform):
-    def __init__(
-            self, center_axes=None, scale_axes=None
-    ):
-        """
-
-        Args:
-            axes:
-            std_reduce_axes:
-            verbose:
-
-        >>> norm = LocalNormalize(center_axes={'spectrogram': 0})
-        >>> ex = dict(spectrogram=2*np.ones((2, 4)))
-        >>> norm(ex)
-        {'spectrogram': array([[0., 0., 0., 0.],
-               [0., 0., 0., 0.]])}
-        >>> norm = LocalNormalize(\
-            center_axes={'spectrogram': 0}, scale_axes={'spectrogram': (0, 1)})
-        >>> ex = dict(spectrogram=2*np.ones((2, 4)))
-        >>> norm(ex)
-        {'spectrogram': array([[0., 0., 0., 0.],
-               [0., 0., 0., 0.]])}
-        """
-        self.keys = set()
-        if center_axes is None:
-            self.center_axes = None
-        else:
-            self.center_axes = {
-                key: tuple(to_list(ax)) for key, ax in center_axes.items()
-            }
-            self.keys.update(self.center_axes.keys())
-        if scale_axes is None:
-            self.scale_axes = None
-        else:
-            self.scale_axes = {
-                key: tuple(to_list(ax)) for key, ax in scale_axes.items()
-            }
-            self.keys.update(self.scale_axes.keys())
-
-    def norm(self, x, key):
-        if self.center_axes is not None and key in self.center_axes:
-            x -= np.mean(x, axis=self.center_axes[key], keepdims=True)
-        if self.scale_axes is not None and key in self.scale_axes:
-            x /= (np.sqrt(np.mean(x ** 2, axis=self.scale_axes[key], keepdims=True)) + 1e-18).astype(x.dtype)
-
-    def __call__(self, example, training=False):
-        for key in self.keys:
-            nested_op(
-                partial(self.norm, key=key),
-                example[key]
+        if self.permutation is not None:
+            nested_transform(
+                lambda x: x.transpose(self.permutation), self.input_path,
+                example, output_path=self.input_path
+            )
+        if self.shape is not None:
+            nested_transform(
+                lambda x: x.reshape(self.shape), self.input_path, example,
+                output_path=self.input_path
             )
         return example
 
 
-class Reshape(Transform):
-    def __init__(self, permutations=None, shapes=None):
-        self.permutations = permutations
-        self.shapes = shapes
+class Collate(Transform):
+    """
+
+    >>> batch = [{'a': np.ones((5,2)), 'b': '0'}, {'a': np.ones((3,2)), 'b': '1'}]
+    >>> Collate()(batch)
+    {'a': tensor([[[1., 1.],
+             [1., 1.],
+             [1., 1.],
+             [1., 1.],
+             [1., 1.]],
+    <BLANKLINE>
+            [[1., 1.],
+             [1., 1.],
+             [1., 1.],
+             [0., 0.],
+             [0., 0.]]]), 'b': ['0', '1']}
+    """
+    def __init__(self, to_tensor=True):
+        self.to_tensor = to_tensor
 
     def __call__(self, example, training=False):
-        if self.permutations is not None:
-            for key, perm in self.permutations.items():
-                if torch.is_tensor(example[key]):
-                    transpose = lambda x: x.permute(perm)
-                else:
-                    transpose = lambda x: x.transpose(perm)
-                example[key] = nested_op(lambda x: transpose(x), example[key])
-        if self.shapes is not None:
-            for key, shape in self.shapes.items():
-                example[key] = nested_op(
-                    lambda x: x.reshape(shape), example[key]
-                )
+        example = nested_op(self.collate, *example, sequence_type=())
         return example
+
+    def collate(self, *batch):
+        batch = list(batch)
+        if isinstance(batch[0], np.ndarray):
+            max_len = np.zeros_like(batch[0].shape)
+            for array in batch:
+                max_len = np.maximum(max_len, array.shape)
+            for i, array in enumerate(batch):
+                pad = max_len - array.shape
+                if np.any(pad):
+                    assert np.sum(pad) == np.max(pad), (
+                        'arrays are only allowed to differ in one dim',
+                    )
+                    pad = [(0, n) for n in pad]
+                    batch[i] = np.pad(array, pad_width=pad, mode='constant')
+            batch = np.array(batch)
+            if self.to_tensor:
+                batch = torch.Tensor(batch)
+        return batch
