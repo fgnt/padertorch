@@ -350,11 +350,24 @@ class Trainer(Configurable):
 
             loss = 0.
             loss_weights = self.loss_weights
-            if loss_weights is None and len(losses) != 1:
-                raise Exception(
-                    'You can not have multiple losses without specifying '
-                    f'loss_weights. losses: {losses}'
-                )
+            if len(losses) != 1:
+                if loss_weights is None:
+                    raise Exception(
+                        'You can not have multiple losses without specifying '
+                        f'loss_weights. losses: {losses}'
+                    )
+                elif set(loss_weights.keys()) != set(losses.keys()):
+                    import textwrap
+                    from IPython.lib.pretty import pretty
+                    raise Exception(
+                        'You can not have multiple losses without specifying '
+                        'a loss_weight for each loss.'
+                        f'\nlosses:'
+                        f'\n{textwrap.indent(pretty(losses), " "*4)}'
+                        f'\nloss_weights:\n'
+                        f'{textwrap.indent(pretty(loss_weights), " "*4)}'
+                    )
+
             for key, value in losses.items():
                 weight = loss_weights[key] if loss_weights is not None else 1.
                 loss = loss + (weight * value)
