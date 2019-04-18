@@ -200,7 +200,14 @@ class Model(Module, Configurable, abc.ABC):
 
 
         """
-        pass
+        ...  # calculate loss
+        with torch.no_grad():
+            ...  # calculate general metrics
+            if self.training:
+                ...  # calculate training specific metrics
+            else:
+                ...  # calculate validation specific metrics
+
 
     def modify_summary(self, summary):
         """Modify a summary dict.
@@ -218,6 +225,12 @@ class Model(Module, Configurable, abc.ABC):
 
         Returns:
             Modified summary dict
+
+        Hints:
+         - For training summary contains a subset of all training values.
+           It can happen that the number of values is very low when
+           summary_trigger and checkpoint_trigger have different units.
+         - For validation the summary contains all values.
 
         """
         return summary
