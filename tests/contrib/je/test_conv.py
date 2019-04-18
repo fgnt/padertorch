@@ -18,11 +18,13 @@ class TestCNN(unittest.TestCase):
                     for padding in ['both', None]:
                         enc = CNN.from_config(
                             CNN.get_config(
-                                updates=dict(
-                                    input_size=input_size, hidden_sizes=256,
-                                    num_layers=5, kernel_sizes=3,
+                                dict(
+                                    input_size=input_size,
                                     output_size=latent_dim,
-                                    n_scales=n_scales, norm='batch',
+                                    num_layers=5,
+                                    hidden_sizes=256,
+                                    ndims=1, kernel_sizes=3, n_scales=n_scales,
+                                    norm='batch',
                                     pooling=pooling, pool_sizes=pool_size,
                                     paddings=padding
                                 )
@@ -31,12 +33,14 @@ class TestCNN(unittest.TestCase):
                         z, pooling_data = enc(x)
                         dec = CNN.from_config(
                             CNN.get_config(
-                                updates=dict(
-                                    input_size=latent_dim, hidden_sizes=256,
-                                    num_layers=5, kernel_sizes=3,
+                                dict(
+                                    input_size=latent_dim,
                                     output_size=input_size,
+                                    num_layers=5,
+                                    hidden_sizes=256,
+                                    ndims=1, kernel_sizes=3, n_scales=n_scales,
                                     transpose=True,
-                                    n_scales=n_scales, norm='batch',
+                                    norm='batch',
                                     pooling=pooling, pool_sizes=pool_size,
                                     paddings=padding
                                 )
@@ -61,11 +65,14 @@ class TestCNN(unittest.TestCase):
                     for padding in ['both', None]:
                         enc = CNN.from_config(
                             CNN.get_config(
-                                updates=dict(
-                                    input_size=input_size, hidden_sizes=128,
-                                    num_layers=3, kernel_sizes=3, ndim=2,
+                                dict(
+                                    input_size=input_size,
                                     output_size=latent_dim,
-                                    n_scales=n_scales, norm='batch',
+                                    num_layers=3,
+                                    hidden_sizes=256,
+                                    ndims=2,
+                                    kernel_sizes=3, n_scales=n_scales,
+                                    norm='batch',
                                     pooling=pooling, pool_sizes=pool_size,
                                     paddings=padding
                                 )
@@ -74,12 +81,15 @@ class TestCNN(unittest.TestCase):
                         z, pooling_data = enc(x)
                         dec = CNN.from_config(
                             CNN.get_config(
-                                updates=dict(
-                                    input_size=latent_dim, hidden_sizes=128,
-                                    num_layers=3, kernel_sizes=3, ndim=2,
+                                dict(
+                                    input_size=latent_dim,
                                     output_size=input_size,
+                                    num_layers=3,
+                                    hidden_sizes=256,
+                                    ndims=2,
+                                    kernel_sizes=3, n_scales=n_scales,
                                     transpose=True,
-                                    n_scales=n_scales, norm='batch',
+                                    norm='batch',
                                     pooling=pooling, pool_sizes=pool_size,
                                     paddings=padding
                                 )

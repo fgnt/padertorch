@@ -12,23 +12,22 @@ from torch import nn
 class CNN(Module):
     """
     (Multi-Scale) Convolutional Neural Network
-    ToDo: allow hybrid CNN combining 2d and 1d Convs
-    ToDo: allow 2d kernels, scales, dilations, strides, pooling, padding
     """
     def __init__(
-            self, input_size, output_size, kernel_sizes, hidden_sizes,
-            num_layers, ndim=1, n_scales=None, dilations=1, strides=1,
+            self, input_size, output_size, hidden_sizes, num_layers,
+            kernel_sizes, ndim=1, n_scales=None, dilations=1, strides=1,
             transpose=False, pooling='max', pool_sizes=1, paddings='both',
-            dropout=0., activation='leaky_relu', gated=False, residual=False,
-            norm=None
+            dropout=0., norm=None, activation='leaky_relu', gated=False,
+            residual=False,
+
     ):
         super().__init__()
 
         self.input_size = input_size
+        self.output_size = output_size
         self.hidden_sizes = to_list(
             hidden_sizes, num_layers - int(n_scales is None)
         )
-        self.output_size = output_size
         self.num_layers = num_layers
         self.kernel_sizes = to_list(kernel_sizes, num_layers)
         self.n_scales = None if n_scales is None else to_list(
@@ -44,7 +43,7 @@ class CNN(Module):
         convs = list()
         for i in range(num_layers):
             if n_scales is None:
-                assert residual is False
+                assert residual is False  # not supported (yet)
                 if i == num_layers - 1:
                     output_size_ = output_size
                     norm = None
@@ -106,10 +105,10 @@ class Conv(Module):
     normalizing the network output
     """
     def __init__(
-            self, input_size, output_size, kernel_size, ndim=1,
+            self, input_size, output_size, kernel_size, ndim,
             dilation=1, stride=1, transpose=False, padding='both', bias=True,
-            groups=1, dropout=0., activation='leaky_relu', gated=False,
-            norm=None
+            groups=1, dropout=0., norm=None, activation='leaky_relu',
+            gated=False,
     ):
         """
 
@@ -207,10 +206,11 @@ class MultiScaleConv(Module):
     followed by an output layer
     """
     def __init__(
-            self, input_size, hidden_size, output_size, ndim=1,
-            kernel_size=3, n_scales=1, dilation=1, stride=1, transpose=False,
-            padding='both', dropout=0., activation='leaky_relu', gated=False,
-            residual=False, norm=None
+            self, input_size, hidden_size, output_size, kernel_size=3, ndim=1,
+            n_scales=1, dilation=1, stride=1, transpose=False, padding='both',
+            dropout=0., norm=None, activation='leaky_relu', gated=False,
+            residual=False,
+
     ):
         assert hidden_size % n_scales == 0, (hidden_size, n_scales)
         super().__init__()
