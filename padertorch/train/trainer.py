@@ -203,6 +203,7 @@ class Trainer(Configurable):
                 example to the model is moved to the cpu.
         """
         if resume:
+            assert resume is True, resume
             self.load_checkpoint()
         else:
             assert not self.checkpoint_dir.exists(),\

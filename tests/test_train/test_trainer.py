@@ -320,7 +320,7 @@ def test_single_model():
                 hooks=None,
                 metrics={'loss': 'min'},
                 n_best_checkpoints=1,
-                resume=tmp_dir,
+                resume=True,
             )
 
 
