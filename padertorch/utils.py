@@ -73,7 +73,7 @@ def to_list(x, length=None):
         x = to_list_helper(x)
 
     if length is not None:
-        assert len(x) == length
+        assert len(x) == length, (len(x), length)
     return x
 
 

@@ -365,14 +365,14 @@ class _Conv(Module):
             )
             out_shape = np.ceil(out_shape/np.array(self.stride))
             if self.pooling is not None:
-                out_shape /= np.array(self.pool_size)
+                out_shape = out_shape / np.array(self.pool_size)
                 out_shape_ = np.floor(out_shape)
                 out_shape = np.where(
                     [pad is None for pad in to_list(self.padding)],
                     out_shape_, out_shape
                 )
                 out_shape = np.ceil(out_shape)
-        return out_shape
+        return out_shape.astype(np.int64)
 
 
 class Conv1d(_Conv):
@@ -450,8 +450,8 @@ class _CNN(Module):
         self.convs = nn.ModuleList(convs)
 
     def forward(self, x, pool_indices=None, out_shapes=None):
-        pool_indices = to_list(copy(pool_indices), self.num_layers)
-        shapes = to_list(copy(out_shapes), self.num_layers)
+        pool_indices = to_list(copy(pool_indices), self.num_layers)[::-1]
+        shapes = to_list(copy(out_shapes), self.num_layers)[::-1]
         for i, conv in enumerate(self.convs):
             x = conv(x, pool_indices[i], shapes[i])
             if isinstance(x, tuple):
@@ -639,14 +639,14 @@ class _MultiScaleConv(Module):
     def get_out_shape(self, in_shape):
         out_shape = self.convs[-1].get_out_shape(in_shape)
         if self.pooling is not None:
-            out_shape /= np.array(self.pool_size)
+            out_shape = out_shape / np.array(self.pool_size)
             out_shape_ = np.floor(out_shape)
             out_shape = np.where(
                 [pad is None for pad in to_list(self.padding)],
                 out_shape_, out_shape
             )
             out_shape = np.ceil(out_shape)
-        return out_shape
+        return out_shape.astype(np.int64)
 
 
 class MultiScaleConv1d(_MultiScaleConv):
@@ -723,8 +723,8 @@ class _MultiScaleCNN(Module):
         self.convs = nn.ModuleList(convs)
 
     def forward(self, x, pool_indices=None, out_shapes=None):
-        pool_indices = to_list(copy(pool_indices), self.num_layers)
-        shapes = to_list(copy(out_shapes), self.num_layers)
+        pool_indices = to_list(copy(pool_indices), self.num_layers)[::-1]
+        shapes = to_list(copy(out_shapes), self.num_layers)[::-1]
         for i, conv in enumerate(self.convs):
             x = conv(x, pool_indices[i], shapes[i])
             if isinstance(x, tuple):
@@ -790,16 +790,36 @@ class HybridCNN(Module):
     """
     Combines (MultiScale)CNN2d and (MultiScale)CNN1d sequentially.
     """
-    def __init__(self, cnn_2d: CNN2d, cnn_1d: CNN1d):
+    def __init__(self, cnn_2d: CNN2d, cnn_1d: CNN1d, return_pool_data=False):
         super().__init__()
+        assert cnn_2d.return_pool_data == cnn_1d.return_pool_data == return_pool_data, (
+                cnn_2d.return_pool_data, cnn_1d.return_pool_data, return_pool_data
+        )
         self.cnn_2d = cnn_2d
         self.cnn_1d = cnn_1d
+        self.return_pool_data = return_pool_data
 
     def forward(self, x):
         x = self.cnn_2d(x)
+        if self.return_pool_data:
+            x, pool_indices_2d, shapes_2d = x
         x = x.view((x.shape[0], -1, x.shape[-1]))
         x = self.cnn_1d(x)
+        if self.return_pool_data:
+            x, pool_indices_1d, shapes_1d = x
+            return x, (pool_indices_2d, pool_indices_1d), (shapes_2d, shapes_1d)
         return x
+
+    @classmethod
+    def finalize_dogmatic_config(cls, config):
+        config['cnn_2d'] = {
+            'factory': CNN2d,
+            'return_pool_data': config['return_pool_data']
+        }
+        config['cnn_1d'] = {
+            'factory': CNN1d,
+            'return_pool_data': config['return_pool_data']
+        }
 
     @classmethod
     def get_transpose_config(cls, config, transpose_config=None):
@@ -824,13 +844,20 @@ class HybridCNNTranspose(Module):
         self.cnn_transpose_1d = cnn_transpose_1d
         self.cnn_transpose_2d = cnn_transpose_2d
 
-    def forward(self, x):
-        x = self.cnn_transpose_1d(x)
+    def forward(self, x, pool_indices=(None, None), out_shapes=(None, None)):
+        pool_indices_2d, pool_indices_1d = pool_indices
+        shapes_2d, shapes_1d = out_shapes
+        x = self.cnn_transpose_1d(x, pool_indices_1d, shapes_1d)
         x = x.view(
             (x.shape[0], self.cnn_transpose_2d.in_channels, -1, x.shape[-1])
         )
-        x = self.cnn_transpose_2d(x)
+        x = self.cnn_transpose_2d(x, pool_indices_2d, shapes_2d)
         return x
+
+    @classmethod
+    def finalize_dogmatic_config(cls, config):
+        config['cnn_transpose_1d']['factory'] = CNNTranspose1d
+        config['cnn_transpose_2d']['factory'] = CNNTranspose2d
 
     @classmethod
     def get_transpose_config(cls, config, transpose_config=None):

@@ -68,10 +68,6 @@ def run(x, enc_cls, dec_cls, kwargs_sweep):
             norm='batch',
             **kwargs
         )
-        if isinstance(pool_indices, list):
-            pool_indices = pool_indices[::-1]
-        if isinstance(shapes, list):
-            shapes = shapes[::-1]
         x_hat = deconv(z, pool_indices, shapes)
         assert x_hat.shape == x.shape, (x_hat.shape, x.shape)
 
