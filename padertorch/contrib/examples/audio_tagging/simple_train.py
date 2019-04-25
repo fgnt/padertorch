@@ -17,7 +17,7 @@ from paderbox.transform.module_stft import STFT
 from paderbox.transform.module_fbank import MelTransform
 from paderbox.database.audio_set import AudioSet
 from padertorch import Model, Trainer, optimizer
-from padertorch.contrib.je.modules.conv import CNN
+from padertorch.contrib.je.modules.conv import CNN2d
 from padertorch.contrib.je.data.transforms import GlobalNormalize, LabelEncoder, Collate
 
 
@@ -31,7 +31,7 @@ class WALNet(Model):
     """
     >>> from paderbox.utils.nested import deflatten
     >>> tagger = WALNet(output_size=10)
-    >>> inputs = {'spectrogram': torch.zeros(4,1,128,128), 'events': torch.zeros((4,10))}
+    >>> inputs = {'mel_spectrogram': torch.zeros(4,1,128,128), 'events': torch.zeros((4,10))}
     >>> outputs = tagger(inputs)
     >>> outputs.shape
     torch.Size([4, 10, 1])
@@ -41,23 +41,22 @@ class WALNet(Model):
     def __init__(self, output_size):
         super().__init__()
         input_channels = 1
-        self.cnn = CNN(
-            input_size=input_channels,
-            output_size=output_size,
-            ndim=2,
-            num_layers=13,
-            hidden_sizes=[
+        self.cnn = CNN2d(
+            in_channels=input_channels,
+            out_channels=output_size,
+            hidden_channels=[
                 16, 16, 32, 32, 64, 64, 128, 128, 256, 256, 512, 1024
             ],
-            kernel_sizes=11 * [3] + [2, 1],
-            paddings=11 * ['both'] + 2 * [None],
-            pool_sizes=[1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 2, 1, 1],
+            kernel_size=11 * [3] + [2, 1],
+            num_layers=13,
+            padding=11 * ['both'] + 2 * [None],
+            pool_size=[1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 2, 1, 1],
             norm='batch',
             activation='relu'
         )
 
     def forward(self, inputs):
-        y = self.cnn(inputs['mel_spectrogram'])[0].squeeze(2)
+        y = self.cnn(inputs['mel_spectrogram']).squeeze(2)
         return nn.Sigmoid()(y)
 
     def review(self, inputs, outputs):
