@@ -489,10 +489,7 @@ class Trainer(Configurable):
     def default_checkpoint_path(self):
         return self.checkpoint_dir / f'ckpt_{self.iteration}.{CKPT_EXT}'
 
-    def save_checkpoint(self, checkpoint_path=None):
-        if checkpoint_path is None:
-            checkpoint_path = self.default_checkpoint_path()
-
+    def state_dict(self):
         if isinstance(self.optimizer, dict):
             optimizer_state_dict = {
                 k: opti.state_dict()
@@ -500,42 +497,51 @@ class Trainer(Configurable):
             }
         else:
             optimizer_state_dict = self.optimizer.state_dict()
-
-        torch.save(
-            dict(
+            
+        return dict(
                 model=self.model.state_dict(),
                 iteration=self.iteration,
                 epoch=self.epoch,
                 optimizer=optimizer_state_dict,
-            ),
+        )
+
+    def save_checkpoint(self, checkpoint_path=None):
+        if checkpoint_path is None:
+            checkpoint_path = self.default_checkpoint_path()
+
+        torch.save(
+            self.state_dict(),
             str(checkpoint_path)
         )
 
         print(f"{datetime.now()}: Saved model and optimizer state "
               f"at iteration {self.iteration} to {checkpoint_path}")
 
+    def load_state_dict(self, state_dict):
+        self.model.load_state_dict(state_dict['model'])
+        if isinstance(self.optimizer, dict):
+            assert set(self.optimizer.keys()) == set(state_dict['optimizer'].keys()), \
+                (self.optimizer, state_dict['model'])
+            for key, otim in self.optimizer.items():
+                otim.load_state_dict(
+                    state_dict['optimizer'][key]
+                )
+        else:
+            self.optimizer.load_state_dict(state_dict['optimizer'])
+
+        self.iteration = state_dict['iteration']
+        self.epoch = state_dict['epoch']
+
     def load_checkpoint(self, map_location='cpu'):
         checkpoint_path = self.checkpoint_dir / 'ckpt_latest.pth'
         assert checkpoint_path.is_file(), checkpoint_path
+
         checkpoint_dict = torch.load(str(checkpoint_path),
                                      map_location=map_location)
 
-        self.model.load_state_dict(checkpoint_dict['model'])
-        if isinstance(self.optimizer, dict):
-            assert set(self.optimizer.keys()) == set(checkpoint_dict['optimizer'].keys()), \
-                (self.optimizer, checkpoint_dict['model'])
-            for key, otim in self.optimizer.items():
-                otim.load_state_dict(
-                    checkpoint_dict['optimizer'][key]
-                )
-        else:
-            self.optimizer.load_state_dict(checkpoint_dict['optimizer'])
+        self.load_state_dict(checkpoint_dict)
 
-        iteration = checkpoint_dict['iteration']
-        self.iteration = iteration
-        self.epoch = checkpoint_dict['epoch']
-
-        print(f"Loaded checkpoint '{checkpoint_path}' (iteration {iteration})")
+        print(f"Loaded checkpoint '{checkpoint_path}' (iteration {self.iteration})")
 
     def to(self, device):
         if device is None:
