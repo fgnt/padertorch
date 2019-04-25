@@ -2,11 +2,13 @@ import tempfile
 from pathlib import Path
 import contextlib
 import inspect
+import copy
 import textwrap
 from unittest import mock
 import itertools, collections
 
 from IPython.lib.pretty import pprint
+import pytest
 
 import numpy as np
 import torch
@@ -152,6 +154,7 @@ def test_single_model():
         )
 
         t = pt.Trainer.from_config(config)
+        pre_state_dict = copy.deepcopy(t.state_dict())
 
         files_before = tuple(tmp_dir.glob('*'))
         if len(files_before) != 0:
@@ -304,6 +307,20 @@ def test_single_model():
 
             else:
                 raise ValueError(file)
+
+        post_state_dict = copy.deepcopy(t.state_dict())
+        assert pre_state_dict.keys() == post_state_dict.keys()
+
+        equal_amount = {
+            key: (
+                    pt.utils.to_numpy(parameter_pre)
+                    == pt.utils.to_numpy(post_state_dict['model'][key])
+            ).mean()
+            for key, parameter_pre in pre_state_dict['model'].items()
+        }
+
+        # ToDo: why are so many weights unchanged? Maybe the zeros in the image?
+        assert equal_amount == {'l.bias': 0.0, 'l.weight': 0.6900510204081632}
 
         import time
         # tfevents use unixtime as unique indicator. Sleep 2 seconds to ensure
