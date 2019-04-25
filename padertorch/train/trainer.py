@@ -217,6 +217,9 @@ class Trainer(Configurable):
 
         self.to(device)
 
+        # Reset all gradients
+        self.optimizer_zero_grad()
+
         hooks = self.get_default_hooks(
             hooks,
             train_iterator=train_iterator,
@@ -308,24 +311,30 @@ class Trainer(Configurable):
                 self.model.train()
                 self._start_non_validation_time = self.timer.timestamp()
 
-    def train_step(self, example):
+    def optimizer_zero_grad(self):
         if isinstance(self.optimizer, dict):
             for opti in self.optimizer.values():
                 opti.zero_grad()
         else:
             self.optimizer.zero_grad()
 
+    def optimizer_step(self):
+        if isinstance(self.optimizer, dict):
+            for opti in self.optimizer.values():
+                opti.step()
+        else:
+            self.optimizer.step()
+
+    def train_step(self, example, optimize=True):
+
         model_out, review = self.step(example)
 
         with self.timer['time_per_backward']:
             self.backward(review)
             review = self.clip_grad(review)
-
-            if isinstance(self.optimizer, dict):
-                for opti in self.optimizer.values():
-                    opti.step()
-            else:
-                self.optimizer.step()
+            if optimize:
+                self.optimizer_step()
+                self.optimizer_zero_grad()
 
         return model_out, review
 
