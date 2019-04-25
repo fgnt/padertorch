@@ -6,34 +6,74 @@ import torch
 import torch.distributions as D
 from paderbox.utils.nested import nested_update
 from padertorch.base import Model
-from padertorch.contrib.je.modules.conv import CNN
+from padertorch.contrib.je.modules.conv import HybridCNN, HybridCNNTranspose, CNN2d, CNN1d
 from padertorch.ops.losses.loss import kl_divergence
 from torch import nn
-from torch import nn
-from torchvision import utils as vutils
 
 
 class VAE(Model):
+    """
+    >>> config = VAE.get_config(dict(\
+            input_size=80,\
+            encoder=dict(\
+                cnn_2d=dict(\
+                    in_channels=1, hidden_channels=32, out_channels=32,\
+                    num_layers=3, kernel_size=3\
+                ), \
+                cnn_1d=dict(\
+                    hidden_channels=32, num_layers=3, kernel_size=3\
+                ),\
+                return_pool_data=True\
+            ),\
+            latent_model=dict(factory=StandardNormal, feature_size=16)\
+        ))
+    >>> config['encoder']['cnn_1d']['in_channels']
+    2560
+    >>> config['encoder']['cnn_1d']['out_channels']
+    32
+    >>> config['decoder']['cnn_transpose_1d']['in_channels']
+    16
+    >>> vae = VAE.from_config(config)
+    >>> inputs = {'mel_spectrogram': torch.zeros((4, 1, 80, 100))}
+    >>> outputs = vae(inputs)
+    >>> outputs[0].shape
+    torch.Size([4, 1, 80, 100])
+    >>> outputs[1][0].shape
+    torch.Size([4, 100, 16])
+    >>> outputs[1][1].shape
+    torch.Size([4, 100])
+    >>> outputs[2][0].shape
+    torch.Size([4, 100, 16])
+    >>> outputs[2][1].shape
+    torch.Size([4, 100, 16])
+    >>> review = vae.review(inputs, outputs)
+    """
     def __init__(
-            self, encoder: CNN, decoder: CNN, latent_model,
-            feature_key="spectrogram", target_key=None, label_key=None
+            self, encoder: HybridCNN, decoder: HybridCNNTranspose, latent_model,
+            feature_key="mel_spectrogram", input_size=None, target_key=None,
+            label_key=None
     ):
         super().__init__()
+        # allow joint optimization of encoder and decoder
         self.coders = nn.ModuleDict(dict(enc=encoder, dec=decoder))
         self.latent_model = latent_model
         self.feature_key = feature_key
+        self.input_size = input_size
         self.target_key = feature_key if target_key is None \
             else self.target_key
         self.label_key = label_key
 
     def encode(self, inputs):
-        x = inputs[self.feature_key].transpose(1, 2)
-        h, pooling_data = self.coders["enc"](x)
-        assert pooling_data[-1][0] is None
+        x = inputs[self.feature_key]  # (B, C, F, T)
+        assert self.coders["enc"].return_pool_data
+        h, pool_indices, shapes = self.coders["enc"](x)
+        assert pool_indices[-1][-1] is None, 'No pooling in output layer allowed'
+        h = h.transpose(1, 2)  # (B, 2D, T) -> (B, T, 2D)
         latent_in = list(torch.split(
-            h.transpose(1, 2), self.coders["dec"].input_size, dim=2
-        ))
+            h, self.latent_model.feature_size, dim=-1
+        ))  # [\mu, log(\sigma^2)]
         if self.label_key is not None:
+            # add labels
             if isinstance(inputs, collections.Mapping):
                 latent_in.append(
                     inputs[self.label_key] if self.label_key in inputs
@@ -45,35 +85,31 @@ class VAE(Model):
             else:
                 raise Exception
         latent_out = list(self.latent_model(latent_in))
-        return latent_out, latent_in, pooling_data
+        return latent_out, latent_in, pool_indices, shapes
 
-    def decode(self, z, pooling_data=None):
-        z = z.transpose(1, 2)
-        x_hat = self.coders["dec"](z, pooling_data)
-        return x_hat.transpose(1, 2)
+    def decode(self, z, pool_indices=None, out_shapes=None):
+        z = z.transpose(1, 2)  # (B, T, D) -> (B, D, T)
+        x_hat = self.coders["dec"](
+            z, pool_indices=pool_indices, out_shapes=out_shapes
+        )
+        return x_hat  # (B, C, F, T)
 
     def forward(self, inputs):
-        latent_out, latent_in, pooling_data = self.encode(inputs)
-        x_hat = self.decode(latent_out[0], pooling_data=pooling_data[::-1])
+        latent_out, latent_in, pool_indices, shapes = self.encode(inputs)
+        x_hat = self.decode(
+            latent_out[0],
+            pool_indices=pool_indices,
+            out_shapes=shapes
+        )
         return x_hat, latent_out, latent_in
 
     def review(self, inputs, outputs):
         # visualization
         x = inputs[self.target_key]
         x_hat, latent_out, latent_in = outputs
-        mse = (x - x_hat).pow(2).sum(dim=1)
-        targets = vutils.make_grid(
-            x[:9].transpose(1, 2).flip(1).unsqueeze(1),
-            normalize=True, scale_each=False, nrow=3
-        )
-        latents = vutils.make_grid(
-            latent_out[0][:9].transpose(1, 2).flip(1).unsqueeze(1),
-            normalize=True, scale_each=False, nrow=3
-        )
-        reconstructions = vutils.make_grid(
-            x_hat[:9].transpose(1, 2).flip(1).unsqueeze(1),
-            normalize=True, scale_each=False, nrow=3
-        )
+        mse = (x - x_hat).pow(2).sum(dim=(1, 2))
+        z = latent_out[0].transpose(1, 2).contiguous()  # (B, T, D) -> (B, D, T)
+        x_hat = x_hat.contiguous()
         review = dict(
             losses=dict(
                 mse=mse.mean(),
@@ -82,9 +118,9 @@ class VAE(Model):
                 mse_=mse,
             ),
             images=dict(
-                targets=targets,
-                latents=latents,
-                reconstructions=reconstructions,
+                targets=x[:3].view((1, -1, x.shape[-1])).flip(1),
+                latents=z[:3].view((1, -1, z.shape[-1])).flip(1),
+                reconstructions=x_hat[:3].view((1, -1, x_hat.shape[-1])).flip(1)
             )
         )
         if self.latent_model is not None:
@@ -94,35 +130,35 @@ class VAE(Model):
             )
         return review
 
+    def modify_summary(self, summary):
+        raise NotImplementedError
+
     @classmethod
     def finalize_dogmatic_config(cls, config):
-        config['encoder'] = {'factory': CNN}
-        config['decoder'] = {'factory': CNN, 'transpose': True}
-        config['decoder']['output_size'] = config['encoder']['input_size']
-        config['decoder']['num_layers'] = config['encoder']['num_layers']
-        if config['encoder']['factory'] == CNN \
-                and config['decoder']['factory'] == CNN:
-            config['decoder']['pooling'] = config['encoder']['pooling']
-            for key in [
-                'hidden_sizes', 'kernel_sizes', 'n_scales', 'dilations',
-                'strides', 'pool_sizes', 'paddings'
-            ]:
-                if isinstance(config['encoder'][key], (list, tuple)):
-                    config['decoder'][key] = config['encoder'][key][::-1]
-                else:
-                    config['decoder'][key] = config['encoder'][key]
-        if config['latent_model'] is None:
-            config['encoder']['output_size'] = config['decoder']['input_size']
-        else:
-            if config['latent_model']['factory'] in [
-                StandardNormal, GMM, HGMM
-            ]:
-                config['latent_model']['feature_size'] = \
-                    config['decoder']['input_size']
-                config['encoder']['output_size'] = \
-                    2 * config['decoder']['input_size']
-            else:
-                raise ValueError
+        config['encoder'] = {
+            'factory': HybridCNN,
+            'cnn_2d': {'factory': CNN2d},
+            'cnn_1d': {
+                'factory': CNN1d,
+                'out_channels': 2*config['latent_model']['feature_size']
+            }
+        }
+        if config['input_size'] is not None:
+            cnn_2d = config['encoder']['cnn_2d']['factory'].from_config(
+                config['encoder']['cnn_2d']['factory'].get_config(
+                    config['encoder']['cnn_2d'].to_dict()
+                )
+            )
+            out_size = cnn_2d.get_out_shape((config['input_size'], 1000))[0]
+            out_channels = cnn_2d.out_channels \
+                if cnn_2d.out_channels is not None \
+                else cnn_2d.hidden_channels[-1]
+            in_channels = out_channels * out_size
+            config['encoder']['cnn_1d']['in_channels'] = in_channels
+        config['decoder'] = config['encoder']['factory'].get_transpose_config(
+            config['encoder']
+        )
+        config['decoder']['cnn_transpose_1d']['in_channels'] = config['latent_model']['feature_size']
 
 
 class StandardNormal(Model):
