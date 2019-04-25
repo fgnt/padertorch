@@ -437,3 +437,85 @@ def test_single_model():
                 )
             else:
                 raise ValueError(file)
+
+
+def test_virtual_minibatch():
+    """
+    Test idea:
+
+    virtual_minibatch_size is choosen such, that the first train call only
+    accumulates the gradients, but do not apply them.
+    The second call to train (where max_trigger is increased) runs once the
+    optimizer step, so the parameters are changed.
+    """
+
+    it_tr, it_dt = get_iterators()
+    it_tr = it_tr[:2]
+    it_dt = it_dt[:2]
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_dir = Path(tmp_dir)
+
+        config = pt.Trainer.get_config(
+            updates=pb.utils.nested.deflatten({
+                'model.factory': Model,
+                'storage_dir': str(tmp_dir),
+                'max_trigger': (1, 'epoch'),
+                'summary_trigger': (3, 'iteration'),
+                'keep_all_checkpoints': True,
+                'virtual_minibatch_size': 4,  # 2 epochs
+            })
+        )
+
+        t = pt.Trainer.from_config(config)
+        pre_state_dict = copy.deepcopy(t.state_dict())
+
+        t.train(
+            train_iterator=it_tr,
+            validation_iterator=it_dt,
+            hooks=None,
+            metrics={'loss': 'min'},
+            n_best_checkpoints=1,
+            resume=False,
+        )
+        intermediate_state_dict = copy.deepcopy(t.state_dict())
+
+        # Increase train end from 1 epoch to 2 epochs.
+        # The first time that virtual_minibatch_size triggers is at the end of
+        # epoch 2.
+        t.max_trigger = (2, 'epoch')
+
+        t.train(
+            train_iterator=it_tr,
+            validation_iterator=it_dt,
+            hooks=None,
+            metrics={'loss': 'min'},
+            n_best_checkpoints=1,
+            resume=True,
+        )
+        post_state_dict = copy.deepcopy(t.state_dict())
+
+        pre_state_dict = pb.utils.nested.nested_op(
+            pt.utils.to_numpy, pre_state_dict)
+        intermediate_state_dict = pb.utils.nested.nested_op(
+            pt.utils.to_numpy, intermediate_state_dict)
+        post_state_dict = pb.utils.nested.nested_op(
+            pt.utils.to_numpy, post_state_dict)
+
+        assert pre_state_dict['iteration'] == np.array(None)
+        del pre_state_dict['iteration']
+        assert intermediate_state_dict['iteration'] == 2
+        del intermediate_state_dict['iteration']
+        assert post_state_dict['iteration'] == 4
+        del post_state_dict['iteration']
+
+        assert pre_state_dict['epoch'] == np.array(None)
+        del pre_state_dict['epoch']
+        assert intermediate_state_dict['epoch'] == 1
+        del intermediate_state_dict['epoch']
+        assert post_state_dict['epoch'] == 2
+        del post_state_dict['epoch']
+
+        np.testing.assert_equal(pre_state_dict, intermediate_state_dict)
+        with pytest.raises(AssertionError):
+            np.testing.assert_equal(pre_state_dict, post_state_dict)

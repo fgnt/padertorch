@@ -44,6 +44,7 @@ class Trainer(Configurable):
             checkpoint_trigger=(1, 'epoch'),
             keep_all_checkpoints=False,
             max_trigger=(1, 'epoch'),
+            virtual_minibatch_size=1,
     ):
         """
 
@@ -71,6 +72,15 @@ class Trainer(Configurable):
                 checkpoints are kept otherwise all checkpoints are kept
             max_trigger: `padertorch.train.trigger.EndTrigger` object
                 or tuple describing the endpoint of the training
+            virtual_minibatch_size: Runs the optimisation in
+                virtual_minibatch_size steps. By default run it after each
+                review call.
+                The advantage of a virtual_minibatch_size over addressing a
+                minibatch dimension in forward and review is a lower memory
+                footprint on cost of cpu time.
+                Note: The gradients are accumulated and not averaged.
+                Note: The virtual_minibatch_size is fixed and can contain data
+                    from two epochs.
         """
         if not isinstance(model, torch.nn.Module):
             raise TypeError(
@@ -112,6 +122,7 @@ class Trainer(Configurable):
         self.max_trigger = max_trigger
 
         self.loss_weights = loss_weights
+        self.virtual_minibatch_size = virtual_minibatch_size
 
     def reset_timer(self):
         self.timer.clear()
@@ -258,7 +269,10 @@ class Trainer(Configurable):
                         for hook in hooks:
                             hook.pre_step(self)
                     with self.timer['time_per_train_step']:
-                        model_output, review = self.train_step(example)
+                        model_output, review = self.train_step(
+                            example,
+                            optimize=(self.iteration+1) % self.virtual_minibatch_size == 0
+                        )
 
                     for hook in hooks:
                         hook.post_step(self, example, model_output, review)
