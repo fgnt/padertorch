@@ -1,6 +1,7 @@
 import tempfile
 from pathlib import Path
 import contextlib
+import copy
 
 import numpy as np
 import torch
@@ -83,7 +84,7 @@ def assert_dir_unchanged_after_context(tmp_dir):
         raise Exception(files_after, files_before)
 
 
-def test_single_model_2():
+def test_single_model_dir_unchanged():
     it_tr, it_dt = get_iterators()
     model = Model()
 
@@ -95,6 +96,34 @@ def test_single_model_2():
         )
         with assert_dir_unchanged_after_context(tmp_dir):
             t.test_run(it_tr, it_dt)
+
+
+def test_single_model_state_dict_unchanged():
+    it_tr, it_dt = get_iterators()
+    model = Model()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_dir = Path(tmp_dir)
+        t = pt.Trainer(
+            model, optimizer=pt.optimizer.Adam(),
+            storage_dir=tmp_dir, max_trigger=(2., 'epoch')
+        )
+        pre_state_dict = copy.deepcopy(t.state_dict())
+        with assert_dir_unchanged_after_context(tmp_dir):
+            t.test_run(it_tr, it_dt)
+        post_state_dict = copy.deepcopy(t.state_dict())
+
+        pre_state_dict = pb.utils.nested.flatten(pre_state_dict)
+        post_state_dict = pb.utils.nested.flatten(post_state_dict)
+
+        assert pre_state_dict.keys() == post_state_dict.keys()
+
+        pre_state_dict = pb.utils.nested.nested_op(
+            pt.utils.to_numpy, pre_state_dict)
+        post_state_dict = pb.utils.nested.nested_op(
+            pt.utils.to_numpy, post_state_dict)
+
+        np.testing.assert_equal(pre_state_dict, post_state_dict)
 
 
 class AE(pt.Model):
