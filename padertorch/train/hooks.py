@@ -636,7 +636,7 @@ class ProgressBarHook(TriggeredHook):
         elif isinstance(max_trigger, (tuple, list)):
             length, unit = max_trigger
         else:
-            raise ValueError(f'max_trigger is expected to be either a trigger'
+            raise ValueError(f'max_trigger is expected to be either a trigger '
                              f'or a list or tuple, but is {type(max_trigger)},'
                              f'{max_trigger}')
         if unit == 'iteration':
