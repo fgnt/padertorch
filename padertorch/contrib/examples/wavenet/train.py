@@ -35,8 +35,8 @@ def config():
     # Data configuration
     data_config = deflatten({
         'database_name': 'timit',
-        'training_set_names': 'train',
-        'validation_set_names': 'test_core',
+        'training_sets': 'train',
+        'validation_sets': 'test_core',
         'transforms': deflatten({
             '0.factory': ReadAudio,
             '0.input_sample_rate': 16000,

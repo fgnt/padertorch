@@ -1,4 +1,3 @@
-import numbers
 from collections import OrderedDict
 from functools import partial
 
@@ -14,43 +13,27 @@ import numpy as np
 import lazy_dataset
 
 
-def to_list(value):
-    if isinstance(value, dict):
-        if not isinstance(value, OrderedDict):
-            l = list()
-            for i, key in enumerate(natsorted(value.keys())):
-                try:
-                    idx = int(key)
-                    assert idx == i
-                except (ValueError, AssertionError):
-                    raise ValueError(
-                        'transforms is an unordered dict '
-                        'with keys not being an enumeration.'
-                    )
-                l.append(value[key])
-        else:
-            l = [
-                transform for key, transform in value.items()
-            ]
-    else:
-        l = utils.to_list(value)
-    return l
-
-
 class DataProvider(Configurable):
     def __init__(
-            self, database_name, training_set_names, validation_set_names=(),
+            self, database_name, training_sets, validation_sets,
+            seed=int(np.random.choice(2**32)),
             pre_transform_filters=None,
             transforms=None, subset_size=None, storage_dir=None,
             post_transform_filters=None,
             max_workers=0, prefetch_buffer=100,
             fragment=False, shuffle_buffer=None,
-            batch_size=None,
-            train_validate_split=0.8, seed=0
+            batch_size=None
     ):
         self.database_name = database_name
-        self.training_set_names = to_list(training_set_names)
-        self.validation_set_names = to_list(validation_set_names)
+
+        if isinstance(training_sets, str):
+            training_sets = training_sets.split(',')
+        if isinstance(validation_sets, str):
+            validation_sets = validation_sets.split(',')
+        self.training_sets = training_sets
+        self.validation_sets = validation_sets
+        self.seed = seed
+
         self.pre_transform_filter = None if pre_transform_filters is None \
             else lambda ex: all([
                 fil(ex) for fil in to_list(pre_transform_filters)
@@ -72,9 +55,6 @@ class DataProvider(Configurable):
         self.fragment = fragment
         self.shuffle_buffer = shuffle_buffer
         self.batch_size = batch_size
-
-        self.train_validate_split = train_validate_split
-        self.seed = seed
 
         self.initialized_transforms = False
 
@@ -112,17 +92,15 @@ class DataProvider(Configurable):
         return dataset
 
     def prepare_iterable(
-            self, dataset, shuffle=True, prefetch=True, fragment=True,
-            batch=True
+            self, dataset, shuffle=True, prefetch=True, batch=True
     ):
-
         if shuffle:
             dataset = dataset.shuffle(reshuffle=True)
 
         if prefetch:
             dataset = self.prefetch(dataset)
 
-        if self.fragment and fragment:
+        if self.fragment:
             dataset = dataset.unbatch()
             if self.shuffle_buffer is not None and shuffle:
                 dataset = dataset.shuffle(
@@ -143,38 +121,73 @@ class DataProvider(Configurable):
             )
         return dataset
 
-    def split_dataset(self, dataset):
+    def split_dataset(self, dataset, splits):
+        splits = np.cumsum(splits).astype(np.int64).tolist()
+        assert splits[-1] <= len(dataset)
         indices = np.arange(len(dataset))
         np.random.RandomState(self.seed).shuffle(indices)
-        train_indices, validate_indices = np.split(
-            indices, [int(self.train_validate_split*len(dataset))]
-        )
+        split_indices = np.split(indices, splits)
         return (
-            dataset[sorted(train_indices.tolist())],
-            dataset[sorted(validate_indices.tolist())]
+            dataset[sorted(indices.tolist())] for indices in split_indices
         )
 
     def get_iterables(self):
-        training_datasets = list()
-        validation_datasets = list()
-        for name in {*self.training_set_names, *self.validation_set_names}:
-            dataset = self.db.get_dataset(name)
+        training_sets = list()
+        validation_sets = list()
+        for name in {*self.training_sets, *self.validation_sets}:
+            dataset = self.prepare_dataset(self.db.get_dataset(name))
             if (
-                name in self.training_set_names
-                and name in self.validation_set_names
+                name in self.training_sets
+                and name in self.validation_sets
             ):
-                train_set, validate_set = self.split_dataset(dataset)
+                assert (
+                    isinstance(self.training_sets, dict)
+                    and isinstance(self.validation_sets, dict)
+                )
+                train_set, validate_set, _ = self.split_dataset(
+                    dataset,
+                    [self.training_sets[name], self.validation_sets[name]]
+                )
                 print(len(train_set), len(validate_set))
-                training_datasets.append(train_set)
-                validation_datasets.append(validate_set)
-            elif name in self.training_set_names:
-                training_datasets.append(dataset)
-            elif name in self.validation_set_names:
-                validation_datasets.append(dataset)
+                training_sets.append(train_set)
+                validation_sets.append(validate_set)
+            elif name in self.training_sets:
+                if isinstance(self.training_sets, dict):
+                    dataset, _ = self.split_dataset(
+                        dataset, [self.training_sets[name]]
+                    )
+                training_sets.append(dataset)
+            elif name in self.validation_sets:
+                if isinstance(self.validation_sets, dict):
+                    dataset, _ = self.split_dataset(
+                        dataset, [self.training_sets[name]]
+                    )
+                validation_sets.append(dataset)
         training_iterable = self.prepare_iterable(
-            self.prepare_dataset(lazy_dataset.concatenate(training_datasets))
+            lazy_dataset.concatenate(training_sets)
         )
         validation_iterable = self.prepare_iterable(
-            self.prepare_dataset(lazy_dataset.concatenate(validation_datasets))
+            lazy_dataset.concatenate(validation_sets)
         )
         return training_iterable, validation_iterable
+
+
+def to_list(value):
+    if isinstance(value, dict):
+        if not isinstance(value, OrderedDict):
+            l = list()
+            for i, key in enumerate(natsorted(value.keys())):
+                try:
+                    idx = int(key)
+                    assert idx == i
+                except (ValueError, AssertionError):
+                    raise ValueError(
+                        'transforms is an unordered dict '
+                        'with keys not being an enumeration.'
+                    )
+                l.append(value[key])
+        else:
+            l = [transform for key, transform in value.items()]
+    else:
+        l = utils.to_list(value)
+    return l
