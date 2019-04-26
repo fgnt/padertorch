@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn
 import tensorboardX
 
 from paderbox.utils.nested import deflatten
@@ -81,6 +82,15 @@ class Trainer(Configurable):
                 Note: The gradients are accumulated and not averaged.
                 Note: The virtual_minibatch_size is fixed and can contain data
                     from two epochs.
+
+
+        Usage:
+
+            # For test_run we recommend to do it without prefetch
+            trainer = Trainer(...)  # or: Trainer.from_config(...)
+            trainer.test_run(tr_ds, val_ds)
+            trainer.train(tr_ds.prefetch(4, 8), val_ds_with.prefetch(4, 8))
+
         """
         if not isinstance(model, torch.nn.Module):
             raise TypeError(
@@ -271,7 +281,7 @@ class Trainer(Configurable):
                     with self.timer['time_per_train_step']:
                         model_output, review = self.train_step(
                             example,
-                            optimize=(self.iteration+1) % self.virtual_minibatch_size == 0
+                            optimize=(self.iteration+1) % self.virtual_minibatch_size == 0,
                         )
 
                     for hook in hooks:
@@ -345,8 +355,8 @@ class Trainer(Configurable):
 
         with self.timer['time_per_backward']:
             self.backward(review)
-            review = self.clip_grad(review)
             if optimize:
+                review = self.clip_grad(review)
                 self.optimizer_step()
                 self.optimizer_zero_grad()
 
