@@ -138,7 +138,9 @@ def test_run(
                     f'object of type {self.__class__.__name__} has no len()'
                 )
 
-        sub_train_iterator = list(itertools.islice(train_iterator, 2))
+        virtual_minibatch_size = trainer.virtual_minibatch_size
+
+        sub_train_iterator = list(itertools.islice(train_iterator, 2 * virtual_minibatch_size))
         sub_validation_iterator = list(itertools.islice(validation_iterator, 2))
 
         if not test_with_known_iterator_length:
@@ -184,7 +186,7 @@ def test_run(
 
         assert validate_mock.call_count == 2, validate_mock.call_count
 
-        assert trainer_step_mock.call_count == 8, trainer_step_mock.call_count
+        assert trainer_step_mock.call_count == (4 * virtual_minibatch_size + 4), (trainer_step_mock.call_count, virtual_minibatch_size)
         assert get_default_hooks_mock.call_count == 1, get_default_hooks_mock.call_count
 
         def trainer_step_mock_to_inputs_output_review(review_mock):
@@ -197,10 +199,17 @@ def test_run(
 
 
         # trainer_step_mock_to_inputs_output_review
-        tr1, tr2, dt1, dt2, tr3, tr4, dt3, dt4 = \
+        step_returns = \
             trainer_step_mock_to_inputs_output_review(
                 trainer_step_mock
             )
+
+        if virtual_minibatch_size == 1:
+            tr1, tr2, dt1, dt2, tr3, tr4, dt3, dt4 = step_returns
+        else:
+            step_returns = list(step_returns)
+            dt1, dt2 = step_returns[:len(step_returns) // 2][-2:]
+            dt3, dt4 = step_returns[-2:]
 
         nested_test_assert_allclose(dt1['output'], dt3['output'])
         nested_test_assert_allclose(dt2['output'], dt4['output'])
@@ -242,8 +251,8 @@ def test_run(
                     'ckpt_latest.pth',
                     'ckpt_best_loss.pth',
                     'ckpt_state.json',
-                    'ckpt_2.pth',
-                    'ckpt_4.pth',
+                    f'ckpt_{2*virtual_minibatch_size}.pth',
+                    f'ckpt_{4*virtual_minibatch_size}.pth',
                 }
                 if checkpoint_names != expect:
                     os.system(f'ls -lha {file}')
@@ -255,7 +264,8 @@ def test_run(
                 # This assert only works for exact calculations, that is not the case for cuda
                 # assert ckpt_best == 'ckpt_2.pth', ckpt_best
 
-                assert ckpt_last == 'ckpt_4.pth', ckpt_last
+                expected_ckpt_last = f'ckpt_{4 * virtual_minibatch_size}.pth'
+                assert ckpt_last == expected_ckpt_last, (ckpt_last, expected_ckpt_last)
 
                 # ckpt_state = pb.io.load_json(file / 'ckpt_state.json')
                 # assert ckpt_state == {
