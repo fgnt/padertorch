@@ -126,6 +126,21 @@ def test_single_model_state_dict_unchanged():
         np.testing.assert_equal(pre_state_dict, post_state_dict)
 
 
+def test_single_virtual_minibatch():
+    it_tr, it_dt = get_iterators()
+    model = Model()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_dir = Path(tmp_dir)
+        t = pt.Trainer(
+            model, optimizer=pt.optimizer.Adam(),
+            storage_dir=tmp_dir, max_trigger=(2., 'epoch'),
+            virtual_minibatch_size=4
+        )
+        with assert_dir_unchanged_after_context(tmp_dir):
+            t.test_run(it_tr, it_dt)
+
+
 class AE(pt.Model):
 
     def __init__(self):
