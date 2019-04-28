@@ -1,6 +1,3 @@
-import collections
-import numbers
-
 import numpy as np
 import torch
 import torch.distributions as D
@@ -14,11 +11,11 @@ from torch import nn
 class VAE(Model):
     """
     >>> config = VAE.get_config(dict(\
-            input_size=80,\
             encoder=dict(\
+                input_size=80,\
                 cnn_2d=dict(\
                     in_channels=1, hidden_channels=32, out_channels=32,\
-                    num_layers=3, kernel_size=3\
+                    num_layers=3, kernel_size=3, \
                 ), \
                 cnn_1d=dict(\
                     hidden_channels=32, num_layers=3, kernel_size=3\
@@ -49,8 +46,8 @@ class VAE(Model):
     >>> review = vae.review(inputs, outputs)
     """
     def __init__(
-            self, encoder: HybridCNN, decoder: HybridCNNTranspose, latent_model,
-            feature_key="mel_spectrogram", input_size=None, target_key=None,
+            self, encoder: HybridCNN, decoder: HybridCNNTranspose,
+            latent_model, feature_key="mel_spectrogram", target_key=None,
             label_key=None
     ):
         super().__init__()
@@ -58,7 +55,6 @@ class VAE(Model):
         self.coders = nn.ModuleDict(dict(enc=encoder, dec=decoder))
         self.latent_model = latent_model
         self.feature_key = feature_key
-        self.input_size = input_size
         self.target_key = feature_key if target_key is None \
             else self.target_key
         self.label_key = label_key
@@ -69,21 +65,12 @@ class VAE(Model):
         h, pool_indices, shapes = self.coders["enc"](x)
         assert pool_indices[-1][-1] is None, 'No pooling in output layer allowed'
         h = h.transpose(1, 2)  # (B, 2D, T) -> (B, T, 2D)
-        latent_in = list(torch.split(
-            h, self.latent_model.feature_size, dim=-1
-        ))  # [\mu, log(\sigma^2)]
+        latent_in = {'params': tuple(
+            torch.split(h, self.latent_model.feature_size, dim=-1)  # [\mu, log(\sigma^2)]
+        )}
         if self.label_key is not None:
             # add labels
-            if isinstance(inputs, collections.Mapping):
-                latent_in.append(
-                    inputs[self.label_key] if self.label_key in inputs
-                    else None
-                )
-            elif isinstance(inputs, collections.Sequence):
-                assert isinstance(self.label_key, numbers.Integral)
-                latent_in.append(inputs[self.label_key])
-            else:
-                raise Exception
+            latent_in["labels"] = inputs[self.label_key]
         latent_out = list(self.latent_model(latent_in))
         return latent_out, latent_in, pool_indices, shapes
 
@@ -131,7 +118,11 @@ class VAE(Model):
         return review
 
     def modify_summary(self, summary):
-        raise NotImplementedError
+        # normalize images
+        for image in summary['images'].values():
+            image -= image.min()
+            image /= image.max()
+        return summary
 
     @classmethod
     def finalize_dogmatic_config(cls, config):
@@ -143,22 +134,11 @@ class VAE(Model):
                 'out_channels': 2*config['latent_model']['feature_size']
             }
         }
-        if config['input_size'] is not None:
-            cnn_2d = config['encoder']['cnn_2d']['factory'].from_config(
-                config['encoder']['cnn_2d']['factory'].get_config(
-                    config['encoder']['cnn_2d'].to_dict()
-                )
-            )
-            out_size = cnn_2d.get_out_shape((config['input_size'], 1000))[0]
-            out_channels = cnn_2d.out_channels \
-                if cnn_2d.out_channels is not None \
-                else cnn_2d.hidden_channels[-1]
-            in_channels = out_channels * out_size
-            config['encoder']['cnn_1d']['in_channels'] = in_channels
         config['decoder'] = config['encoder']['factory'].get_transpose_config(
             config['encoder']
         )
-        config['decoder']['cnn_transpose_1d']['in_channels'] = config['latent_model']['feature_size']
+        config['decoder']['cnn_transpose_1d']['in_channels'] = \
+            config['latent_model']['feature_size']
 
 
 class StandardNormal(Model):
@@ -174,7 +154,7 @@ class StandardNormal(Model):
         self.feature_size = feature_size
 
     def forward(self, inputs):
-        mean, log_var = inputs
+        mean, log_var = inputs['params']
         kld = -0.5 * (1 + log_var - mean.pow(2) - log_var.exp()).sum(dim=-1)
         return self.sample(mean, log_var), kld
 
@@ -187,7 +167,7 @@ class StandardNormal(Model):
         return z
 
     def review(self, inputs, outputs):
-        mean, log_var = inputs
+        mean, log_var = inputs['params']
         _, kld = outputs
         return dict(
             losses=dict(
@@ -205,13 +185,14 @@ class GMM(StandardNormal):
     def __init__(
             self, feature_size, num_classes,
             covariance_type='full', class_temperature=1.,
-            loc_init_std=1.0, scale_init_std=1.0
+            loc_init_std=1.0, scale_init_std=1.0, supervised=False
     ):
         super(Model, self).__init__()
         self.feature_size = feature_size
         self.num_classes = num_classes
         self.covariance_type = covariance_type
         self.class_temperature = class_temperature
+        self.supervised = supervised
 
         locs_init = loc_init_std * np.random.randn(num_classes, feature_size)
 
@@ -275,11 +256,10 @@ class GMM(StandardNormal):
             )
 
     def forward(self, inputs):
-        assert len(inputs) in [2, 3]
-        mean, logvar = inputs[:2]
-        class_labels = None if len(inputs) == 2 else inputs[2]
+        mean, log_var = inputs['params']
+        class_labels = inputs["labels"] if self.supervised else None
 
-        qz = D.Normal(loc=mean, scale=torch.exp(0.5 * logvar))
+        qz = D.Normal(loc=mean, scale=torch.exp(0.5 * log_var))
 
         kld = kl_divergence(qz, self.gaussians)
         log_class_posterior = torch.log_softmax(
@@ -300,7 +280,7 @@ class GMM(StandardNormal):
             kld = kld.gather(-1, class_labels[..., None]).squeeze(-1)
             class_ce = -self.log_class_probs[class_labels]
 
-        z = self.sample(mean, logvar)
+        z = self.sample(mean, log_var)
         return z, kld, class_ce, log_class_posterior
 
     def review(self, inputs, outputs):
@@ -308,7 +288,7 @@ class GMM(StandardNormal):
         max_class_posterior_, classes_ = torch.max(
             torch.exp(log_class_posterior), -1
         )
-        mean, log_var = inputs[:2]
+        mean, log_var = inputs['params']
         return dict(
             losses=dict(
                 kld=kld.mean(),
@@ -333,7 +313,7 @@ class HGMM(StandardNormal):
     def __init__(
             self, feature_size, num_scenes, num_events,
             covariance_type='full', event_temperature=1., scene_temperature=1.,
-            loc_init_std=1.0, scale_init_std=1.0
+            loc_init_std=1.0, scale_init_std=1.0, supervised=False
     ):
         super(Model, self).__init__()
         self.feature_size = feature_size
@@ -342,6 +322,7 @@ class HGMM(StandardNormal):
         self.covariance_type = covariance_type
         self.event_temperature = event_temperature
         self.scene_temperature = scene_temperature
+        self.supervised = supervised
 
         locs_init = loc_init_std * np.random.randn(
             num_scenes, num_events, feature_size
@@ -444,12 +425,11 @@ class HGMM(StandardNormal):
             )
 
     def forward(self, inputs):
-        assert len(inputs) in [2, 3, 4]
-        mean, logvar = inputs[:2]
-        scene_labels = None if len(inputs) < 3 else inputs[2]
-        event_labels = None if len(inputs) < 4 else inputs[3]
+        mean, log_var = inputs['params']
+        scene_labels = inputs['labels'] if self.supervised else None
+        event_labels = None
 
-        qz = D.Normal(loc=mean, scale=torch.exp(0.5 * logvar))
+        qz = D.Normal(loc=mean, scale=torch.exp(0.5 * log_var))
         gaussians = self.gaussians
 
         kld = kl_divergence(qz, gaussians)
@@ -498,7 +478,7 @@ class HGMM(StandardNormal):
             event_ce = event_ce.gather(-1, scene_labels[..., None]).squeeze(-1)
             scene_ce = -self.log_scene_probs[scene_labels]
 
-        z = self.sample(mean, logvar)
+        z = self.sample(mean, log_var)
         return (
             z, kld, event_ce, scene_ce/float(T),
             log_event_posterior, log_scene_posterior, log_class_posterior
@@ -512,7 +492,7 @@ class HGMM(StandardNormal):
         max_class_posterior_, classes_ = torch.max(
             torch.exp(log_class_posterior), -1
         )
-        mean, log_var = inputs[:2]
+        mean, log_var = inputs['params']
         return dict(
             losses=dict(
                 kld=kld.mean(),
@@ -537,6 +517,7 @@ class HGMM(StandardNormal):
         )
 
 
+# ToDo:
 class FBGMM(StandardNormal):
     def __init__(
             self, feature_size, num_classes, init_std=1.0,
@@ -582,8 +563,9 @@ class FBGMM(StandardNormal):
                  + locs_init[:, :, None] * locs_init[:, None, :])
                 * count_init[:, None, None]
         )
-        self.unnormalized_scatter = \
-            nn.Parameter(torch.Tensor(unnormalized_scatter_init))
+        self.unnormalized_scatter = nn.Parameter(
+            torch.Tensor(unnormalized_scatter_init)
+        )
 
     @property
     def probs(self):
