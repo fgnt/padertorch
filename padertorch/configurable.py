@@ -313,6 +313,11 @@ class Configurable:
         if updates is None:
             updates = {}
             config = {}
+        elif isinstance(updates, _DogmaticConfig):
+            raise ValueError(
+                'get_config does not accept dogmatic dict as it does not need '
+                'to be called within finalize_dogmatic_dict.'
+            )
         else:
             config = _sacred_dogmatic_to_dict(updates)
 
@@ -347,6 +352,9 @@ class Configurable:
     ) -> 'Configurable':
         """Produce a Configurable instance from a valid config."""
         # TODO: assert do not use defaults
+
+        if isinstance(config, _DogmaticConfig):
+            config = config.to_dict()  # if called in finalize_dogmatic dict
         assert 'factory' in config, (cls, config)
         if cls is not Configurable:
             assert issubclass(import_class(config['factory']), cls), \
