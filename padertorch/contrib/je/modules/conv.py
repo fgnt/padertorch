@@ -790,13 +790,17 @@ class HybridCNN(Module):
     """
     Combines (MultiScale)CNN2d and (MultiScale)CNN1d sequentially.
     """
-    def __init__(self, cnn_2d: CNN2d, cnn_1d: CNN1d, return_pool_data=False):
+    def __init__(
+            self, cnn_2d: CNN2d, cnn_1d: CNN1d, input_size=None,
+            return_pool_data=False
+    ):
         super().__init__()
         assert cnn_2d.return_pool_data == cnn_1d.return_pool_data == return_pool_data, (
                 cnn_2d.return_pool_data, cnn_1d.return_pool_data, return_pool_data
         )
         self.cnn_2d = cnn_2d
         self.cnn_1d = cnn_1d
+        self.input_size = input_size
         self.return_pool_data = return_pool_data
 
     def forward(self, x):
@@ -820,10 +824,18 @@ class HybridCNN(Module):
             'factory': CNN1d,
             'return_pool_data': config['return_pool_data']
         }
+        if config['input_size'] is not None:
+            cnn_2d = config['cnn_2d']['factory'].from_config(config['cnn_2d'])
+            output_size = cnn_2d.get_out_shape((config['input_size'], 1000))[0]
+            out_channels = cnn_2d.out_channels \
+                if cnn_2d.out_channels is not None \
+                else cnn_2d.hidden_channels[-1]
+            in_channels = out_channels * output_size
+            config['cnn_1d']['in_channels'] = in_channels
 
     @classmethod
     def get_transpose_config(cls, config, transpose_config=None):
-        assert config['factory'] == cls
+        assert config['factory'] == cls, (config['factory'], cls)
         if transpose_config is None:
             transpose_config = dict()
         transpose_config['factory'] = HybridCNNTranspose
