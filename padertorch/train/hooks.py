@@ -148,6 +148,17 @@ class SummaryHook(TriggeredHook):
         self.summary = self.empty_summary_dict()
 
     def update_summary(self, review):
+        allowed_keys = {
+            'loss',
+            'losses',
+            'scalars',
+            'histograms',
+            'audios',
+            'images',
+        }
+        redundant_keys = set(review.keys()) - allowed_keys
+        assert len(redundant_keys) == 0, (redundant_keys, review.keys(), allowed_keys)
+
         # note item is the pytorch function to get the value of a tensor
         self.summary['scalars']['loss'].append(review['loss'].item())
         for key, loss in review.get('losses', dict()).items():
