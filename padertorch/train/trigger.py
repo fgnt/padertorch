@@ -156,6 +156,10 @@ class AnyTrigger(Trigger):
 
     def __call__(self, iteration, epoch):
         return any(
+            # Keep [] for list comprehension, otherwise it is a generator
+            # and a second call may return True
+            # ToDo: make an example, where a generator would produce wrong
+            #       results
             [t(iteration, epoch) for t in self.triggers]
         )
 
@@ -177,5 +181,9 @@ class AllTrigger(AnyTrigger):
     """
     def __call__(self, iteration, epoch):
         return all(
-            t(iteration, epoch) for t in self.triggers
+            # Keep [] for list comprehension, otherwise it is a generator
+            # and a second call may return True
+            # ToDo: make an example, where a generator would produce wrong
+            #       results
+            [t(iteration, epoch) for t in self.triggers]
         )
