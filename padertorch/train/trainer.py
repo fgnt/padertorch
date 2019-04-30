@@ -8,6 +8,8 @@ import time
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+import functools
+import collections
 
 import numpy as np
 import torch
@@ -695,7 +697,8 @@ class InteractiveTrainer(Trainer):
             optimizer,
             loss_weights=None,
             max_trigger=(200, 'epoch'),
-            summary_trigger=(50, 'epoch')
+            summary_trigger=(50, 'epoch'),
+            validation_trigger=(50, 'epoch'),
     ):
         super().__init__(
             model=model,
@@ -707,6 +710,8 @@ class InteractiveTrainer(Trainer):
             keep_all_checkpoints=False,
             max_trigger=max_trigger,
         )
+        # Trainer uses checkpoint_trigger as validation_trigger
+        self.validation_trigger = validation_trigger
 
     def get_default_hooks(
             self,
@@ -723,31 +728,62 @@ class InteractiveTrainer(Trainer):
                 f'finished.\n'
                 f'Requested number of checkponts: {n_best_checkpoints}'
             )
-        if validation_iterator is not None:
-            raise NotImplementedError
 
         if hooks is None:
             hooks = []
+        else:
+            hooks = pt.utils.to_list(hooks)
+
+        self.writer = InteractiveWriter()
+
+        if validation_iterator is not None:
+
+            hooks.append(ValidationHook(
+                trigger=self.validation_trigger,
+                iterator=validation_iterator,
+                # checkpoint_dir=self.checkpoint_dir,
+                # metrics=metrics,
+                # keep_all=self.keep_all_checkpoints,
+                # init_from_json=self.checkpoint_dir.exists(),
+                writer=self.writer,
+            ))
+
+            summary_trigger = AnyTrigger(
+                self.summary_trigger,
+                self.validation_trigger,
+            )
+        else:
+            summary_trigger = self.summary_trigger
+
         try:
             max_it_len = len(train_iterator)
         except TypeError:
             # TypeError: object of type '...' has no len()
             max_it_len = None
-        hooks = pt.utils.to_list(hooks)
 
-
-        hooks.append(SummaryHook(self.summary_trigger, writer=PrintWriter()))
+        hooks.append(SummaryHook(summary_trigger, writer=self.writer))
         hooks.append(ProgressBarHook(self.max_trigger, max_it_len))
         hooks.append(StopTrainingHook(self.max_trigger))
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
         return hooks
 
-class PrintWriter:
+    @functools.wraps(Trainer.train)
+    def train(self, *args, **kwargs):
+        try:
+            super().train(*args, **kwargs)
+        finally:
+            return self.writer
+
+
+class InteractiveWriter:
+    def __init__(self):
+        self.scalars = collections.defaultdict(dict)
 
     def add_scalar(self, tag, scalar_value, global_step=None, walltime=None):
         if tag.split('/')[0] in ['training_timings', 'validation_timings']:
             return
         print(f'{global_step}, {tag}: {scalar_value}')
+        self.scalars[tag][global_step] = scalar_value
 
     def add_audio(self, tag, snd_tensor, global_step=None,
                   sample_rate=44100, walltime=None):
