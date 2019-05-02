@@ -14,6 +14,8 @@ class IntervalTrigger(Trigger):
         arithmetic: [1, 2, 3, 4, 5, ...] times period
 
     """
+    def __repr__(self):
+        return f'{self.__class__.__name__}({self.period}, {self.unit})'
 
     @classmethod
     def new(cls, interval_trigger):
@@ -149,6 +151,10 @@ class AnyTrigger(Trigger):
     the and and or operator since this was rejected in the following PEP:
     https://www.python.org/dev/peps/pep-0335/
     """
+    def __repr__(self):
+        trigger = ', '.join([repr(t) for t in self.triggers])
+        return f'{self.__class__.__name__}({trigger})'
+
     def __init__(self, *triggers):
         self.triggers = tuple([
             IntervalTrigger.new(t) for t in triggers
