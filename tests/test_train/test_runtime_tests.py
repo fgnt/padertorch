@@ -3,6 +3,7 @@ from pathlib import Path
 import contextlib
 import copy
 
+import pytest
 import numpy as np
 import torch
 
@@ -98,32 +99,57 @@ def test_single_model_dir_unchanged():
             t.test_run(it_tr, it_dt)
 
 
-def test_single_model_state_dict_unchanged():
+class ZeroGradModel(pt.Model):
+
+    def __init__(self):
+        super().__init__()
+        # self.norm = torch.nn.BatchNorm1d(28)
+        self.l = torch.nn.Linear(28 * 28, 10)
+        self.drop = torch.nn.Dropout(1)
+
+    def forward(self, inputs):
+        clean = inputs['image']
+
+        if isinstance(clean, np.ndarray):
+            clean = torch.tensor(clean)
+
+        # clean = self.norm(clean)
+        image = torch.reshape(clean, [-1])
+        # drop all values -> parameters receive a 0 as update
+        return self.drop(self.l(image))
+
+    def review(self, inputs, output):
+        digits = inputs['digit']
+
+        target = torch.tensor(
+            np.array(digits).astype(np.int64),
+            device=output.device,
+        )[None]
+        ce = torch.nn.CrossEntropyLoss()(output[None, :], target)
+        return {'losses': {'loss': ce}}
+
+
+def test_single_grad_check():
     it_tr, it_dt = get_iterators()
-    model = Model()
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_dir = Path(tmp_dir)
         t = pt.Trainer(
-            model, optimizer=pt.optimizer.Adam(),
+            Model(),
+            optimizer=pt.optimizer.Adam(),
             storage_dir=tmp_dir, max_trigger=(2., 'epoch')
         )
-        pre_state_dict = copy.deepcopy(t.state_dict())
-        with assert_dir_unchanged_after_context(tmp_dir):
+        t.test_run(it_tr, it_dt)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_dir = Path(tmp_dir)
+        t = pt.Trainer(
+            ZeroGradModel(), optimizer=pt.optimizer.Adam(),
+            storage_dir=tmp_dir, max_trigger=(2., 'epoch')
+        )
+        # AssertionError: The loss of the model did not change between two validations.
+        with pytest.raises(AssertionError):
             t.test_run(it_tr, it_dt)
-        post_state_dict = copy.deepcopy(t.state_dict())
-
-        pre_state_dict = pb.utils.nested.flatten(pre_state_dict)
-        post_state_dict = pb.utils.nested.flatten(post_state_dict)
-
-        assert pre_state_dict.keys() == post_state_dict.keys()
-
-        pre_state_dict = pb.utils.nested.nested_op(
-            pt.utils.to_numpy, pre_state_dict)
-        post_state_dict = pb.utils.nested.nested_op(
-            pt.utils.to_numpy, post_state_dict)
-
-        np.testing.assert_equal(pre_state_dict, post_state_dict)
 
 
 def test_single_virtual_minibatch():

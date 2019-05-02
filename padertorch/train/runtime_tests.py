@@ -19,8 +19,11 @@ def nested_test_assert_allclose(struct1, struct2):
         if array1 is None:
             assert array2 is None, 'Validation step has not been deterministic'
         else:
-            array1 = pt.utils.to_numpy(array1)
-            array2 = pt.utils.to_numpy(array2)
+            # This function should fail when it is called for training data
+            # (-> detach=False) because training is often not deterministic.
+            # e.g.: dropout.
+            array1 = pt.utils.to_numpy(array1, detach=False)
+            array2 = pt.utils.to_numpy(array2, detach=False)
             np.testing.assert_allclose(
                 array1, array2,
                 rtol=1e-5,
@@ -56,6 +59,16 @@ def test_run(
 
     """
     print('Start test run')
+
+    @contextlib.contextmanager
+    def backup_state_dict(trainer):
+        state_dict = copy.deepcopy(trainer.state_dict())
+        try:
+            yield
+        finally:
+            # pass
+            trainer.load_state_dict(state_dict)
+
     with contextlib.ExitStack() as exit_stack:
         storage_dir = Path(
             exit_stack.enter_context(tempfile.TemporaryDirectory())
@@ -66,11 +79,6 @@ def test_run(
             'storage_dir',
             new=storage_dir,
         ))
-        optimizer_step = pb.utils.nested.nested_op(
-            lambda x: (exit_stack.enter_context(mock.patch.object(
-                x,
-                'step',
-            )) if x is not None else None), trainer.optimizer)
         exit_stack.enter_context(mock.patch.object(
             trainer,
             'summary_trigger',
@@ -84,18 +92,24 @@ def test_run(
         exit_stack.enter_context(mock.patch.object(
             trainer,
             'max_trigger',
-            new=(2, 'epoch'),
+            new=(1, 'epoch'),
         ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
             'iteration',
-            new=0,
+            new=None,
         ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
             'epoch',
-            new=0,
+            new=None,
         ))
+        exit_stack.enter_context(mock.patch.object(
+            trainer,
+            'keep_all_checkpoints',
+            new=True,
+        ))
+
 
         class SpyMagicMock(mock.MagicMock):
             def __init__(self, *args, **kw):
@@ -107,12 +121,23 @@ def test_run(
                 self.spyed_return_values += [ret]
                 return ret
 
+        # Spy trainer.step, optimizer.step, trainer.validate and
+        # trainer.get_default_hooks to check lates the output values and/or
+        # the number of calls.
         trainer_step_mock = exit_stack.enter_context(mock.patch.object(
             trainer,
             'step',
             wraps=trainer.step,
             new_callable=SpyMagicMock,
         ))
+        optimizer_step = pb.utils.nested.nested_op(
+            lambda x: (exit_stack.enter_context(mock.patch.object(
+                x,
+                'step',
+                wraps=x.step,
+                new_callable=SpyMagicMock,
+            )) if x is not None else None), trainer.optimizer)
+
         validate_mock = exit_stack.enter_context(mock.patch.object(
             trainer,
             'validate',
@@ -172,11 +197,27 @@ def test_run(
 
         # ================ Train Call ===================
         with ensure_unchanged_parameter(trainer):
-            trainer.train(
-                sub_train_iterator,
-                sub_validation_iterator,
-                device=device
-            )
+            with backup_state_dict(trainer):
+                trainer.train(
+                    sub_train_iterator,
+                    sub_validation_iterator,
+                    device=device
+                )
+            with backup_state_dict(trainer):
+                storage_dir_2 = Path(
+                    exit_stack.enter_context(tempfile.TemporaryDirectory())
+                ).expanduser().resolve()
+
+                exit_stack.enter_context(mock.patch.object(
+                    trainer,
+                    'storage_dir',
+                    new=storage_dir_2,
+                ))
+                trainer.train(
+                    sub_train_iterator,
+                    sub_validation_iterator,
+                    device=device,
+                )
 
         def assert_step(x):
             if x is not None:
@@ -184,10 +225,11 @@ def test_run(
 
         pb.utils.nested.nested_op(assert_step, optimizer_step)
 
-        assert validate_mock.call_count == 2, validate_mock.call_count
+        # before and after training for two trainings -> 4
+        assert validate_mock.call_count == 4, validate_mock.call_count
 
-        assert trainer_step_mock.call_count == (4 * virtual_minibatch_size + 4), (trainer_step_mock.call_count, virtual_minibatch_size)
-        assert get_default_hooks_mock.call_count == 1, get_default_hooks_mock.call_count
+        assert trainer_step_mock.call_count == (4 * virtual_minibatch_size + 8), (trainer_step_mock.call_count, virtual_minibatch_size)
+        assert get_default_hooks_mock.call_count == 2, get_default_hooks_mock.call_count
 
         def trainer_step_mock_to_inputs_output_review(review_mock):
             sig = inspect.signature(review_mock._mock_wraps)
@@ -203,18 +245,44 @@ def test_run(
             trainer_step_mock_to_inputs_output_review(
                 trainer_step_mock
             )
+        step_returns = list(step_returns)
+        step_returns_1 = step_returns[:len(step_returns) // 2]
+        step_returns_2 = step_returns[len(step_returns) // 2:]
 
         if virtual_minibatch_size == 1:
-            tr1, tr2, dt1, dt2, tr3, tr4, dt3, dt4 = step_returns
+            dt1, dt2, tr1, tr2, dt3, dt4 = step_returns_1
+            dt5, dt6, tr3, tr4, dt7, dt8 = step_returns_2
         else:
-            step_returns = list(step_returns)
-            dt1, dt2 = step_returns[:len(step_returns) // 2][-2:]
-            dt3, dt4 = step_returns[-2:]
+            dt1, dt2 = step_returns_1[:2]
+            dt3, dt4 = step_returns_1[-2:]
+            dt5, dt6 = step_returns_2[:2]
+            dt7, dt8 = step_returns_2[-2:]
 
-        nested_test_assert_allclose(dt1['output'], dt3['output'])
-        nested_test_assert_allclose(dt2['output'], dt4['output'])
-        nested_test_assert_allclose(dt1['review'], dt3['review'])
-        nested_test_assert_allclose(dt2['review'], dt4['review'])
+        nested_test_assert_allclose(dt1['output'], dt5['output'])
+        nested_test_assert_allclose(dt2['output'], dt6['output'])
+        nested_test_assert_allclose(dt1['review'], dt5['review'])
+        nested_test_assert_allclose(dt2['review'], dt6['review'])
+
+        # Can not test these, because dropout makes them unequal
+        # nested_test_assert_allclose(dt3['output'], dt7['output'])
+        # nested_test_assert_allclose(dt4['output'], dt8['output'])
+        # nested_test_assert_allclose(dt3['review'], dt7['review'])
+        # nested_test_assert_allclose(dt4['review'], dt8['review'])
+
+        try:
+            with np.testing.assert_raises(AssertionError):
+                # Expect that the loss changes after training.
+                nested_test_assert_allclose(dt1['review']['loss'], dt3['review']['loss'])
+                nested_test_assert_allclose(dt2['review']['loss'], dt4['review']['loss'])
+                nested_test_assert_allclose(dt5['review']['loss'], dt7['review']['loss'])
+                nested_test_assert_allclose(dt6['review']['loss'], dt8['review']['loss'])
+        except AssertionError:
+            raise AssertionError(
+                'The loss of the model did not change between two validations.'
+                '\n'
+                'This is usually caused from a zero gradient or the loss is'
+                'independent of the parameters'
+            )
 
         assert 'loss' in dt1['review'], dt1['review']
 
@@ -232,12 +300,14 @@ def test_run(
             )
         # end trainer_step_mock_to_inputs_output_review
 
-        hooks, = get_default_hooks_mock.spyed_return_values
-        for hook in hooks:
-            summary = getattr(hook, 'summary', {})
-            assert all([
-                len(s) == 0 for s in summary.values()
-            ]), (hook, summary)
+        # Test that the summary is empty
+        hooks1, hooks2 = get_default_hooks_mock.spyed_return_values
+        for hooks in [hooks1, hooks2]:
+            for hook in hooks:
+                summary = getattr(hook, 'summary', {})
+                assert all([
+                    len(s) == 0 for s in summary.values()
+                ]), (hook, summary)
 
         files = list(storage_dir.glob('*'))
         assert len(files) == 2, files
@@ -251,8 +321,8 @@ def test_run(
                     'ckpt_latest.pth',
                     'ckpt_best_loss.pth',
                     'ckpt_state.json',
+                    f'ckpt_0.pth',
                     f'ckpt_{2*virtual_minibatch_size}.pth',
-                    f'ckpt_{4*virtual_minibatch_size}.pth',
                 }
                 if checkpoint_names != expect:
                     os.system(f'ls -lha {file}')
@@ -261,10 +331,11 @@ def test_run(
                 ckpt_best = (file / 'ckpt_best_loss.pth').resolve().name
                 ckpt_last = (file / 'ckpt_latest.pth').resolve().name
 
-                # This assert only works for exact calculations, that is not the case for cuda
+                # This check does not always work, because it is not guaranteed,
+                # that the training improves the loss on the validation data
                 # assert ckpt_best == 'ckpt_2.pth', ckpt_best
 
-                expected_ckpt_last = f'ckpt_{4 * virtual_minibatch_size}.pth'
+                expected_ckpt_last = f'ckpt_{2 * virtual_minibatch_size}.pth'
                 assert ckpt_last == expected_ckpt_last, (ckpt_last, expected_ckpt_last)
 
                 # ckpt_state = pb.io.load_json(file / 'ckpt_state.json')
