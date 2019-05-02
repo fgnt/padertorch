@@ -698,7 +698,7 @@ class InteractiveTrainer(Trainer):
             loss_weights=None,
             max_trigger=(200, 'epoch'),
             summary_trigger=(50, 'epoch'),
-            validation_trigger=(50, 'epoch'),
+            validation_trigger=None,
     ):
         super().__init__(
             model=model,
@@ -711,7 +711,10 @@ class InteractiveTrainer(Trainer):
             max_trigger=max_trigger,
         )
         # Trainer uses checkpoint_trigger as validation_trigger
-        self.validation_trigger = validation_trigger
+        if validation_trigger is None:
+            self.validation_trigger = summary_trigger
+        else:
+            self.validation_trigger = validation_trigger
 
     def get_default_hooks(
             self,
@@ -769,30 +772,34 @@ class InteractiveTrainer(Trainer):
 
     @functools.wraps(Trainer.train)
     def train(self, *args, **kwargs):
-        try:
-            super().train(*args, **kwargs)
-        finally:
-            return self.writer
+        super().train(*args, **kwargs)
+        return self.writer
 
 
 class InteractiveWriter:
     def __init__(self):
-        self.scalars = collections.defaultdict(dict)
+        self.scalars = collections.defaultdict(list)
 
-    def add_scalar(self, tag, scalar_value, global_step=None, walltime=None):
+    def add_scalar(self, tag, scalar_value, global_step, walltime=None):
         if tag.split('/')[0] in ['training_timings', 'validation_timings']:
             return
         print(f'{global_step}, {tag}: {scalar_value}')
-        self.scalars[tag][global_step] = scalar_value
 
-    def add_audio(self, tag, snd_tensor, global_step=None,
+        walltime = time.time() if walltime is None else walltime
+        self.scalars[tag].append({
+            'value': scalar_value,
+            'global_step': global_step,
+            'walltime': walltime,
+        })
+
+    def add_audio(self, tag, snd_tensor, global_step,
                   sample_rate=44100, walltime=None):
         pass
 
-    def add_image(self, tag, img_tensor, global_step=None, walltime=None):
+    def add_image(self, tag, img_tensor, global_step, walltime=None):
         pass
 
-    def add_histogram(self, tag, values, global_step=None,
+    def add_histogram(self, tag, values, global_step,
                       bins='tensorflow', walltime=None):
         pass
 
