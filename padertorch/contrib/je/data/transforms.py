@@ -18,6 +18,7 @@ from tqdm import tqdm
 from paderbox.utils.numpy_utils import segment_axis_v2
 from copy import copy, deepcopy
 import torch
+from natsort import natsorted
 
 
 def nested_transform(
@@ -45,7 +46,7 @@ def nested_transform(
     key = input_path[-1]
     arg1 = input_dict_[key]
     transformed = nested_op(
-        transform_fn, arg1, *args, sequence_type=sequence_type
+        transform_fn, arg1, *args, sequence_type=sequence_type, broadcast=True
     )
     if output_path is not None:
         if output_path == input_path:
@@ -63,7 +64,9 @@ class Transform(Configurable, abc.ABC):
     Base class for callable transformations. Not intended to be instantiated.
     """
 
-    def init_params(self, values=None, storage_dir=None, dataset=None):
+    def init_params(
+            self, values=None, storage_dir=None, dataset=None, max_workers=0
+    ):
         pass
 
     @abc.abstractmethod
@@ -71,7 +74,7 @@ class Transform(Configurable, abc.ABC):
         raise NotImplementedError
 
 
-class Compose:
+class Compose(Transform):
     """
     Accepts an ordered iterable of Transform objects and performs a
     transformation composition by successively applying them in the given
@@ -83,46 +86,69 @@ class Compose:
     https://stackoverflow.com/questions/16739290/composing-functions-in-python
     for alternatives.
     """
-    def __init__(self, *args):
+    def __init__(self, transforms):
         # Wouldn't "functions" instead of transforms not a better name
-        if len(args) == 1 and isinstance(args[0], (list, tuple)):
-            args = args[0]
-        if len(args) == 1 and isinstance(args[0], dict):
-            if not isinstance(args[0], OrderedDict):
-                raise ValueError('OrderedDict required.')
-            self._transforms = args[0]
+        if isinstance(transforms, dict):
+            if isinstance(transforms, OrderedDict):
+                self.transforms = transforms
+            else:
+                self.transforms = OrderedDict()
+                for i, key in enumerate(natsorted(transforms.keys())):
+                    try:
+                        idx = int(key)
+                        assert idx == i
+                    except (ValueError, AssertionError):
+                        raise ValueError(
+                            'transforms is an unordered dict '
+                            'with keys not being an enumeration.'
+                        )
+                    self.transforms[key] = transforms[key]
         else:
-            self._transforms = OrderedDict()
-            for i, transform in enumerate(args):
-                self._transforms[str(i)] = transform
+            self.transforms = OrderedDict()
+            for i, transform in enumerate(transforms):
+                self.transforms[str(i)] = transform
+
+    def init_params(
+            self, values=None, storage_dir=None, dataset=None, max_workers=0
+    ):
+        values = to_list(values, len(self.transforms))
+        for i, transform in enumerate(self.transforms.values()):
+            transform.init_params(
+                values=values[i], storage_dir=storage_dir, dataset=dataset,
+                max_workers=max_workers
+            )
+            if dataset is not None:
+                dataset = dataset.map(transform)
 
     def __call__(self, example, training=False):
-        for key, transform in self._transforms.items():
-            example = transform(example, training=False)
+        for key, transform in self.transforms.items():
+            example = transform(example, training=training)
         return example
 
     def __repr__(self):
-        s = ', '.join([repr(t) for k, t in self._transforms.items()])
+        s = ', '.join([repr(t) for k, t in self.transforms.items()])
         return f'{self.__class__.__name__}({s})'
 
 
 class ReadAudio(Transform):
     """
-    Read audio from disk. Expects an key 'audio_path' in input dict
-    and adds an entry 'audio_data' with the read audio data.
+    Read audio from disk. Expects 'input_path' to be a path in the input dict
+    and adds the read audio data to output_path.
 
     """
     def __init__(
             self, input_sample_rate, target_sample_rate,
             converter_type="sinc_fastest",
-            input_path=Keys.AUDIO_PATH,
-            output_path=Keys.AUDIO_DATA
+            input_path=Keys.AUDIO_PATH, output_path=Keys.AUDIO_DATA,
+            start_samples_path=None, stop_samples_path=None
     ):
         self.input_sample_rate = input_sample_rate
         self.target_sample_rate = target_sample_rate
         self.converter_type = converter_type
         self.input_path = input_path
         self.ouput_path = output_path
+        self.start_samples_path = start_samples_path
+        self.stop_samples_path = stop_samples_path
 
     def read(self, audio_path, start=0, stop=None):
         x, sr = soundfile.read(
@@ -136,8 +162,24 @@ class ReadAudio(Transform):
         return x.T  # (C, T)
 
     def __call__(self, example, training=False):
+        args = []
+        if self.start_samples_path is not None:
+            assert self.stop_samples_path is not None
+            args.append(
+                nested_transform(lambda x: x, self.start_samples_path, example)
+            )
+            args.append(
+                nested_transform(lambda x: x, self.stop_samples_path, example)
+            )
         nested_transform(
-            self.read, self.input_path, example, output_path=self.ouput_path
+            self.read, self.input_path, example, *args,
+            output_path=self.ouput_path
+        )
+        nested_transform(
+            lambda x: np.concatenate(x, axis=1)
+            if isinstance(x, (list, tuple)) else x,
+            self.ouput_path, example, sequence_type=(),
+            output_path=self.ouput_path
         )
         if (
             Keys.NUM_SAMPLES not in example
@@ -438,7 +480,7 @@ class GlobalNormalize(Transform):
     """
     def __init__(
             self, input_path, center_axis=None, scale_axis=None, verbose=False,
-            name=None
+            name=None, max_init_examples=None
     ):
         self.input_path = input_path
         self.center_axis = None if center_axis is None \
@@ -447,10 +489,13 @@ class GlobalNormalize(Transform):
             else tuple(to_list(scale_axis))
         self.verbose = verbose
         self.name = name
+        self.max_init_examples = max_init_examples
         self.moments = None
 
-    def init_params(self, moments=None, storage_dir=None, dataset=None):
-        self.moments = moments
+    def init_params(
+            self, values=None, storage_dir=None, dataset=None, max_workers=0
+    ):
+        self.moments = values
         storage_dir = storage_dir or ""
         filename = "moments.json" if self.name is None \
             else f"{self.name}_moments.json"
@@ -461,6 +506,10 @@ class GlobalNormalize(Transform):
             print(f'Restored moments from {file}')
         if self.moments is None:
             assert dataset is not None
+            if self.max_init_examples is not None:
+                dataset = dataset.shuffle()[:self.max_init_examples]
+            if max_workers > 0:
+                dataset = dataset.prefetch(max_workers, 2 * max_workers)
             self.moments = self._read_moments_from_dataset(dataset)
         if storage_dir and not file.exists():
             with file.open('w') as f:
@@ -553,8 +602,10 @@ class LocalNormalize(Transform):
     """
     def __init__(self, input_path, center_axis=None, scale_axis=None):
         self.input_path = input_path
-        self.center_axis = center_axis
-        self.scale_axis = scale_axis
+        self.center_axis = None if center_axis is None \
+            else tuple(to_list(center_axis))
+        self.scale_axis = None if scale_axis is None \
+            else tuple(to_list(scale_axis))
 
     def norm(self, x):
         if self.center_axis is not None:
@@ -563,6 +614,76 @@ class LocalNormalize(Transform):
             x /= (np.sqrt(np.mean(
                 x ** 2, axis=self.scale_axis, keepdims=True
             )) + 1e-18).astype(x.dtype)
+        return x
+
+    def __call__(self, example, training=False):
+        nested_transform(
+            self.norm, self.input_path, example, output_path=self.input_path
+        )
+        return example
+
+
+class SlidingNormalize(Transform):
+    def __init__(
+            self, input_path, slide_axis, window_length,
+            center_axis=None, scale_axis=None
+    ):
+        assert window_length % 2 == 1
+        self.input_path = input_path
+        self.slide_axis = slide_axis
+        self.window_length = window_length
+        self.center_axis = None if center_axis is None \
+            else tuple(to_list(center_axis))
+        self.scale_axis = None if scale_axis is None \
+            else tuple(to_list(scale_axis))
+
+    def norm(self, x):
+        pad_width = x.ndim * [(0, 0)]
+        pad_width[self.slide_axis] = (
+            self.window_length//2, self.window_length//2
+        )
+        x_ = np.pad(x, pad_width=pad_width, mode='symmetric')
+        x_ = segment_axis_v2(
+            x_, self.window_length, 1, self.slide_axis, end='cut'
+        )
+        x_ = np.moveaxis(x_, self.slide_axis, -1)
+        if self.center_axis is not None:
+            m = np.mean(x_, axis=self.center_axis, keepdims=True)
+            m = np.moveaxis(m.squeeze(self.slide_axis), -1, self.slide_axis)
+            x -= m
+        if self.scale_axis is not None:
+            s = np.sqrt(
+                np.mean(x_ ** 2, axis=self.center_axis, keepdims=True)
+            ) + 1e-18
+            s = np.moveaxis(
+                s.squeeze(self.slide_axis), -1, self.slide_axis
+            ).astype(x.dtype)
+            x /= s
+        return x
+
+    def __call__(self, example, training=False):
+        nested_transform(
+            self.norm, self.input_path, example, output_path=self.input_path
+        )
+        return example
+
+
+class LocalQuantileNormalize(Transform):
+    def __init__(
+            self, input_path, axis, lower_quantile=0.02, upper_quantile=0.98
+    ):
+        self.input_path = input_path
+        self.axis = axis
+        self.lower_quantile = lower_quantile
+        self.upper_quantile = upper_quantile
+
+    def norm(self, x):
+        x -= np.quantile(x, self.lower_quantile, axis=self.axis, keepdims=True)
+        x /= (
+            np.quantile(x, self.upper_quantile, axis=self.axis, keepdims=True)
+            + 1e-18
+        )
+        x -= 0.5
         return x
 
     def __call__(self, example, training=False):
@@ -852,29 +973,31 @@ class LabelEncoder(Transform):
         self.idx2label = None
         self.name = name
 
-    def init_params(self, labels=None, storage_dir=None, dataset=None):
+    def init_params(
+            self, values=None, storage_dir=None, dataset=None, max_workers=0
+    ):
         storage_dir = storage_dir or ""
         filename = "labels.json" if self.name is None \
             else f'{self.name}_labels.json'
         file = (Path(storage_dir) / filename).expanduser().absolute()
         if storage_dir and file.exists():
             with file.open() as f:
-                labels = json.load(f)
+                values = json.load(f)
             print(f'Restored {self.input_path} from {file}')
-        if labels is None:
-            labels = self._read_labels_from_dataset(dataset)
+        if values is None:
+            values = self._read_labels_from_dataset(dataset)
         if self.input_mapping is not None:
-            labels = sorted({
+            values = sorted({
                 self.input_mapping[label] if label in self.input_mapping
-                else label for label in labels
+                else label for label in values
             })
-        if self.oov_label is not None and self.oov_label not in labels:
-            labels.append(self.oov_label)
+        if self.oov_label is not None and self.oov_label not in values:
+            values.append(self.oov_label)
         if storage_dir and not file.exists():
             with file.open('w') as f:
-                json.dump(labels, f, sort_keys=True, indent=4)
+                json.dump(values, f, sort_keys=True, indent=4)
             print(f'Saved {self.input_path} to {file}')
-        self.label2idx = {label: i for i, label in enumerate(labels)}
+        self.label2idx = {label: i for i, label in enumerate(values)}
         self.idx2label = {i: label for label, i in self.label2idx.items()}
 
     @property
@@ -883,7 +1006,7 @@ class LabelEncoder(Transform):
 
     def encode(self, labels):
         def encode_label(label):
-            if self.input_mapping is not None:
+            if self.input_mapping is not None and label in self.input_mapping:
                 label = self.input_mapping[label]
             if self.oov_label is not None and label not in self.label2idx:
                 label = self.oov_label
@@ -939,15 +1062,15 @@ class Declutter(Transform):
     >>> Declutter(['a/b', 'd'], {'a/b': 'float32'})(example)
     {'a': {'b': array([[1., 2., 3.]], dtype=float32)}, 'd': 3}
     """
-    def __init__(self, required_keys, dtypes=None):
-        self.required_keys = to_list(required_keys)
+    def __init__(self, required_paths, dtypes=None):
+        self.required_paths = to_list(required_paths)
         self.dtypes = dtypes
 
     def __call__(self, example, training=False):
         # get nested
         example = {
             key: nested_transform(lambda x: x, key, example)
-            for key in self.required_keys
+            for key in self.required_paths
         }
         if self.dtypes is not None:
             for key, dtype in self.dtypes.items():
@@ -1029,7 +1152,7 @@ class Collate(Transform):
                     )
                     pad = [(0, n) for n in pad]
                     batch[i] = np.pad(array, pad_width=pad, mode='constant')
-            batch = np.array(batch)
+            batch = np.array(batch).astype(batch[0].dtype)
             if self.to_tensor:
-                batch = torch.Tensor(batch)
+                batch = torch.from_numpy(batch)
         return batch
