@@ -208,7 +208,6 @@ class Model(Module, Configurable, abc.ABC):
             else:
                 ...  # calculate validation specific metrics
 
-
     def modify_summary(self, summary):
         """Modify a summary dict.
 
