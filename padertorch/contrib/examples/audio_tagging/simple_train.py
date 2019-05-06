@@ -12,13 +12,11 @@ from pathlib import Path
 import numpy as np
 
 from paderbox.utils.timer import timeStamped
-from paderbox.io.audioread import load_audio
-from paderbox.transform.module_stft import STFT
-from paderbox.transform.module_fbank import MelTransform
 from paderbox.database.audio_set import AudioSet
 from padertorch import Model, Trainer, optimizer
 from padertorch.contrib.je.modules.conv import CNN2d
-from padertorch.contrib.je.data.transforms import GlobalNormalize, LabelEncoder, Collate
+from padertorch.contrib.je.data.transforms import Transform as BaseTransform
+from padertorch.contrib.je.data.transforms import Collate
 
 
 storage_dir = str(
@@ -27,11 +25,48 @@ storage_dir = str(
 os.makedirs(storage_dir, exist_ok=True)
 
 
+class Transform(BaseTransform):
+    def __init__(
+            self,
+            frame_step=882,
+            frame_length=1764,
+            fft_length=2048,
+            fmin=50,
+            storage_dir=None
+    ):
+        super().__init__(
+            input_sample_rate=44100,
+            target_sample_rate=44100,
+            frame_step=frame_step,
+            frame_length=frame_length,
+            fft_length=fft_length,
+            fading=False,
+            pad=False,
+            n_mels=128,
+            fmin=fmin,
+            label_key='events',
+            storage_dir=storage_dir
+        )
+
+    def extract_features(self, example, training=False):
+        example = super().extract_features(example, training)
+        example['log_mel'] = example['log_mel'].mean(axis=0, keepdims=True)
+        return example
+
+    def encode_labels(self, example):
+        assert self.label_key == 'events'
+        events = super().encode_labels(example)[self.label_key]
+        nhot_encoding = np.zeros(527).astype(np.float32)
+        nhot_encoding[events] = 1
+        example[self.label_key] = nhot_encoding
+        return example
+
+
 class WALNet(Model):
     """
     >>> from paderbox.utils.nested import deflatten
     >>> tagger = WALNet(output_size=10)
-    >>> inputs = {'mel_spectrogram': torch.zeros(4,1,128,128), 'events': torch.zeros((4,10))}
+    >>> inputs = {'log_mel': torch.zeros(4,1,128,128), 'events': torch.zeros((4,10))}
     >>> outputs = tagger(inputs)
     >>> outputs.shape
     torch.Size([4, 10, 1])
@@ -56,12 +91,12 @@ class WALNet(Model):
         )
 
     def forward(self, inputs):
-        y = self.cnn(inputs['mel_spectrogram']).squeeze(2)
+        y = self.cnn(inputs['log_mel']).squeeze(2)
         return nn.Sigmoid()(y)
 
     def review(self, inputs, outputs):
         # compute loss
-        x = inputs['mel_spectrogram']
+        x = inputs['log_mel']
         targets = inputs['events']
         frame_probs = outputs
         sequence_probs = frame_probs.mean(-1)
@@ -125,74 +160,20 @@ def get_datasets():
 
 def prepare_dataset(dataset):
     batch_size = 48
+    transform = Transform(
+        frame_step=882,
+        frame_length=1764,
+        fft_length=2048,
+        storage_dir=storage_dir
+    )
+    transform.initialize_labels(dataset)
+    transform.initialize_norm(dataset.shuffle()[:2000], max_workers=8)
 
-    return normalize_features(extract_features(read_audio(
-        encode_events(dataset)
-    ))).prefetch(
+    return dataset.map(transform).prefetch(
         num_workers=8, buffer_size=2*batch_size
     ).batch(
         batch_size=batch_size
     ).map(Collate())
-
-
-def encode_events(dataset):
-    label_encoder = LabelEncoder(input_path="events")
-    # Will save label mapping after first call
-    label_encoder.init_params(storage_dir=storage_dir, dataset=dataset)
-
-    def encode(example):
-        nhot_encoding = np.zeros(527).astype(np.float32)
-        events = label_encoder.encode(example["events"])
-        nhot_encoding[events] = 1
-        example["events"] = nhot_encoding
-        return example
-
-    return dataset.map(encode)
-
-
-def read_audio(dataset):
-
-    def read(example):
-        example['audio_data'] = load_audio(example['audio_path'])
-        return example
-
-    return dataset.map(read)
-
-
-def extract_features(dataset):
-
-    stft = STFT(
-        frame_step=882,
-        frame_length=1764,
-        fft_length=2048,
-        pad=False,
-        fading=False,
-        always3d=True
-    )
-    mel_transform = MelTransform(
-        sample_rate=44100, fft_length=2048, n_mels=128, fmin=50
-    )
-
-    def extraction(example):
-        x = stft(example.pop("audio_data"))
-        x = x.real**2 + x.imag**2
-        x = mel_transform(x)
-        example["mel_spectrogram"] = x.mean(0, keepdims=True).transpose(
-            (0, 2, 1)).astype(np.float32)
-        return example
-
-    return dataset.map(extraction)
-
-
-def normalize_features(dataset):
-
-    normalize = GlobalNormalize(
-        'mel_spectrogram', center_axis=-1, scale_axis=(-2, -1)
-    )
-    # Will save moments after first call
-    normalize.init_params(storage_dir=storage_dir, dataset=dataset)
-
-    return dataset.map(normalize)
 
 
 def main():
