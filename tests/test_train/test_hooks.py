@@ -87,7 +87,7 @@ def test_summary_hook():
         tmp_dir = Path(tmp_dir)
         hook = pt.train.hooks.SummaryHook(
             (1, 'iteration'),
-            writer=tensorboardX.SummaryWriter(tmp_dir / 'experiment_dir'),
+            writer=tensorboardX.SummaryWriter(str(tmp_dir / 'experiment_dir')),
         )
         with pytest.raises(KeyError, match=r"'loss'") as excinfo:
             hook.update_summary({})
