@@ -267,7 +267,7 @@ def test_single_model():
                 }
                 pprint(c)
                 assert c == expect, c
-                assert len(events) == 36, (len(events), events)
+                assert len(events) == 39, (len(events), events)
 
                 np.testing.assert_allclose(
                     np.add(time_rel_data_loading, time_rel_train_step),
@@ -401,7 +401,7 @@ def test_single_model():
                         tags.append(value['tag'])
 
                 c = dict(collections.Counter(tags))
-                assert len(events) == 24, (len(events), events)
+                assert len(events) == 26, (len(events), events)
                 expect = {
                     'training/grad_norm': 2,
                     'training/grad_norm_': 2,
