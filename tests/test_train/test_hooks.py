@@ -1,6 +1,13 @@
-import padertorch as pt
 import unittest
 import types
+import tempfile
+from pathlib import Path
+
+import pytest
+import tensorboardX
+import torch
+
+import padertorch as pt
 
 
 class ProgresbarHookTest(unittest.TestCase):
@@ -72,3 +79,56 @@ class ProgresbarHookTest(unittest.TestCase):
                     'loss': iteration + 1})
         progressbar_hook.close(trainer)
         assert trainer.iteration == self.iterator_length - 1
+
+
+def test_summary_hook():
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_dir = Path(tmp_dir)
+        hook = pt.train.hooks.SummaryHook(
+            (1, 'iteration'),
+            writer=tensorboardX.SummaryWriter(tmp_dir / 'experiment_dir'),
+        )
+        with pytest.raises(KeyError, match=r"'loss'") as excinfo:
+            hook.update_summary({})
+
+        hook.update_summary({
+            'loss': torch.tensor(1)
+        })
+
+        hook.update_summary({
+            'loss': torch.tensor(1),
+            'scalars': {
+                'a': 2,
+                'b': torch.tensor(3),
+            }
+        })
+
+        hook.update_summary({
+            'loss': torch.tensor(1),
+            'texts': {
+                'c': 'abc',
+            }
+        })
+
+        # ToDo: histograms, audios, images, figures
+
+        class DummyTrainer:
+            iteration = 10
+            class timer:
+                as_dict = {}
+
+            @staticmethod
+            def reset_timer():
+                pass
+
+            class Model(pt.Model):
+                def forward(self, inputs): pass
+                def review(self, inputs, outputs): pass
+            model = Model()
+
+        trainer = DummyTrainer()
+        hook.finalize_summary(trainer)
+        hook.dump_summary(trainer)
+
+        # ToDo: read summary
