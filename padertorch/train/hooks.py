@@ -360,9 +360,10 @@ class ValidationHook(SummaryHook):
                     f'Got an empty validation iterator: {self.iterator}'
                 )
             self.finalize_summary(trainer)
+            mean_loss = np.mean(self.summary['scalars']['loss'])
             self.dump_summary(trainer)
             assert len(trainer.timer.timings) == 0, trainer.timer
-            print('Finished Validation')
+            print(f'Finished Validation. Mean loss: {mean_loss}')
 
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
         pass
