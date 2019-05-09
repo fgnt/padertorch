@@ -141,6 +141,8 @@ class SummaryHook(TriggeredHook):
             histograms=defaultdict(list),
             audios=dict(),
             images=dict(),
+            texts=dict(),
+            figures=dict(),
             timings=dict(),
         ))
 
@@ -156,25 +158,36 @@ class SummaryHook(TriggeredHook):
             'histograms',
             'audios',
             'images',
+            'texts',
+            'figures',
         }
         redundant_keys = set(review.keys()) - allowed_keys
         assert len(redundant_keys) == 0, (redundant_keys, review.keys(), allowed_keys)
 
+        poped_review = {**review}  # copy for "pop"
+
         # note item is the pytorch function to get the value of a tensor
-        self.summary['scalars']['loss'].append(review['loss'].item())
-        for key, loss in review.get('losses', dict()).items():
+        self.summary['scalars']['loss'].append(poped_review.pop('loss').item())
+        for key, loss in poped_review.pop('losses', dict()).items():
             self.summary['scalars'][key].append(loss.item())
-        for key, scalars in review.get('scalars', dict()).items():
+        for key, scalars in poped_review.pop('scalars', dict()).items():
             self.summary['scalars'][key].extend(self._to_list(scalars))
-        for key, histogram in review.get('histograms', dict()).items():
+        for key, histogram in poped_review.pop('histograms', dict()).items():
             self.summary['histograms'][key].extend(self._to_list(histogram))
             # do not hold more than 1M values in memory
             self.summary['histograms'][key] = \
                 self.summary['histograms'][key][-1000000:]
-        for key, audio in review.get('audios', dict()).items():
+        for key, audio in poped_review.pop('audios', dict()).items():
             self.summary['audios'][key] = audio  # snapshot
-        for key, image in review.get('images', dict()).items():
+        for key, image in poped_review.pop('images', dict()).items():
             self.summary['images'][key] = image  # snapshot
+        for key, figure in poped_review.pop('figures', dict()).items():
+            self.summary['figures'][key] = figure  # snapshot
+        for key, text in poped_review.pop('texts', dict()).items():
+            assert isinstance(text, str), text
+            self.summary['texts'][key] = text  # snapshot
+
+        assert len(poped_review) == 0, (poped_review, review)
 
     @staticmethod
     def _to_list(scalars):
@@ -278,6 +291,11 @@ class SummaryHook(TriggeredHook):
                 )
         for key, image in self.summary['images'].items():
             self.writer.add_image(f'{prefix}/{key}', image, iteration)
+        for key, text in self.summary['texts'].items():
+            self.writer.add_text(f'{prefix}/{key}', text, iteration)
+        for key, figure in self.summary['figures'].items():
+            self.writer.add_figure(f'{prefix}/{key}', figure, iteration)
+
         self.reset_summary()
 
     def pre_step(self, trainer: 'pt.Trainer'):
