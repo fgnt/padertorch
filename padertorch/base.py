@@ -8,12 +8,12 @@ import io
 import abc
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch import nn
 
 from paderbox.utils.nested import deflatten
 from padertorch.configurable import Configurable
-
 
 __all__ = [
     'Module',
@@ -232,4 +232,6 @@ class Model(Module, Configurable, abc.ABC):
          - For validation the summary contains all values.
 
         """
+        for key, scalar in summary['scalars'].items():
+            summary['scalars'][key] = np.mean(scalar)
         return summary

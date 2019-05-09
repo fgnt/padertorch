@@ -141,6 +141,7 @@ class SummaryHook(TriggeredHook):
             histograms=defaultdict(list),
             audios=dict(),
             images=dict(),
+            timings=dict(),
         ))
 
     def reset_summary(self):
@@ -186,18 +187,8 @@ class SummaryHook(TriggeredHook):
             scalars = [scalars]
         return scalars
 
-    def dump_summary(self, trainer: 'pt.Trainer'):
-        iteration = trainer.iteration
+    def compute_timings(self, trainer):
         timer_dict = trainer.timer.as_dict
-        prefix = self.summary_prefix
-
-        time_prefix = f'{prefix}_timings'
-
-        summary = trainer.model.modify_summary(self.summary)
-        for key, scalar in summary['scalars'].items():
-            self.writer.add_scalar(
-                f'{prefix}/{key}', np.mean(scalar), iteration)
-
         # Special handling for time_per_data_loading and time_per_train_step
         #  Calculate
         #   - time_per_step: time of loading plus train step per example
@@ -215,12 +206,12 @@ class SummaryHook(TriggeredHook):
         time_per_train_step_review = timer_dict.pop('time_per_train_step_review', [0])
         time_per_backward = timer_dict.pop('time_per_backward', [0])
 
+        summary_timings = {}
         time_per_step = (
                 np.mean(time_per_data_loading) + np.mean(time_per_train_step)
         )
         if time_per_step > 0:
-            self.writer.add_scalar(
-                f'{prefix}_timings/time_per_step', time_per_step, iteration)
+            summary_timings['time_per_step'] = time_per_step
 
             sum_time_per_train_step = np.sum(time_per_train_step)
             sum_time_per_data_loading = np.sum(time_per_data_loading)
@@ -232,46 +223,48 @@ class SummaryHook(TriggeredHook):
             total_train_time = (
                     sum_time_per_data_loading + sum_time_per_train_step
             )
-            self.writer.add_scalar(
-                f'{time_prefix}/time_rel_data_loading',
-                sum_time_per_data_loading / total_train_time,
-                iteration
-            )
-            self.writer.add_scalar(
-                f'{time_prefix}/time_rel_train_step',
-                sum_time_per_train_step / total_train_time,
-                iteration
-            )
+            summary_timings['time_rel_data_loading'] = \
+                sum_time_per_data_loading / total_train_time
+            summary_timings['time_rel_train_step'] = \
+                sum_time_per_train_step / total_train_time
             if sum_time_per_train_step > 0:
-                self.writer.add_scalar(
-                    f'{time_prefix}/time_rel_to_device',
-                    sum_time_per_train_step_to_device / sum_time_per_train_step,
-                    iteration
-                )
-                self.writer.add_scalar(
-                    f'{time_prefix}/time_rel_forward',
-                    sum_time_per_train_step_forward / sum_time_per_train_step,
-                    iteration
-                )
-                self.writer.add_scalar(
-                    f'{time_prefix}/time_rel_review',
-                    sum_time_per_train_step_review / sum_time_per_train_step,
-                    iteration
-                )
-                self.writer.add_scalar(
-                    f'{time_prefix}/time_rel_backward',
-                    sum_time_per_backward / sum_time_per_train_step,
-                    iteration
-                )
+                summary_timings['time_rel_to_device'] = \
+                    sum_time_per_train_step_to_device / sum_time_per_train_step
+                summary_timings['time_rel_forward'] = \
+                    sum_time_per_train_step_forward / sum_time_per_train_step
+                summary_timings['time_rel_review'] = \
+                    sum_time_per_train_step_review / sum_time_per_train_step
+                summary_timings['time_rel_backward'] = \
+                    sum_time_per_backward / sum_time_per_train_step
+        summary_timings.update({
+            key: timing.mean() for key, timing in timer_dict.items()
+        })
+        trainer.reset_timer()
+        return summary_timings
 
-        for key, scalar in timer_dict.items():
+    def finalize_summary(self, trainer):
+        assert len(self.summary['timings']) == 0, self.summary['timings']
+        for key, timing in self.compute_timings(trainer).items():
+            self.summary['timings'][key] = timing
+        self.summary = trainer.model.modify_summary(self.summary)
+
+    def dump_summary(self, trainer: 'pt.Trainer'):
+        iteration = trainer.iteration
+        prefix = self.summary_prefix
+
+        time_prefix = f'{prefix}_timings'
+
+        for key, scalar in self.summary['scalars'].items():
+            self.writer.add_scalar(
+                f'{prefix}/{key}', scalar, iteration)
+        for key, scalar in self.summary['timings'].items():
             self.writer.add_scalar(
                 f'{time_prefix}/{key}', scalar.mean(), iteration)
-        for key, histogram in summary['histograms'].items():
+        for key, histogram in self.summary['histograms'].items():
             self.writer.add_histogram(
                 f'{prefix}/{key}', np.array(histogram), iteration
             )
-        for key, audio in summary['audios'].items():
+        for key, audio in self.summary['audios'].items():
             if isinstance(audio, (tuple, list)):
                 assert len(audio) == 2, (len(audio), audio)
                 self.writer.add_audio(
@@ -283,20 +276,21 @@ class SummaryHook(TriggeredHook):
                     f'{prefix}/{key}', audio,
                     iteration, sample_rate=16000
                 )
-        for key, image in summary['images'].items():
+        for key, image in self.summary['images'].items():
             self.writer.add_image(f'{prefix}/{key}', image, iteration)
         self.reset_summary()
-        trainer.reset_timer()
 
     def pre_step(self, trainer: 'pt.Trainer'):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch) \
                 and trainer.iteration != 0:
+            self.finalize_summary(trainer)
             self.dump_summary(trainer)
 
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
         self.update_summary(review)
 
     def close(self, trainer: 'pt.Trainer'):
+        self.finalize_summary(trainer)
         self.dump_summary(trainer)
         self.writer.close()
 
@@ -347,6 +341,7 @@ class ValidationHook(SummaryHook):
                 raise Exception(
                     f'Got an empty validation iterator: {self.iterator}'
                 )
+            self.finalize_summary(trainer)
             self.dump_summary(trainer)
             assert len(trainer.timer.timings) == 0, trainer.timer
             print('Finished Validation')
