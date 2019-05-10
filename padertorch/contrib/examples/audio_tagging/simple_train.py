@@ -126,6 +126,7 @@ class WALNet(Model):
         return review
 
     def modify_summary(self, summary):
+        summary = super().modify_summary(summary)
         # compute precision, recall and fscore for each decision threshold
         for thres in [0.3, 0.5]:
             true_pos_key=f'true_pos_{thres}'
