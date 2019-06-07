@@ -32,7 +32,8 @@ class DataProvider(Configurable):
             prefetch=True,
             fragment=False,
             reps=1,
-            batch=True
+            batch=True,
+            drop_incomplete=False
     ):
         if transform and self.transform is not None:
             dataset = dataset.map(partial(self.transform, training=training))
@@ -64,7 +65,7 @@ class DataProvider(Configurable):
                     max_padding_rate=self.max_padding_rate,
                     max_total_size=self.max_total_size,
                     expiration=self.bucket_expiration,
-                    drop_incomplete=training,
+                    drop_incomplete=drop_incomplete,
                     sort_by_key=True
                 )
             else:

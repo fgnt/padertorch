@@ -222,7 +222,7 @@ def read_labels(dataset=None, key=None, filepath=None, verbose=False):
                     sort_keys=True, indent=4
                 )
             if verbose:
-                print(f'Saved moments to {filepath}')
+                print(f'Saved labels to {filepath}')
     return labels
 
 
@@ -390,8 +390,8 @@ def fragment_parallel_signals(
             slc[ax] = slice(int(start), int(stop))
             return tuple(slc)
 
-        assert int(start * step[i]) == start * step[i]
-        start_idx = int(start * step[i])
+        start_idx = round(start * step[i])
+        assert abs(start_idx - start * step[i]) < 1e-6, (start_idx, start*step[i])
         fragments = [x[get_slice(0, start_idx)]] if start_idx >= min_len \
             else []
         fragments += [
