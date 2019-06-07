@@ -798,7 +798,7 @@ class ModelAttributeAnnealingHook(TriggeredHook):
         """
         super().__init__(trigger)
         self.name = name.split('.')
-        assert (factor is None) ^ (slope is None)
+        assert (factor is None) ^ (slope is None), (factor, slope)
         self.factor = factor
         self.slope = slope
         self.max_value = max_value
