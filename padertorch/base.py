@@ -82,12 +82,13 @@ class Module(nn.Module, Configurable, abc.ABC):
         else:
             checkpoint = torch.load(checkpoint_path, map_location=map_location)
 
-        for part in in_checkpoint_path.split('.'):
-            try:
-                checkpoint = deflatten(checkpoint, maxdepth=1)
-                checkpoint = checkpoint[part]
-            except KeyError:
-                raise ValueError(part, in_checkpoint_path, checkpoint)
+        if in_checkpoint_path:
+            for part in in_checkpoint_path.split('.'):
+                try:
+                    checkpoint = deflatten(checkpoint, maxdepth=1)
+                    checkpoint = checkpoint[part]
+                except KeyError:
+                    raise ValueError(part, in_checkpoint_path, checkpoint)
         module.load_state_dict(checkpoint)
 
         return module
