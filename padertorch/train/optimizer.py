@@ -1,5 +1,6 @@
 import torch
 from torch import optim
+from torchcontrib.optim import SWA
 
 
 class Optimizer:
@@ -7,15 +8,28 @@ class Optimizer:
     optimizer = None
     parameters = None
 
-    def __init__(self, gradient_clipping, **kwargs):
+    def __init__(
+            self, gradient_clipping, swa_start=None, swa_freq=None, swa_lr=None,
+            **kwargs
+    ):
         self.gradient_clipping = gradient_clipping
         self.optimizer_kwargs = kwargs
+        self.swa_start = swa_start
+        self.swa_freq = swa_freq
+        self.swa_lr = swa_lr
 
     def set_parameters(self, parameters):
         self.parameters = tuple(parameters)
         self.optimizer = self.optimizer_cls(
             self.parameters, **self.optimizer_kwargs
         )
+        if self.swa_start is not None:
+            assert self.swa_freq is not None
+            assert self.swa_lr is not None
+            self.optimizer = SWA(
+                self.optimizer, swa_start=self.swa_start,
+                swa_freq=self.swa_freq, swa_lr=self.swa_lr
+            )
 
     def check_if_set(self):
         assert self.optimizer is not None, \
@@ -29,6 +43,11 @@ class Optimizer:
     def step(self):
         self.check_if_set()
         return self.optimizer.step()
+
+    def swap_swa_sgd(self):
+        self.check_if_set()
+        assert isinstance(self.optimizer, SWA)
+        return self.optimizer.swap_swa_sgd()
 
     def clip_grad(self):
         self.check_if_set()
@@ -72,6 +91,9 @@ class Adam(Optimizer):
     def __init__(
             self,
             gradient_clipping=1e10,
+            swa_start=None,
+            swa_freq=None,
+            swa_lr=None,
             lr=1e-3,
             betas=(0.9, 0.999),
             eps=1e-8,
@@ -80,6 +102,9 @@ class Adam(Optimizer):
     ):
         super().__init__(
             gradient_clipping,
+            swa_start=swa_start,
+            swa_freq=swa_freq,
+            swa_lr=swa_lr,
             lr=lr,
             betas=betas,
             eps=eps,
@@ -94,6 +119,9 @@ class SGD(Optimizer):
     def __init__(
             self,
             gradient_clipping=1e10,
+            swa_start=None,
+            swa_freq=None,
+            swa_lr=None,
             lr=1e-3,
             momentum=0,
             dampening=0,
@@ -102,6 +130,9 @@ class SGD(Optimizer):
     ):
         super().__init__(
             gradient_clipping,
+            swa_start=swa_start,
+            swa_freq=swa_freq,
+            swa_lr=swa_lr,
             lr=lr,
             momentum=momentum,
             dampening=dampening,
