@@ -123,6 +123,8 @@ class MultinomialClassifier(HybridNet, Model):
     """
     >>> hybrid_cls = MultinomialClassifier.from_config(MultinomialClassifier.get_config({\
         'input_size': 80,\
+        'feature_key': 'features',\
+        'label_key': 'labels',\
         'cnn': {\
             'cnn_2d': {\
                 'in_channels': 1,\
@@ -142,7 +144,7 @@ class MultinomialClassifier(HybridNet, Model):
         'fcn': {'hidden_size': 32, 'output_size': 10},\
         'pool': {'factory': TakeLast, 'n': 3}\
     }))
-    >>> inputs = (torch.zeros(4, 1, 80, 100), torch.zeros(4).long())
+    >>> inputs = {'features': torch.zeros(4, 1, 80, 100), 'labels': torch.zeros(4).long(), 'seq_len': None}
     >>> logits = hybrid_cls(inputs)
     >>> logits.shape
     torch.Size([4, 3, 10])
@@ -150,7 +152,7 @@ class MultinomialClassifier(HybridNet, Model):
     """
     def __init__(
             self, cnn, enc, fcn, pool, *,
-            feature_key=0, label_key=1, input_size=None
+            feature_key, label_key, input_size=None
     ):
         super().__init__(cnn, enc, fcn, pool, input_size=input_size)
         self.feature_key = feature_key
@@ -196,6 +198,8 @@ class BinaryClassifier(HybridNet, Model):
     """
     >>> hybrid_cls = BinaryClassifier.from_config(BinaryClassifier.get_config({\
         'input_size': 80,\
+        'feature_key': 'features',\
+        'label_key': 'labels',\
         'cnn': {\
             'cnn_2d': {\
                 'in_channels': 1,\
@@ -213,17 +217,17 @@ class BinaryClassifier(HybridNet, Model):
         },\
         'enc': {'hidden_size': 64},\
         'fcn': {'hidden_size': 32, 'output_size': 10},\
-        'pool': {'factory': TakeLast, 'n': 3}\
+        'pool': {'factory': TakeLast, 'n': 1}\
     }))
-    >>> inputs = (torch.zeros(4, 1, 80, 100), torch.zeros(4, 10))
+    >>> inputs = {'features': torch.zeros(4, 1, 80, 100), 'labels': torch.zeros(4, 10), 'seq_len': None}
     >>> logits = hybrid_cls(inputs)
     >>> logits.shape
-    torch.Size([4, 3, 10])
+    torch.Size([4, 1, 10])
     >>> review = hybrid_cls.review(inputs, logits)
     """
     def __init__(
             self, cnn, enc, fcn, pool, output_activation, *,
-            feature_key=0, label_key=1, input_size=None, decision_boundary=.5
+            feature_key, label_key, input_size=None, decision_boundary=.5
     ):
         super().__init__(cnn, enc, fcn, pool, input_size=input_size)
         self.output_activation = output_activation
@@ -252,8 +256,8 @@ class BinaryClassifier(HybridNet, Model):
         if outputs.dim() == 3:  # (B, T, K)
             if targets.dim() == 2:   # (B, K)
                 targets = targets.unsqueeze(1).expand(outputs.shape)
-            outputs = outputs.view((-1, outputs.shape[-1]))
-            targets = targets.view((-1, targets.shape[-1]))
+            outputs = outputs.contiguous().view((-1, outputs.shape[-1]))
+            targets = targets.contiguous().view((-1, targets.shape[-1]))
         bce = nn.BCELoss(reduction='none')(outputs, targets).sum(-1)
 
         # create review including metrics and visualizations
@@ -323,25 +327,38 @@ class BinaryClassifier(HybridNet, Model):
         return summary
 
 
-class AvgPool:
+class AvgPool(nn.Module):
     def __call__(self, x, seq_len=None):
         x = x.mean(1)
         return x
 
 
-class MaxPool:
+class MaxPool(nn.Module):
     def __call__(self, x, seq_len=None):
         x = x.max(1)
         return x
 
 
-class TakeLast:
-    def __init__(self, n):
+class TakeLast(nn.Module):
+    def __init__(self, n, r=0.2):
+        super(TakeLast, self).__init__()
         self.n = n
+        self.r = r
 
     def __call__(self, x, seq_len=None):
+        n = self.n if self.training else 1
+
         if seq_len is None:
-            return x[:, -self.n:]
-        if self.n == 1:
+            return x[:, -n:]
+        elif n == 1:
             return x[torch.arange(x.shape[0]), seq_len - 1]
-        raise NotImplementedError
+        else:
+            assert n > 1
+            b, t, f = x.shape
+            seq_len = np.array(seq_len)[..., None]
+            n = max(int(min(self.n, min(self.r * seq_len))), 1)
+            seq_len = torch.Tensor(seq_len)
+            idx = torch.cumsum(torch.ones((b, t)), dim=1) - 1
+            idx = (idx < seq_len) * (idx >= (seq_len - n))
+            x = x.masked_select(idx.unsqueeze(-1).to(x.device)).view((b, n, f))
+        return x
