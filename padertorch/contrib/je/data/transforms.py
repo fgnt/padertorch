@@ -47,6 +47,7 @@ class Transform:
 
         self.label_key = label_key
         self.label_mapping = None
+        self.inverse_label_mapping = None
 
         self.storage_dir = storage_dir
 
@@ -105,25 +106,6 @@ class Transform:
         example[feature_key] /= (scale + 1e-18)
         return example
 
-    def encode_labels(self, example):
-        if self.label_key is None:
-            return example
-
-        def encode(labels):
-            if isinstance(labels, (list, tuple)):
-                return [self.label_mapping[label] for label in labels]
-            return self.label_mapping[labels]
-        example[self.label_key] = np.array(encode(example[self.label_key]))
-        return example
-
-    def finalize(self, example, training=False):
-        return {
-            'example_id': example['example_id'],
-            'log_mel': np.moveaxis(example['log_mel'], 1, 2).astype(np.float32),
-            'seq_len': example['seq_len'],
-            self.label_key: example[self.label_key]
-        }
-
     def initialize_norm(self, dataset=None, max_workers=0):
         filename = "moments.json"
         filepath = None if self.storage_dir is None \
@@ -137,6 +119,17 @@ class Transform:
             filepath=filepath, verbose=True
         )
 
+    def encode_labels(self, example):
+        if self.label_key is None:
+            return example
+
+        def encode(labels):
+            if isinstance(labels, (list, tuple)):
+                return [self.label_mapping[label] for label in labels]
+            return self.label_mapping[labels]
+        example[self.label_key] = np.array(encode(example[self.label_key]))
+        return example
+
     def initialize_labels(self, dataset=None):
         if self.label_key is None:
             return
@@ -147,6 +140,17 @@ class Transform:
         labels = read_labels(dataset, self.label_key, filepath, verbose=True)
         self.label_mapping = {
             label: i for i, label in enumerate(labels)
+        }
+        self.inverse_label_mapping = {
+            i: label for label, i in self.label_mapping.items()
+        }
+
+    def finalize(self, example, training=False):
+        return {
+            'example_id': example['example_id'],
+            'log_mel': np.moveaxis(example['log_mel'], 1, 2).astype(np.float32),
+            'seq_len': example['seq_len'],
+            self.label_key: example[self.label_key]
         }
 
 
