@@ -340,20 +340,18 @@ class MaxPool(nn.Module):
 
 
 class TakeLast(nn.Module):
-    def __init__(self, n, r=0.2):
+    def __init__(self, n, r=0.1):
         super(TakeLast, self).__init__()
         self.n = n
         self.r = r
 
     def __call__(self, x, seq_len=None):
         n = self.n if self.training else 1
-
         if seq_len is None:
-            return x[:, -n:]
+            x = x[:, -n:]
         elif n == 1:
-            return x[torch.arange(x.shape[0]), seq_len - 1]
+            x = x[torch.arange(x.shape[0]), seq_len - 1].unsqueeze(1)
         else:
-            assert n > 1
             b, t, f = x.shape
             seq_len = np.array(seq_len)[..., None]
             n = max(int(min(self.n, min(self.r * seq_len))), 1)
