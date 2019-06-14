@@ -801,7 +801,7 @@ class ModelAttributeAnnealingHook(TriggeredHook):
     Anneals an attribute of the trainers model.
     """
     def __init__(
-            self, name, factor, trigger, max_value=None, min_value=None
+            self, name, trigger, factor=None, slope=None, max_value=None, min_value=None
     ):
         """
 
@@ -819,20 +819,37 @@ class ModelAttributeAnnealingHook(TriggeredHook):
         """
         super().__init__(trigger)
         self.name = name.split('.')
+        assert (factor is None) ^ (slope is None), (factor, slope)
         self.factor = factor
+        self.slope = slope
         self.max_value = max_value
         self.min_value = min_value
+        self.onset_value = None
+
+    def get_module(self, trainer):
+        module = trainer.model
+        for attr_name in self.name[:-1]:
+            module = getattr(module, attr_name)
+        return module
 
     def pre_step(self, trainer):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch) \
                 and trainer.iteration != 0:
-            module = trainer.model
-            for attr_name in self.name[:-1]:
-                module = getattr(module, attr_name)
-
-            value = self.factor * getattr(module, self.name[-1])
+            module = self.get_module(trainer)
+            value = getattr(module, self.name[-1])
+            if self.onset_value is None:
+                self.onset_value = value
+            if self.factor is not None:
+                value *= self.factor
+            if self.slope is not None:
+                value = self.onset_value + self.slope * trainer.iteration
             if self.max_value is not None:
                 value = min(value, self.max_value)
             if self.min_value is not None:
                 value = max(value, self.min_value)
             setattr(module, self.name[-1], value)
+
+    def close(self, trainer):
+        if self.onset_value is not None:
+            module = self.get_module(trainer)
+            setattr(module, self.name[-1], self.onset_value)

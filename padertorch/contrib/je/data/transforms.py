@@ -26,7 +26,6 @@ class Transform:
             pad=False,
             fmin=50,
             label_key=None,
-            max_norm_init_examples=None,
             storage_dir=None
     ):
         self.input_sample_rate = input_sample_rate
@@ -48,12 +47,13 @@ class Transform:
 
         self.label_key = label_key
         self.label_mapping = None
-        self.max_norm_init_examples = max_norm_init_examples
+        self.inverse_label_mapping = None
+
         self.storage_dir = storage_dir
 
     def __call__(self, example, training=False):
         example = self.read_audio(example)
-        example = self.extract_features(example, training)
+        example = self.extract_features(example, training=training)
         example = self.normalize(example)
         example = self.encode_labels(example)
         return self.finalize(example, training)
@@ -95,6 +95,7 @@ class Transform:
         stft = self.stft(audio)
         spec = stft.real**2 + stft.imag**2
         example["log_mel"] = self.mel_transform(spec)
+        example["seq_len"] = example["log_mel"].shape[1]
         return example
 
     def normalize(self, example):
@@ -140,11 +141,15 @@ class Transform:
         self.label_mapping = {
             label: i for i, label in enumerate(labels)
         }
+        self.inverse_label_mapping = {
+            i: label for label, i in self.label_mapping.items()
+        }
 
     def finalize(self, example, training=False):
         return {
             'example_id': example['example_id'],
             'log_mel': np.moveaxis(example['log_mel'], 1, 2).astype(np.float32),
+            'seq_len': example['seq_len'],
             self.label_key: example[self.label_key]
         }
 
@@ -221,7 +226,7 @@ def read_labels(dataset=None, key=None, filepath=None, verbose=False):
                     sort_keys=True, indent=4
                 )
             if verbose:
-                print(f'Saved moments to {filepath}')
+                print(f'Saved labels to {filepath}')
     return labels
 
 
@@ -303,6 +308,105 @@ def segment_axis(
         )
         assert x.shape[i]
     return signals
+
+
+def fragment_parallel_signals(
+        signals, axis, step, max_length, min_length=1, *,
+        random_start=False
+):
+    """
+
+    Args:
+        signals:
+        axis:
+        step:
+        max_length:
+        min_length:
+        random_start:
+
+    Returns:
+
+    >>> signals = [np.arange(20).reshape((2, 10)), np.arange(10).reshape((2, 5))]
+    >>> from pprint import pprint
+    >>> pprint(fragment_parallel_signals(signals, axis=1, step=[4, 2], max_length=[4, 2]))
+    [[array([[ 0,  1,  2,  3],
+           [10, 11, 12, 13]]),
+      array([[ 4,  5,  6,  7],
+           [14, 15, 16, 17]]),
+      array([[ 8,  9],
+           [18, 19]])],
+     [array([[0, 1],
+           [5, 6]]),
+      array([[2, 3],
+           [7, 8]]),
+      array([[4],
+           [9]])]]
+    >>> pprint(fragment_parallel_signals(\
+        signals, axis=1, step=[4, 2], max_length=[4, 2], min_length=[4, 2]\
+    ))
+    [[array([[ 0,  1,  2,  3],
+           [10, 11, 12, 13]]),
+      array([[ 4,  5,  6,  7],
+           [14, 15, 16, 17]])],
+     [array([[0, 1],
+           [5, 6]]), array([[2, 3],
+           [7, 8]])]]
+    """
+    axis = to_list(axis, len(signals))
+    step = to_list(step, len(signals))
+    max_length = to_list(max_length, len(signals))
+    min_length = to_list(min_length, len(signals))
+
+    # get random start
+    if random_start:
+        start = np.random.rand()
+
+        # find max start such that at least one segment is obtained
+        max_start = 1.
+        for i in range(len(signals)):
+            # get nested structure and cast to dict
+            max_start = max(
+                min(
+                    max_start,
+                    (signals[i].shape[axis[i]] - max_length[i]) / step[i]
+                ),
+                0.
+            )
+        start *= max_start
+
+        # adjust start to match an integer index for all keys
+        for i in range(len(signals)):
+            start = int(start*step[i]) / step[i]
+    else:
+        start = 0.
+
+    fragmented_signals = []
+    for i in range(len(signals)):
+        x = signals[i]
+        ax = axis[i]
+        assert ax < x.ndim, (ax, x.ndim)
+        min_len = min_length[i]
+        max_len = max_length[i]
+        assert max_len >= min_len
+
+        def get_slice(start, stop):
+            slc = [slice(None)] * x.ndim
+            slc[ax] = slice(int(start), int(stop))
+            return tuple(slc)
+
+        start_idx = round(start * step[i])
+        assert abs(start_idx - start * step[i]) < 1e-6, (start_idx, start*step[i])
+        fragments = [x[get_slice(0, start_idx)]] if start_idx >= min_len \
+            else []
+        fragments += [
+            x[get_slice(idx, idx+max_len)]
+            for idx in range(
+                start_idx, x.shape[ax] - min_len + 1, step[i]
+            )
+        ]
+        fragmented_signals.append(fragments)
+    assert len(set([len(sig) for sig in fragmented_signals])) == 1
+    return fragmented_signals
 
 
 class Collate:

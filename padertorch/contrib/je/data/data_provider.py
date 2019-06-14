@@ -9,7 +9,8 @@ class DataProvider(Configurable):
             self,
             transform=None,
             prefetch_buffer=None, max_workers=8,
-            shuffle_buffer=None, batch_size=None
+            shuffle_buffer=None, batch_size=None, bucketing_key='seq_len',
+            max_padding_rate=None, max_total_size=None, bucket_expiration=None
     ):
         self.transform = transform
         self.prefetch_buffer = prefetch_buffer
@@ -17,24 +18,34 @@ class DataProvider(Configurable):
             else min(prefetch_buffer, max_workers)
         self.shuffle_buffer = shuffle_buffer
         self.batch_size = batch_size
+        self.bucketing_key = bucketing_key
+        self.max_padding_rate = max_padding_rate
+        self.max_total_size = max_total_size
+        self.bucket_expiration = bucket_expiration
 
     def prepare_iterable(
             self,
             dataset,
+            transform=True,
             training=False,
             shuffle=True,
             prefetch=True,
             fragment=False,
-            batch=True
+            reps=1,
+            batch=True,
+            drop_incomplete=False
     ):
-        if self.transform is not None:
+        if transform and self.transform is not None:
             dataset = dataset.map(partial(self.transform, training=training))
 
         if shuffle:
             dataset = dataset.shuffle(reshuffle=True)
 
         if prefetch and self.prefetch_buffer and self.num_workers:
-            dataset = dataset.prefetch(self.num_workers, self.prefetch_buffer)
+            dataset = dataset.prefetch(
+                self.num_workers, self.prefetch_buffer,
+                catch_filter_exception=True
+            )
 
         if fragment:
             dataset = dataset.unbatch()
@@ -43,20 +54,53 @@ class DataProvider(Configurable):
                     reshuffle=True, buffer_size=self.shuffle_buffer
                 )
 
+        assert reps > 0
+        if reps > 1:
+            dataset = dataset.tile(reps)
         if batch:
-            dataset = dataset.batch(self.batch_size)
+            if self.max_padding_rate is not None:
+                dataset = dataset.batch_bucket_dynamic(
+                    batch_size=self.batch_size,
+                    key=self.bucketing_key,
+                    max_padding_rate=self.max_padding_rate,
+                    max_total_size=self.max_total_size,
+                    expiration=self.bucket_expiration,
+                    drop_incomplete=drop_incomplete,
+                    sort_by_key=True
+                )
+            else:
+                dataset = dataset.batch(self.batch_size)
+
             dataset = dataset.map(Collate())
 
         return dataset
 
 
-def split_dataset(dataset, splits, seed):
-    splits = np.cumsum(splits)
-    assert splits[-1] <= 1.
-    splits = (splits*len(dataset)).astype(np.int64).tolist()
+def split_dataset(dataset, fold, nfolfds=5, seed=0):
+    """
+
+    Args:
+        dataset:
+        fold:
+        nfolfds:
+        seed:
+
+    Returns:
+
+    >>> split_dataset(np.array([1,2,3,4,5]), 0, nfolfds=2)
+    [array([1, 3]), array([2, 4, 5])]
+    >>> split_dataset(np.array([1,2,3,4,5]), 1, nfolfds=2)
+    [array([1, 3]), array([2, 4, 5])]
+    """
     indices = np.arange(len(dataset))
     np.random.RandomState(seed).shuffle(indices)
-    split_indices = np.split(indices, splits)
-    return (
-        dataset[sorted(indices.tolist())] for indices in split_indices
+    folds = np.split(
+        indices,
+        np.linspace(0, len(dataset), nfolfds + 1)[1:-1].astype(np.int64)
     )
+    validation_indices = folds.pop(fold)
+    training_indices = np.concatenate(folds)
+    return [
+        dataset[sorted(indices.tolist())]
+        for indices in (training_indices, validation_indices)
+    ]

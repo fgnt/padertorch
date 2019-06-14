@@ -348,10 +348,6 @@ class _Conv(Module):
         return y
 
     def get_out_shape(self, in_shape):
-        if self.is_2d:
-            assert len(in_shape) == 2
-        else:
-            assert len(in_shape) == 1
         if self.is_transpose:
             raise NotImplementedError
         else:
@@ -842,6 +838,11 @@ class HybridCNN(Module):
         transpose_config['cnn_transpose_1d'] = config['cnn_1d']['factory'].get_transpose_config(config['cnn_1d'])
         transpose_config['cnn_transpose_2d'] = config['cnn_2d']['factory'].get_transpose_config(config['cnn_2d'])
         return transpose_config
+
+    def get_out_shape(self, in_shape):
+        out_shape = self.cnn_2d.get_out_shape(in_shape)
+        out_shape = self.cnn_1d.get_out_shape(out_shape[..., -1])
+        return out_shape
 
 
 class HybridCNNTranspose(Module):
