@@ -116,6 +116,18 @@ class TriggeredHook(Hook):
 
 
 class SummaryHook(TriggeredHook):
+    """
+    Responsible to write a summary in the tfevents file.
+    The tfevents can be visualised in the tensorboard.
+
+    The summary consists of the returned scalars, images, audios, etc of the
+    training that are returned by the model review function.
+    Note: It does not contain the learned model parameters, they are saved at
+    the checkpoints.
+
+    To save results of the validation refer to ValidationHook.
+    """
+
     def __init__(
             self,
             trigger,
@@ -337,6 +349,15 @@ class SimpleCheckpointHook(TriggeredHook):
 
 
 class ValidationHook(SummaryHook):
+    """
+    Responsible to do the validation and write its results into the
+    tfevents file. The tfevents can be visualised in the tensorboard.
+
+    The saved data consists of the returned scalars, images, audios, etc
+    of the validation that are returned from the model review function.
+    Note: It does not contain the learned model parameters, they are save at
+    the checkpoints.
+    """
     def __init__(self, trigger, iterator, writer):
         super().__init__(trigger, summary_prefix='validation',
                          writer=writer)

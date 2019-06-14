@@ -67,7 +67,9 @@ class Trainer(Configurable):
             loss_weights: dict of weights for model with multiple losses
             summary_trigger: `pytorch.train.trigger.IntervalTrigger` object
                 or tuple describing the interval when summaries
-                are written to event files
+                are written to event files.
+                See padertorch.train.hooks.SummaryHook for a description what a
+                summary is.
             checkpoint_trigger: `padertorch.train.trigger.IntervalTrigger`
                 object or tuple describing the interval when checkpoints
                 are saved

@@ -117,7 +117,7 @@ def get_train_iterator(database: pb.database.JsonDatabase):
     audio_reader = pb.database.iterator.AudioReader(audio_keys=[
         K.OBSERVATION, K.NOISE_IMAGE, K.SPEECH_IMAGE
     ])
-    train_iterator = database.get_iterator_by_names(database.datasets_train)
+    train_iterator = database.get_dataset(database.datasets_train)
     return train_iterator.map(audio_reader)\
         .map(change_example_structure)\
         .prefetch(num_workers=4, buffer_size=4)
