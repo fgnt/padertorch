@@ -92,6 +92,8 @@ class Transform:
 
     def extract_features(self, example, training=False):
         audio = example["audio_data"]
+        if isinstance(audio, dict):
+            audio = audio['observation']
         stft = self.stft(audio)
         spec = stft.real**2 + stft.imag**2
         example["log_mel"] = self.mel_transform(spec)

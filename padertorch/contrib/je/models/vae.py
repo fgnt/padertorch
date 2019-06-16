@@ -1,16 +1,18 @@
 import numpy as np
 import torch
 import torch.distributions as D
-from paderbox.utils.nested import nested_update
-from padertorch.base import Model
-from padertorch.contrib.je.modules.conv import HybridCNN, HybridCNNTranspose, CNN2d, CNN1d
+from padertorch.base import Model, Module
+from padertorch.contrib.je.modules.conv import HybridCNN, HybridCNNTranspose, CNN2d, CNN1d, MultiScaleCNN1d
 from padertorch.ops.losses.loss import kl_divergence
 from torch import nn
+from torchvision.utils import make_grid
+from sklearn import metrics
 
 
 class VAE(Model):
     """
     >>> config = VAE.get_config(dict(\
+            feature_key='log_mel',\
             encoder=dict(\
                 input_size=80,\
                 cnn_2d=dict(\
@@ -22,7 +24,7 @@ class VAE(Model):
                 ),\
                 return_pool_data=True\
             ),\
-            latent_model=dict(factory=StandardNormal, feature_size=16)\
+            decoder=dict(cnn_transpose_1d=dict(in_channels=16))\
         ))
     >>> config['encoder']['cnn_1d']['in_channels']
     2560
@@ -31,163 +33,131 @@ class VAE(Model):
     >>> config['decoder']['cnn_transpose_1d']['in_channels']
     16
     >>> vae = VAE.from_config(config)
-    >>> inputs = {'mel_spectrogram': torch.zeros((4, 1, 80, 100))}
+    >>> inputs = {'log_mel': torch.zeros((4, 1, 80, 100))}
     >>> outputs = vae(inputs)
     >>> outputs[0].shape
     torch.Size([4, 1, 80, 100])
     >>> outputs[1][0].shape
-    torch.Size([4, 100, 16])
+    torch.Size([4, 16, 100])
     >>> outputs[1][1].shape
-    torch.Size([4, 100])
-    >>> outputs[2][0].shape
-    torch.Size([4, 100, 16])
-    >>> outputs[2][1].shape
-    torch.Size([4, 100, 16])
+    torch.Size([4, 16, 100])
     >>> review = vae.review(inputs, outputs)
     """
     def __init__(
             self, encoder: HybridCNN, decoder: HybridCNNTranspose,
-            latent_model, feature_key="mel_spectrogram", target_key=None,
-            label_key=None
+            feature_key, target_key=None
     ):
         super().__init__()
         # allow joint optimization of encoder and decoder
-        self.coders = nn.ModuleDict(dict(enc=encoder, dec=decoder))
-        self.latent_model = latent_model
+        self.encoder = encoder
+        self.decoder = decoder
         self.feature_key = feature_key
         self.target_key = feature_key if target_key is None \
             else self.target_key
-        self.label_key = label_key
+        self.n_params = 2
 
     def encode(self, inputs):
-        x = inputs[self.feature_key]  # (B, C, F, T)
-        assert self.coders["enc"].return_pool_data
-        h, pool_indices, shapes = self.coders["enc"](x)
-        assert pool_indices[-1][-1] is None, 'No pooling in output layer allowed'
-        h = h.transpose(1, 2)  # (B, 2D, T) -> (B, T, 2D)
-        latent_in = {'params': tuple(
-            torch.split(h, self.latent_model.feature_size, dim=-1)  # [\mu, log(\sigma^2)]
-        )}
-        if self.label_key is not None:
-            # add labels
-            latent_in["labels"] = inputs[self.label_key]
-        latent_out = list(self.latent_model(latent_in))
-        return latent_out, latent_in, pool_indices, shapes
+        x = inputs[self.feature_key]
+        if self.encoder.return_pool_data:
+            h, pool_indices, shapes = self.encoder(x)
+            assert (
+                pool_indices[-1][-1] is None
+                if isinstance(self.encoder, HybridCNN)
+                else pool_indices[-1] is None
+            ), 'No pooling in output layer allowed'
+        else:
+            h = self.encoder(x)
+            pool_indices = shapes = None
+        assert not h.shape[1] % self.n_params
+        params = tuple(torch.split(h, h.shape[1] // self.n_params, dim=1))
+        return params, pool_indices, shapes
 
-    def decode(self, z, pool_indices=None, out_shapes=None):
-        z = z.transpose(1, 2)  # (B, T, D) -> (B, D, T)
-        x_hat = self.coders["dec"](
-            z, pool_indices=pool_indices, out_shapes=out_shapes
+    def reparameterize(self, params):
+        mu, logvar = params[:2]
+        if self.training:
+            std = torch.exp(0.5 * logvar)
+            eps = torch.randn_like(std)
+            return eps.mul(std).add_(mu)
+        else:
+            return mu
+
+    def decode(self, z, pool_indices=None, shapes=None):
+        x_hat = self.decoder(
+            z, pool_indices=pool_indices, out_shapes=shapes
         )
         return x_hat  # (B, C, F, T)
 
     def forward(self, inputs):
-        latent_out, latent_in, pool_indices, shapes = self.encode(inputs)
+        params, pool_indices, shapes = self.encode(inputs)
+        z = self.reparameterize(params)
         x_hat = self.decode(
-            latent_out[0],
-            pool_indices=pool_indices,
-            out_shapes=shapes
+            z, pool_indices=pool_indices, shapes=shapes
         )
-        return x_hat, latent_out, latent_in
+        return x_hat, params
 
     def review(self, inputs, outputs):
         # visualization
         x = inputs[self.target_key]
-        x_hat, latent_out, latent_in = outputs
-        mse = (x - x_hat).pow(2).sum(dim=(1, 2))
-        z = latent_out[0].transpose(1, 2).contiguous()  # (B, T, D) -> (B, D, T)
+        x_hat, params, *_ = outputs
+        (mu, log_var) = params[:2]
+        mse = (x - x_hat).pow(2).sum(dim=((1, 2) if x.dim() == 4 else 1))
+        kld = -0.5 * (1 + log_var - mu.pow(2) - log_var.exp()).sum(dim=1)
         x_hat = x_hat.contiguous()
+        mu = mu.contiguous()
         review = dict(
             losses=dict(
                 mse=mse.mean(),
+                kld=kld.mean()
             ),
             histograms=dict(
                 mse_=mse,
+                kld_=kld.flatten(),
+                mu_=mu.flatten(),
+                log_var_=log_var.flatten()
             ),
             images=dict(
-                targets=x[:3].view((1, -1, x.shape[-1])).flip(1),
-                latents=z[:3].view((1, -1, z.shape[-1])).flip(1),
-                reconstructions=x_hat[:3].view((1, -1, x_hat.shape[-1])).flip(1)
+                targets=x[:3],
+                latents=mu[:3],
+                reconstructions=x_hat[:3]
             )
         )
-        if self.latent_model is not None:
-            nested_update(
-                review,
-                self.latent_model.review(latent_in, latent_out)
-            )
         return review
 
     def modify_summary(self, summary):
-        # normalize images
-        for image in summary['images'].values():
-            image -= image.min()
-            image /= image.max()
+        summary = super().modify_summary(summary)
+        for key, image in summary['images'].items():
+            if image.dim() == 3:
+                image = image.unsqueeze(1)
+            summary['images'][key] = make_grid(
+                image.flip(2),  normalize=True, scale_each=False, nrow=1
+            )
         return summary
 
     @classmethod
     def finalize_dogmatic_config(cls, config):
-        config['encoder'] = {
-            'factory': HybridCNN,
-            'cnn_2d': {'factory': CNN2d},
-            'cnn_1d': {
-                'factory': CNN1d,
-                'out_channels': 2*config['latent_model']['feature_size']
-            }
-        }
-        config['decoder'] = config['encoder']['factory'].get_transpose_config(
-            config['encoder']
-        )
-        config['decoder']['cnn_transpose_1d']['in_channels'] = \
-            config['latent_model']['feature_size']
-
-
-class StandardNormal(Model):
-    """
-    >>> sn = StandardNormal(pool_size=4)
-    >>> mean, logvar, logrho, indices = sn.process(torch.ones(3,4,5), torch.zeros(3,4,5), torch.randn(3,4,5))
-    >>> mean.shape, logvar.shape, logrho.shape, indices.shape
-    (torch.Size([3, 4, 5]), torch.Size([3, 4, 5]), torch.Size([3, 1]), torch.Size([3, 1]))
-    """
-
-    def __init__(self, feature_size):
-        super().__init__()
-        self.feature_size = feature_size
-
-    def forward(self, inputs):
-        mean, log_var = inputs['params']
-        kld = -0.5 * (1 + log_var - mean.pow(2) - log_var.exp()).sum(dim=-1)
-        return self.sample(mean, log_var), kld
-
-    def sample(self, mean, log_var):
-        if self.training:
-            qz = D.Normal(loc=mean, scale=torch.exp(0.5 * log_var))
-            z = qz.rsample()
-        else:
-            z = mean
-        return z
-
-    def review(self, inputs, outputs):
-        mean, log_var = inputs['params']
-        _, kld = outputs
-        return dict(
-            losses=dict(
-                kld=kld.mean()
-            ),
-            histograms=dict(
-                mean_=mean.flatten(),
-                log_var_=log_var.flatten(),
-                kld_=kld.flatten()
-            )
+        config['encoder']['factory'] = HybridCNN
+        if config['encoder']['factory'] == HybridCNN:
+            config['encoder'].update({
+                'cnn_2d': {'factory': CNN2d},
+                'cnn_1d': {
+                    'factory': CNN1d,
+                    'out_channels': 2*config['decoder']['cnn_transpose_1d']['in_channels']
+                }
+            })
+        if config['encoder']['factory'] in (CNN1d, MultiScaleCNN1d):
+            config['encoder']['out_channels'] = 2 * config['decoder']['in_channels']
+        config['decoder'].update(
+            config['encoder']['factory'].get_transpose_config(config['encoder'])
         )
 
 
-class GMM(StandardNormal):
+class GMM(Module):
     def __init__(
             self, feature_size, num_classes,
             covariance_type='full', class_temperature=1.,
             loc_init_std=1.0, scale_init_std=1.0, supervised=False
     ):
-        super(Model, self).__init__()
+        super().__init__()
         self.feature_size = feature_size
         self.num_classes = num_classes
         self.covariance_type = covariance_type
@@ -255,67 +225,161 @@ class GMM(StandardNormal):
                 scale=self.scales * + 0.1
             )
 
-    def forward(self, inputs):
-        mean, log_var = inputs['params']
-        class_labels = inputs["labels"] if self.supervised else None
-
-        qz = D.Normal(loc=mean, scale=torch.exp(0.5 * log_var))
-
+    def forward(self, mu, log_var):
+        qz = D.Normal(
+            loc=mu.permute((0, 2, 1)),
+            scale=torch.exp(0.5 * log_var.permute((0, 2, 1)))
+        )
         kld = kl_divergence(qz, self.gaussians)
         log_class_posterior = torch.log_softmax(
             (self.log_class_probs - kld) / max(self.class_temperature, 1e-2),
             dim=-1
         )
-        class_posterior = log_class_posterior.exp().detach()
+        return log_class_posterior, kld
 
-        if class_labels is None and self.class_temperature < 1e-2:
+
+class GMMVAE(VAE):
+    """
+    >>> config = GMMVAE.get_config(dict(\
+            feature_key='log_mel',\
+            encoder=dict(\
+                input_size=80,\
+                cnn_2d=dict(\
+                    in_channels=1, hidden_channels=32, out_channels=32,\
+                    num_layers=3, kernel_size=3, \
+                ), \
+                cnn_1d=dict(\
+                    hidden_channels=32, num_layers=3, kernel_size=3\
+                ),\
+                return_pool_data=True\
+            ),\
+            decoder=dict(cnn_transpose_1d=dict(in_channels=16)),\
+            gmm=dict(num_classes=10)\
+        ))
+    >>> config['encoder']['cnn_1d']['in_channels']
+    2560
+    >>> config['encoder']['cnn_1d']['out_channels']
+    32
+    >>> config['decoder']['cnn_transpose_1d']['in_channels']
+    16
+    >>> gmmvae = GMMVAE.from_config(config)
+    >>> inputs = {'log_mel': torch.zeros((4, 1, 80, 100))}
+    >>> outputs = gmmvae(inputs)
+    >>> outputs[0].shape
+    torch.Size([4, 1, 80, 100])
+    >>> outputs[1][0].shape
+    torch.Size([4, 16, 100])
+    >>> outputs[1][1].shape
+    torch.Size([4, 16, 100])
+    >>> outputs[1][2].shape
+    torch.Size([4, 100, 10])
+    >>> outputs[1][3].shape
+    torch.Size([4, 100, 10])
+    >>> review = gmmvae.review(inputs, outputs)
+    """
+    def __init__(
+            self, encoder: HybridCNN, decoder: HybridCNNTranspose, gmm: GMM,
+            feature_key, target_key=None, label_key=None, supervised=False
+    ):
+        super().__init__(
+            encoder=encoder, decoder=decoder,
+            feature_key=feature_key, target_key=target_key
+        )
+        self.gmm = gmm
+        self.label_key = label_key
+        self.supervised = supervised
+
+    def encode(self, inputs):
+        params, pool_indices, shapes = super().encode(inputs)
+        params = (*params, *self.gmm(*params))
+        return params, pool_indices, shapes
+
+    def review(self, inputs, outputs):
+        review = super().review(inputs, outputs)
+        class_labels = inputs[self.label_key] if self.supervised else None
+
+        log_class_posterior, kld = outputs[1][2:]
+        class_posterior = log_class_posterior.exp().detach()
+        if class_labels is None and self.gmm.class_temperature < 1e-2:
             class_labels = torch.argmax(log_class_posterior, dim=-1)
         if class_labels is None:
             kld = (class_posterior * kld).sum(-1)
-            class_ce = -(class_posterior * self.log_class_probs).sum(-1)
+            class_ce = -(class_posterior * self.gmm.log_class_probs).sum(-1)
         else:
             while class_labels.dim() < 2:
                 class_labels = class_labels[..., None]
             class_labels = class_labels.expand(kld.shape[:-1])
             kld = kld.gather(-1, class_labels[..., None]).squeeze(-1)
-            class_ce = -self.log_class_probs[class_labels]
+            class_ce = -self.gmm.log_class_probs[class_labels]
 
-        z = self.sample(mean, log_var)
-        return z, kld, class_ce, log_class_posterior
-
-    def review(self, inputs, outputs):
-        _, kld, class_ce, log_class_posterior = outputs
-        max_class_posterior_, classes_ = torch.max(
+        max_class_posterior, classes = torch.max(
             torch.exp(log_class_posterior), -1
         )
-        mean, log_var = inputs['params']
-        return dict(
-            losses=dict(
-                kld=kld.mean(),
-                class_ce=class_ce.mean(),
-                log_class_prob=self.log_class_probs.sum()
-            ),
-            scalars=dict(
-                class_temperature=self.class_temperature
-            ),
-            histograms=dict(
-                kld_=kld.flatten(),
-                log_class_probs_=self.log_class_probs.flatten(),
-                max_class_posterior_=max_class_posterior_.flatten(),
-                classes_=classes_.flatten(),
-                mean_=mean.flatten(),
-                log_var_=log_var.flatten(),
-            )
+        review['losses'].update(dict(
+            kld=kld.mean(),
+            class_ce=class_ce.mean(),
+            log_class_prob=self.gmm.log_class_probs.sum()
+        ))
+        review['scalars'] = dict(
+            class_temperature=self.gmm.class_temperature,
         )
+        if self.label_key is not None:
+            labels = inputs[self.label_key]
+            review['scalars'].update(dict(
+                class_temperature=self.gmm.class_temperature,
+                classes=classes.flatten(),
+                labels=labels.flatten()
+            ))
+        review['histograms'].update(dict(
+            kld_=kld.flatten(),
+            log_class_probs_=self.gmm.log_class_probs.flatten(),
+            max_class_posterior_=max_class_posterior.flatten(),
+            classes_=classes.flatten()
+        ))
+        return review
+
+    def modify_summary(self, summary):
+        predictions = summary['scalars'].pop('classes', None)
+        labels = summary['scalars'].pop('labels', None)
+        if predictions is not None and labels is not None:
+            _, labels = np.unique(labels, return_inverse=True)
+            _, predictions = np.unique(predictions, return_inverse=True)
+            if len(labels) < len(predictions):
+                nframes = len(predictions) / len(labels)
+                assert int(nframes) == nframes
+                nframes = int(nframes)
+            else:
+                nframes = 1
+            contingency_matrix = metrics.cluster.contingency_matrix(
+                np.repeat(labels, nframes), predictions
+            )
+            ncm = contingency_matrix / np.sum(contingency_matrix, axis=0)
+            label_probs = ncm[:, predictions.reshape((-1, nframes))]
+            predictions = np.argmax(np.max(label_probs, axis=-1), axis=0)
+            summary['scalars']['accuracy'] = np.mean(predictions == labels)
+            summary['scalars']['fscore'] = metrics.f1_score(
+                labels, predictions, average='macro'
+            )
+        summary = super().modify_summary(summary)
+        return summary
+
+    @classmethod
+    def finalize_dogmatic_config(cls, config):
+        super().finalize_dogmatic_config(config)
+        config['gmm'] = {
+            'factory': GMM,
+            'feature_size': config['decoder']['cnn_transpose_1d']['in_channels']
+        }
 
 
-class HGMM(StandardNormal):
+# ToDo:
+class HGMM(Module):
     def __init__(
             self, feature_size, num_scenes, num_events,
             covariance_type='full', event_temperature=1., scene_temperature=1.,
             loc_init_std=1.0, scale_init_std=1.0, supervised=False
     ):
-        super(Model, self).__init__()
+        super().__init__()
         self.feature_size = feature_size
         self.num_scenes = num_scenes
         self.num_events = num_events
@@ -489,10 +553,14 @@ class HGMM(StandardNormal):
             _, kld, event_ce, scene_ce,
             log_event_posterior, log_scene_posterior, log_class_posterior
         ) = outputs
-        max_class_posterior_, classes_ = torch.max(
+        max_scene_posterior, scenes = torch.max(
+            torch.exp(log_scene_posterior), -1
+        )
+        max_class_posterior, classes = torch.max(
             torch.exp(log_class_posterior), -1
         )
         mean, log_var = inputs['params']
+        labels = inputs['labels']
         return dict(
             losses=dict(
                 kld=kld.mean(),
@@ -503,27 +571,53 @@ class HGMM(StandardNormal):
             ),
             scalars=dict(
                 scene_temperature=self.scene_temperature,
-                event_temperature=self.event_temperature
+                event_temperature=self.event_temperature,
+                scenes=scenes.flatten(),
+                labels=None if labels is None else labels.flatten(),
             ),
             histograms=dict(
                 kld_=kld.flatten(),
                 log_scene_probs_=self.log_scene_probs.flatten(),
                 log_event_probs_=self.log_event_probs.flatten(),
-                max_class_posterior_=max_class_posterior_.flatten(),
-                classes_=classes_.flatten(),
+                max_class_posterior_=max_class_posterior.flatten(),
+                classes_=classes.flatten(),
+                max_scene_posterior_=max_scene_posterior.flatten(),
+                scenes_=scenes.flatten(),
                 mean_=mean.flatten(),
                 log_var_=log_var.flatten(),
             )
         )
 
+    def modify_summary(self, summary):
+        predictions = summary['scalars'].pop('scenes', None)
+        labels = summary['scalars'].pop('labels', None)
+        if predictions is not None and labels is not None:
+            predictions = np.array(predictions)
+            labels = np.array(labels)
+            if not self.supervised:
+                _, labels = np.unique(labels, return_inverse=True)
+                _, predictions = np.unique(predictions, return_inverse=True)
+                summary['scalars']['v_measure'] = metrics.v_measure_score(
+                    labels, predictions
+                )
+                contingency_matrix = metrics.cluster.contingency_matrix(
+                    labels, predictions
+                )
+                mapping = np.argmax(contingency_matrix, axis=0)
+                predictions = mapping[predictions]
+            summary['scalars']['accuracy'] = np.mean(predictions == labels)
+            summary['scalars']['fscore'] = metrics.f1_score(
+                labels, predictions, average='macro'
+            )
+        return summary
 
-# ToDo:
-class FBGMM(StandardNormal):
+
+class FBGMM(Module):
     def __init__(
             self, feature_size, num_classes, init_std=1.0,
             alpha_0=0.1, dataset_size=1000, pool_size=None
     ):
-        super(Model, self).__init__()
+        super().__init__()
         self.feature_size = feature_size
         self.num_classes = num_classes
         self.dataset_size = dataset_size

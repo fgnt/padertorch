@@ -591,7 +591,7 @@ class _MultiScaleConv(Module):
             else Pad(side='both')(y_, size=[-t for t in tail])
             for y_, tail in zip(y, tails)
         ]
-        y = self.out(torch.cat(y, dim=1))
+        y = self.out(torch.cat(tuple(y), dim=1))
         if self.residual and y.shape == x.shape:
             y = y + x
         if self.norm is not None:
