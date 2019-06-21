@@ -4,12 +4,13 @@ from paderbox.evaluation.event_detection import positive_class_precisions, \
     lwlrap_from_precisions
 from padertorch.base import Module, Model
 from padertorch.contrib.je.modules.attention import Transformer
-from padertorch.contrib.je.modules.conv import CNN1d, HybridCNN
+from padertorch.contrib.je.modules.conv import CNN2d, CNN1d, HybridCNN
 from padertorch.modules.fully_connected import fully_connected_stack
 from padertorch.utils import to_list
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torchvision.utils import make_grid
+from einops import rearrange
 
 
 class HybridNet(Module):
@@ -51,18 +52,22 @@ class HybridNet(Module):
         if self.cnn is not None:
             x = self.cnn(x)
             if seq_len is not None:
-                seq_len = self.cnn.get_out_shape([
+                in_shape = [
                     (1024 if self.input_size is None else self.input_size, n)
                     for n in seq_len
-                ])
+                ] if isinstance(self.cnn, (HybridCNN, CNN2d)) else seq_len
+                out_shape = self.cnn.get_out_shape(in_shape)
+                seq_len = [s[-1] for s in out_shape] if isinstance(self.cnn, CNN2d) else out_shape
+            if isinstance(self.cnn, CNN2d):
+                x = rearrange(x, 'b c f t -> b (c f) t')
         assert x.dim() == 3  # (B, F, T)
         if self.enc is None:
-            x = x.transpose(1, 2)
+            x = rearrange(x, 'b f t -> b t f')
         elif isinstance(self.enc, nn.RNNBase):
             if self.enc.batch_first:
-                x = x.transpose(1, 2)
+                x = rearrange(x, 'b f t -> b t f')
             else:
-                x = x.permute((2, 0, 1))
+                x = rearrange(x, 'b f t -> t b f')
             if seq_len is not None:
                 x = pack_padded_sequence(
                     x, seq_len, batch_first=self.enc.batch_first
@@ -71,7 +76,7 @@ class HybridNet(Module):
             if seq_len is not None:
                 x = pad_packed_sequence(x, batch_first=self.enc.batch_first)[0]
             if not self.enc.batch_first:
-                x = x.transpose(1, 0)
+                x = rearrange(x, 't b f -> b t f')
         # elif isinstance(self.enc, Transformer):
         #     x = self.enc(x.transpose(1, 2))
         else:
@@ -84,18 +89,21 @@ class HybridNet(Module):
 
     @classmethod
     def finalize_dogmatic_config(cls, config):
-        config['cnn'] = {
-            'factory': HybridCNN,
-            'input_size': config['input_size']
-        }
+        config['cnn'] = {'factory': HybridCNN}
         config['enc'] = {'factory': nn.GRU}
         config['fcn'] = {'factory': fully_connected_stack}
         input_size = config['input_size']
         if config['cnn'] is not None and input_size is not None:
             if config['cnn']['factory'] == CNN1d:
-                input_size = config['cnn']['out_channels']
+                config['cnn']['in_channels'] = input_size
+                input_size = config['cnn']['out_channels'] \
+                    if config['cnn']['out_channels'] is not None \
+                    else to_list(config['cnn']['hidden_channels'])[-1]
             elif config['cnn']['factory'] == HybridCNN:
-                input_size = config['cnn']['cnn_1d']['out_channels']
+                config['cnn']['input_size'] = input_size
+                input_size = config['cnn']['cnn_1d']['out_channels'] \
+                    if config['cnn']['cnn_1d']['out_channels'] is not None \
+                    else to_list(config['cnn']['cnn_1d']['hidden_channels'])[-1]
             else:
                 raise ValueError
 
@@ -165,31 +173,41 @@ class MultinomialClassifier(HybridNet, Model):
         )
 
     def review(self, inputs, outputs):
-        x = inputs[self.feature_key]
-        targets = inputs[self.label_key]
+        labels = inputs[self.label_key]
         logits = outputs
-        predictions = torch.argmax(outputs, dim=-1)
         if logits.dim() == 3:
-            if targets.dim() == 1:
-                targets = targets.unsqueeze(1).expand(logits.shape[:-1])
-            logits = logits.permute((0, 2, 1))
-        ce = torch.nn.CrossEntropyLoss(reduction='none')(logits, targets)
-        accuracy = (targets == predictions).float().mean()
+            if labels.dim() == 1:
+                labels = labels.unsqueeze(1).expand(logits.shape[:-1])
+            logits = outputs.contiguous().view((-1, logits.shape[-1]))
+            labels = labels.contiguous().flatten()
+        ce = torch.nn.CrossEntropyLoss(reduction='none')(logits, labels)
         summary = dict(
             loss=ce.mean(),
-            scalars=dict(accuracy=accuracy),
-            histograms=dict(predictions=predictions),
+            scalars=dict(
+                labels=labels,
+                predictions=torch.argmax(logits, dim=-1)
+            ),
             images=dict(
-                features=x[:3]
+                features=inputs[self.feature_key][:3]
             )
         )
         return summary
 
     def modify_summary(self, summary):
+        if 'labels' in summary['scalars']:
+            labels = summary['scalars'].pop('labels')
+            predictions = summary['scalars'].pop('predictions')
+            summary['scalars']['accuracy'] = (
+                    np.array(predictions) == np.array(labels)
+            ).mean()
         summary = super().modify_summary(summary)
         for key, image in summary['images'].items():
+            if image.dim() == 4 and image.shape[1] > 1:
+                image = image[:, 0]
+            if image.dim() == 3:
+                image = image.unsqueeze(1)
             summary['images'][key] = make_grid(
-                image.flip(1),  normalize=True, scale_each=False, nrow=1
+                image.flip(2),  normalize=True, scale_each=False, nrow=1
             )
         return summary
 
@@ -251,7 +269,6 @@ class BinaryClassifier(HybridNet, Model):
 
     def review(self, inputs, outputs):
         # compute loss
-        x = inputs[self.feature_key]
         targets = inputs[self.label_key]
         if outputs.dim() == 3:  # (B, T, K)
             if targets.dim() == 2:   # (B, K)
@@ -272,7 +289,7 @@ class BinaryClassifier(HybridNet, Model):
                 label_ranked_precisions=label_ranked_precisions
             ),
             images=dict(
-                features=x[:3]
+                features=inputs[self.feature_key][:3]
             )
         )
         for boundary in to_list(self.decision_boundary):
@@ -321,8 +338,12 @@ class BinaryClassifier(HybridNet, Model):
 
         summary = super().modify_summary(summary)
         for key, image in summary['images'].items():
+            if image.dim() == 4 and image.shape[1] > 1:
+                image = image[:, 0]
+            if image.dim() == 3:
+                image = image.unsqueeze(1)
             summary['images'][key] = make_grid(
-                image.flip(1),  normalize=True, scale_each=False, nrow=1
+                image.flip(2),  normalize=True, scale_each=False, nrow=1
             )
         return summary
 

@@ -8,6 +8,7 @@ from padertorch.ops.mappings import ACTIVATION_FN_MAP
 from padertorch.utils import to_list
 from torch import nn
 from copy import copy
+from einops import rearrange
 
 
 class Pad(Module):
@@ -803,7 +804,7 @@ class HybridCNN(Module):
         x = self.cnn_2d(x)
         if self.return_pool_data:
             x, pool_indices_2d, shapes_2d = x
-        x = x.view((x.shape[0], -1, x.shape[-1]))
+        x = rearrange(x, 'b c f t -> b (c f) t')
         x = self.cnn_1d(x)
         if self.return_pool_data:
             x, pool_indices_1d, shapes_1d = x

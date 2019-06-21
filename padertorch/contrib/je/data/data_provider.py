@@ -58,7 +58,7 @@ class DataProvider(Configurable):
         if reps > 1:
             dataset = dataset.tile(reps)
         if batch:
-            if self.max_padding_rate is not None:
+            if self.bucketing_key:
                 dataset = dataset.batch_bucket_dynamic(
                     batch_size=self.batch_size,
                     key=self.bucketing_key,

@@ -96,13 +96,13 @@ class Transform:
             audio = audio['observation']
         stft = self.stft(audio)
         spec = stft.real**2 + stft.imag**2
-        example["log_mel"] = self.mel_transform(spec)
-        example["seq_len"] = example["log_mel"].shape[1]
+        example["features"] = self.mel_transform(spec)
+        example["seq_len"] = example["features"].shape[1]
         return example
 
     def normalize(self, example):
         assert self.moments is not None
-        feature_key = 'log_mel'
+        feature_key = 'features'
         mean, scale = self.moments
         example[feature_key] -= mean
         example[feature_key] /= (scale + 1e-18)
@@ -117,7 +117,7 @@ class Transform:
             if max_workers > 0:
                 dataset = dataset.prefetch(max_workers, 2 * max_workers)
         self.moments = read_moments(
-            dataset, "log_mel", center_axis=(0, 1), scale_axis=(0, 1, 2),
+            dataset, "features", center_axis=1, scale_axis=(1, 2),
             filepath=filepath, verbose=True
         )
 
@@ -150,7 +150,7 @@ class Transform:
     def finalize(self, example, training=False):
         return {
             'example_id': example['example_id'],
-            'log_mel': np.moveaxis(example['log_mel'], 1, 2).astype(np.float32),
+            'features': np.moveaxis(example['features'], 1, 2).astype(np.float32),
             'seq_len': example['seq_len'],
             self.label_key: example[self.label_key]
         }
