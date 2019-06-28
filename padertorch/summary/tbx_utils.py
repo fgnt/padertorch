@@ -1,11 +1,9 @@
 import operator
 
 import numpy as np
-
 import torch
 
 from padertorch.utils import to_numpy
-
 
 __all__ = [
     'mask_to_image',
@@ -137,7 +135,9 @@ def review_dict(
         histograms:
             Dict of ???.
         audios:
-            Dict of ???.
+            Dict of either one dimensional numpy arrays with the raw audio data
+            with a sampling rate of 16k or tuples of length 2 with
+            (audio data, sampling rate).
         images:
             Dict of torch.Tensor with Shape(batch, features, frames, 1).
 
