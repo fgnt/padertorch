@@ -192,6 +192,7 @@ class Model(Module, Configurable, abc.ABC):
                 images: see tensorboardX documentation
                 audios: see tensorboardX documentation
                 figures: see tensorboardX documentation
+                texts: see tensorboardX documentation
 
 
         Hints:

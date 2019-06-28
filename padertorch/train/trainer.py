@@ -68,11 +68,13 @@ class Trainer(Configurable):
             summary_trigger: `pytorch.train.trigger.IntervalTrigger` object
                 or tuple describing the interval when summaries
                 are written to event files.
-                See padertorch.train.hooks.SummaryHook for a description what a
-                summary is.
+                See padertorch.train.hooks.SummaryHook for a description of
+                what a summary is.
             checkpoint_trigger: `padertorch.train.trigger.IntervalTrigger`
                 object or tuple describing the interval when checkpoints
-                are saved
+                are saved.
+                See padertorch.train.hooks.CheckpointedValidationHook for a
+                description of what happens on a checkpoint.
             keep_all_checkpoints: flag if False only latest and best
                 checkpoints are kept otherwise all checkpoints are kept
             max_trigger: `padertorch.train.trigger.EndTrigger` object
