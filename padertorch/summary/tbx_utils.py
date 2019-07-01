@@ -13,16 +13,16 @@ __all__ = [
 ]
 
 
-def _remove_batch_axis(array, batch_first):
-    if array.ndim == 2:
+def _remove_batch_axis(array, batch_first, ndim=2):
+    if array.ndim == ndim:
         pass
-    elif array.ndim == 3:
+    elif array.ndim == ndim + 1:
         if batch_first:
             array = array[0]
         else:
             array = array[:, 0]
     else:
-        raise ValueError('Either the signal has ndim 2 or 3',
+        raise ValueError(f'Either the signal has ndim {ndim} or {ndim + 1}',
                          array.shape)
     return array
 
@@ -106,6 +106,31 @@ def spectrogram_to_image(signal, batch_first=False, color='viridis'):
     else:
         # gray image
         return signal.transpose(1, 0)[None, ::-1, :]
+
+
+def audio(signal, sampling_rate: int = 16000, batch_first=False,
+          normalize=True):
+    """
+
+    Args:
+        signal: Shape (samples, batch [optional]). If `batch_first = True`,
+            (batch [optional], samples).
+        sampling_rate: Sampling rate of the audio signal
+        batch_first: If `True`, the optional batch dimension is assumed to be
+            the first axis, otherwise the second one.
+        normalize: If `True`, the signal is normalized to a max amplitude of
+            0.95 to prevent clipping
+    """
+    signal = to_numpy(signal, detach=True)
+
+    signal = _remove_batch_axis(signal, batch_first=batch_first, ndim=1)
+
+    # Normalize so that there is no clipping
+    if normalize:
+        signal /= np.max(np.abs(signal))
+        signal *= 0.95
+
+    return signal, sampling_rate
 
 
 def review_dict(
