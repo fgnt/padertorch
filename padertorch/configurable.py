@@ -1110,6 +1110,15 @@ class _DogmaticConfig:
                         f' a classmethod') from e
                 else:
                     raise
+            except RecursionError as e:
+                raise AssertionError(
+                    f'Did you tried to call `{class_to_str(factory)}.from_config(config)` in '
+                    f'`{class_to_str(factory)}.finalize_dogmatic_config`?\n'
+                    'This is theoretically impossible.\n'
+                    'You can try `cls.from_config({**config})`, this may not '
+                    'result in an RecursionError, but ignores the code below '
+                    'in the finalize_dogmatic_config.'
+                ) from e
 
         delta = set(self.data.keys()) - set(self._key_candidates())
 
