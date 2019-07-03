@@ -624,6 +624,39 @@ def class_to_str(cls):
         return f'{cls.__qualname__}'
 
 
+def recursive_class_to_str(config):
+    """
+    Ensures that all factory values are strings.
+
+    The config that is returned from a configurable already takes care, that
+    all factory values are strings. But when sacred overwrites a factory values
+    with a class and not the str, the config will contain a class instead of
+    the corresponding string.
+
+    Args:
+        config:
+
+    Returns: config where each factory value is a str.
+
+    """
+    # ToDo: Support tuple and list?
+    if isinstance(config, dict):
+
+        d = config.__class__()
+        for k, v in config.items():
+            if k == 'factory':
+                d[k] = class_to_str(v)
+            else:
+                d[k] = recursive_class_to_str(v)
+        return d
+    elif isinstance(config, (tuple, list)):
+        return config.__class__([
+            recursive_class_to_str(l) for l in config
+        ])
+    else:
+        return config
+
+
 def _split_factory_kwargs(config):
     kwargs = config.copy()
     factory = kwargs.pop('factory')
