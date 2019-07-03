@@ -188,11 +188,16 @@ class Model(Module, Configurable, abc.ABC):
                     Scalar objective. Only allowed when no losses is provided.
                     Otherwise it will be computed from losses.
                 scalars: dict of scalars for tensorboard
+                    logged as mean
                 histograms: see tensorboardX documentation
                 images: see tensorboardX documentation
+                    logged as snapshot
                 audios: see tensorboardX documentation
+                    logged as snapshot
                 figures: see tensorboardX documentation
+                    logged as snapshot
                 texts: see tensorboardX documentation
+                    logged as snapshot
 
 
         Hints:
