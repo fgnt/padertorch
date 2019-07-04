@@ -25,8 +25,8 @@ class Optimizer:
         )
         if self.swa_start is not None:
             from torchcontrib.optim import SWA
-            assert self.swa_freq is not None
-            assert self.swa_lr is not None
+            assert self.swa_freq is not None, self.swa_freq
+            assert self.swa_lr is not None, self.swa_lr
             self.optimizer = SWA(
                 self.optimizer, swa_start=self.swa_start,
                 swa_freq=self.swa_freq, swa_lr=self.swa_lr
@@ -78,9 +78,9 @@ class Optimizer:
             device = torch.device('cuda')
         return self.to(device)
 
-    def load_state_dict(self, key):
+    def load_state_dict(self, state_dict):
         self.check_if_set()
-        return self.optimizer.load_state_dict(key)
+        return self.optimizer.load_state_dict(state_dict)
 
     def state_dict(self):
         self.check_if_set()
