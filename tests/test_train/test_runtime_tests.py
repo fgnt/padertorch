@@ -99,6 +99,28 @@ def test_single_model_dir_unchanged():
             t.test_run(it_tr, it_dt)
 
 
+def test_lr_scheduler():
+    it_tr, it_dt = get_iterators()
+
+    config = pt.Trainer.get_config(
+        updates=pb.utils.nested.deflatten({
+            'model.factory': Model,
+            'lr_scheduler.factory': pt.train.optimizer.StepLR,
+            'storage_dir': None,  # will be overwritten
+            'max_trigger': None,  # will be overwritten
+        })
+    )
+
+    pt.train.runtime_tests.test_run_from_config(
+        config, it_tr, it_dt,
+        test_with_known_iterator_length=False,
+    )
+    pt.train.runtime_tests.test_run_from_config(
+        config, it_tr, it_dt,
+        test_with_known_iterator_length=True,
+    )
+
+
 class ZeroGradModel(pt.Model):
 
     def __init__(self):

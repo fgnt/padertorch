@@ -217,3 +217,77 @@ def _get_momenta(module, momenta):
 def _set_momenta(module, momenta):
     if issubclass(module.__class__, torch.nn.modules.batchnorm._BatchNorm):
         module.momentum = momenta[module]
+
+
+class LRScheduler:
+    """
+     Basic class for LRScheduler, can be given to the Trainer and will be
+     applied during evaluation.
+     Does not work if no validation_iterator is supplied in Trainer.train.
+    """
+
+    lr_scheduler_cls = None
+    lr_scheduler = None
+
+    def __init__(self, use_metrics=False, metric_key=None):
+
+        self.scheduler_kwargs = dict()
+        self.use_metrics = use_metrics
+        assert not (use_metrics and metric_key is None)
+        self.metric_key = metric_key
+
+    def set_optimizer(self, optimizer_wrapper):
+        assert isinstance(optimizer_wrapper, Optimizer), optimizer_wrapper
+        assert optimizer_wrapper.swa_start is None, optimizer_wrapper
+        optimizer_wrapper.check_if_set()
+        self.optimizer = optimizer_wrapper.optimizer
+        self.lr_scheduler = self.lr_scheduler_cls(
+            self.optimizer, **self.scheduler_kwargs)
+
+    def step(self, metrics, epoch):
+        print(metrics, epoch)
+        if self.use_metrics:
+            self.lr_scheduler.step(metrics[self.metric_key], epoch)
+        else:
+            self.lr_scheduler.step(epoch=epoch)
+
+    def load_state_dict(self, state_dict):
+        return self.lr_scheduler.load_state_dict(state_dict)
+
+    def state_dict(self):
+        return self.lr_scheduler.state_dict()
+
+class ExponentialLR(LRScheduler):
+    from torch.optim.lr_scheduler import ExponentialLR
+    lr_scheduler_cls = ExponentialLR
+
+    def __init__(self, gamma=0.5, last_epoch=-1):
+        super().__init__(use_metrics=False)
+
+        self.scheduler_kwargs = dict(gamma=gamma, last_epoch=last_epoch)
+
+class StepLR(LRScheduler):
+    from torch.optim.lr_scheduler import StepLR
+    lr_scheduler_cls = StepLR
+
+    def __init__(self, step_size=5, gamma=0.1, last_epoch=-1):
+        super().__init__(use_metrics=False)
+
+        self.scheduler_kwargs = dict(step_size=step_size, gamma=gamma,
+                                     last_epoch=last_epoch)
+
+
+class ReduceLROnPlateau(LRScheduler):
+    from torch.optim.lr_scheduler import ReduceLROnPlateau
+    lr_scheduler_cls = ReduceLROnPlateau
+
+    def __init__(self, metric_key='loss', mode='min',
+                 factor=0.1, patience=1, verbose=True, threshold=1e-4,
+                 threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-8):
+        super().__init__(use_metrics=True, metric_key=metric_key)
+
+        self.scheduler_kwargs = dict(
+            mode=mode, factor=factor, patience=patience, verbose=verbose,
+            threshold=threshold, threshold_mode=threshold_mode,
+            cooldown=cooldown, min_lr=min_lr, eps=eps
+        )

@@ -358,10 +358,11 @@ class ValidationHook(SummaryHook):
     Note: It does not contain the learned model parameters, they are save at
     the checkpoints.
     """
-    def __init__(self, trigger, iterator, writer):
+    def __init__(self, trigger, iterator, writer, lr_scheduler=None):
         super().__init__(trigger, summary_prefix='validation',
                          writer=writer)
         self.iterator = iterator
+        self.lr_scheduler = lr_scheduler
 
     @property
     def priority(self):
@@ -375,6 +376,12 @@ class ValidationHook(SummaryHook):
             at_least_one_value = False
             for model_out, review in trainer.validate(self.iterator):
                 at_least_one_value = True
+                if self.lr_scheduler is not None:
+                    review['scalars'].update({
+                        f'learning_rate_{i}': param_group['lr']
+                        for i, param_group in enumerate(
+                        self.lr_scheduler.optimizer.param_groups)
+                    })
                 self.update_summary(review)
             if not at_least_one_value:
                 raise Exception(
@@ -382,6 +389,8 @@ class ValidationHook(SummaryHook):
                 )
             self.finalize_summary(trainer)
             mean_loss = np.mean(self.summary['scalars']['loss'])
+            if self.lr_scheduler is not None:
+                self.lr_scheduler.step(self.summary['scalars'], trainer.epoch)
             self.dump_summary(trainer)
             assert len(trainer.timer.timings) == 0, trainer.timer
             print(f'Finished Validation. Mean loss: {mean_loss}')
@@ -524,10 +533,12 @@ class CheckpointedValidationHook(ValidationHook):
             writer,
             checkpoint_dir: Path,
             metrics=None,
+            lr_scheduler=None,
             keep_all=False,
             init_from_json=False,
     ):
-        super().__init__(trigger, iterator, writer=writer)
+        super().__init__(trigger, iterator, writer=writer,
+                         lr_scheduler=lr_scheduler)
 
         # ToDo: remove the checkpoint_trigger, see pre_step
         self.checkpoint_trigger = IntervalTrigger.new(trigger)
@@ -537,6 +548,7 @@ class CheckpointedValidationHook(ValidationHook):
         self._checkpoint_dir = Path(checkpoint_dir).expanduser().resolve()
         self.metrics = self._convert_metrics_to_internal_layout(metrics)
         self._keep_all = keep_all
+        self.lr_scheduler = lr_scheduler
         if init_from_json:
             json_path = checkpoint_dir / self._json_filename
             assert checkpoint_dir.exists(), checkpoint_dir

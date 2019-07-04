@@ -19,7 +19,7 @@ import tensorboardX
 from paderbox.utils.nested import deflatten
 import padertorch as pt
 from padertorch.configurable import Configurable
-from padertorch.train.optimizer import Optimizer, Adam
+from padertorch.train.optimizer import Optimizer, Adam, LRScheduler
 from padertorch.train.runtime_tests import test_run
 from padertorch.train.hooks import *
 from padertorch.train.trigger import AnyTrigger
@@ -42,6 +42,7 @@ class Trainer(Configurable):
             model,
             storage_dir,
             optimizer,
+            lr_scheduler=None,
             loss_weights=None,
             summary_trigger=(1, 'epoch'),
             checkpoint_trigger=(1, 'epoch'),
@@ -64,6 +65,8 @@ class Trainer(Configurable):
                 ├── events.out.tfevents.1548851867.ntsim5
             optimizer: a `padertorch.train.optimizer.Optimizer` object
                 or dict of Optimizers
+            lr_scheduler: a 'padertorch.train.optimizer.LR_Scheduler' object
+                or dict of LR_Scheduler
             loss_weights: dict of weights for model with multiple losses
             summary_trigger: `pytorch.train.trigger.IntervalTrigger` object
                 or tuple describing the interval when summaries
@@ -123,6 +126,21 @@ class Trainer(Configurable):
             optimizer.set_parameters(model.parameters())
 
         self.optimizer = optimizer
+
+        if lr_scheduler is not None:
+            if isinstance(lr_scheduler, dict):
+                assert isinstance(optimizer, dict), (optimizer, lr_scheduler)
+                for key, scheduler in list(lr_scheduler.items()):
+                    if scheduler  is None:
+                        del lr_scheduler[key]
+                    else:
+                        assert isinstance(scheduler, LRScheduler), scheduler
+                        scheduler.set_optimizer(optimizer[key])
+            else:
+                assert isinstance(lr_scheduler, LRScheduler), lr_scheduler
+                lr_scheduler.set_optimizer(optimizer)
+
+        self.lr_scheduler = lr_scheduler
 
         self.device = None  # Dummy value, will be set in Trainer.train
 
@@ -460,6 +478,7 @@ class Trainer(Configurable):
             raise NotImplementedError(
                 'TODO: Check SimpleCheckpointHook for errors'
             )
+            assert self.lr_scheduler is None
             hooks.append(SimpleCheckpointHook(
                 self.checkpoint_trigger,
                 keep_all=self.keep_all_checkpoints,
@@ -472,6 +491,7 @@ class Trainer(Configurable):
                 iterator=validation_iterator,
                 checkpoint_dir=self.checkpoint_dir,
                 metrics=metrics,
+                lr_scheduler=self.lr_scheduler,
                 keep_all=self.keep_all_checkpoints,
                 init_from_json=self.checkpoint_dir.exists(),
                 writer=writer,
