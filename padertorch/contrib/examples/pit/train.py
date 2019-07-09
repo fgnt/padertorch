@@ -26,11 +26,10 @@ from pathlib import Path
 import padertorch as pt
 import paderbox as pb
 
+from sacred.observers.file_storage import FileStorageObserver
+
 from padertorch.contrib.ldrude.data import prepare_iterable
-from padertorch.contrib.ldrude.utils import (
-    decorator_append_file_storage_observer_with_lazy_basedir,
-    get_new_folder
-)
+from padertorch.contrib.ldrude.utils import get_new_folder
 
 
 MAKEFILE_TEMPLATE = """
@@ -90,10 +89,9 @@ def config():
     if trainer['storage_dir'] is None:
         trainer['storage_dir'] = get_new_folder(path_template, mkdir=False)
 
-
-@decorator_append_file_storage_observer_with_lazy_basedir(ex)
-def basedir(_config):
-    return Path(_config['trainer']['storage_dir']) / 'sacred'
+    ex.observers.append(FileStorageObserver.create(
+        Path(trainer['storage_dir']) / 'sacred')
+    )
 
 
 @ex.capture
