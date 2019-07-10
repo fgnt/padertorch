@@ -1,9 +1,10 @@
 import torch
 from padertorch.base import Module
-from torch.nn.utils.rnn import PackedSequence
 
 
-class LSTM(Module):
+class StatefulLSTM(Module):
+    _states = None
+
     def __init__(
             self,
             input_size: int = 513,
@@ -24,30 +25,20 @@ class LSTM(Module):
         self.bidirectional = bidirectional
         self.num_layers = num_layers
         self.batch_first = batch_first
-        self.states = None
 
-    def reset_states(self, x):
-        is_packed = isinstance(x, PackedSequence)
-        if is_packed:
-            batch_sizes = x.batch_sizes
-            x = x.data
-            max_batch_size = int(batch_sizes[0])
-        else:
-            max_batch_size = x.size(0) if self.batch_first \
-                else x.size(1)
+    @property
+    def states(self):
+        return self._states
 
-        num_directions = 2 if self.bidirectional else 1
-        hx = x.new_zeros(self.num_layers * num_directions,
-                         max_batch_size, self.hidden_size,
-                         requires_grad=False)
-        self.states = (hx, hx)
+    @states.deleter
+    def states(self):
+        self._states = None
 
-    def set_states(self, states):
-        self.states = states
+    @states.setter
+    def states(self, states):
+        self._states = states
 
     def forward(self, x):
-        if self.states is None:
-            self.reset_states(x)
-        h, _ = self.lstm(x, self.states)
+        h, self.states = self.lstm(x, self.states)
         return h
 

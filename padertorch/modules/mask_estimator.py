@@ -5,7 +5,7 @@ from torch.nn.utils.rnn import PackedSequence
 import padertorch as pt
 from padertorch.modules import fully_connected_stack
 from padertorch.modules.normalization import Normalization
-from padertorch.modules.recurrent import LSTM
+from padertorch.modules.recurrent import StatefulLSTM
 from padertorch.ops import pack_sequence, pad_packed_sequence
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 
@@ -40,7 +40,7 @@ class MaskEstimator(pt.Module):
     def finalize_dogmatic_config(cls, config):
         num_features = config['num_features']
         config['recurrent'] = dict(
-            factory=LSTM,
+            factory=StatefulLSTM,
             input_size=num_features,
         )
         config['fully_connected'] = dict(
@@ -66,7 +66,7 @@ class MaskEstimator(pt.Module):
             self,
             fully_connected,
             normalization: Normalization,
-            recurrent: LSTM,
+            recurrent: StatefulLSTM,
             num_features: int = 513,
             input_dropout: float = 0.5,
             use_log: bool = False,
@@ -102,7 +102,7 @@ class MaskEstimator(pt.Module):
         h = PackedSequence(self.input_dropout(h.data), h.batch_sizes)
 
         if not self.fix_states:
-            self.recurrent.reset_states(h)
+            del self.recurrent.states
         h = self.recurrent(h)
         h = PackedSequence(self.fully_connected(h.data), h.batch_sizes)
         out = pad_packed_sequence(h, batch_first=True)[0]
