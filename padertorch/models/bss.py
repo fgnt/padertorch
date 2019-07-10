@@ -319,8 +319,8 @@ class PermutationInvariantTrainingModel(pt.Model):
 
         losses = {
                 'pit_mse_loss': torch.mean(torch.stack(pit_mse_loss)),
-                'pit_ips_loss': torch.mean(torch.stack(pit_ips_loss)),        }
-        #estimation = model_out[0][:]*batch['Y_abs'][0]
+                'pit_ips_loss': torch.mean(torch.stack(pit_ips_loss)),
+        }
 
         b = 0
         images = dict()
