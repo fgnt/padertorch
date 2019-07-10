@@ -245,7 +245,6 @@ class LRScheduler:
             self.optimizer, **self.scheduler_kwargs)
 
     def step(self, metrics, epoch):
-        print(metrics, epoch)
         if self.use_metrics:
             self.lr_scheduler.step(metrics[self.metric_key], epoch)
         else:
@@ -258,6 +257,10 @@ class LRScheduler:
         return self.lr_scheduler.state_dict()
 
 class ExponentialLR(LRScheduler):
+    """
+    Decays the learning rate of each parameter group by gamma every epoch.
+    When last_epoch=-1, sets initial lr as lr.
+    """
     from torch.optim.lr_scheduler import ExponentialLR
     lr_scheduler_cls = ExponentialLR
 
@@ -267,6 +270,12 @@ class ExponentialLR(LRScheduler):
         self.scheduler_kwargs = dict(gamma=gamma, last_epoch=last_epoch)
 
 class StepLR(LRScheduler):
+    """
+    Decays the learning rate of each parameter group by gamma every
+    step_size epochs. Notice that such decay can happen simultaneously with
+    other changes to the learning rate from outside this scheduler.
+    When last_epoch=-1, sets initial lr as lr.
+    """
     from torch.optim.lr_scheduler import StepLR
     lr_scheduler_cls = StepLR
 
@@ -278,6 +287,13 @@ class StepLR(LRScheduler):
 
 
 class ReduceLROnPlateau(LRScheduler):
+    """
+    Reduce learning rate when a metric has stopped improving.
+    Models often benefit from reducing the learning rate by a factor
+    of 2-10 once learning stagnates. This scheduler reads a metrics
+    quantity and if no improvement is seen for a ‘patience’ number
+    of epochs, the learning rate is reduced.
+    """
     from torch.optim.lr_scheduler import ReduceLROnPlateau
     lr_scheduler_cls = ReduceLROnPlateau
 
