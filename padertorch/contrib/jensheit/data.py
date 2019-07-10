@@ -102,20 +102,17 @@ class SequenceProvider(Parameterized):
         batch_size: int = 1
         num_workers: int = 4
         buffer_size: int = 20
-        multichannel: bool = False
+        multichannel: bool = True
         backend: str = 't'
         drop_last: bool = False
+        time_segments: int = None
+
 
     def __init__(self, database, collate, transform=None, **kwargs):
         self.database = database
         self.transform = transform if transform is not None else lambda x: x
         self.collate = collate
         super().__init__(**kwargs)
-        self.fragmenter = Fragmenter(
-            fragment_steps={key: 1 for key in self.opts.audio_keys},
-            fragment_lengths={key: 1 for key in self.opts.audio_keys},
-            axis=0
-        )
 
     def to_train_structure(self, example):
         """Function to be mapped on an iterator."""
@@ -147,17 +144,37 @@ class SequenceProvider(Parameterized):
             read_fn=self.database.read_fn
         )(example)
 
-    def get_map_iterator(self, iterator, shuffle=False, randn_channels=False):
+    def segment(self, example):
+        from paderbox.utils.numpy_utils import segment_axis_v2
+        from copy import deepcopy
+        segment_len = shift = self.opts.time_segments
+        num_samples = example[NUM_SAMPLES]
+        for key in self.opts.audio_keys:
+            example[key]= segment_axis_v2(
+                example[key][..., :num_samples], segment_len,
+                shift=shift, axis=-1, end='cut')
+        lengths = ([example[key].shape[-2] for key in self.opts.audio_keys])
+        assert lengths.count(lengths[0]) == len(lengths), {
+            self.opts.audio_keys[idx]: leng for idx, leng in enumerate(lengths)}
+        length = lengths[0]
+        out_list = list()
+        example[NUM_SAMPLES] = self.opts.time_segments
+        for idx in range(length):
+            new_example = deepcopy(example)
+            for key in self.opts.audio_keys:
+                new_example[key] = new_example[key][..., idx, :]
+            out_list.append(new_example)
+        return out_list
 
-        if shuffle:
-            iterator = iterator.shuffle()
-        if not self.opts.multichannel:
-            iterator.map(partial(self.fragmenter, random_onset=randn_channels)).unbatch()
-        return iterator.map(self.transform)\
-            .batch(self.opts.batch_size, self.opts.drop_last)\
-            .map(self.collate)\
-            .prefetch(self.opts.num_workers,self.opts.buffer_size,
-                      self.opts.backend)
+    def get_map_iterator(self, iterator, training=False):
+        iterator = iterator.map(self.transform)
+        iterator = iterator.prefetch(
+            self.opts.num_workers,self.opts.buffer_size, self.opts.backend)
+        if training and self.opts.time_segments is not None:
+            iterator = iterator.unbatch()
+        if self.opts.batch_size is not None:
+            iterator = iterator.batch(self.opts.batch_size, self.opts.drop_last)
+        return iterator.map(self.collate)
 
     def get_train_iterator(self, filter_fn=lambda x: True):
         iterator = self.database.get_iterator_by_names(
@@ -165,8 +182,11 @@ class SequenceProvider(Parameterized):
         iterator = iterator.map(self.read_audio)\
             .map(self.database.add_num_samples)\
             .map(self.to_train_structure)
-        return self.get_map_iterator(iterator, shuffle=self.opts.shuffle,
-                                     randn_channels=True)
+        if self.opts.shuffle:
+            iterator = iterator.shuffle()
+        if self.opts.time_segments is not None:
+            iterator = iterator.map(self.segment)
+        return self.get_map_iterator(iterator, training=True)
 
     def get_eval_iterator(self, num_examples=-1, transform_fn=lambda x: x,
                           filter_fn=lambda x: True):
@@ -175,5 +195,17 @@ class SequenceProvider(Parameterized):
         iterator = iterator.map(self.read_audio)\
             .map(self.database.add_num_samples)\
             .map(self.to_eval_structure)[:num_examples]
-        return self.get_map_iterator(iterator, shuffle=False)
+        return self.get_map_iterator(iterator)
+
+    def get_predict_iterator(self, num_examples=-1,
+                             dataset=None,
+                             transform_fn=lambda x: x,
+                             filter_fn=lambda x: True):
+        if dataset is None:
+            dataset = self.database.datasets_test
+        iterator = self.database.get_iterator_by_names(dataset)
+        iterator = iterator.map(self.read_audio)\
+            .map(self.database.add_num_samples)\
+            .map(self.to_eval_structure)[:num_examples]
+        return self.get_map_iterator(iterator)
 
