@@ -10,7 +10,7 @@ class LSTM(Module):
             hidden_size: int = 512,
             num_layers: int = 1,
             bidirectional: bool = False,
-            dropout: bool = 0,
+            dropout: float = 0.,
             batch_first: bool = True
     ):
         super().__init__()
@@ -29,7 +29,8 @@ class LSTM(Module):
     def reset_states(self, x):
         is_packed = isinstance(x, PackedSequence)
         if is_packed:
-            x, batch_sizes = x
+            batch_sizes = x.batch_sizes
+            x = x.data
             max_batch_size = int(batch_sizes[0])
         else:
             max_batch_size = x.size(0) if self.batch_first \
