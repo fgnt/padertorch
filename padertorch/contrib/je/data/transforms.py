@@ -402,7 +402,7 @@ def fragment_parallel_signals(
             else []
         fragments += [
             x[get_slice(idx, idx+max_len)]
-            for idx in range(
+            for idx in np.arange(
                 start_idx, x.shape[ax] - min_len + 1, step[i]
             )
         ]

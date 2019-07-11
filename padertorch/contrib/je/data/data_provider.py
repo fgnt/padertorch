@@ -8,19 +8,21 @@ class DataProvider(Configurable):
     def __init__(
             self,
             transform=None,
-            prefetch_buffer=None, max_workers=8,
+            prefetch_buffer=None, max_workers=8, backend='t',
             shuffle_buffer=None, batch_size=None, bucketing_key='seq_len',
-            max_padding_rate=None, max_total_size=None, bucket_expiration=None
+            max_padding_rate=None, total_size_threshold=None,
+            bucket_expiration=None
     ):
         self.transform = transform
         self.prefetch_buffer = prefetch_buffer
         self.num_workers = 0 if prefetch_buffer is None \
             else min(prefetch_buffer, max_workers)
+        self.backend = backend
         self.shuffle_buffer = shuffle_buffer
         self.batch_size = batch_size
         self.bucketing_key = bucketing_key
         self.max_padding_rate = max_padding_rate
-        self.max_total_size = max_total_size
+        self.total_size_threshold = total_size_threshold
         self.bucket_expiration = bucket_expiration
 
     def prepare_iterable(
@@ -44,7 +46,7 @@ class DataProvider(Configurable):
         if prefetch and self.prefetch_buffer and self.num_workers:
             dataset = dataset.prefetch(
                 self.num_workers, self.prefetch_buffer,
-                catch_filter_exception=True
+                catch_filter_exception=True, backend=self.backend
             )
 
         if fragment:
@@ -63,7 +65,7 @@ class DataProvider(Configurable):
                     batch_size=self.batch_size,
                     key=self.bucketing_key,
                     max_padding_rate=self.max_padding_rate,
-                    max_total_size=self.max_total_size,
+                    total_size_threshold=self.total_size_threshold,
                     expiration=self.bucket_expiration,
                     drop_incomplete=drop_incomplete,
                     sort_by_key=True
