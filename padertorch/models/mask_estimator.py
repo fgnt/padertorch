@@ -18,6 +18,7 @@ class MaskLossKeys:
     WEIGHTED_MASK = 'power_weighted_mask_loss'
     TOTAL_MASK = 'total_mask_loss'
     VAD = 'VAD_loss'
+    REC = 'reconstruction_loss'
 
 
 class MaskEstimatorModel(pt.Model):
@@ -108,6 +109,7 @@ class MaskEstimatorModel(pt.Model):
     def add_losses(self, batch, output):
         noise_loss = list()
         speech_loss = list()
+        speech_reconstruction_loss = list()
         vad_loss = list()
         weighted_noise_loss = list()
         weighted_speech_loss = list()
@@ -120,6 +122,10 @@ class MaskEstimatorModel(pt.Model):
                 speech_mask_target = batch[M_K.SPEECH_MASK_TARGET][idx]
             else:
                 speech_mask_target = None
+            if M_K.SPEECH_TARGET in batch:
+                speech_target = batch[M_K.SPEECH_TARGET][idx]
+            else:
+                speech_target = None
             if M_K.NOISE_MASK_TARGET in batch:
                 noise_mask_target = batch[M_K.NOISE_MASK_TARGET][idx]
             else:
@@ -133,6 +139,11 @@ class MaskEstimatorModel(pt.Model):
                 speech_mask_logits = output[M_K.SPEECH_MASK_LOGITS][idx]
             else:
                 speech_mask_logits = None
+
+            if M_K.SPEECH_PRED in output:
+                speech_pred = output[M_K.SPEECH_PRED][idx]
+            else:
+                speech_pred = None
 
             def get_loss(target, logits):
                 return F.binary_cross_entropy_with_logits(
@@ -160,8 +171,15 @@ class MaskEstimatorModel(pt.Model):
                 if power_weights is not None:
                     weighted_speech_loss.append(
                         weight_loss(sample_loss, power_weights))
+
+            if speech_target is not None and speech_pred is not None:
+                sample_loss = F.mse_loss(
+                    speech_mask_target, speech_mask_logits)
+                speech_reconstruction_loss.append(
+                    TORCH_POOLING_FN_MAP[self.reduction](sample_loss))
+
             # VAD
-            if M_K.VAD in batch and M_K.VAD in output:
+            if M_K.VAD in batch and M_K.VAD_LOGITS in output:
                 vad_target = batch[M_K.VAD][idx]
                 vad_logits = output[M_K.VAD_LOGITS][idx]
                 vad_loss.append(get_loss(
@@ -171,6 +189,11 @@ class MaskEstimatorModel(pt.Model):
         weighted_loss = []
         losses = dict()
 
+
+        if len(speech_reconstruction_loss) > 0:
+            speech_reconstruction_loss = sum(speech_reconstruction_loss)
+            loss.append(speech_reconstruction_loss)
+            losses[MaskLossKeys.REC] = speech_reconstruction_loss
         if len(noise_loss) > 0:
             noise_loss = sum(noise_loss)
             loss.append(noise_loss)
@@ -184,7 +207,9 @@ class MaskEstimatorModel(pt.Model):
             if power_weights is not None:
                 weighted_loss.append(sum(weighted_speech_loss))
         if len(vad_loss) > 0:
-            losses[MaskLossKeys.VAD] = sum(vad_loss)
+            vad_loss = sum(vad_loss)
+            loss.append(vad_loss)
+            losses[MaskLossKeys.VAD] = vad_loss
         if len(loss) > 0:
             loss = sum(loss)
             if power_weights is not None:
