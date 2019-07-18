@@ -108,7 +108,6 @@ class SequenceProvider(Parameterized):
         drop_last: bool = False
         time_segments: int = None
 
-
     def __init__(self, database, collate, transform=None, **kwargs):
         self.database = database
         self.transform = transform if transform is not None else lambda x: x
@@ -167,16 +166,19 @@ class SequenceProvider(Parameterized):
             out_list.append(new_example)
         return out_list
 
-    def get_map_iterator(self, iterator, training=False):
+    def get_map_iterator(self, iterator, training=False, prefetch=True):
         iterator = iterator.map(self.transform)
-        iterator = iterator.prefetch(
-            self.opts.num_workers,self.opts.buffer_size, self.opts.backend, catch_filter_exception=True
-        )
+        if prefetch:
+            iterator = iterator.prefetch(
+                self.opts.num_workers,self.opts.buffer_size,
+                self.opts.backend, catch_filter_exception=True
+            )
         if training and self.opts.time_segments is not None:
             iterator = iterator.unbatch()
         if self.opts.batch_size is not None:
             iterator = iterator.batch(self.opts.batch_size, self.opts.drop_last)
-        return iterator.map(self.collate)
+            iterator = iterator.map(self.collate)
+        return iterator
 
     def get_train_iterator(self, filter_fn=lambda x: True):
         iterator = self.database.get_iterator_by_names(
@@ -201,7 +203,7 @@ class SequenceProvider(Parameterized):
 
     def get_predict_iterator(self, num_examples=-1,
                              dataset=None,
-                             transform_fn=lambda x: x,
+                             iterable_apply_fn=None,
                              filter_fn=lambda x: True):
         if dataset is None:
             dataset = self.database.datasets_test
@@ -209,5 +211,11 @@ class SequenceProvider(Parameterized):
         iterator = iterator.map(self.read_audio)\
             .map(self.database.add_num_samples)\
             .map(self.to_eval_structure)[:num_examples]
-        return self.get_map_iterator(iterator)
+        if iterable_apply_fn is not None:
+            iterator = iterator.apply(iterable_apply_fn)
+            prefetch = False
+        else:
+            prefetch = True
+        iterator = self.get_map_iterator(iterator, prefetch=prefetch)
+        return iterator.filter(filter_fn)
 
