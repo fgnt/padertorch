@@ -39,10 +39,12 @@ class MaskEstimatorModel(pt.Model):
     def finalize_dogmatic_config(cls, config):
         config['estimator'] = dict(factory=MaskEstimator)
 
-    def __init__(self, estimator, reduction: str = 'average',
+    def __init__(self, estimator, transformer=None, reduction: str = 'average',
                  sample_rate: int = 16000):
         super().__init__()
         self.estimator = estimator
+        if transformer is not None:
+            self.transformer = transformer
         self.reduction = reduction
         self.sample_rate = sample_rate
 
