@@ -76,10 +76,11 @@ class MaskEstimatorModel(pt.Model):
                     )
 
     def add_images(self, batch, output):
-        speech_mask = output[M_K.SPEECH_MASK_PRED][0]
-        observation = batch[M_K.OBSERVATION_ABS][0]
         images = dict()
-        images['speech_mask'] = mask_to_image(speech_mask, True)
+        if M_K.SPEECH_MASK_PRED in output:
+            speech_mask = output[M_K.SPEECH_MASK_PRED][0]
+            images['speech_mask'] = mask_to_image(speech_mask, True)
+        observation = batch[M_K.OBSERVATION_ABS][0]
         images['observed_stft'] = stft_to_image(observation, True)
 
         if M_K.NOISE_MASK_PRED in output:
@@ -104,6 +105,18 @@ class MaskEstimatorModel(pt.Model):
             audio_dict.update({
             K.SPEECH_IMAGE: (maybe_remove_channel(batch[K.SPEECH_IMAGE][0]),
                              self.sample_rate)})
+        if M_K.SPEECH_PRED in output and self.transformer is not None:
+            phase = np.exp(1j*np.angle(batch[M_K.OBSERVATION_STFT][0]))
+            enh = output[M_K.SPEECH_PRED][0].detach().cpu().numpy() * phase
+            enhanced_time = self.transformer.inverse(enh)
+            audio_dict.update({M_K.SPEECH_PRED: (maybe_remove_channel(
+                enhanced_time), self.sample_rate)})
+        if M_K.SPEECH_MASK_PRED in output and self.transformer is not None:
+            obs = batch[M_K.OBSERVATION_STFT][0]
+            enh = output[M_K.SPEECH_PRED][0].detach().cpu().numpy() * obs
+            enhanced_time = self.transformer.inverse(enh)
+            audio_dict.update({M_K.SPEECH_MASK_PRED: (maybe_remove_channel(
+                enhanced_time), self.sample_rate)})
         return audio_dict
 
     def add_losses(self, batch, output):
@@ -174,7 +187,7 @@ class MaskEstimatorModel(pt.Model):
 
             if speech_target is not None and speech_pred is not None:
                 sample_loss = F.mse_loss(
-                    speech_mask_target, speech_mask_logits)
+                    speech_target, speech_pred)
                 speech_reconstruction_loss.append(
                     TORCH_POOLING_FN_MAP[self.reduction](sample_loss))
 
@@ -188,7 +201,6 @@ class MaskEstimatorModel(pt.Model):
         loss = []
         weighted_loss = []
         losses = dict()
-
 
         if len(speech_reconstruction_loss) > 0:
             speech_reconstruction_loss = sum(speech_reconstruction_loss)
@@ -219,11 +231,17 @@ class MaskEstimatorModel(pt.Model):
         return losses
 
 def maybe_remove_channel(signal, exp_dim=1, ref_channel=0):
-    if signal.dim() == exp_dim + 1:
+    if isinstance(signal, torch.Tensor):
+        dim = signal.dim()
+    elif isinstance(signal, np.ndarray):
+        dim = signal.ndim
+    else:
+        raise ValueError
+    if dim == exp_dim + 1:
         assert signal.shape[0] < 20, f'The first dim is supposed to be the ' \
             f'channel dimension, however the shape is {signal.shape}'
         return signal[ref_channel]
-    elif signal.dim() == exp_dim:
+    elif dim == exp_dim:
         return signal
     else:
         raise ValueError(f'Either the signal has ndim {exp_dim} or'

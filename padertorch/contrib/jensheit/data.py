@@ -12,10 +12,9 @@ from paderbox.speech_enhancement.mask_module import biased_binary_mask
 from paderbox.transform import stft, istft
 from paderbox.utils.mapping import Dispatcher
 from padertorch.contrib.jensheit import Parameterized, dict_func
-from padertorch.data.fragmenter import Fragmenter
 from padertorch.data.utils import Padder
 from padertorch.modules.mask_estimator import MaskKeys as M_K
-from functools import partial
+
 
 WINDOW_MAP = Dispatcher(
     blackman=signal.blackman,
@@ -40,9 +39,10 @@ class STFT(Parameterized):
             asdict(self.opts), **dict(window=WINDOW_MAP[self.opts.window])))
 
     def inverse(self, signal):
-        return istft(signal, **dict(asdict(self.opts),
-                                    **dict(
-                                        window=WINDOW_MAP[self.opts.window])))
+        opts = {key: value for key, value in asdict(self.opts).items()
+                if not key == 'pad'}
+        return istft(signal, **dict(
+            opts, **dict(window=WINDOW_MAP[self.opts.window])))
 
 
 class MaskTransformer(Parameterized):
@@ -57,6 +57,9 @@ class MaskTransformer(Parameterized):
     def __init__(self, stft, **kwargs):
         super().__init__(**kwargs)
         self.stft = stft
+
+    def inverse(self, signal):
+        return self.stft.inverse(signal)
 
     def __call__(self, example):
         def maybe_add_channel(signal):
