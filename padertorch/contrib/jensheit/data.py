@@ -33,9 +33,10 @@ class STFT(Parameterized):
         window_length: int = None
         fading: bool = True
         symmetric_window: bool = False
+        pad: bool = True
 
     def __call__(self, signal):
-        return stft(signal, pad=True, **dict(
+        return stft(signal, **dict(
             asdict(self.opts), **dict(window=WINDOW_MAP[self.opts.window])))
 
     def inverse(self, signal):
@@ -169,7 +170,8 @@ class SequenceProvider(Parameterized):
     def get_map_iterator(self, iterator, training=False):
         iterator = iterator.map(self.transform)
         iterator = iterator.prefetch(
-            self.opts.num_workers,self.opts.buffer_size, self.opts.backend)
+            self.opts.num_workers,self.opts.buffer_size, self.opts.backend, catch_filter_exception=True
+        )
         if training and self.opts.time_segments is not None:
             iterator = iterator.unbatch()
         if self.opts.batch_size is not None:
