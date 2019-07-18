@@ -17,6 +17,7 @@ __all__ = [
 
 class MaskKeys:
     SPEECH_MASK_PRED = 'speech_mask_prediction'
+    SPEECH_TARGET = 'speech_target'
     NOISE_MASK_PRED = 'noise_mask_prediction'
     SPEECH_MASK_LOGITS = 'speech_mask_logits'
     NOISE_MASK_LOGITS = 'noise_mask_logits'
@@ -42,10 +43,16 @@ class MaskEstimator(pt.Module):
         config['recurrent'] = dict(
             factory=StatefulLSTM,
             input_size=num_features,
+            hidden_size=256,
+            bidirectional=True,
         )
+        if config['recurrent']['bidirectional']:
+            recurrent_output = 2 * config['recurrent']['hidden_size']
+        else:
+            recurrent_output = config['recurrent']['hidden_size']
         config['fully_connected'] = dict(
             factory=fully_connected_stack,
-            input_size=512,
+            input_size=recurrent_output,
             hidden_size=[1024] * 3,
             output_size=num_features * 2,
         )
@@ -74,6 +81,7 @@ class MaskEstimator(pt.Module):
             separate_masks: bool = True,
             output_activation: str = 'sigmoid',
             fix_states: bool = False,
+            vad: bool = False,
     ):
         super().__init__()
         self.fully_connected = fully_connected
@@ -89,6 +97,9 @@ class MaskEstimator(pt.Module):
         self.separate_masks = separate_masks
         self.output_activation = output_activation
         self.fix_states = fix_states
+        self.vad = vad
+        if vad:
+            self.linear_vad = torch.nn.Linear(2*num_features, 1)
 
     def forward(self, x):
         """
@@ -108,19 +119,23 @@ class MaskEstimator(pt.Module):
         out = pad_packed_sequence(h, batch_first=True)[0]
         out = rearrange(out, '(c b) t f -> b c t f', c=num_channels)
         target_logits = out[..., :self.num_features]
+        target_mask = ACTIVATION_FN_MAP[self.output_activation]()(target_logits)
+        out_dict = {
+            M_K.SPEECH_MASK_PRED: target_mask,
+            M_K.SPEECH_MASK_LOGITS: target_logits,}
         if self.separate_masks:
             noise_logits = out[..., self.num_features:]
-            return {
-                M_K.SPEECH_MASK_PRED: ACTIVATION_FN_MAP[
-                    self.output_activation]()(target_logits),
-                M_K.SPEECH_MASK_LOGITS: target_logits,
-                M_K.NOISE_MASK_PRED: ACTIVATION_FN_MAP[
-                    self.output_activation]()(noise_logits),
+            noise_mask = ACTIVATION_FN_MAP[self.output_activation]()(noise_logits)
+            out_dict.update({
+                M_K.NOISE_MASK_PRED: noise_mask,
                 M_K.NOISE_MASK_LOGITS: noise_logits
-            }
-        else:
-            return {
-                M_K.SPEECH_MASK_PRED: ACTIVATION_FN_MAP[
-                    self.output_activation]()(target_logits),
-                M_K.SPEECH_MASK_LOGITS: target_logits
-            }
+            })
+        if self.vad:
+            vad_logits = self.linear_vad(out)
+            vad = ACTIVATION_FN_MAP[self.output_activation]()(vad_logits)
+            out_dict.update({
+                M_K.VAD_LOGITS: vad_logits,
+                M_K.VAD: vad
+            })
+        return out_dict
+
