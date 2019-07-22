@@ -16,12 +16,12 @@ from tqdm import tqdm
 class Transform:
     def __init__(
             self,
-            input_sample_rate,
             target_sample_rate,
             frame_step,
             frame_length,
             fft_length,
             n_mels,
+            input_sample_rate=None,
             fading=False,
             pad=False,
             fmin=50,
@@ -59,11 +59,14 @@ class Transform:
         return self.finalize(example, training)
 
     def read_audio(self, example):
+        # time.sleep(0.01)
+
         def read_from_file(filepath, start=0, stop=None):
             x, sr = soundfile.read(
                 filepath, start=start, stop=stop, always_2d=True
             )
-            assert sr == self.input_sample_rate
+            if self.input_sample_rate is not None:
+                assert sr == self.input_sample_rate
             if self.target_sample_rate != sr:
                 x = samplerate.resample(
                     x, self.target_sample_rate / sr, "sinc_fastest"
