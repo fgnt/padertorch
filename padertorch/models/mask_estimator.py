@@ -44,8 +44,7 @@ class MaskEstimatorModel(pt.Model):
                  sample_rate: int = 16000):
         super().__init__()
         self.estimator = estimator
-        if transformer is not None:
-            self.transformer = transformer
+        self.transformer = transformer
         self.reduction = reduction
         self.sample_rate = sample_rate
 
