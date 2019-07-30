@@ -112,7 +112,7 @@ class MaskEstimatorModel(pt.Model):
                 enhanced_time), self.sample_rate)})
         if M_K.SPEECH_MASK_PRED in output and self.transformer is not None:
             obs = batch[M_K.OBSERVATION_STFT][0]
-            enh = output[M_K.SPEECH_PRED][0].detach().cpu().numpy() * obs
+            enh = output[M_K.SPEECH_MASK_PRED][0].detach().cpu().numpy() * obs
             enhanced_time = self.transformer.inverse(enh)
             audio_dict.update({M_K.SPEECH_MASK_PRED: (maybe_remove_channel(
                 enhanced_time), self.sample_rate)})
