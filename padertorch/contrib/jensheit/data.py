@@ -104,6 +104,7 @@ class SequenceProvider(Parameterized):
         audio_keys: List = field(default_factory=lambda: [OBSERVATION])
         shuffle: bool = True
         batch_size: int = 1
+        batch_size_eval: int = 5
         num_workers: int = 4
         buffer_size: int = 20
         multichannel: bool = True
@@ -169,7 +170,8 @@ class SequenceProvider(Parameterized):
             out_list.append(new_example)
         return out_list
 
-    def get_map_iterator(self, iterator, training=False, prefetch=True):
+    def get_map_iterator(self, iterator, batch_size,
+                         training=False, prefetch=True):
         iterator = iterator.map(self.transform)
         if prefetch:
             iterator = iterator.prefetch(
@@ -178,12 +180,12 @@ class SequenceProvider(Parameterized):
             )
         if training and self.opts.time_segments is not None:
             iterator = iterator.unbatch()
-        if self.opts.batch_size is not None:
-            iterator = iterator.batch(self.opts.batch_size, self.opts.drop_last)
+        if batch_size is not None:
+            iterator = iterator.batch(batch_size, self.opts.drop_last)
             iterator = iterator.map(self.collate)
         return iterator
 
-    def get_train_iterator(self, filter_fn=lambda x: True):
+    def get_train_iterator(self, time_segment=None):
         iterator = self.database.get_iterator_by_names(
             self.database.datasets_train)
         iterator = iterator.map(self.read_audio)\
@@ -191,9 +193,11 @@ class SequenceProvider(Parameterized):
             .map(self.to_train_structure)
         if self.opts.shuffle:
             iterator = iterator.shuffle()
-        if self.opts.time_segments is not None:
+        if self.opts.time_segments is not None or time_segment is not None:
+            assert not (self.opts.time_segments and time_segment)
             iterator = iterator.map(self.segment)
-        return self.get_map_iterator(iterator, training=True)
+        return self.get_map_iterator(iterator, self.opts.batch_size,
+                                     training=True)
 
     def get_eval_iterator(self, num_examples=-1, transform_fn=lambda x: x,
                           filter_fn=lambda x: True):
@@ -202,7 +206,7 @@ class SequenceProvider(Parameterized):
         iterator = iterator.map(self.read_audio)\
             .map(self.database.add_num_samples)\
             .map(self.to_eval_structure)[:num_examples]
-        return self.get_map_iterator(iterator)
+        return self.get_map_iterator(iterator, self.opts.batch_size_eval)
 
     def get_predict_iterator(self, num_examples=-1,
                              dataset=None,
