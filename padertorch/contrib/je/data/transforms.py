@@ -453,7 +453,7 @@ class Collate:
             ref_len = None
             for array in batch:
                 if ref_len is None:
-                    ref_len = array.shape
+                    ref_len = np.array(array.shape)
                 elif self.pad:
                     ref_len = np.maximum(ref_len, array.shape)
                 else:
