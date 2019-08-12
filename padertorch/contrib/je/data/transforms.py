@@ -35,9 +35,8 @@ class Transform:
         self.fft_length = fft_length
         self.n_mels = n_mels
         self.stft = STFT(
-            frame_step=frame_step, frame_length=frame_length,
-            fft_length=fft_length,
-            fading=fading, pad=pad, always3d=True
+            shift=frame_step, size=fft_length, window_length=frame_length,
+            fading=fading, pad=pad
         )
         self.mel_transform = MelTransform(
             sample_rate=self.target_sample_rate, fft_length=fft_length,
@@ -429,10 +428,20 @@ class Collate:
              [1., 1.],
              [1., 1.],
              [0., 0.],
-             [0., 0.]]]), 'b': ['0', '1']}
+             [0., 0.]]], dtype=torch.float64), 'b': ['0', '1']}
+
+    >>> Collate(pad=False)(batch)
+    {'a': tensor([[[1., 1.],
+             [1., 1.],
+             [1., 1.]],
+    <BLANKLINE>
+            [[1., 1.],
+             [1., 1.],
+             [1., 1.]]], dtype=torch.float64), 'b': ['0', '1']}
     """
-    def __init__(self, to_tensor=True):
+    def __init__(self, pad=True, to_tensor=True):
         self.to_tensor = to_tensor
+        self.pad = pad
 
     def __call__(self, example, training=False):
         example = nested_op(self.collate, *example, sequence_type=())
@@ -441,17 +450,25 @@ class Collate:
     def collate(self, *batch):
         batch = list(batch)
         if isinstance(batch[0], np.ndarray):
-            max_len = np.zeros_like(batch[0].shape)
+            ref_len = None
             for array in batch:
-                max_len = np.maximum(max_len, array.shape)
+                if ref_len is None:
+                    ref_len = array.shape
+                elif self.pad:
+                    ref_len = np.maximum(ref_len, array.shape)
+                else:
+                    ref_len = np.minimum(ref_len, array.shape)
             for i, array in enumerate(batch):
-                pad = max_len - array.shape
-                if np.any(pad):
-                    assert np.sum(pad) == np.max(pad), (
-                        'arrays are only allowed to differ in one dim',
-                    )
-                    pad = [(0, n) for n in pad]
+                diff = ref_len - array.shape
+                assert np.argwhere(diff != 0).size <= 1, (
+                    diff, 'arrays are only allowed to differ in one dim',
+                )
+                if np.any(diff > 0):
+                    pad = [(0, n) for n in diff]
                     batch[i] = np.pad(array, pad_width=pad, mode='constant')
+                elif np.any(diff < 0):
+                    sliceing = [slice(None) if n >= 0 else slice(n) for n in diff]
+                    batch[i] = array[tuple(sliceing)]
             batch = np.array(batch).astype(batch[0].dtype)
             if self.to_tensor:
                 batch = torch.from_numpy(batch)
