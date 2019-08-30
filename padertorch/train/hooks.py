@@ -63,7 +63,7 @@ class Hook:
     @property
     def priority(self):
         return Priority.DEFAULT
-    
+
     def pre_step(self, trainer: 'pt.Trainer'):
         """
         function is called before each iteration of the train iterator
@@ -377,11 +377,21 @@ class ValidationHook(SummaryHook):
             for model_out, review in trainer.validate(self.iterator):
                 at_least_one_value = True
                 if self.lr_scheduler is not None:
-                    review['scalars'].update({
-                        f'learning_rate_{i}': param_group['lr']
-                        for i, param_group in enumerate(
-                        self.lr_scheduler.optimizer.param_groups)
-                    })
+                    if isinstance(self.lr_scheduler, dict):
+                        review['scalars'].update({
+                            f'{module}_learning_rate_{i}': param_group['lr']
+                            for module, scheduler in self.lr_scheduler.items()
+                            for i, param_group in enumerate(
+                                scheduler.optimizer.param_groups
+                            )
+                        })
+                    else:
+                        review['scalars'].update({
+                            f'learning_rate_{i}': param_group['lr']
+                            for i, param_group in enumerate(
+                                self.lr_scheduler.optimizer.param_groups
+                            )
+                        })
                 self.update_summary(review)
             if not at_least_one_value:
                 raise Exception(
@@ -390,7 +400,13 @@ class ValidationHook(SummaryHook):
             self.finalize_summary(trainer)
             mean_loss = np.mean(self.summary['scalars']['loss'])
             if self.lr_scheduler is not None:
-                self.lr_scheduler.step(self.summary['scalars'], trainer.epoch)
+                if isinstance(self.lr_scheduler, dict):
+                    for scheduler in self.lr_scheduler.values():
+                        scheduler.step(self.summary['scalars'], trainer.epoch)
+                else:
+                    self.lr_scheduler.step(
+                        self.summary['scalars'], trainer.epoch
+                    )
             self.dump_summary(trainer)
             assert len(trainer.timer.timings) == 0, trainer.timer
             print(f'Finished Validation. Mean loss: {mean_loss}')
