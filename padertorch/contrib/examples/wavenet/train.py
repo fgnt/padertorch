@@ -2,162 +2,129 @@
 Example call:
 
 export STORAGE_ROOT=<your desired storage root>
-python -m padertorch.contrib.examples.wavenet.train print_config
 python -m padertorch.contrib.examples.wavenet.train
 """
 import os
 from pathlib import Path
-import numpy as np
 
-from paderbox.database.timit import Timit
-from paderbox.utils.nested import deflatten
+import numpy as np
+from paderbox.database.librispeech import LibriSpeech
 from paderbox.utils.timer import timeStamped
-from padertorch.contrib.je.data.data_provider import DataProvider
-from padertorch.contrib.je.data.transforms import Transform as BaseTransform
-from padertorch.contrib.je.data.transforms import segment_axis
-from padertorch.models.wavenet import WaveNet
+from padertorch import modules, models
+from padertorch.contrib.je.data.transforms import AudioReader, STFT, \
+    MelTransform, Normalizer, fragment_parallel_signals, Collate
+from padertorch.contrib.je.data.utils import split_dataset
 from padertorch.train.optimizer import Adam
 from padertorch.train.trainer import Trainer
-from sacred import Experiment as Exp
-from sacred.observers import FileStorageObserver
-
-nickname = 'wavenet-training'
-ex = Exp(nickname)
-storage_dir = str(
-    Path(os.environ['STORAGE_ROOT']) / nickname / timeStamped('')[1:]
-)
-observer = FileStorageObserver.create(storage_dir)
-ex.observers.append(observer)
 
 
-class Transform(BaseTransform):
-    def __init__(
-            self,
-            input_sample_rate=16000,
-            target_sample_rate=16000,
-            frame_step=160,
-            frame_length=400,
-            fft_length=512,
-            n_mels=64,
-            fmin=50,
-            storage_dir=None,
-            segment_length=16000
-    ):
-        super().__init__(
-            input_sample_rate=input_sample_rate,
-            target_sample_rate=target_sample_rate,
-            frame_step=frame_step,
-            frame_length=frame_length,
-            fft_length=fft_length,
-            fading=True,
-            pad=True,
-            n_mels=n_mels,
-            fmin=fmin,
-            label_key=None,
-            storage_dir=storage_dir
-        )
-        self.segment_length = segment_length
-        assert segment_length % self.frame_step == 0
+def get_datasets(storage_dir):
+    db = LibriSpeech()
+    train_clean_100 = db.get_dataset('train_clean_100')
 
-    def extract_features(self, example, training=False):
-        tail = example['audio_data'].shape[-1] % self.frame_step
-        if tail > 0:
-            pad_width = example['audio_data'].ndim * [(0, 0)]
-            pad_width[-1] = (0, int(self.frame_step - tail))
-            example['audio_data'] = np.pad(
-                example['audio_data'], pad_width, mode='constant'
-            )
-        return super().extract_features(example)
+    train_set, validate_set = split_dataset(train_clean_100, fold=0)
+    test_set = db.get_dataset('test_clean')
+    training_data = prepare_dataset(train_set, storage_dir, training=True)
+    validation_data = prepare_dataset(validate_set, storage_dir, training=False)
+    test_data = prepare_dataset(test_set, storage_dir, training=False)
+    return training_data, validation_data, test_data
 
-    def finalize(self, example, training=False):
-        # split channels
-        audio, log_mel = [example['audio_data'], example['log_mel']]
-        if self.segment_length is not None:
-            audio_segment_step = audio_segment_length = self.segment_length
-            mel_segment_step = audio_segment_step // self.frame_step
-            mel_segment_length = self.stft.samples2frames(self.segment_length)
-            audio, log_mel = segment_axis(
-                [audio, log_mel], axis=1,
-                segment_step=[audio_segment_step, mel_segment_step],
-                segment_length=[audio_segment_length, mel_segment_length],
-                pad=True
-            )
-            audio = audio.reshape((-1, audio_segment_length))
-            log_mel = log_mel.reshape((-1, mel_segment_length, self.n_mels))
 
+def prepare_dataset(dataset, storage_dir, training=False):
+    dataset = dataset.filter(lambda ex: ex['num_samples'] > 16000, lazy=False)
+    batch_size = 3
+    stft_shift = 160
+    target_sample_rate = 16000
+
+    def prepare_example(example):
+        example['audio_path'] = example['audio_path']['observation']
+        example['speaker_id'] = example['speaker_id'].split('-')[0]
+        return example
+
+    dataset = dataset.map(prepare_example)
+
+    audio_reader = AudioReader(
+        source_sample_rate=16000, target_sample_rate=target_sample_rate
+    )
+    dataset = dataset.map(audio_reader)
+
+    stft = STFT(
+        shift=stft_shift, window_length=400, size=512, fading='full', pad=True
+    )
+    dataset = dataset.map(stft)
+    mel_transform = MelTransform(
+        sample_rate=target_sample_rate, fft_length=512, n_mels=64, fmin=50
+    )
+    dataset = dataset.map(mel_transform)
+    normalizer = Normalizer(
+        key='mel_transform', center_axis=(1,), scale_axis=(1, 2),
+        storage_dir=storage_dir
+    )
+    normalizer.initialize_moments(
+        dataset.shuffle()[:10000].prefetch(num_workers=8, buffer_size=16),
+        verbose=True
+    )
+    dataset = dataset.map(normalizer)
+
+    def fragment(example):
+        audio, features = example['audio_data'], example['mel_transform']
+        fragment_length = 16000
+        mel_fragment_step = fragment_length / stft_shift
+        mel_fragment_length = stft.samples_to_frames(fragment_length)
         fragments = []
-        audio = np.split(audio, audio.shape[0], axis=0)
-        log_mel = np.split(log_mel, log_mel.shape[0], axis=0)
-        assert len(audio) == len(log_mel)
-        for i in range(len(log_mel)):
-            fragments.append(
-                {
-                    'example_id': example['example_id'],
-                    'audio_data': audio[i].squeeze(0).astype(np.float32),
-                    'log_mel': np.moveaxis(
-                        log_mel[i].squeeze(0), 0, 1
-                    ).astype(np.float32),
-                }
-            )
+        for audio, features in zip(*fragment_parallel_signals(
+            signals=[audio, features], axis=1,
+            step=[fragment_length, mel_fragment_step],
+            max_length=[fragment_length, mel_fragment_length],
+            min_length=[fragment_length, mel_fragment_length],
+        )):
+            fragments.append({
+                'example_id': example['example_id'],
+                'audio_data': audio.squeeze(0).astype(np.float32),
+                'features': np.moveaxis(features.squeeze(0), 0, 1).astype(np.float32)
+            })
         return fragments
 
+    dataset = dataset.map(fragment)
 
-@ex.config
-def config():
-    # Data configuration
-
-    data_provider = {
-        'transform': {
-            'factory': Transform
-        },
-        'max_workers': 8,
-        'shuffle_buffer': 1000,
-        'batch_size': 3
-    }
-    data_provider['prefetch_buffer'] = 4 * data_provider['batch_size']
-    DataProvider.get_config(data_provider)
-
-    # Trainer configuration
-    trainer = deflatten({
-        'model.factory':  WaveNet,
-        'model.audio_key': 'audio_data',
-        'model.feature_key': 'log_mel',
-        'model.wavenet.n_cond_channels': data_provider['transform']['n_mels'],
-        'model.wavenet.upsamp_window':
-            data_provider['transform']['frame_length'],
-        'model.wavenet.upsamp_stride':
-            data_provider['transform']['frame_step'],
-        'model.sample_rate':
-            data_provider['transform']['target_sample_rate'],
-        'optimizer.factory': Adam,
-        'storage_dir': storage_dir,
-        'summary_trigger': (100, 'iteration'),
-        'checkpoint_trigger': (1, 'epoch'),
-        'max_trigger': (100, 'epoch')
-    })
-    Trainer.get_config(trainer)
+    if training:
+        dataset = dataset.shuffle(reshuffle=True)
+    return dataset.prefetch(
+        num_workers=8, buffer_size=10*batch_size
+    ).unbatch().batch(batch_size=batch_size).map(Collate())
 
 
-@ex.capture
-def get_datasets(data_provider):
-    db = Timit()
-    training_set = db.get_dataset('train')
-    validation_set = db.get_dataset('test_core')
-
-    dp = DataProvider.from_config(data_provider)
-    dp.transform.initialize_norm(
-        dataset=training_set, max_workers=dp.num_workers
+def get_model():
+    wavenet = modules.wavenet.WaveNet(
+        n_cond_channels=64, upsamp_window=400, upsamp_stride=160, fading='full'
     )
-    return (
-        dp.prepare_iterable(training_set, fragment=True, training=True),
-        dp.prepare_iterable(validation_set, fragment=True)
+    model = models.wavenet.WaveNet(
+        wavenet=wavenet, audio_key='audio_data', feature_key='features',
+        sample_rate=16000
+    )
+    return model
+
+
+def train(model, storage_dir):
+    train_set, validate_set, _ = get_datasets(storage_dir)
+
+    trainer = Trainer(
+        model=model,
+        optimizer=Adam(lr=5e-4),
+        storage_dir=str(storage_dir),
+        summary_trigger=(100, 'iteration'),
+        checkpoint_trigger=(1000, 'iteration'),
+        max_trigger=(100000, 'iteration')
     )
 
+    trainer.test_run(train_set, validate_set)
+    trainer.train(train_set, validate_set)
 
-@ex.automain
-def train(trainer):
-    train_iter, validation_iter = get_datasets()
 
-    trainer = Trainer.from_config(trainer)
-    trainer.test_run(train_iter, validation_iter)
-    trainer.train(train_iter, validation_iter)
+if __name__ == '__main__':
+    storage_dir = str(
+        Path(os.environ['STORAGE_ROOT']) / 'wavenet' / timeStamped('')[1:]
+    )
+    os.makedirs(storage_dir, exist_ok=True)
+    model = get_model()
+    train(model, storage_dir)

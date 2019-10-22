@@ -69,7 +69,8 @@ class WaveNet(Module):
     def __init__(
             self, n_cond_channels, upsamp_window, upsamp_stride,
             n_in_channels=256, n_layers=16, max_dilation=128,
-            n_residual_channels=64, n_skip_channels=256, n_out_channels=256
+            n_residual_channels=64, n_skip_channels=256, n_out_channels=256,
+            fading='full'
     ):
         """
         WaveNet implementation based on https://github.com/NVIDIA/nv-wavenet
@@ -96,6 +97,7 @@ class WaveNet(Module):
         self.upsample = torch.nn.ConvTranspose1d(
             n_cond_channels, n_cond_channels, upsamp_window, upsamp_stride
         )
+        self.fading = fading
         self.cond_layers = Conv(
             n_cond_channels, 2 * n_residual_channels * n_layers,
             w_init_gain='tanh'
@@ -138,15 +140,18 @@ class WaveNet(Module):
         cond_input = self.upsample(features)
         quantized = mu_law_encode(audio).long()
 
-        # expect fading!
-        fading = self.upsamp_window - self.upsamp_stride
-        assert (
-            quantized.size(1) + 2*fading
-            <= cond_input.size(2)
-            < quantized.size(1) + 2*fading + self.upsamp_stride
-        ), (cond_input.shape, quantized)
-        if cond_input.size(2) > quantized.size(1) + 2*fading:
-            cond_input = cond_input[:, :, fading:fading+quantized.size(1)]
+        if self.fading is not None:
+            assert self.fading in ['half', 'full']
+            pad_width = self.upsamp_window - self.upsamp_stride
+            if self.fading == 'half':
+                pad_width //= 2
+            assert (
+                quantized.size(1) + 2*pad_width
+                <= cond_input.size(2)
+                < quantized.size(1) + 2*pad_width + self.upsamp_stride
+            ), (cond_input.shape, quantized.shape, features.shape)
+            cond_input = cond_input[:, :, pad_width:]
+        cond_input = cond_input[:, :, :quantized.size(1)]
 
         forward_input = self.embed(quantized)
         forward_input = forward_input.transpose(1, 2)

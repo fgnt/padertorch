@@ -1,45 +1,29 @@
+"""
+Example call:
+
+export STORAGE_ROOT=<your desired storage root>
+python -m padertorch.contrib.examples.speaker_classification.train
+"""
+import os
+from pathlib import Path
+
+import numpy as np
+from paderbox.database.librispeech import LibriSpeech
+from paderbox.utils.timer import timeStamped
 from padertorch import Trainer
-from padertorch.train.optimizer import Adam
-from padertorch.contrib.je.data.transforms import Transform, Collate
-from padertorch.contrib.je.data.data_provider import split_dataset
+from padertorch.contrib.examples.speaker_classification.model import SpeakerClf
+from padertorch.contrib.je.data.transforms import LabelEncoder, AudioReader, \
+    STFT, MelTransform, Normalizer, Collate
+from padertorch.contrib.je.data.utils import split_dataset
 from padertorch.contrib.je.modules.conv import CNN1d
 from padertorch.modules.fully_connected import fully_connected_stack
-from padertorch.contrib.examples.speaker_classification.model import SpeakerClf
-from paderbox.database.librispeech import LibriSpeech
-from functools import partial
+from padertorch.train.optimizer import Adam
 from torch.nn import GRU
-from pathlib import Path
-from paderbox.utils.timer import timeStamped
-import os
-
 
 storage_dir = str(
     Path(os.environ['STORAGE_ROOT']) / 'speaker_clf' / timeStamped('')[1:]
 )
 os.makedirs(storage_dir, exist_ok=True)
-
-
-def prepare_dataset(
-        dataset, transform, batch_size, training=False, num_workers=8
-):
-    dataset = dataset.map(partial(transform, training=training))
-    if training:
-        dataset = dataset.shuffle(reshuffle=True)
-
-    dataset = dataset.prefetch(
-        num_workers, 10*batch_size, catch_filter_exception=True
-    )
-
-    dataset = dataset.batch_bucket_dynamic(
-        batch_size=batch_size,
-        key='seq_len',
-        max_padding_rate=0.2,
-        expiration=1000,
-        drop_incomplete=training,
-        sort_by_key=True
-    )
-    dataset = dataset.map(Collate())
-    return dataset
 
 
 def get_datasets():
@@ -53,31 +37,60 @@ def get_datasets():
 
     train_clean_100 = train_clean_100.map(prepare_example)
 
-    train_portion, validate_portion = split_dataset(train_clean_100, fold=0)
+    train_set, validate_set = split_dataset(train_clean_100, fold=0)
+    training_data = prepare_dataset(train_set, training=True)
+    validation_data = prepare_dataset(validate_set, training=False)
+    return training_data, validation_data
 
-    transform = Transform(
-        input_sample_rate=16000,
-        target_sample_rate=16000,
-        frame_step=160,
-        frame_length=400,
-        fft_length=512,
-        n_mels=64,
-        fmin=50,
-        storage_dir=storage_dir,
-        label_key='speaker_id'
-    )
-    transform.initialize_norm(train_portion.shuffle()[:10000], max_workers=8)
-    transform.initialize_labels(train_portion)
-    print(len(transform.label_mapping))
 
-    return (
-        prepare_dataset(
-            train_portion, transform, batch_size=16, training=True
-        ),
-        prepare_dataset(
-            validate_portion, transform, batch_size=16, training=False
-        )
+def prepare_dataset(dataset, training=False):
+    batch_size = 16
+    label_encoder = LabelEncoder(
+        label_key='speaker_id', storage_dir=storage_dir
     )
+    label_encoder.initialize_labels(dataset, verbose=True)
+    dataset = dataset.map(label_encoder)
+    audio_reader = AudioReader(
+        source_sample_rate=16000, target_sample_rate=16000
+    )
+    dataset = dataset.map(audio_reader)
+    stft = STFT(
+        shift=160, window_length=400, size=512, fading=None, pad=False
+    )
+    dataset = dataset.map(stft)
+    mel_transform = MelTransform(
+        sample_rate=16000, fft_length=512, n_mels=64, fmin=50
+    )
+    dataset = dataset.map(mel_transform)
+    normalizer = Normalizer(
+        key='mel_transform', center_axis=(1,), scale_axis=(1, 2),
+        storage_dir=storage_dir
+    )
+    normalizer.initialize_moments(
+        dataset.shuffle()[:10000].prefetch(num_workers=8, buffer_size=16),
+        verbose=True
+    )
+    dataset = dataset.map(normalizer)
+
+    def finalize(example):
+        return {
+            'example_id': example['example_id'],
+            'features': np.moveaxis(example['mel_transform'], 1, 2).astype(np.float32),
+            'seq_len': example['mel_transform'].shape[-2],
+            'speaker_id': example['speaker_id'].astype(np.int64)
+        }
+
+    dataset = dataset.map(finalize)
+
+    if training:
+        dataset = dataset.shuffle(reshuffle=True)
+    return dataset.prefetch(
+        num_workers=8, buffer_size=10*batch_size
+    ).batch_dynamic_time_series_bucket(
+        batch_size=batch_size, len_key='seq_len', max_padding_rate=0.1,
+        expiration=1000*batch_size, drop_incomplete=training,
+        sort_key='seq_len', reverse_sort=True
+    ).map(Collate())
 
 
 def get_model():
