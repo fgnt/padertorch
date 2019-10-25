@@ -15,7 +15,8 @@ from paderbox.database.chime import Chime3
 from paderbox.database.keys import OBSERVATION, NOISE_IMAGE, SPEECH_IMAGE
 from paderbox.io import dump_json, load_json
 from paderbox.utils.nested import deflatten, flatten
-from padertorch.configurable import config_to_instance
+from padertorch.configurable import Configurable
+from padertorch.configurable import config_to_instance, recursive_class_to_str
 from padertorch.contrib.jensheit.data import SequenceProvider, MaskTransformer
 from padertorch.models.mask_estimator import MaskEstimatorModel
 from padertorch.train.optimizer import Adam
@@ -36,53 +37,79 @@ def config():
         'summary_trigger': (500, 'iteration'),
         'checkpoint_trigger': (500, 'iteration'),
         'storage_dir': None,
-        'keep_all_checkpoints': False
+        'keep_all_checkpoints': False,
     })
     provider_opts = deflatten({
+        'factory': SequenceProvider,
         'database.factory': Chime3,
+        'audio_keys': [OBSERVATION, NOISE_IMAGE, SPEECH_IMAGE],
         'transform.factory': MaskTransformer,
-        'audio_keys': [OBSERVATION, NOISE_IMAGE, SPEECH_IMAGE]
     })
+    trainer_opts['model']['transformer'] = provider_opts['transform']
+
+    storage_dir = None
+    assert storage_dir is not None
+
+    trainer_opts['storage_dir'] = storage_dir
+
+    if (Path(storage_dir) / 'init.json').exists():
+        trainer_opts, provider_opts = compare_configs(
+            storage_dir, trainer_opts, provider_opts)
+
     Trainer.get_config(
         trainer_opts
     )
-    SequenceProvider.get_config(
+    Configurable.get_config(
         provider_opts
     )
-    validation_length = 100  # number of examples taken from the validation iterator
+    validate_checkpoint = 'ckpt_latest.pth'
+    validation_length = 1000  # number of examples taken from the validation iterator
 
+def dict_compare(d1, d2):
+    # From http://stackoverflow.com/questions/4527942/comparing-two-dictionaries-in-python
+    d1_keys = set(d1.keys())
+    d2_keys = set(d2.keys())
+    intersect_keys = d1_keys.intersection(d2_keys)
+    added = d1_keys - d2_keys
+    removed = d2_keys - d1_keys
 
-def compare_configs(storage_dir, config):
-    config = flatten(config)
-    init = flatten(load_json(Path(storage_dir) / 'init.json'))
-    assert all([key in config for key in init]), \
-        (f'Some keys from the init are no longer used:'
-         f'{[key for key in init if not key in config]}')
-    if not all([init[key] == config[key] for key in init]):
-        warn(f'The following keys have changed in comparison to the init:'
-             f'{[key for key in init if init[key] != config[key]]}')
-    if not all([key in init for key in config]):
-        warn(f'The following keys have been added in comparison to the init:'
-             f'{[key for key in config if key not in init]}')
+    # Init differs from defaults:
+    modified = {o: (d1[o], d2[o]) for o in intersect_keys if d1[o] != d2[o]}
+
+    same = set(o for o in intersect_keys if d1[o] == d2[o])
+    are_equal = not len(added) and not len(removed) and not len(modified)
+    return added, removed, modified, same, are_equal
+
+def compare_configs(storage_dir, trainer_opts, provider_opts):
+    opts = flatten(trainer_opts)
+    opts.update(flatten(provider_opts))
+    init = load_json(Path(storage_dir) / 'init.json')
+
+    added, removed, modified, _, _ = dict_compare(opts, init)
+    if len(added):
+        warn(
+            f'The following options were added to the model: {added}'
+        )
+    if len(removed):
+        warn(
+            f'The following options were removed from the model: {removed}'
+        )
+
+    return init['trainer_opts'], init['provider_opts']
 
 
 @ex.capture
 def initialize_trainer_provider(task, trainer_opts, provider_opts, _run):
-    assert len(ex.current_run.observers) == 1, (
-        'FileObserver` missing. Add a `FileObserver` with `-F foo/bar/`.'
-    )
-    storage_dir = Path(ex.current_run.observers[0].basedir)
-    config = dict()
-    config['trainer_opts'] = trainer_opts
-    print(trainer_opts.keys())
-    config['trainer_opts']['storage_dir'] = storage_dir
-    config['provider_opts'] = provider_opts
+
+
+    storage_dir = Path(trainer_opts['storage_dir'])
     if (storage_dir / 'init.json').exists():
-        compare_configs(storage_dir, config)
         new = False
     elif task in ['train', 'create_checkpoint']:
-        dump_json(config, storage_dir / 'init.json')
         new = True
+        dump_json(dict(trainer_opts=recursive_class_to_str(trainer_opts),
+                       provider_opts=recursive_class_to_str(provider_opts)),
+                  storage_dir / 'init.json')
     else:
         raise ValueError(task, storage_dir)
     sacred.commands.print_config(_run)
@@ -91,9 +118,10 @@ def initialize_trainer_provider(task, trainer_opts, provider_opts, _run):
     assert new ^ (task not in ['train', 'create_checkpoint']), \
         'Train cannot be called on an existing directory. ' \
         'If your want to restart the training use task=restart'
-    trainer = Trainer.from_config(config['trainer_opts'])
+    trainer = Trainer.from_config(trainer_opts)
     assert isinstance(trainer, Trainer)
-    return trainer, config_to_instance(config['provider_opts'])
+    provider = config_to_instance(provider_opts)
+    return trainer, provider
 
 
 @ex.command

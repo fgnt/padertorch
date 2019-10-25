@@ -55,7 +55,7 @@ class MaskEstimatorModel(pt.Model):
         :return:
         """
         obs = batch[M_K.OBSERVATION_ABS]
-        num_frames = [tensor.shape[1] for tensor in obs]
+        num_frames = batch[K.NUM_FRAMES]
         out = {key: [v[:, :frames] for v, frames in zip(value, num_frames)]
                for key, value in self.estimator(obs).items()}
         assert isinstance(out, dict)
@@ -76,12 +76,14 @@ class MaskEstimatorModel(pt.Model):
 
     def add_images(self, batch, output):
         images = dict()
+        if M_K.SPEECH_PRED in output:
+            speech_pred = output[M_K.SPEECH_PRED][0]
+            images['speech_pred'] = mask_to_image(speech_pred, True)
         if M_K.SPEECH_MASK_PRED in output:
             speech_mask = output[M_K.SPEECH_MASK_PRED][0]
             images['speech_mask'] = mask_to_image(speech_mask, True)
         observation = batch[M_K.OBSERVATION_ABS][0]
         images['observed_stft'] = stft_to_image(observation, True)
-
         if M_K.NOISE_MASK_PRED in output:
             noise_mask = output[M_K.NOISE_MASK_PRED][0]
             images['noise_mask'] = mask_to_image(noise_mask, True)
