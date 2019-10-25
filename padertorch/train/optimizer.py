@@ -246,6 +246,8 @@ class LRScheduler:
 
     def step(self, metrics, epoch):
         if self.use_metrics:
+            if epoch == 0:
+                return
             self.lr_scheduler.step(metrics[self.metric_key], epoch)
         else:
             self.lr_scheduler.step(epoch=epoch)
@@ -255,6 +257,7 @@ class LRScheduler:
 
     def state_dict(self):
         return self.lr_scheduler.state_dict()
+
 
 class ExponentialLR(LRScheduler):
     """
@@ -268,6 +271,7 @@ class ExponentialLR(LRScheduler):
         super().__init__(use_metrics=False)
 
         self.scheduler_kwargs = dict(gamma=gamma, last_epoch=last_epoch)
+
 
 class StepLR(LRScheduler):
     """
