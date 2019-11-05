@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional
 from torch.distributions import Normal, MultivariateNormal
 from torch.distributions import kl_divergence as kld
 from torch.nn.utils.rnn import PackedSequence
