@@ -59,7 +59,7 @@ class Trainer(Configurable):
                 │   ├── ckpt_14244.pth
                 │   ├── ckpt_best_loss.pth -> ckpt_7122.pth
                 │   ├── ckpt_latest.pth -> ckpt_14244.pth
-                │   └── ckpt_state.json
+                │   └── ckpt_ranking.json
                 ├── events.out.tfevents.1548851867.ntsim5
             optimizer: a `padertorch.train.optimizer.Optimizer` object
                 or dict of Optimizers
@@ -71,9 +71,9 @@ class Trainer(Configurable):
                 what a summary is.
             checkpoint_trigger: `padertorch.train.trigger.IntervalTrigger`
                 object or tuple describing the interval when checkpoints
-                are saved.
-                See padertorch.train.hooks.CheckpointedValidationHook for a
-                description of what happens on a checkpoint.
+                are saved. See padertorch.train.hooks.CheckpointHook and
+                padertorch.train.hooks.ValidationHook for a description of
+                what happens on a checkpoint.
             stop_trigger: `padertorch.train.trigger.EndTrigger` object
                 or tuple describing the endpoint of the training
             virtual_minibatch_size: Runs the optimisation in
