@@ -336,9 +336,8 @@ class CheckpointHook(TriggeredHook):
         """ Unconditionally save a checkpoint for the current model.
             This is needed for resume of training.
         """
-        checkpoint_path = trainer.default_checkpoint_path()
-        if not checkpoint_path.parent.exists():
-            os.makedirs(str(checkpoint_path.parent))
+        checkpoint_path: Path = trainer.default_checkpoint_path()
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         latest_symlink_path = (checkpoint_path.parent / f'ckpt_latest.{CKPT_EXT}').absolute()
 
         trainer.save_checkpoint(checkpoint_path)
