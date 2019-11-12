@@ -18,6 +18,8 @@ def nested_test_assert_allclose(struct1, struct2):
     def assert_func(array1, array2):
         if array1 is None:
             assert array2 is None, 'Validation step has not been deterministic'
+        elif isinstance(array1, str):
+            np.testing.assert_string_equal(array1, array2)
         else:
             # This function should fail when it is called for training data
             # (-> detach=False) because training is often not deterministic.
