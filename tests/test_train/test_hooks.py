@@ -3,6 +3,7 @@ import types
 import tempfile
 from pathlib import Path
 
+from IPython.lib.pretty import pretty
 import pytest
 import tensorboardX
 import torch
@@ -87,7 +88,6 @@ def test_summary_hook():
         tmp_dir = Path(tmp_dir)
         hook = pt.train.hooks.SummaryHook(
             (1, 'iteration'),
-            writer=tensorboardX.SummaryWriter(str(tmp_dir / 'experiment_dir')),
         )
         with pytest.raises(KeyError, match=r"'loss'") as excinfo:
             hook.update_summary({})
@@ -126,8 +126,39 @@ def test_summary_hook():
                 def review(self, inputs, outputs): pass
             model = Model()
 
+            writer = tensorboardX.SummaryWriter(str(tmp_dir / 'experiment_dir'))
+
         trainer = DummyTrainer()
         hook.finalize_summary(trainer)
         hook.dump_summary(trainer)
+        DummyTrainer.writer.close()
 
-        # ToDo: read summary
+        event_file, = (tmp_dir / 'experiment_dir').glob('*tfevents*')
+        events = list(pt.summary.tfevents.load_events_as_dict(event_file, backend='tf'))
+        for e in events:
+            del e['wall_time']
+
+        expect = [
+            {},
+            {'step': 10, 'summary': {'value': [
+                {'tag': 'training/loss', 'simple_value': 1.0}
+            ]}},
+            {'step': 10, 'summary': {'value': [
+                {'tag': 'training/a', 'simple_value': 2.0}
+            ]}},
+            {'step': 10, 'summary': { 'value': [
+                {'tag': 'training/b', 'simple_value': 3.0}
+            ]}},
+            {'step': 10, 'summary': {'value': [
+                {'tag': 'training/c/text_summary',
+                 'tensor': {
+                     'dtype': 7,
+                     'tensor_shape': {
+                         'dim': [{'size': 1}]},
+                     'string_val': [b'abc']
+                 },
+                 'metadata': {'plugin_data': {'plugin_name': 'text'}}}
+            ]}}
+        ]
+
+        assert events == expect, pretty(events)
