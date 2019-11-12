@@ -418,6 +418,10 @@ class ValidationHook(SummaryHook):
                 self.json_file = ckpt_name.parent / self._json_filename
                 if self.json_file.exists():
                     self.ckpt_ranking = pb.io.json_module.load_json(self.json_file)
+            # TODO: Why is the assertion msg
+            #       `[str(file) for file in ckpt_name.iterdir()]`?
+            #       Since ckpt_name does not exist, ckpt_name.iterdir() will
+            #       fail or yield nothing
             assert ckpt_name.exists(), [str(file) for file in ckpt_name.iterdir()]
             assert all([len(value) == 0 for value in self.summary.values()]), self.summary
             assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
