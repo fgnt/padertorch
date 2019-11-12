@@ -26,7 +26,7 @@ class ProgresbarHookTest(unittest.TestCase):
 
     def train_loop_iteration(self, length, max_it_len):
         progressbar_hook = pt.train.hooks.ProgressBarHook(
-            max_trigger=(length, 'iteration'), max_it_len=max_it_len,
+            stop_trigger=(length, 'iteration'), max_it_len=max_it_len,
             update_interval=1
         )
         trainer = types.SimpleNamespace()
@@ -57,7 +57,7 @@ class ProgresbarHookTest(unittest.TestCase):
 
     def train_loop_epoch(self, length, max_it_len):
         progressbar_hook = pt.train.hooks.ProgressBarHook(
-            max_trigger=(length, 'epoch'), max_it_len=max_it_len,
+            stop_trigger=(length, 'epoch'), max_it_len=max_it_len,
             update_interval=1
         )
         trainer = types.SimpleNamespace()
@@ -115,12 +115,11 @@ def test_summary_hook():
 
         class DummyTrainer:
             iteration = 10
-            class timer:
-                as_dict = {}
 
-            @staticmethod
-            def reset_timer():
-                pass
+            class Timer:
+                as_dict = {}
+                def clear(self): pass
+            train_timer = Timer()
 
             class Model(pt.Model):
                 def forward(self, inputs): pass

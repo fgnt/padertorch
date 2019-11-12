@@ -1,11 +1,9 @@
 import tempfile
 from pathlib import Path
-import contextlib
 import inspect
 import copy
 import textwrap
-from unittest import mock
-import itertools, collections
+import collections
 
 from IPython.lib.pretty import pprint
 import pytest
@@ -87,36 +85,6 @@ class TriggerMock(pt.train.trigger.Trigger):
         return self.trigger.set_last(iteration=iteration, epoch=epoch)
 
 
-@contextlib.contextmanager
-def record_hook_trigger_calls(trainer):
-
-    class GetDefaultHooksMock(mock.MagicMock):
-        def __init__(self, *args, **kw):
-            super().__init__(*args, **kw)
-            self.log_list = []
-
-        def __call__(self, *args, **kw):
-            print('+'*80)
-            print('args, kw', args, kw)
-            print('+'*40)
-            hooks = super().__call__(*args, **kw)
-
-            for hook in hooks:
-                for k, v in list(hook.__dict__.items()):
-                    if isinstance(v, pt.train.trigger.Trigger):
-                        hook.__dict__[k] = TriggerMock(v, self.log_list)
-
-            return hooks
-
-    with mock.patch.object(
-            trainer,
-            'get_default_hooks',
-            wraps=trainer.get_default_hooks,
-            new_callable=GetDefaultHooksMock,
-    ) as mocked:
-        yield mocked
-
-
 def load_tfevents_as_dict(
         path
 ):
@@ -147,60 +115,55 @@ def test_single_model():
             updates=pb.utils.nested.deflatten({
                 'model.factory': Model,
                 'storage_dir': str(tmp_dir),
-                'max_trigger': (2, 'epoch'),
+                'stop_trigger': (2, 'epoch'),
                 'summary_trigger': (3, 'iteration'),
-                'keep_all_checkpoints': True,
+                'checkpoint_trigger': (2, 'iteration')
             })
         )
 
         t = pt.Trainer.from_config(config)
         pre_state_dict = copy.deepcopy(t.state_dict())
 
-        files_before = tuple(tmp_dir.glob('*'))
-        if len(files_before) != 0:
-            # no event file
-            raise Exception(files_before)
+        # files_before = tuple(tmp_dir.glob('*'))
+        # if len(files_before) != 0:
+        #     # no event file
+        #     raise Exception(files_before)
 
-        with record_hook_trigger_calls(t) as mocked:
-            t.train(
-                train_iterator=it_tr,
-                validation_iterator=it_dt,
-                hooks=None,
-                metrics={'loss': 'min'},
-                n_best_checkpoints=1,
-                resume=False,
-            )
+        t.register_validation_hook(
+            validation_iterator=it_dt, max_checkpoints=None
+        )
+        log_list = []
+        for hook in t.hooks:
+            for k, v in list(hook.__dict__.items()):
+                if isinstance(v, pt.train.trigger.Trigger):
+                    hook.__dict__[k] = TriggerMock(v, log_list)
+        t.train(train_iterator=it_tr, resume=False)
 
-        hook_calls = ('\n'.join(mocked.log_list))
+        hook_calls = ('\n'.join(log_list))
 
         # CheckpointedValidationHook trigger is called two times
         #   (once for checkpointing once for validation)_file_name
 
         hook_calls_ref = textwrap.dedent('''
         I:0, E: 0, True, SummaryHook.pre_step
-        I:0, E: 0, True, ProgressBarHook.pre_step
-        I:0, E: 0, True, CheckpointedValidationHook.pre_step
-        I:0, E: 0, True, CheckpointedValidationHook.pre_step
+        I:0, E: 0, True, CheckpointHook.pre_step
+        I:0, E: 0, True, ValidationHook.pre_step
         I:0, E: 0, False, StopTrainingHook.pre_step
         I:1, E: 0, False, SummaryHook.pre_step
-        I:1, E: 0, False, ProgressBarHook.pre_step
-        I:1, E: 0, False, CheckpointedValidationHook.pre_step
-        I:1, E: 0, False, CheckpointedValidationHook.pre_step
+        I:1, E: 0, False, CheckpointHook.pre_step
+        I:1, E: 0, False, ValidationHook.pre_step
         I:1, E: 0, False, StopTrainingHook.pre_step
-        I:2, E: 1, True, SummaryHook.pre_step
-        I:2, E: 1, False, ProgressBarHook.pre_step
-        I:2, E: 1, True, CheckpointedValidationHook.pre_step
-        I:2, E: 1, True, CheckpointedValidationHook.pre_step
+        I:2, E: 1, False, SummaryHook.pre_step
+        I:2, E: 1, True, CheckpointHook.pre_step
+        I:2, E: 1, True, ValidationHook.pre_step
         I:2, E: 1, False, StopTrainingHook.pre_step
         I:3, E: 1, True, SummaryHook.pre_step
-        I:3, E: 1, False, ProgressBarHook.pre_step
-        I:3, E: 1, False, CheckpointedValidationHook.pre_step
-        I:3, E: 1, False, CheckpointedValidationHook.pre_step
+        I:3, E: 1, False, CheckpointHook.pre_step
+        I:3, E: 1, False, ValidationHook.pre_step
         I:3, E: 1, False, StopTrainingHook.pre_step
-        I:4, E: 2, True, SummaryHook.pre_step
-        I:4, E: 2, False, ProgressBarHook.pre_step
-        I:4, E: 2, True, CheckpointedValidationHook.pre_step
-        I:4, E: 2, True, CheckpointedValidationHook.pre_step
+        I:4, E: 2, False, SummaryHook.pre_step
+        I:4, E: 2, True, CheckpointHook.pre_step
+        I:4, E: 2, True, ValidationHook.pre_step
         I:4, E: 2, True, StopTrainingHook.pre_step
         ''').strip()
 
@@ -221,7 +184,7 @@ def test_single_model():
 
         files_after = tuple(tmp_dir.glob('*'))
         assert len(files_after) == 2, files_after
-        for file in files_after:
+        for file in sorted(files_after):
             if 'tfevents' in file.name:
                 old_event_files.append(file)
                 events = load_tfevents_as_dict(file)
@@ -239,26 +202,32 @@ def test_single_model():
                             time_rel_train_step.append(value['simpleValue'])
 
                 c = dict(collections.Counter(tags))
-                # Training summary is written when
-                #   summary_trigger (3, iteration => two times, but zero do not
-                #   count) or checkpoint_trigger (1, epoch => three times, but
-                #   0 do not count) triggers.
+                # Training summary is written two times (at iteration 3 when
+                #   summary_trigger triggers and when training stops and
+                #   summary_hook is closed).
                 # Validation summary is written when checkpoint_trigger
-                #   triggers. Hence 3 times.
+                #   triggers, hence 3 times.
                 #   non_validation_time can only be measured between
-                #   validations => 2 values (one fewer that validation_time)
+                #   validations => 2 values (one fewer than validation_time)
                 expect = {
-                    'training/grad_norm': 3,
-                    'training/grad_norm_': 3,
-                    'training/loss': 3,
-                    'training_timings/time_per_step': 3,
-                    'training_timings/time_rel_to_device': 3,
-                    'training_timings/time_rel_forward': 3,
-                    'training_timings/time_rel_review': 3,
-                    'training_timings/time_rel_backward': 3,
-                    'training_timings/time_rel_data_loading': 3,
-                    'training_timings/time_rel_train_step': 3,
+                    'training/grad_norm': 2,
+                    'training/grad_norm_': 2,
+                    'training/loss': 2,
+                    'training_timings/time_per_iteration': 2,
+                    'training_timings/time_rel_to_device': 2,
+                    'training_timings/time_rel_forward': 2,
+                    'training_timings/time_rel_review': 2,
+                    'training_timings/time_rel_backward': 2,
+                    'training_timings/time_rel_data_loading': 2,
+                    'training_timings/time_rel_step': 2,
                     'validation/loss': 3,
+                    'validation_timings/time_per_iteration': 3,
+                    'validation_timings/time_rel_to_device': 3,
+                    'validation_timings/time_rel_forward': 3,
+                    'validation_timings/time_rel_review': 3,
+                    'validation_timings/time_rel_backward': 3,
+                    'validation_timings/time_rel_data_loading': 3,
+                    'validation_timings/time_rel_step': 3,
                     # non validation time can only be measured between
                     # validations:
                     #  => # of non_val_time - 1 == # of val_time
@@ -267,7 +236,7 @@ def test_single_model():
                 }
                 pprint(c)
                 assert c == expect, c
-                assert len(events) == 39, (len(events), events)
+                assert len(events) == 50, (len(events), events)
 
                 np.testing.assert_allclose(
                     np.add(time_rel_data_loading, time_rel_train_step),
@@ -284,27 +253,21 @@ def test_single_model():
                 ]
                 expect = {
                     'ckpt_0.pth', 'ckpt_2.pth', 'ckpt_4.pth',
-                    'ckpt_state.json', 'ckpt_best_loss.pth',
+                    'ckpt_ranking.json', 'ckpt_best_loss.pth',
                     'ckpt_latest.pth'
                 }
                 assert expect == set(checkpoints_files_name), (
                     expect, checkpoints_files_name
                 )
-                ckpt_state = pb.io.load_json(file / 'ckpt_state.json')
-                assert ckpt_state['metrics']['loss']['values'][0] > 0, ckpt_state
-                ckpt_state['metrics']['loss']['values'][0] = -1
-                expect = {
-                    'latest_checkpoint_path': 'ckpt_4.pth',
-                    'metrics': {
-                        'loss': {
-                            'criterion': 'min',
-                            'key': 'loss',
-                            'paths': ['ckpt_0.pth'],
-                            'values': [-1]
-                        }
-                    }
-                }
-                assert ckpt_state == expect, (ckpt_state, expect)
+                ckpt_ranking = pb.io.load_json(file / 'ckpt_ranking.json')
+                assert ckpt_ranking[0][1] > 0, ckpt_ranking
+                for ckpt in ckpt_ranking:
+                    ckpt[1] = -1
+                expect = [
+                    [str(t.checkpoint_dir / f'ckpt_{i}.pth'), -1]
+                    for i in [0, 2, 4]
+                ]
+                assert ckpt_ranking == expect, (ckpt_ranking, expect)
 
             else:
                 raise ValueError(file)
@@ -328,47 +291,40 @@ def test_single_model():
         # new value
         time.sleep(2)
 
-        config['max_trigger'] = (4, 'epoch')
+        config['stop_trigger'] = (4, 'epoch')
         t = pt.Trainer.from_config(config)
+        t.register_validation_hook(
+            validation_iterator=it_dt, max_checkpoints=None
+        )
+        log_list = []
+        for hook in t.hooks:
+            for k, v in list(hook.__dict__.items()):
+                if isinstance(v, pt.train.trigger.Trigger):
+                    hook.__dict__[k] = TriggerMock(v, log_list)
+        t.train(train_iterator=it_tr, resume=True)
 
-        with record_hook_trigger_calls(t) as mocked:
-            t.train(
-                train_iterator=it_tr,
-                validation_iterator=it_dt,
-                hooks=None,
-                metrics={'loss': 'min'},
-                n_best_checkpoints=1,
-                resume=True,
-            )
-
-
-        hook_calls = ('\n'.join(mocked.log_list))
+        hook_calls = ('\n'.join(log_list))
 
         hook_calls_ref = textwrap.dedent('''
         I:4, E: 2, False, SummaryHook.pre_step
-        I:4, E: 2, False, ProgressBarHook.pre_step
-        I:4, E: 2, False, CheckpointedValidationHook.pre_step
-        I:4, E: 2, False, CheckpointedValidationHook.pre_step
+        I:4, E: 2, False, CheckpointHook.pre_step
+        I:4, E: 2, False, ValidationHook.pre_step
         I:4, E: 2, False, StopTrainingHook.pre_step
         I:5, E: 2, False, SummaryHook.pre_step
-        I:5, E: 2, False, ProgressBarHook.pre_step
-        I:5, E: 2, False, CheckpointedValidationHook.pre_step
-        I:5, E: 2, False, CheckpointedValidationHook.pre_step
+        I:5, E: 2, False, CheckpointHook.pre_step
+        I:5, E: 2, False, ValidationHook.pre_step
         I:5, E: 2, False, StopTrainingHook.pre_step
         I:6, E: 3, True, SummaryHook.pre_step
-        I:6, E: 3, False, ProgressBarHook.pre_step
-        I:6, E: 3, True, CheckpointedValidationHook.pre_step
-        I:6, E: 3, True, CheckpointedValidationHook.pre_step
+        I:6, E: 3, True, CheckpointHook.pre_step
+        I:6, E: 3, True, ValidationHook.pre_step
         I:6, E: 3, False, StopTrainingHook.pre_step
         I:7, E: 3, False, SummaryHook.pre_step
-        I:7, E: 3, False, ProgressBarHook.pre_step
-        I:7, E: 3, False, CheckpointedValidationHook.pre_step
-        I:7, E: 3, False, CheckpointedValidationHook.pre_step
+        I:7, E: 3, False, CheckpointHook.pre_step
+        I:7, E: 3, False, ValidationHook.pre_step
         I:7, E: 3, False, StopTrainingHook.pre_step
-        I:8, E: 4, True, SummaryHook.pre_step
-        I:8, E: 4, False, ProgressBarHook.pre_step
-        I:8, E: 4, True, CheckpointedValidationHook.pre_step
-        I:8, E: 4, True, CheckpointedValidationHook.pre_step
+        I:8, E: 4, False, SummaryHook.pre_step
+        I:8, E: 4, True, CheckpointHook.pre_step
+        I:8, E: 4, True, ValidationHook.pre_step
         I:8, E: 4, True, StopTrainingHook.pre_step
         ''').strip()
 
@@ -387,7 +343,7 @@ def test_single_model():
 
         files_after = tuple(tmp_dir.glob('*'))
         assert len(files_after) == 3, files_after
-        for file in files_after:
+        for file in sorted(files_after):
             if 'tfevents' in file.name:
                 if file in old_event_files:
                     continue
@@ -401,19 +357,26 @@ def test_single_model():
                         tags.append(value['tag'])
 
                 c = dict(collections.Counter(tags))
-                assert len(events) == 26, (len(events), events)
+                assert len(events) == 40, (len(events), events)
                 expect = {
                     'training/grad_norm': 2,
                     'training/grad_norm_': 2,
                     'training/loss': 2,
-                    'training_timings/time_per_step': 2,
+                    'training_timings/time_per_iteration': 2,
                     'training_timings/time_rel_to_device': 2,
                     'training_timings/time_rel_forward': 2,
                     'training_timings/time_rel_review': 2,
                     'training_timings/time_rel_backward': 2,
                     'training_timings/time_rel_data_loading': 2,
-                    'training_timings/time_rel_train_step': 2,
+                    'training_timings/time_rel_step': 2,
                     'validation/loss': 2,
+                    'validation_timings/time_per_iteration': 2,
+                    'validation_timings/time_rel_to_device': 2,
+                    'validation_timings/time_rel_forward': 2,
+                    'validation_timings/time_rel_review': 2,
+                    'validation_timings/time_rel_backward': 2,
+                    'validation_timings/time_rel_data_loading': 2,
+                    'validation_timings/time_rel_step': 2,
                     # non validation time can only be measured between
                     # validations:
                     #  => # of non_val_time - 1 == # of val_time
@@ -430,7 +393,7 @@ def test_single_model():
                 ]
                 expect = {
                     *[f'ckpt_{i}.pth'for i in [0, 2, 4, 6, 8]],
-                    'ckpt_state.json',
+                    'ckpt_ranking.json',
                     'ckpt_best_loss.pth',
                     'ckpt_latest.pth'
                 }
@@ -447,7 +410,7 @@ def test_virtual_minibatch():
 
     virtual_minibatch_size is choosen such, that the first train call only
     accumulates the gradients, but do not apply them.
-    The second call to train (where max_trigger is increased) runs once the
+    The second call to train (where stop_trigger is increased) runs once the
     optimizer step, so the parameters are changed.
     """
 
@@ -462,39 +425,32 @@ def test_virtual_minibatch():
             updates=pb.utils.nested.deflatten({
                 'model.factory': Model,
                 'storage_dir': str(tmp_dir),
-                'max_trigger': (1, 'epoch'),
+                'stop_trigger': (1, 'epoch'),
                 'summary_trigger': (3, 'iteration'),
-                'keep_all_checkpoints': True,
+                'checkpoint_trigger': (2, 'iteration'),
                 'virtual_minibatch_size': 4,  # 2 epochs
             })
         )
 
         t = pt.Trainer.from_config(config)
+        t.register_validation_hook(
+            validation_iterator=it_dt, max_checkpoints=None
+        )
         pre_state_dict = copy.deepcopy(t.state_dict())
 
-        t.train(
-            train_iterator=it_tr,
-            validation_iterator=it_dt,
-            hooks=None,
-            metrics={'loss': 'min'},
-            n_best_checkpoints=1,
-            resume=False,
-        )
+        t.train(train_iterator=it_tr, resume=False)
         intermediate_state_dict = copy.deepcopy(t.state_dict())
 
         # Increase train end from 1 epoch to 2 epochs.
         # The first time that virtual_minibatch_size triggers is at the end of
         # epoch 2.
-        t.max_trigger = (2, 'epoch')
+        config['stop_trigger'] = (2, 'epoch')
 
-        t.train(
-            train_iterator=it_tr,
-            validation_iterator=it_dt,
-            hooks=None,
-            metrics={'loss': 'min'},
-            n_best_checkpoints=1,
-            resume=True,
+        t = pt.Trainer.from_config(config)
+        t.register_validation_hook(
+            validation_iterator=it_dt, max_checkpoints=None
         )
+        t.train(train_iterator=it_tr, resume=True)
         post_state_dict = copy.deepcopy(t.state_dict())
 
         pre_state_dict = pb.utils.nested.nested_op(

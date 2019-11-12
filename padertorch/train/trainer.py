@@ -42,12 +42,10 @@ class Trainer(Configurable):
             model,
             storage_dir,
             optimizer,
-            lr_scheduler=None,
             loss_weights=None,
             summary_trigger=(1, 'epoch'),
             checkpoint_trigger=(1, 'epoch'),
-            keep_all_checkpoints=False,
-            max_trigger=(1, 'epoch'),
+            stop_trigger=(1, 'epoch'),
             virtual_minibatch_size=1,
     ):
         """
@@ -65,8 +63,6 @@ class Trainer(Configurable):
                 ├── events.out.tfevents.1548851867.ntsim5
             optimizer: a `padertorch.train.optimizer.Optimizer` object
                 or dict of Optimizers
-            lr_scheduler: a 'padertorch.train.optimizer.LR_Scheduler' object
-                or dict of LR_Scheduler
             loss_weights: dict of weights for model with multiple losses
             summary_trigger: `pytorch.train.trigger.IntervalTrigger` object
                 or tuple describing the interval when summaries
@@ -78,9 +74,7 @@ class Trainer(Configurable):
                 are saved.
                 See padertorch.train.hooks.CheckpointedValidationHook for a
                 description of what happens on a checkpoint.
-            keep_all_checkpoints: flag if False only latest and best
-                checkpoints are kept otherwise all checkpoints are kept
-            max_trigger: `padertorch.train.trigger.EndTrigger` object
+            stop_trigger: `padertorch.train.trigger.EndTrigger` object
                 or tuple describing the endpoint of the training
             virtual_minibatch_size: Runs the optimisation in
                 virtual_minibatch_size steps. By default run it after each
@@ -127,39 +121,25 @@ class Trainer(Configurable):
 
         self.optimizer = optimizer
 
-        if lr_scheduler is not None:
-            if isinstance(lr_scheduler, dict):
-                assert isinstance(optimizer, dict), (optimizer, lr_scheduler)
-                for key, scheduler in list(lr_scheduler.items()):
-                    if scheduler  is None:
-                        del lr_scheduler[key]
-                    else:
-                        assert isinstance(scheduler, LRScheduler), scheduler
-                        scheduler.set_optimizer(optimizer[key])
-            else:
-                assert isinstance(lr_scheduler, LRScheduler), lr_scheduler
-                lr_scheduler.set_optimizer(optimizer)
-
-        self.lr_scheduler = lr_scheduler
-
         self.device = None  # Dummy value, will be set in Trainer.train
 
         self.storage_dir = Path(storage_dir).expanduser().resolve()
-        self.timer = ContextTimerDict()
-        self.reset_timer()
+        self.writer = tensorboardX.SummaryWriter(str(self.storage_dir))
+        self.train_timer = ContextTimerDict()
+        self.validate_timer = ContextTimerDict()
         self.iteration = None
         self.epoch = None
-
-        self.summary_trigger = summary_trigger
-        self.checkpoint_trigger = checkpoint_trigger
-        self.keep_all_checkpoints = keep_all_checkpoints
-        self.max_trigger = max_trigger
 
         self.loss_weights = loss_weights
         self.virtual_minibatch_size = virtual_minibatch_size
 
-    def reset_timer(self):
-        self.timer.clear()
+        self.hooks = [
+            SummaryHook(summary_trigger, writer=self.writer),
+            CheckpointHook(checkpoint_trigger),
+            StopTrainingHook(stop_trigger)
+        ]
+        self._stop_trigger = stop_trigger
+        self._checkpoint_trigger = checkpoint_trigger
 
     def test_run(
             self,
@@ -171,6 +151,7 @@ class Trainer(Configurable):
         Run a test on the trainer instance (i.e. model test).
 
         Also tests weather validation step is deterministic.
+        # ToDo: is the following still true? are there any other restrictions?
         !!Does not work with layers changing their internal state such as BatchNorm!!
 
         Tests:
@@ -189,11 +170,8 @@ class Trainer(Configurable):
     def train(
             self,
             train_iterator,
-            validation_iterator=None,
             *,
-            hooks=None,
-            metrics={'loss': 'min'},
-            n_best_checkpoints=1,
+            progress_bar=True,
             resume=False,
             device=0 if torch.cuda.is_available() else 'cpu'
     ):
@@ -210,11 +188,11 @@ class Trainer(Configurable):
                     add_review_to_tensorboardX(review)
 
         The remaining code takes care about calling validation and save the
-        result to tensorboard (if the a validation_iterator is given), save
+        result to tensorboard (if a validation_hook is registered), save
         checkpoints, cleanup checkpoints that are stale (not best according
-        to metrics and not last) and display a progessbar.
+        to metric and not last) and display a progessbar.
         The code is designed that many aspects can be customized.
-        (e.g. test_runtime_tests.py DictTrainer for multi model trainer)
+        (e.g. see test_runtime_tests.py DictTrainer for multi model trainer)
 
         Args:
             train_iterator:
@@ -223,23 +201,7 @@ class Trainer(Configurable):
 
                 Usually it will be paderbox.database.BaseIterator that is
                 returned from a database in paderbox.database.
-
-            validation_iterator:
-                Optional and same type as train_iterator. This iterator is used
-                for validation.
-            hooks:
-                Add additional hooks to the default hooks
-                (`Trainer.get_default_hooks`)
-            metrics:
-                The metrics that are used for the deciding which checkpoint is
-                kept. The key is of each entry must be a key 'loss' or a key in
-                review['losses'] or review['scalars']. The value indicate if
-                the metric has to be maximised ('max') or minimised ('min').
-            n_best_checkpoints:
-                The numer of checkpoints to keep for each metric. In the moment
-                only one checkpoints is supported.
-                Use `keep_all_checkpoints=True` from the `__init__` to keep all
-                checkpoints.
+            progress_bar: flag whether to show a progress bar or not.
             resume:
                 Whether to resume a training or start a fresh one.
             device:
@@ -265,13 +227,15 @@ class Trainer(Configurable):
         # Reset all gradients
         self.optimizer_zero_grad()
 
-        hooks = self.get_default_hooks(
-            hooks,
-            train_iterator=train_iterator,
-            validation_iterator=validation_iterator,
-            metrics=metrics,
-            n_best_checkpoints=n_best_checkpoints,
-        )
+        hooks = [*self.hooks]
+        if progress_bar:
+            try:
+                max_it_len = len(train_iterator)
+            except TypeError:
+                # TypeError: object of type '...' has no len()
+                max_it_len = None
+            hooks.append(ProgressBarHook(self._stop_trigger, max_it_len))
+        hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
 
         if self.iteration is None and self.epoch is None:
             self.iteration = 0
@@ -290,7 +254,7 @@ class Trainer(Configurable):
                 for hook in hooks:
                     hook.pre_step(self)
 
-                for self.iteration, example in self.timer(
+                for self.iteration, example in self.train_timer(
                     key='time_per_data_loading',
                     iterable=enumerate(
                         train_iterator,
@@ -302,7 +266,7 @@ class Trainer(Configurable):
                     else:
                         for hook in hooks:
                             hook.pre_step(self)
-                    with self.timer['time_per_train_step']:
+                    with self.train_timer['time_per_step']:
                         model_output, review = self.train_step(
                             example,
                             optimize=(self.iteration+1) % self.virtual_minibatch_size == 0,
@@ -332,7 +296,7 @@ class Trainer(Configurable):
                       'You may comment this finally block for debugging.')
                 raise
 
-    _start_non_validation_time = None
+    _non_validation_start_time = None
 
     def validate(self, validation_iterator):
         """
@@ -341,23 +305,27 @@ class Trainer(Configurable):
         :param validation_iterator:
         :return:
         """
-        train_end_time = self.timer.timestamp()
+        validation_start_time = self.validate_timer.timestamp()
 
-        if self._start_non_validation_time is not None:
-            self.timer.timings['non_validation_time'].append(
-                train_end_time - self._start_non_validation_time
+        if self._non_validation_start_time is not None:
+            self.validate_timer.timings['non_validation_time'].append(
+                validation_start_time - self._non_validation_start_time
             )
 
         # Disable backward mode with `no_grad()`.
-        with self.timer['validation_time'], torch.no_grad():
+        with self.validate_timer['validation_time'], torch.no_grad():
             # Change model to eval mode (e.g. deactivate dropout).
             self.model.eval()
             try:
-                for i, example in enumerate(validation_iterator):
-                    yield self.validation_step(example)
+                for i, example in self.validate_timer(
+                    key='time_per_data_loading',
+                    iterable=enumerate(validation_iterator)
+                ):
+                    with self.validate_timer['time_per_step']:
+                        yield self.validation_step(example)
             finally:
                 self.model.train()
-                self._start_non_validation_time = self.timer.timestamp()
+                self._non_validation_start_time = self.validate_timer.timestamp()
 
     def optimizer_zero_grad(self):
         if isinstance(self.optimizer, dict):
@@ -375,9 +343,9 @@ class Trainer(Configurable):
 
     def train_step(self, example, optimize=True):
 
-        model_out, review = self.step(example)
+        model_out, review = self.step(example, self.train_timer)
 
-        with self.timer['time_per_backward']:
+        with self.train_timer['time_per_backward']:
             self.backward(review)
             if optimize:
                 review = self.clip_grad(review)
@@ -387,19 +355,19 @@ class Trainer(Configurable):
         return model_out, review
 
     def validation_step(self, example):
-        return self.step(example)
+        return self.step(example, self.validate_timer)
 
-    def step(self, example):
-        # TODO: backup OutOfMemory
-        with self.timer['time_per_train_step_to_device']:
+    def step(self, example, timer):
+        # TODO: Backup OutOfMemory
+        with timer['time_per_to_device']:
             example = pt.data.example_to_device(
                 example, self.device
             )
-        with self.timer['time_per_train_step_forward']:
+        with timer['time_per_forward']:
             model_out = self.model(example)
-        with self.timer['time_per_train_step_review']:
+        with timer['time_per_review']:
             review = self.model.review(example, model_out)
-        return model_out, self._maybe_add_loss_to_review(review)
+            return model_out, self._maybe_add_loss_to_review(review)
 
     def _maybe_add_loss_to_review(self, review):
         if 'losses' in review:
@@ -443,70 +411,38 @@ class Trainer(Configurable):
     def backward(self, review, retain_graph=False):
         review['loss'].backward(retain_graph=retain_graph)
 
-    def get_default_hooks(
-            self,
-            hooks,
-            *,
-            train_iterator,
-            validation_iterator,
-            metrics,
-            n_best_checkpoints,
-    ):
-        if n_best_checkpoints != 1:
-            raise NotImplementedError(
-                f'The implementation for more than one checkpoint is not'
-                f'finished.\n'
-                f'Requested number of checkponts: {n_best_checkpoints}'
-            )
-
-        if hooks is None:
-            hooks = []
-        try:
-            max_it_len = len(train_iterator)
-        except TypeError:
-            # TypeError: object of type '...' has no len()
-            max_it_len = None
-        hooks = pt.utils.to_list(hooks)
-
-        writer = tensorboardX.SummaryWriter(str(self.storage_dir))
-
-        if validation_iterator is None:
-            print(
-                'Since no validation_iterator is provided to `Trainer.train`, '
-                'disable validation.'
-            )
-            raise NotImplementedError(
-                'TODO: Check SimpleCheckpointHook for errors'
-            )
-            assert self.lr_scheduler is None
-            hooks.append(SimpleCheckpointHook(
-                self.checkpoint_trigger,
-                keep_all=self.keep_all_checkpoints,
-            ))
-
-            summary_trigger = self.summary_trigger
+    def register_hook(self, hook):
+        if isinstance(hook, (tuple, list)):
+            for h in hook:
+                self.register_hook(h)
         else:
-            hooks.append(CheckpointedValidationHook(
-                trigger=self.checkpoint_trigger,
-                iterator=validation_iterator,
-                checkpoint_dir=self.checkpoint_dir,
-                metrics=metrics,
-                lr_scheduler=self.lr_scheduler,
-                keep_all=self.keep_all_checkpoints,
-                init_from_json=self.checkpoint_dir.exists(),
-                writer=writer,
-            ))
+            self.hooks.append(hook)
 
-            summary_trigger = AnyTrigger(
-                self.summary_trigger,
-                self.checkpoint_trigger,
-            )
+    def register_validation_hook(
+            self, validation_iterator, metric='loss', maximize=False, max_checkpoints=1
+    ):
+        """
 
-        hooks.append(SummaryHook(summary_trigger, writer=writer))
-        hooks.append(ProgressBarHook(self.max_trigger, max_it_len))
-        hooks.append(StopTrainingHook(self.max_trigger))
-        hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
-        return hooks
+        Args:
+            validation_iterator:
+            metric:
+                The metric that is used for deciding which checkpoints are
+                kept. The key must be 'loss', a key in review['losses']
+                or a key in review['scalars'].
+            maximize: if True the metric has to be maximized else minimized.
+            max_checkpoints: The number of checkpoints to keep.
+
+        Returns:
+
+        """
+        self.register_hook(ValidationHook(
+            trigger=self._checkpoint_trigger,
+            iterator=validation_iterator,
+            writer=self.writer,
+            metric=metric,
+            maximize=maximize,
+            max_checkpoints=max_checkpoints
+        ))
 
     def clip_grad(self, summary: dict):
         # TODO: report clipped and unclipped
@@ -720,7 +656,7 @@ class InteractiveTrainer(Trainer):
             model,
             optimizer,
             loss_weights=None,
-            max_trigger=(200, 'epoch'),
+            stop_trigger=(200, 'epoch'),
             summary_trigger=(50, 'epoch'),
             validation_trigger=None,
     ):
@@ -732,7 +668,7 @@ class InteractiveTrainer(Trainer):
             summary_trigger=summary_trigger,
             checkpoint_trigger=None,
             keep_all_checkpoints=False,
-            max_trigger=max_trigger,
+            stop_trigger=stop_trigger,
         )
         # Trainer uses checkpoint_trigger as validation_trigger
         if validation_trigger is None:
@@ -776,11 +712,11 @@ class InteractiveTrainer(Trainer):
             ))
 
             summary_trigger = AnyTrigger(
-                self.summary_trigger,
+                self._summary_trigger,
                 self.validation_trigger,
             )
         else:
-            summary_trigger = self.summary_trigger
+            summary_trigger = self._summary_trigger
 
         try:
             max_it_len = len(train_iterator)
@@ -789,8 +725,8 @@ class InteractiveTrainer(Trainer):
             max_it_len = None
 
         hooks.append(SummaryHook(summary_trigger, writer=self.writer))
-        hooks.append(ProgressBarHook(self.max_trigger, max_it_len))
-        hooks.append(StopTrainingHook(self.max_trigger))
+        hooks.append(ProgressBarHook(self._stop_trigger, max_it_len))
+        hooks.append(StopTrainingHook(self._stop_trigger))
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
         return hooks
 

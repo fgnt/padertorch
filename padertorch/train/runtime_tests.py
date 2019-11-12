@@ -9,9 +9,14 @@ from unittest import mock
 
 import numpy as np
 import torch
+import tensorboardX
 
 import padertorch as pt
 import paderbox as pb
+
+from padertorch.train.hooks import (
+    SummaryHook, CheckpointHook, StopTrainingHook, ValidationHook
+)
 
 
 def nested_test_assert_allclose(struct1, struct2):
@@ -63,39 +68,20 @@ def test_run(
     print('Start test run')
 
     @contextlib.contextmanager
-    def backup_state_dict(trainer):
+    def backup_state(trainer: pt.Trainer):
         state_dict = copy.deepcopy(trainer.state_dict())
+        hooks = trainer.hooks
         try:
             yield
         finally:
             # pass
+            trainer.hooks = hooks
             trainer.load_state_dict(state_dict)
 
     with contextlib.ExitStack() as exit_stack:
         storage_dir = Path(
             exit_stack.enter_context(tempfile.TemporaryDirectory())
         ).expanduser().resolve()
-
-        exit_stack.enter_context(mock.patch.object(
-            trainer,
-            'storage_dir',
-            new=storage_dir,
-        ))
-        exit_stack.enter_context(mock.patch.object(
-            trainer,
-            'summary_trigger',
-            new=(1, 'epoch'),
-        ))
-        exit_stack.enter_context(mock.patch.object(
-            trainer,
-            'checkpoint_trigger',
-            new=pt.train.trigger.IntervalTrigger(1, 'epoch'),
-        ))
-        exit_stack.enter_context(mock.patch.object(
-            trainer,
-            'max_trigger',
-            new=(1, 'epoch'),
-        ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
             'iteration',
@@ -106,12 +92,6 @@ def test_run(
             'epoch',
             new=None,
         ))
-        exit_stack.enter_context(mock.patch.object(
-            trainer,
-            'keep_all_checkpoints',
-            new=True,
-        ))
-
 
         class SpyMagicMock(mock.MagicMock):
             def __init__(self, *args, **kw):
@@ -144,12 +124,6 @@ def test_run(
             trainer,
             'validate',
             wraps=trainer.validate,
-            new_callable=SpyMagicMock,
-        ))
-        get_default_hooks_mock = exit_stack.enter_context(mock.patch.object(
-            trainer,
-            'get_default_hooks',
-            wraps=trainer.get_default_hooks,
             new_callable=SpyMagicMock,
         ))
 
@@ -199,25 +173,53 @@ def test_run(
 
         # ================ Train Call ===================
         with ensure_unchanged_parameter(trainer):
-            with backup_state_dict(trainer):
+            with backup_state(trainer):
+
+                exit_stack.enter_context(mock.patch.object(
+                    trainer,
+                    'storage_dir',
+                    new=storage_dir,
+                ))
+                writer = tensorboardX.SummaryWriter(str(storage_dir))
+                hooks1 = [
+                    SummaryHook((1, 'epoch'), writer=writer),
+                    CheckpointHook((1, 'epoch')),
+                    ValidationHook(
+                        (1, 'epoch'), sub_validation_iterator,
+                        max_checkpoints=None, writer=writer
+                    ),
+                    StopTrainingHook((1, 'epoch'))
+                ]
+                trainer.hooks = hooks1
+
                 trainer.train(
                     sub_train_iterator,
-                    sub_validation_iterator,
                     device=device
                 )
-            with backup_state_dict(trainer):
+            with backup_state(trainer):
                 storage_dir_2 = Path(
                     exit_stack.enter_context(tempfile.TemporaryDirectory())
                 ).expanduser().resolve()
-
                 exit_stack.enter_context(mock.patch.object(
                     trainer,
                     'storage_dir',
                     new=storage_dir_2,
                 ))
+                writer = tensorboardX.SummaryWriter(str(storage_dir_2))
+
+                hooks2 = [
+                    SummaryHook((1, 'epoch'), writer=writer),
+                    CheckpointHook((1, 'epoch')),
+                    ValidationHook(
+                        (1, 'epoch'), sub_validation_iterator,
+                        max_checkpoints=None, writer=writer
+                    ),
+                    StopTrainingHook((1, 'epoch'))
+                ]
+                trainer.hooks = hooks2
+
                 trainer.train(
                     sub_train_iterator,
-                    sub_validation_iterator,
                     device=device,
                 )
 
@@ -231,14 +233,13 @@ def test_run(
         assert validate_mock.call_count == 4, validate_mock.call_count
 
         assert trainer_step_mock.call_count == (4 * virtual_minibatch_size + 8), (trainer_step_mock.call_count, virtual_minibatch_size)
-        assert get_default_hooks_mock.call_count == 2, get_default_hooks_mock.call_count
 
         def trainer_step_mock_to_inputs_output_review(review_mock):
             sig = inspect.signature(review_mock._mock_wraps)
-            for call, (output, review) in zip(review_mock.call_args_list,
-                                    review_mock.spyed_return_values):
+            for call, (output, review) in zip(
+                    review_mock.call_args_list, review_mock.spyed_return_values):
                 args, kwargs = tuple(call)
-                inputs, = sig.bind(*args, **kwargs).arguments.values()
+                inputs, timer = sig.bind(*args, **kwargs).arguments.values()
                 yield dict(inputs=inputs, output=output, review=review)
 
 
@@ -303,7 +304,6 @@ def test_run(
         # end trainer_step_mock_to_inputs_output_review
 
         # Test that the summary is empty
-        hooks1, hooks2 = get_default_hooks_mock.spyed_return_values
         for hooks in [hooks1, hooks2]:
             for hook in hooks:
                 summary = getattr(hook, 'summary', {})
@@ -322,7 +322,7 @@ def test_run(
                 expect = {
                     'ckpt_latest.pth',
                     'ckpt_best_loss.pth',
-                    'ckpt_state.json',
+                    'ckpt_ranking.json',
                     f'ckpt_0.pth',
                     f'ckpt_{2*virtual_minibatch_size}.pth',
                 }
@@ -369,13 +369,13 @@ def test_run_from_config(
         trainer_config['storage_dir'] = tmp_dir
 
         tmp_dir = Path(tmp_dir)
+
         t = pt.Trainer.from_config(trainer_config)
 
         files_before = tuple(tmp_dir.glob('*'))
-        if len(files_before) != 0:
+        if len(files_before) != 1:
             # no event file
             raise Exception(files_before)
-
         test_run(
             t,
             train_iterator,
