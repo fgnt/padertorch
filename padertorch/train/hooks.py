@@ -131,13 +131,11 @@ class SummaryHook(TriggeredHook):
     def __init__(
             self,
             trigger,
-            writer: tensorboardX.SummaryWriter,
             summary_prefix='training',
     ):
         super().__init__(trigger)
         self.reset_summary()
         self.summary_prefix = summary_prefix
-        self.writer = writer
 
     @property
     def priority(self):
@@ -280,33 +278,33 @@ class SummaryHook(TriggeredHook):
         time_prefix = f'{prefix}_timings'
 
         for key, scalar in self.summary['scalars'].items():
-            self.writer.add_scalar(
+            trainer.writer.add_scalar(
                 f'{prefix}/{key}', scalar, iteration)
         for key, scalar in self.summary['timings'].items():
-            self.writer.add_scalar(
+            trainer.writer.add_scalar(
                 f'{time_prefix}/{key}', scalar.mean(), iteration)
         for key, histogram in self.summary['histograms'].items():
-            self.writer.add_histogram(
+            trainer.writer.add_histogram(
                 f'{prefix}/{key}', np.array(histogram), iteration
             )
         for key, audio in self.summary['audios'].items():
             if isinstance(audio, (tuple, list)):
                 assert len(audio) == 2, (len(audio), audio)
-                self.writer.add_audio(
+                trainer.writer.add_audio(
                     f'{prefix}/{key}', audio[0],
                     iteration, sample_rate=audio[1]
                 )
             else:
-                self.writer.add_audio(
+                trainer.writer.add_audio(
                     f'{prefix}/{key}', audio,
                     iteration, sample_rate=16000
                 )
         for key, image in self.summary['images'].items():
-            self.writer.add_image(f'{prefix}/{key}', image, iteration)
+            trainer.writer.add_image(f'{prefix}/{key}', image, iteration)
         for key, text in self.summary['texts'].items():
-            self.writer.add_text(f'{prefix}/{key}', text, iteration)
+            trainer.writer.add_text(f'{prefix}/{key}', text, iteration)
         for key, figure in self.summary['figures'].items():
-            self.writer.add_figure(f'{prefix}/{key}', figure, iteration)
+            trainer.writer.add_figure(f'{prefix}/{key}', figure, iteration)
 
         self.reset_summary()
 
@@ -322,7 +320,6 @@ class SummaryHook(TriggeredHook):
     def close(self, trainer: 'pt.Trainer'):
         self.finalize_summary(trainer)
         self.dump_summary(trainer)
-        self.writer.close()
 
 
 class CheckpointHook(TriggeredHook):
@@ -370,7 +367,7 @@ class ValidationHook(SummaryHook):
     _json_filename = 'ckpt_ranking.json'
 
     def __init__(
-            self, trigger, iterator, writer, metric='loss', maximize=False,
+            self, trigger, iterator, metric='loss', maximize=False,
             max_checkpoints=1
     ):
         """
@@ -379,14 +376,12 @@ class ValidationHook(SummaryHook):
             trigger: tuple or Trigger. Do note that trigger must be the same as
                 (or a multiple of) the trigger used for checkpointing!!
             iterator: validation data iterator
-            writer: tensorboardX.SummaryWriter. Should be the writer from the
-                corresponding trainer
             metric: summary key of the metric that is to be used to track best
                 performance
             maximize: If True metric is to be maximized else minimized
             max_checkpoints: the maximal number of best checkpoints
         """
-        super().__init__(trigger, summary_prefix='validation', writer=writer)
+        super().__init__(trigger, summary_prefix='validation')
         self.iterator = iterator
         self.metric = metric
         self.maximize = maximize
@@ -418,11 +413,7 @@ class ValidationHook(SummaryHook):
                 self.json_file = ckpt_name.parent / self._json_filename
                 if self.json_file.exists():
                     self.ckpt_ranking = pb.io.json_module.load_json(self.json_file)
-            # TODO: Why is the assertion msg
-            #       `[str(file) for file in ckpt_name.iterdir()]`?
-            #       Since ckpt_name does not exist, ckpt_name.iterdir() will
-            #       fail or yield nothing
-            assert ckpt_name.exists(), [str(file) for file in ckpt_name.iterdir()]
+            assert ckpt_name.exists(), [str(file) for file in ckpt_name.parent.iterdir()]
             assert all([len(value) == 0 for value in self.summary.values()]), self.summary
             assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
             print('Starting Validation')
@@ -445,7 +436,7 @@ class ValidationHook(SummaryHook):
             # will then be the best checkpoint. When two scores are identical
             # the older checkpoint wins.
             self.ckpt_ranking = sorted(self.ckpt_ranking, key=lambda x: (
-                    {True: -1, False: 1}[self.maximize] * x[1],  # score
+                    -x[1] if self.maximize else x[1],  # score
                     x[0],  # ckpt path
             ))
             best_cpt_path = ckpt_name.parent / self._best_ckpt_name

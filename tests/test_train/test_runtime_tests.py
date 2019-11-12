@@ -73,8 +73,7 @@ def test_single_model():
 def assert_dir_unchanged_after_context(tmp_dir):
     tmp_dir = Path(tmp_dir)
     files_before = tuple(tmp_dir.glob('*'))
-    if len(files_before) != 1:
-        # no event files
+    if len(files_before) != 0:
         raise Exception(files_before)
 
     yield
