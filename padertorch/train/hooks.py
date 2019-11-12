@@ -20,6 +20,7 @@ import torch
 import tensorboardX
 
 import paderbox as pb
+import padertorch
 from padertorch.train.trigger import IntervalTrigger, EndTrigger
 
 __all__ = [
@@ -211,7 +212,7 @@ class SummaryHook(TriggeredHook):
             scalars = [scalars]
         return scalars
 
-    def compute_timings(self, timer):
+    def compute_timings(self, timer: 'padertorch.trainer.ContextTimerDict'):
         timer_dict = timer.as_dict
         # Special handling for time_per_data_loading and time_per_train_step
         #  Calculate
@@ -263,13 +264,13 @@ class SummaryHook(TriggeredHook):
         summary_timings.update({
             key: timing.mean() for key, timing in timer_dict.items()
         })
+        timer.clear()
         return summary_timings
 
     def finalize_summary(self, trainer):
         assert len(self.summary['timings']) == 0, self.summary['timings']
         for key, timing in self.compute_timings(trainer.train_timer).items():
             self.summary['timings'][key] = timing
-        trainer.train_timer.clear()
         self.summary = trainer.model.modify_summary(self.summary)
 
     def dump_summary(self, trainer: 'pt.Trainer'):
@@ -406,7 +407,6 @@ class ValidationHook(SummaryHook):
         assert len(self.summary['timings']) == 0, self.summary['timings']
         for key, timing in self.compute_timings(trainer.validate_timer).items():
             self.summary['timings'][key] = timing
-        trainer.validate_timer.clear()
         self.summary = trainer.model.modify_summary(self.summary)
 
     def pre_step(self, trainer: 'pt.Trainer'):
