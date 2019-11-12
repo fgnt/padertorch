@@ -403,6 +403,9 @@ class ValidationHook(SummaryHook):
         return f"ckpt_best_{self.metric}.pth"
 
     def finalize_summary(self, trainer):
+        # Do not call `super().finalize_summary(trainer)`.
+        # This function replaces `trainer.train_timer` with
+        # `trainer.validate_timer` from the super function.
         assert len(self.summary['timings']) == 0, self.summary['timings']
         for key, timing in self.compute_timings(trainer.validate_timer).items():
             self.summary['timings'][key] = timing
