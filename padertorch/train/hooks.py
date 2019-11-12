@@ -441,9 +441,13 @@ class ValidationHook(SummaryHook):
             print(f'Finished Validation. Mean {self.metric}: {metric_value}')
 
             self.ckpt_ranking.append((str(ckpt_name), metric_value))
-            self.ckpt_ranking = sorted(
-                self.ckpt_ranking, key=lambda x: x[1], reverse=self.maximize
-            )
+            # Sort the ckpt_ranking according to the score. The first entry
+            # will then be the best checkpoint. When two scores are identical
+            # the older checkpoint wins.
+            self.ckpt_ranking = sorted(self.ckpt_ranking, key=lambda x: (
+                    {True: -1, False: 1}[self.maximize] * x[1],  # score
+                    x[0],  # ckpt path
+            ))
             best_cpt_path = ckpt_name.parent / self._best_ckpt_name
             if best_cpt_path.is_symlink():
                 best_cpt_path.unlink()
