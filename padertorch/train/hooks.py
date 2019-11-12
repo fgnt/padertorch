@@ -20,6 +20,7 @@ import torch
 import tensorboardX
 
 import paderbox as pb
+import padertorch as pt
 from padertorch.train.trigger import IntervalTrigger, EndTrigger
 
 __all__ = [
@@ -211,7 +212,7 @@ class SummaryHook(TriggeredHook):
             scalars = [scalars]
         return scalars
 
-    def compute_timings(self, timer):
+    def compute_timings(self, timer: 'pt.trainer.ContextTimerDict'):
         timer_dict = timer.as_dict
         # Special handling for time_per_data_loading and time_per_train_step
         #  Calculate
@@ -263,13 +264,13 @@ class SummaryHook(TriggeredHook):
         summary_timings.update({
             key: timing.mean() for key, timing in timer_dict.items()
         })
+        timer.clear()
         return summary_timings
 
     def finalize_summary(self, trainer):
         assert len(self.summary['timings']) == 0, self.summary['timings']
         for key, timing in self.compute_timings(trainer.train_timer).items():
             self.summary['timings'][key] = timing
-        trainer.train_timer.clear()
         self.summary = trainer.model.modify_summary(self.summary)
 
     def dump_summary(self, trainer: 'pt.Trainer'):
@@ -335,9 +336,8 @@ class CheckpointHook(TriggeredHook):
         """ Unconditionally save a checkpoint for the current model.
             This is needed for resume of training.
         """
-        checkpoint_path = trainer.default_checkpoint_path()
-        if not checkpoint_path.parent.exists():
-            os.makedirs(str(checkpoint_path.parent))
+        checkpoint_path: Path = trainer.default_checkpoint_path()
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         latest_symlink_path = (checkpoint_path.parent / f'ckpt_latest.{CKPT_EXT}').absolute()
 
         trainer.save_checkpoint(checkpoint_path)
@@ -403,10 +403,12 @@ class ValidationHook(SummaryHook):
         return f"ckpt_best_{self.metric}.pth"
 
     def finalize_summary(self, trainer):
+        # Do not call `super().finalize_summary(trainer)`.
+        # This function replaces `trainer.train_timer` with
+        # `trainer.validate_timer` from the super function.
         assert len(self.summary['timings']) == 0, self.summary['timings']
         for key, timing in self.compute_timings(trainer.validate_timer).items():
             self.summary['timings'][key] = timing
-        trainer.validate_timer.clear()
         self.summary = trainer.model.modify_summary(self.summary)
 
     def pre_step(self, trainer: 'pt.Trainer'):
@@ -416,8 +418,12 @@ class ValidationHook(SummaryHook):
                 self.json_file = ckpt_name.parent / self._json_filename
                 if self.json_file.exists():
                     self.ckpt_ranking = pb.io.json_module.load_json(self.json_file)
+            # TODO: Why is the assertion msg
+            #       `[str(file) for file in ckpt_name.iterdir()]`?
+            #       Since ckpt_name does not exist, ckpt_name.iterdir() will
+            #       fail or yield nothing
             assert ckpt_name.exists(), [str(file) for file in ckpt_name.iterdir()]
-            assert all([len(value) == 0 for value in self.summary.values()])
+            assert all([len(value) == 0 for value in self.summary.values()]), self.summary
             assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
             print('Starting Validation')
             at_least_one_value = False
@@ -429,16 +435,19 @@ class ValidationHook(SummaryHook):
                     f'Got an empty validation iterator: {self.iterator}'
                 )
             self.finalize_summary(trainer)
-            mean_loss = self.summary['scalars']['loss']
             metric_value = self.summary['scalars'][self.metric]
             self.dump_summary(trainer)
             assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
-            print(f'Finished Validation. Mean loss: {mean_loss}')
+            print(f'Finished Validation. Mean {self.metric}: {metric_value}')
 
             self.ckpt_ranking.append((str(ckpt_name), metric_value))
-            self.ckpt_ranking = sorted(
-                self.ckpt_ranking, key=lambda x: x[1], reverse=self.maximize
-            )
+            # Sort the ckpt_ranking according to the score. The first entry
+            # will then be the best checkpoint. When two scores are identical
+            # the older checkpoint wins.
+            self.ckpt_ranking = sorted(self.ckpt_ranking, key=lambda x: (
+                    {True: -1, False: 1}[self.maximize] * x[1],  # score
+                    x[0],  # ckpt path
+            ))
             best_cpt_path = ckpt_name.parent / self._best_ckpt_name
             if best_cpt_path.is_symlink():
                 best_cpt_path.unlink()

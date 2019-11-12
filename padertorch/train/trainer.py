@@ -472,7 +472,7 @@ class Trainer(Configurable):
     def checkpoint_dir(self):
         return self.storage_dir / 'checkpoints'
 
-    def default_checkpoint_path(self):
+    def default_checkpoint_path(self) -> Path:
         return self.checkpoint_dir / f'ckpt_{self.iteration}.{CKPT_EXT}'
 
     def state_dict(self):
