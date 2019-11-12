@@ -20,7 +20,7 @@ import torch
 import tensorboardX
 
 import paderbox as pb
-import padertorch
+import padertorch as pt
 from padertorch.train.trigger import IntervalTrigger, EndTrigger
 
 __all__ = [
@@ -212,7 +212,7 @@ class SummaryHook(TriggeredHook):
             scalars = [scalars]
         return scalars
 
-    def compute_timings(self, timer: 'padertorch.trainer.ContextTimerDict'):
+    def compute_timings(self, timer: 'pt.trainer.ContextTimerDict'):
         timer_dict = timer.as_dict
         # Special handling for time_per_data_loading and time_per_train_step
         #  Calculate
@@ -419,7 +419,7 @@ class ValidationHook(SummaryHook):
                 if self.json_file.exists():
                     self.ckpt_ranking = pb.io.json_module.load_json(self.json_file)
             assert ckpt_name.exists(), [str(file) for file in ckpt_name.iterdir()]
-            assert all([len(value) == 0 for value in self.summary.values()])
+            assert all([len(value) == 0 for value in self.summary.values()]), self.summary
             assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
             print('Starting Validation')
             at_least_one_value = False
@@ -431,11 +431,10 @@ class ValidationHook(SummaryHook):
                     f'Got an empty validation iterator: {self.iterator}'
                 )
             self.finalize_summary(trainer)
-            mean_loss = self.summary['scalars']['loss']
             metric_value = self.summary['scalars'][self.metric]
             self.dump_summary(trainer)
             assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
-            print(f'Finished Validation. Mean loss: {mean_loss}')
+            print(f'Finished Validation. Mean {self.metric}: {metric_value}')
 
             self.ckpt_ranking.append((str(ckpt_name), metric_value))
             self.ckpt_ranking = sorted(
