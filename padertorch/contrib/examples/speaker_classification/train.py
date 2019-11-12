@@ -120,10 +120,11 @@ def train(speaker_clf):
         storage_dir=str(storage_dir),
         summary_trigger=(100, 'iteration'),
         checkpoint_trigger=(1000, 'iteration'),
-        max_trigger=(100000, 'iteration')
+        stop_trigger=(100000, 'iteration')
     )
-
-    trainer.train(train_set, validate_set)
+    trainer.register_validation_hook(validate_set)
+    trainer.test_run(train_set, validate_set)
+    trainer.train(train_set)
 
 
 if __name__ == '__main__':

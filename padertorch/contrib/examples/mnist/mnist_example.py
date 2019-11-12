@@ -73,7 +73,7 @@ class PadertorchModel(padertorch.base.Model):
             loss=loss,
             scalars={'Accuracy': acc},
             images={'image': inputs[0][0]},
-            text={
+            texts={
                 'label': str(inputs[1][0]),
                 'predicted': str(predicted[0]),
             },
@@ -180,14 +180,13 @@ def main(layer_size, epochs, logfilepath, resume, use_pt):
             model,
             logfilepath,
             pt_opt.SGD(),
-            max_trigger=(epochs, 'epoch'),
+            stop_trigger=(epochs, 'epoch'),
             #checkpoint_trigger=(5000, 'iteration'),
             summary_trigger=(1000, 'iteration'),
         )
+        trainer.register_validation_hook(validation_iterator=testloader)
         try:
-            trainer.train(trainloader,
-                          validation_iterator=testloader,
-                          resume=resume)
+            trainer.train(trainloader, resume=resume)
         except Exception:
             print('#' * 1000)
             raise

@@ -118,10 +118,12 @@ def prepare_and_train(
 
         print('Storage dir:', storage_dir)
 
+        trainer.register_validation_hook(
+            it_dt[:10].prefetch(4, 8, catch_filter_exception=True)
+        )
         trainer.test_run(it_tr.catch(), it_dt.catch())
         trainer.train(
             it_tr[:100].prefetch(4, 8, catch_filter_exception=True),
-            it_dt[:10].prefetch(4, 8, catch_filter_exception=True),
             resume=resume,
         )
     finally:

@@ -91,7 +91,9 @@ def prepare_dataset(dataset, storage_dir, training=False):
         dataset = dataset.shuffle(reshuffle=True)
     return dataset.prefetch(
         num_workers=8, buffer_size=10*batch_size
-    ).unbatch().batch(batch_size=batch_size).map(Collate())
+    ).unbatch().shuffle(reshuffle=True, buffer_size=10*batch_size).batch(
+        batch_size=batch_size
+    ).map(Collate())
 
 
 def get_model():
@@ -114,11 +116,12 @@ def train(model, storage_dir):
         storage_dir=str(storage_dir),
         summary_trigger=(100, 'iteration'),
         checkpoint_trigger=(1000, 'iteration'),
-        max_trigger=(100000, 'iteration')
+        stop_trigger=(100000, 'iteration')
     )
 
     trainer.test_run(train_set, validate_set)
-    trainer.train(train_set, validate_set)
+    trainer.train(train_set)
+    trainer.register_validation_hook(validate_set)
 
 
 if __name__ == '__main__':

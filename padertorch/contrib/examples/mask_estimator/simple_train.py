@@ -143,9 +143,10 @@ def train():
     validation_iterator = get_validation_iterator(database)
     trainer = pt.Trainer(model, STORAGE_ROOT / 'simple_mask_estimator',
                          optimizer=pt.train.optimizer.Adam(),
-                         max_trigger=(int(1e5), 'iteration'))
+                         stop_trigger=(int(1e5), 'iteration'))
     trainer.test_run(train_iterator, validation_iterator)
-    trainer.train(train_iterator, validation_iterator)
+    trainer.register_validation_hook(validation_iterator)
+    trainer.train(train_iterator)
 
 
 if __name__ == '__main__':

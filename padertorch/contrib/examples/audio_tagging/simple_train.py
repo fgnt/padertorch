@@ -188,11 +188,14 @@ def main():
         optimizer=optimizer.Adam(lr=3e-5, gradient_clipping=30.),
         storage_dir=storage_dir,
         summary_trigger=(100, 'iteration'),
-        max_trigger=(20000, 'iteration'),
+        stop_trigger=(20000, 'iteration'),
         checkpoint_trigger=(1000, 'iteration')
     )
     training_data, validation_data = get_datasets()
-    trainer.train(training_data, validation_data)
+    trainer.register_validation_hook(validation_data)
+
+    trainer.test_run(training_data, validation_data)
+    trainer.train(training_data)
 
 
 if __name__ == '__main__':
