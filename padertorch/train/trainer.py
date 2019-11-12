@@ -183,7 +183,7 @@ class Trainer(Configurable):
                     model_out = self.model(example)
                     review = self.model.review(example, model_out)
                     review = maybe_add_loss_from_losses(review)
-                    review.backward()
+                    review['loss'].backward()
                     self.optimizer.step()
                     add_review_to_tensorboardX(review)
 
