@@ -156,4 +156,5 @@ def train(validation_length):
         num_examples=validation_length
     )
     trainer.test_run(train_iterator, eval_iterator)
-    trainer.train(train_iterator, eval_iterator)
+    trainer.register_validation_hook(eval_iterator)
+    trainer.train(train_iterator)

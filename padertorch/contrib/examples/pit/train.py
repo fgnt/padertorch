@@ -143,9 +143,11 @@ def prepare_and_train(_config, _run, train_dataset, validate_dataset):
         prepare_iterable_captured(db, train_dataset),
         prepare_iterable_captured(db, validate_dataset),
     )
+    trainer.register_validation_hook(
+        prepare_iterable_captured(db, validate_dataset)
+    )
     trainer.train(
         prepare_iterable_captured(db, train_dataset),
-        prepare_iterable_captured(db, validate_dataset),
         resume=checkpoint_path.is_file()
     )
 
