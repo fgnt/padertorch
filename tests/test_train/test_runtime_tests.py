@@ -40,16 +40,16 @@ class Model(pt.Model):
         return {'losses': {'loss': ce}}
 
 
-def get_iterators():
+def get_datasets():
     db = pb.database.mnist.MnistDatabase()
     return (
-        db.get_iterator_by_names('train'),
-        db.get_iterator_by_names('test'),
+        db.get_dataset('train'),
+        db.get_dataset('test'),
     )
 
 
 def test_single_model():
-    it_tr, it_dt = get_iterators()
+    tr_dataset, dt_dataset = get_datasets()
 
     config = pt.Trainer.get_config(
         updates=pb.utils.nested.deflatten({
@@ -60,11 +60,11 @@ def test_single_model():
     )
 
     pt.train.runtime_tests.test_run_from_config(
-        config, it_tr, it_dt,
+        config, tr_dataset, dt_dataset,
         test_with_known_iterator_length=False,
     )
     pt.train.runtime_tests.test_run_from_config(
-        config, it_tr, it_dt,
+        config, tr_dataset, dt_dataset,
         test_with_known_iterator_length=True,
     )
 
@@ -73,8 +73,7 @@ def test_single_model():
 def assert_dir_unchanged_after_context(tmp_dir):
     tmp_dir = Path(tmp_dir)
     files_before = tuple(tmp_dir.glob('*'))
-    if len(files_before) != 1:
-        # no event files
+    if len(files_before) != 0:
         raise Exception(files_before)
 
     yield
@@ -85,7 +84,7 @@ def assert_dir_unchanged_after_context(tmp_dir):
 
 
 def test_single_model_dir_unchanged():
-    it_tr, it_dt = get_iterators()
+    tr_dataset, dt_dataset = get_datasets()
     model = Model()
 
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -95,11 +94,11 @@ def test_single_model_dir_unchanged():
             storage_dir=tmp_dir, stop_trigger=(2, 'epoch')
         )
         with assert_dir_unchanged_after_context(tmp_dir):
-            t.test_run(it_tr, it_dt)
+            t.test_run(tr_dataset, dt_dataset)
 
 
 # def test_lr_scheduler():
-#     it_tr, it_dt = get_iterators()
+#     tr_dataset, dt_dataset = get_iterators()
 #
 #     config = pt.Trainer.get_config(
 #         updates=pb.utils.nested.deflatten({
@@ -111,11 +110,11 @@ def test_single_model_dir_unchanged():
 #     )
 #
 #     pt.train.runtime_tests.test_run_from_config(
-#         config, it_tr, it_dt,
+#         config, tr_dataset, dt_dataset,
 #         test_with_known_iterator_length=False,
 #     )
 #     pt.train.runtime_tests.test_run_from_config(
-#         config, it_tr, it_dt,
+#         config, tr_dataset, dt_dataset,
 #         test_with_known_iterator_length=True,
 #     )
 
@@ -151,7 +150,7 @@ class ZeroGradModel(pt.Model):
 
 
 def test_single_grad_check():
-    it_tr, it_dt = get_iterators()
+    tr_dataset, dt_dataset = get_datasets()
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_dir = Path(tmp_dir)
@@ -160,7 +159,7 @@ def test_single_grad_check():
             optimizer=pt.optimizer.Adam(),
             storage_dir=tmp_dir, stop_trigger=(2, 'epoch')
         )
-        t.test_run(it_tr, it_dt)
+        t.test_run(tr_dataset, dt_dataset)
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_dir = Path(tmp_dir)
@@ -170,11 +169,11 @@ def test_single_grad_check():
         )
         # AssertionError: The loss of the model did not change between two validations.
         with pytest.raises(AssertionError):
-            t.test_run(it_tr, it_dt)
+            t.test_run(tr_dataset, dt_dataset)
 
 
 def test_single_virtual_minibatch():
-    it_tr, it_dt = get_iterators()
+    tr_dataset, dt_dataset = get_datasets()
     model = Model()
 
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -185,7 +184,7 @@ def test_single_virtual_minibatch():
             virtual_minibatch_size=4
         )
         with assert_dir_unchanged_after_context(tmp_dir):
-            t.test_run(it_tr, it_dt)
+            t.test_run(tr_dataset, dt_dataset)
 
 
 class AE(pt.Model):
@@ -219,7 +218,7 @@ class AE(pt.Model):
 
 
 def test_multiple_optimizers():
-    it_tr, it_dt = get_iterators()
+    tr_dataset, dataset_dt = get_datasets()
 
     model = AE()
     optimizers = {
@@ -232,4 +231,4 @@ def test_multiple_optimizers():
         )
 
         with assert_dir_unchanged_after_context(tmp_dir):
-            trainer.test_run(it_tr, it_dt)
+            trainer.test_run(tr_dataset, dataset_dt)

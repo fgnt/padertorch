@@ -68,14 +68,12 @@ def test_run(
     print('Start test run')
 
     @contextlib.contextmanager
-    def backup_state(trainer: pt.Trainer):
+    def backup_state_dict(trainer: pt.Trainer):
         state_dict = copy.deepcopy(trainer.state_dict())
-        hooks = trainer.hooks
         try:
             yield
         finally:
             # pass
-            trainer.hooks = hooks
             trainer.load_state_dict(state_dict)
 
     with contextlib.ExitStack() as exit_stack:
@@ -173,30 +171,33 @@ def test_run(
 
         # ================ Train Call ===================
         with ensure_unchanged_parameter(trainer):
-            with backup_state(trainer):
+            with backup_state_dict(trainer):
 
                 exit_stack.enter_context(mock.patch.object(
                     trainer,
                     'storage_dir',
                     new=storage_dir,
                 ))
-                writer = tensorboardX.SummaryWriter(str(storage_dir))
                 hooks1 = [
-                    SummaryHook((1, 'epoch'), writer=writer),
+                    SummaryHook((1, 'epoch')),
                     CheckpointHook((1, 'epoch')),
                     ValidationHook(
                         (1, 'epoch'), sub_validation_iterator,
-                        max_checkpoints=None, writer=writer
+                        max_checkpoints=None
                     ),
                     StopTrainingHook((1, 'epoch'))
                 ]
-                trainer.hooks = hooks1
+                exit_stack.enter_context(mock.patch.object(
+                    trainer,
+                    'hooks',
+                    new=hooks1,
+                ))
 
                 trainer.train(
                     sub_train_iterator,
                     device=device
                 )
-            with backup_state(trainer):
+            with backup_state_dict(trainer):
                 storage_dir_2 = Path(
                     exit_stack.enter_context(tempfile.TemporaryDirectory())
                 ).expanduser().resolve()
@@ -205,18 +206,21 @@ def test_run(
                     'storage_dir',
                     new=storage_dir_2,
                 ))
-                writer = tensorboardX.SummaryWriter(str(storage_dir_2))
 
                 hooks2 = [
-                    SummaryHook((1, 'epoch'), writer=writer),
+                    SummaryHook((1, 'epoch')),
                     CheckpointHook((1, 'epoch')),
                     ValidationHook(
                         (1, 'epoch'), sub_validation_iterator,
-                        max_checkpoints=None, writer=writer
+                        max_checkpoints=None
                     ),
                     StopTrainingHook((1, 'epoch'))
                 ]
-                trainer.hooks = hooks2
+                exit_stack.enter_context(mock.patch.object(
+                    trainer,
+                    'hooks',
+                    new=hooks2,
+                ))
 
                 trainer.train(
                     sub_train_iterator,
@@ -373,8 +377,7 @@ def test_run_from_config(
         t = pt.Trainer.from_config(trainer_config)
 
         files_before = tuple(tmp_dir.glob('*'))
-        if len(files_before) != 1:
-            # no event file
+        if len(files_before) != 0:
             raise Exception(files_before)
         test_run(
             t,

@@ -124,7 +124,7 @@ class Trainer(Configurable):
         self.device = None  # Dummy value, will be set in Trainer.train
 
         self.storage_dir = Path(storage_dir).expanduser().resolve()
-        self.writer = tensorboardX.SummaryWriter(str(self.storage_dir))
+        self.writer = None
         self.train_timer = ContextTimerDict()
         self.validate_timer = ContextTimerDict()
         self.iteration = None
@@ -134,7 +134,7 @@ class Trainer(Configurable):
         self.virtual_minibatch_size = virtual_minibatch_size
 
         self.hooks = [
-            SummaryHook(summary_trigger, writer=self.writer),
+            SummaryHook(summary_trigger),
             CheckpointHook(checkpoint_trigger),
             StopTrainingHook(stop_trigger)
         ]
@@ -183,7 +183,7 @@ class Trainer(Configurable):
                     model_out = self.model(example)
                     review = self.model.review(example, model_out)
                     review = maybe_add_loss_from_losses(review)
-                    review.backward()
+                    review['loss'].backward()
                     self.optimizer.step()
                     add_review_to_tensorboardX(review)
 
@@ -227,6 +227,7 @@ class Trainer(Configurable):
         # Reset all gradients
         self.optimizer_zero_grad()
 
+        self.writer = tensorboardX.SummaryWriter(str(self.storage_dir))
         hooks = [*self.hooks]
         if progress_bar:
             try:
@@ -295,6 +296,8 @@ class Trainer(Configurable):
                 print('Exception in finally. May hide actual exception!!!\n'
                       'You may comment this finally block for debugging.')
                 raise
+            self.writer.close()
+            self.writer = None
 
     _non_validation_start_time = None
 
@@ -438,7 +441,6 @@ class Trainer(Configurable):
         self.register_hook(ValidationHook(
             trigger=self._checkpoint_trigger,
             iterator=validation_iterator,
-            writer=self.writer,
             metric=metric,
             maximize=maximize,
             max_checkpoints=max_checkpoints

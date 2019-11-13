@@ -3,25 +3,29 @@ Advanced training script for a mask_estimator. Uses sacred and configurable
 to create a config, instantiate the model and Trainer and write everything
 to a model file.
 May be called as follows:
-python -m padertorch.contrib.examples.mask_estimator.advanced_train -F $STORAGE_ROOT/name/of/model
+python -m padertorch.contrib.examples.mask_estimator.advanced_train
 
 
 """
 from pathlib import Path
-from warnings import warn
+import os
 
 import sacred
 from paderbox.database.chime import Chime3
 from paderbox.database.keys import OBSERVATION, NOISE_IMAGE, SPEECH_IMAGE
-from paderbox.io import dump_json, load_json
-from paderbox.utils.nested import deflatten, flatten
-from padertorch.configurable import config_to_instance
+from paderbox.io import dump_json
+from paderbox.utils.nested import deflatten
+from padertorch.configurable import Configurable
+from padertorch.configurable import config_to_instance, recursive_class_to_str
 from padertorch.contrib.jensheit.data import SequenceProvider, MaskTransformer
+from padertorch.contrib.jensheit.utils import get_experiment_name
+from padertorch.contrib.jensheit.utils import compare_configs
 from padertorch.models.mask_estimator import MaskEstimatorModel
 from padertorch.train.optimizer import Adam
 from padertorch.train.trainer import Trainer
 from sacred.utils import apply_backspaces_and_linefeeds
 
+model_dir = Path(os.environ['STORAGE_ROOT'])
 ex = sacred.Experiment('Train Mask Estimator')
 
 ex.captured_out_filter = apply_backspaces_and_linefeeds
@@ -29,83 +33,90 @@ ex.captured_out_filter = apply_backspaces_and_linefeeds
 
 @ex.config
 def config():
+    model_class = MaskEstimatorModel
     trainer_opts = deflatten({
-        'model.factory': MaskEstimatorModel,
+        'model.factory': model_class,
         'optimizer.factory': Adam,
-        'max_trigger': (int(1e5), 'iteration'),
+        'stop_trigger': (int(1e5), 'iteration'),
         'summary_trigger': (500, 'iteration'),
         'checkpoint_trigger': (500, 'iteration'),
         'storage_dir': None,
-        'keep_all_checkpoints': False
     })
     provider_opts = deflatten({
+        'factory': SequenceProvider,
         'database.factory': Chime3,
+        'audio_keys': [OBSERVATION, NOISE_IMAGE, SPEECH_IMAGE],
         'transform.factory': MaskTransformer,
-        'audio_keys': [OBSERVATION, NOISE_IMAGE, SPEECH_IMAGE]
     })
+    trainer_opts['model']['transformer'] = provider_opts['transform']
+
+    storage_dir = None
+    add_name = None
+    if storage_dir is None:
+        ex_name = get_experiment_name(trainer_opts['model'])
+        if add_name is not None:
+            ex_name += f'_{add_name}'
+        observer = sacred.observers.FileStorageObserver.create(
+            str(model_dir / ex_name))
+        storage_dir = observer.basedir
+    else:
+        sacred.observers.FileStorageObserver.create(storage_dir)
+
+    trainer_opts['storage_dir'] = storage_dir
+
+    if (Path(storage_dir) / 'init.json').exists():
+        trainer_opts, provider_opts = compare_configs(
+            storage_dir, trainer_opts, provider_opts)
+
     Trainer.get_config(
         trainer_opts
     )
-    SequenceProvider.get_config(
+    Configurable.get_config(
         provider_opts
     )
-    validation_length = 100  # number of examples taken from the validation iterator
+    validate_checkpoint = 'ckpt_latest.pth'
+    validation_kwargs = dict(
+        metric = 'loss',
+        maximize = False,
+        max_checkpoints=1,
+        validation_length = 1000  # number of examples taken from the validation iterator
+    )
 
-
-def compare_configs(storage_dir, config):
-    config = flatten(config)
-    init = flatten(load_json(Path(storage_dir) / 'init.json'))
-    assert all([key in config for key in init]), \
-        (f'Some keys from the init are no longer used:'
-         f'{[key for key in init if not key in config]}')
-    if not all([init[key] == config[key] for key in init]):
-        warn(f'The following keys have changed in comparison to the init:'
-             f'{[key for key in init if init[key] != config[key]]}')
-    if not all([key in init for key in config]):
-        warn(f'The following keys have been added in comparison to the init:'
-             f'{[key for key in config if key not in init]}')
 
 
 @ex.capture
 def initialize_trainer_provider(task, trainer_opts, provider_opts, _run):
-    assert len(ex.current_run.observers) == 1, (
-        'FileObserver` missing. Add a `FileObserver` with `-F foo/bar/`.'
-    )
-    storage_dir = Path(ex.current_run.observers[0].basedir)
-    config = dict()
-    config['trainer_opts'] = trainer_opts
-    print(trainer_opts.keys())
-    config['trainer_opts']['storage_dir'] = storage_dir
-    config['provider_opts'] = provider_opts
+
+
+    storage_dir = Path(trainer_opts['storage_dir'])
     if (storage_dir / 'init.json').exists():
-        compare_configs(storage_dir, config)
-        new = False
+        assert task in ['restart', 'validate'], task
     elif task in ['train', 'create_checkpoint']:
-        dump_json(config, storage_dir / 'init.json')
-        new = True
+        dump_json(dict(trainer_opts=recursive_class_to_str(trainer_opts),
+                       provider_opts=recursive_class_to_str(provider_opts)),
+                  storage_dir / 'init.json')
     else:
         raise ValueError(task, storage_dir)
     sacred.commands.print_config(_run)
 
-    # we cannot ask if task==resume, since validation is also an allowed task
-    assert new ^ (task not in ['train', 'create_checkpoint']), \
-        'Train cannot be called on an existing directory. ' \
-        'If your want to restart the training use task=restart'
-    trainer = Trainer.from_config(config['trainer_opts'])
+    trainer = Trainer.from_config(trainer_opts)
     assert isinstance(trainer, Trainer)
-    return trainer, config_to_instance(config['provider_opts'])
+    provider = config_to_instance(provider_opts)
+    return trainer, provider
 
 
 @ex.command
-def restart(validation_length):
+def restart(validation_kwargs):
     trainer, provider = initialize_trainer_provider(task='restart')
     train_iterator = provider.get_train_iterator()
-    eval_iterator = provider.get_eval_iterator(
-        num_examples=validation_length
+    validation_iterator = provider.get_eval_iterator(
+        num_examples=validation_kwargs.pop('validation_length')
     )
     trainer.load_checkpoint()
-    trainer.test_run(train_iterator, eval_iterator)
-    trainer.train(train_iterator, eval_iterator, resume=True)
+    trainer.test_run(train_iterator, validation_iterator)
+    trainer.register_validation_hook(
+        validation_iterator, **validation_kwargs)
+    trainer.train(train_iterator, resume=True)
 
 
 @ex.command
@@ -149,12 +160,13 @@ def create_checkpoint(_config):
 
 
 @ex.automain
-def train(validation_length):
+def train(validation_kwargs):
     trainer, provider = initialize_trainer_provider(task='train')
     train_iterator = provider.get_train_iterator()
-    eval_iterator = provider.get_eval_iterator(
-        num_examples=validation_length
+    validation_iterator = provider.get_eval_iterator(
+        num_examples=validation_kwargs.pop('validation_length')
     )
-    trainer.test_run(train_iterator, eval_iterator)
-    trainer.register_validation_hook(eval_iterator)
+    trainer.test_run(train_iterator, validation_iterator)
+    trainer.register_validation_hook(
+        validation_iterator, **validation_kwargs)
     trainer.train(train_iterator)

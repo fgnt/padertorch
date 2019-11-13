@@ -153,12 +153,12 @@ if __name__ == '__main__':
     STORAGE_ROOT = os.environ.get('STORAGE_ROOT')
     if STORAGE_ROOT is None:
         raise EnvironmentError(
-            'You have to specify an STORAGE_ROOT'
+            'You have to specify an STORAGE_ROOT '
             'environmental variable see getting_started'
         )
     elif not Path(STORAGE_ROOT).exists():
         raise FileNotFoundError(
-            'You have to specify an existing STORAGE_ROOT'
+            'You have to specify an existing STORAGE_ROOT '
             'environmental variable see getting_started.\n'
             f'Got: {STORAGE_ROOT}'
         )

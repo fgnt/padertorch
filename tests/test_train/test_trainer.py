@@ -4,6 +4,7 @@ import inspect
 import copy
 import textwrap
 import collections
+import copy
 
 from IPython.lib.pretty import pprint
 import pytest
@@ -45,7 +46,7 @@ class Model(pt.Model):
         return {'loss': ce}
 
 
-def get_iterators():
+def get_dataset():
     db = pb.database.mnist.MnistDatabase()
     return (
         db.get_iterator_by_names('train'),
@@ -54,9 +55,41 @@ def get_iterators():
 
 
 class TriggerMock(pt.train.trigger.Trigger):
+    """
+    Wrap a Trigger and logs each call of the trigger to the log_list.
+
+    >>> import types
+    >>> dummy_trainer = types.SimpleNamespace()
+    >>> dummy_trainer.iteration = 0
+    >>> dummy_trainer.epoch = 0
+
+    >>> log_list = []
+    >>> trigger = pt.train.trigger.EndTrigger(10, 'iteration')
+    >>> hook = pt.train.hooks.StopTrainingHook(trigger)
+    >>> hook.trigger = TriggerMock(hook.trigger, log_list)
+    >>> hook.pre_step(dummy_trainer)
+    >>> for log in log_list: print(log)
+    I:0, E: 0, False, StopTrainingHook.pre_step
+    >>> dummy_trainer.iteration = 1
+    >>> hook.pre_step(dummy_trainer)
+    >>> for log in log_list: print(log)
+    I:0, E: 0, False, StopTrainingHook.pre_step
+    I:1, E: 0, False, StopTrainingHook.pre_step
+
+    """
     def __init__(self, trigger, log_list):
         self.trigger = trigger
         self.log_list = log_list
+
+    def __deepcopy__(self, memo):
+        # The hooks make alwaiys a deepcopy of the trigger, so one trigger can
+        # be used from multiple hooks. Here we need to disable the copy for
+        # log_list.
+        result = self.__class__.__new__(self.__class__)
+        memo[id(self)] = result
+        result.log_list = self.log_list
+        result.trigger = copy.deepcopy(self.trigger, memo)
+        return result
 
     def __call__(self, iteration, epoch):
         ret = self.trigger(iteration, epoch)
@@ -67,15 +100,10 @@ class TriggerMock(pt.train.trigger.Trigger):
             name = frame.f_locals['self'].__class__.__name__
 
             string = f'I:{iteration}, E: {epoch}, {ret}, {name}.{inspect.stack()[1].function}'
-            self.log_list.append(
-                string
-            )
-
-            # print(string)
+            self.log_list.append(string)
         else:
             callerframerecord = inspect.stack()[2]
             frame = callerframerecord[0]
-            # if 'self' in frame.f_locals:
             name = frame.f_locals['self'].__class__.__name__
             assert name == 'OrTrigger', name
 
@@ -104,9 +132,9 @@ def load_tfevents_as_dict(
 
 
 def test_single_model():
-    it_tr, it_dt = get_iterators()
-    it_tr = it_tr[:2]
-    it_dt = it_dt[:2]
+    tr_dataset, dt_dataset = get_dataset()
+    tr_dataset = tr_dataset[:2]
+    dt_dataset = dt_dataset[:2]
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_dir = Path(tmp_dir)
@@ -124,20 +152,22 @@ def test_single_model():
         t = pt.Trainer.from_config(config)
         pre_state_dict = copy.deepcopy(t.state_dict())
 
-        # files_before = tuple(tmp_dir.glob('*'))
-        # if len(files_before) != 0:
-        #     # no event file
-        #     raise Exception(files_before)
+        files_before = tuple(tmp_dir.glob('*'))
+        if len(files_before) != 0:
+            # no event file
+            raise Exception(files_before)
 
         t.register_validation_hook(
-            validation_iterator=it_dt, max_checkpoints=None
+            validation_iterator=dt_dataset, max_checkpoints=None
         )
+
+        # Wrap each trigger in each hook with TriggerMock.
         log_list = []
         for hook in t.hooks:
             for k, v in list(hook.__dict__.items()):
                 if isinstance(v, pt.train.trigger.Trigger):
                     hook.__dict__[k] = TriggerMock(v, log_list)
-        t.train(train_iterator=it_tr, resume=False)
+        t.train(train_iterator=tr_dataset, resume=False)
 
         hook_calls = ('\n'.join(log_list))
 
@@ -196,9 +226,9 @@ def test_single_model():
                     if 'summary' in event.keys():
                         value, = event['summary']['value']
                         tags.append(value['tag'])
-                        if value['tag'] == 'training/time_rel_data_loading':
+                        if value['tag'] == 'training_timings/time_rel_data_loading':
                             time_rel_data_loading.append(value['simpleValue'])
-                        elif value['tag'] == 'training/time_rel_train_step':
+                        elif value['tag'] == 'training_timings/time_rel_step':
                             time_rel_train_step.append(value['simpleValue'])
 
                 c = dict(collections.Counter(tags))
@@ -238,6 +268,8 @@ def test_single_model():
                 assert c == expect, c
                 assert len(events) == 50, (len(events), events)
 
+                assert len(time_rel_data_loading) > 0, (time_rel_data_loading, time_rel_train_step)
+                assert len(time_rel_train_step) > 0, (time_rel_data_loading, time_rel_train_step)
                 np.testing.assert_allclose(
                     np.add(time_rel_data_loading, time_rel_train_step),
                     1,
@@ -294,14 +326,14 @@ def test_single_model():
         config['stop_trigger'] = (4, 'epoch')
         t = pt.Trainer.from_config(config)
         t.register_validation_hook(
-            validation_iterator=it_dt, max_checkpoints=None
+            validation_iterator=dt_dataset, max_checkpoints=None
         )
         log_list = []
         for hook in t.hooks:
             for k, v in list(hook.__dict__.items()):
                 if isinstance(v, pt.train.trigger.Trigger):
                     hook.__dict__[k] = TriggerMock(v, log_list)
-        t.train(train_iterator=it_tr, resume=True)
+        t.train(train_iterator=tr_dataset, resume=True)
 
         hook_calls = ('\n'.join(log_list))
 
@@ -414,7 +446,7 @@ def test_virtual_minibatch():
     optimizer step, so the parameters are changed.
     """
 
-    it_tr, it_dt = get_iterators()
+    it_tr, it_dt = get_dataset()
     it_tr = it_tr[:2]
     it_dt = it_dt[:2]
 

@@ -56,16 +56,16 @@ class MaskEstimator(pt.Module):
             hidden_size=[1024] * 3,
             output_size=num_features * 2,
         )
+        recu_in = config['recurrent']['input_size']
+        assert recu_in == num_features, (recu_in, num_features)
+        fc = config['fully_connected']['output_size']
+        assert fc == 2 * num_features, (fc, num_features)
         config['normalization'] = dict(
             factory=Normalization,
             num_features=num_features,
             order='l2',
             statistics_axis=0,
         )
-        recu_in = config['recurrent']['input_size']
-        assert recu_in == num_features, (recu_in, num_features)
-        fc = config['fully_connected']['output_size']
-        assert fc == 2 * num_features, (fc, num_features)
         n_in = config['normalization']['num_features']
         assert n_in == num_features, (n_in, num_features)
 
@@ -109,7 +109,8 @@ class MaskEstimator(pt.Module):
         num_channels = x[0].shape[0]
         h = [obs_single_channel for obs in x for obs_single_channel in obs]
         h = pack_sequence(h)
-        h = PackedSequence(self.normalization(h.data), h.batch_sizes) # only works with torch 1.0 and higher
+        if self.normalization:
+            h = PackedSequence(self.normalization(h.data), h.batch_sizes) # only works with torch 1.0 and higher
         h = PackedSequence(self.input_dropout(h.data), h.batch_sizes)
 
         if not self.fix_states:
@@ -122,7 +123,8 @@ class MaskEstimator(pt.Module):
         target_mask = ACTIVATION_FN_MAP[self.output_activation]()(target_logits)
         out_dict = {
             M_K.SPEECH_MASK_PRED: target_mask,
-            M_K.SPEECH_MASK_LOGITS: target_logits,}
+            M_K.SPEECH_MASK_LOGITS: target_logits,
+        }
         if self.separate_masks:
             noise_logits = out[..., self.num_features:]
             noise_mask = ACTIVATION_FN_MAP[self.output_activation]()(noise_logits)
