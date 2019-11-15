@@ -1,3 +1,4 @@
+import os
 import tempfile
 from pathlib import Path
 import inspect
@@ -296,11 +297,24 @@ def test_single_model():
                 for ckpt in ckpt_ranking:
                     ckpt[1] = -1
                 expect = [
-                    [str(t.checkpoint_dir / f'ckpt_{i}.pth'), -1]
+                    [f'ckpt_{i}.pth', -1]
                     for i in [0, 2, 4]
                 ]
                 assert ckpt_ranking == expect, (ckpt_ranking, expect)
 
+                for symlink in [
+                        file / 'ckpt_latest.pth',
+                        file / 'ckpt_best_loss.pth',
+                ]:
+                    assert symlink.is_symlink(), symlink
+
+                    target = os.readlink(str(symlink))
+                    if '/' in target:
+                        raise AssertionError(
+                            f'The symlink {symlink} contains a "/".\n'
+                            f'Expected that the symlink has a ralative target,\n'
+                            f'but the target is: {target}'
+                        )
             else:
                 raise ValueError(file)
 

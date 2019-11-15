@@ -408,12 +408,13 @@ class ValidationHook(SummaryHook):
 
     def pre_step(self, trainer: 'pt.Trainer'):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
-            ckpt_name: Path = trainer.default_checkpoint_path()
+            ckpt_path: Path = trainer.default_checkpoint_path()
+            ckpt_dir = ckpt_path.parent
             if self.json_file is None:
-                self.json_file = ckpt_name.parent / self._json_filename
+                self.json_file = ckpt_dir / self._json_filename
                 if self.json_file.exists():
                     self.ckpt_ranking = pb.io.json_module.load_json(self.json_file)
-            assert ckpt_name.exists(), [str(file) for file in ckpt_name.parent.iterdir()]
+            assert ckpt_path.exists(), [str(file) for file in ckpt_dir.iterdir()]
             assert all([len(value) == 0 for value in self.summary.values()]), self.summary
             assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
             print('Starting Validation')
@@ -431,21 +432,23 @@ class ValidationHook(SummaryHook):
             assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
             print(f'Finished Validation. Mean {self.metric}: {metric_value}')
 
-            self.ckpt_ranking.append((str(ckpt_name), metric_value))
+            # Only save the relative checkpoint path, so the folder can be
+            # moved.
+            self.ckpt_ranking.append((ckpt_path.name, metric_value))
             # Sort the ckpt_ranking according to the score. The first entry
             # will then be the best checkpoint. When two scores are identical
             # the older checkpoint wins.
             self.ckpt_ranking = sorted(self.ckpt_ranking, key=lambda x: (
                     -x[1] if self.maximize else x[1],  # score
-                    x[0],  # ckpt path
+                    x[0],  # ckpt name
             ))
-            best_cpt_path = ckpt_name.parent / self._best_ckpt_name
-            if best_cpt_path.is_symlink():
-                best_cpt_path.unlink()
-            best_cpt_path.symlink_to(self.ckpt_ranking[0][0])
+            best_ckpt_path = ckpt_dir / self._best_ckpt_name
+            if best_ckpt_path.is_symlink():
+                best_ckpt_path.unlink()
+            best_ckpt_path.symlink_to(self.ckpt_ranking[0][0])
             if self.max_checkpoints is not None:
-                for ckpt, _ in self.ckpt_ranking[self.max_checkpoints:]:
-                    ckpt = Path(ckpt)
+                for ckpt_name, _ in self.ckpt_ranking[self.max_checkpoints:]:
+                    ckpt = Path(ckpt_dir / ckpt_name)
                     if ckpt.exists():
                         ckpt.unlink()
                 self.ckpt_ranking = self.ckpt_ranking[:self.max_checkpoints]
