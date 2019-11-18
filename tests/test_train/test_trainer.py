@@ -286,13 +286,13 @@ def test_single_model():
                 ]
                 expect = {
                     'ckpt_0.pth', 'ckpt_2.pth', 'ckpt_4.pth',
-                    'ckpt_ranking.json', 'ckpt_best_loss.pth',
+                    'validation_state.json', 'ckpt_best_loss.pth',
                     'ckpt_latest.pth'
                 }
                 assert expect == set(checkpoints_files_name), (
                     expect, checkpoints_files_name
                 )
-                ckpt_ranking = pb.io.load_json(file / 'ckpt_ranking.json')
+                ckpt_ranking = pb.io.load_json(file / 'validation_state.json')['ckpt_ranking']
                 assert ckpt_ranking[0][1] > 0, ckpt_ranking
                 for ckpt in ckpt_ranking:
                     ckpt[1] = -1
@@ -439,7 +439,7 @@ def test_single_model():
                 ]
                 expect = {
                     *[f'ckpt_{i}.pth'for i in [0, 2, 4, 6, 8]],
-                    'ckpt_ranking.json',
+                    'validation_state.json',
                     'ckpt_best_loss.pth',
                     'ckpt_latest.pth'
                 }
