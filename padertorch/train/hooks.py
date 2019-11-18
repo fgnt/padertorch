@@ -598,9 +598,9 @@ class ProgressBarHook(TriggeredHook):
         if self.trigger(iteration, epoch) and iteration > 1:
             self.pbar.update(iteration)
 
-    def post_step(self, trainer: 'pt.Trainer', example,
-                  model_output, review):
-        self.loss = review["loss"]
+    # def post_step(self, trainer: 'pt.Trainer', example,
+    #               model_output, review):
+    #     self.loss = pt.utils.to_numpy(review["loss"])
 
     def close(self, trainer: 'pt.Trainer'):
         self.pbar.finish()

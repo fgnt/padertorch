@@ -6,6 +6,7 @@ import copy
 import textwrap
 import collections
 import copy
+import itertools
 
 from IPython.lib.pretty import pprint
 import pytest
@@ -523,3 +524,120 @@ def test_virtual_minibatch():
         np.testing.assert_equal(pre_state_dict, intermediate_state_dict)
         with pytest.raises(AssertionError):
             np.testing.assert_equal(pre_state_dict, post_state_dict)
+
+
+def test_released_tensors():
+
+
+    tr_dataset, dt_dataset = get_dataset()
+    tr_dataset = tr_dataset[:2]
+    dt_dataset = dt_dataset[:2]
+
+    class ReleaseTestHook(pt.train.hooks.Hook):
+        def get_all_tensors(self):
+            import gc
+            tensors = []
+            for obj in gc.get_objects():
+                if isinstance(obj, torch.Tensor):
+                    tensors.append(obj)
+            return tensors
+
+        def get_all_parameters(self, trainer):
+            return list(trainer.model.parameters())
+
+        def get_all_optimizer_tensors(self, trainer):
+            def get_tensors(obj):
+                if isinstance(obj, (dict, tuple, list)):
+                    if isinstance(obj, dict):
+                        obj = obj.values()
+                    return list(
+                        itertools.chain(*[get_tensors(o) for o in obj]))
+                else:
+                    if isinstance(obj, torch.Tensor):
+                        return [obj]
+                    else:
+                        return []
+
+            return get_tensors(trainer.optimizer.optimizer.state)
+
+        @classmethod
+        def show_referrers_type(cls, obj, depth, ignore=list()):
+            # Debug function to get all references to an object and the
+            # references to the references up to a depth of `depth`.
+            import gc
+            import textwrap
+            import inspect
+            l = []
+            if depth > 0:
+                referrers = gc.get_referrers(obj)
+                for o in referrers:
+                    if not any({o is i for i in ignore}):
+                        for s in cls.show_referrers_type(
+                                o, depth - 1,
+                                ignore=ignore + [referrers, o, obj]
+                        ):
+                            l.append(textwrap.indent(s, '  '))
+
+            if inspect.isframe(obj):
+                frame_info = inspect.getframeinfo(obj, context=1)
+                if frame_info.function == 'show_referrers_type':
+                    pass
+                else:
+                    info = f' {frame_info.function}, {frame_info.filename}:{frame_info.lineno}'
+                    l.append(str(type(obj)) + str(info))
+            else:
+                l.append(str(type(obj)) + str(obj)[:200].replace('\n', ' '))
+            return l
+
+        def pre_step(self, trainer: 'pt.Trainer'):
+            all_tensors = self.get_all_tensors()
+            parameters = self.get_all_parameters(trainer)
+            optimizer_tensors = self.get_all_optimizer_tensors(trainer)
+
+            for p in all_tensors:
+                if 'grad_fn' in repr(p) or 'grad_fn' in str(p):
+                    txt = "\n".join(self.show_referrers_type(p, 2))
+                    raise AssertionError(
+                        'Found a tensor that has a grad_fn\n\n' + txt
+                    )
+
+            summary = [
+                t.shape
+                for t in all_tensors
+                if any([t is p for p in parameters])
+            ]
+
+            assert len(all_tensors) == len(parameters) + len(optimizer_tensors), (
+                f'pre_step\n'
+                f'{summary}\n'
+                f'all_tensors: {len(all_tensors)}\n'
+                f'{all_tensors}\n'
+                f'parameters: {len(parameters)}\n'
+                f'{parameters}'
+                f'optimizer_tensors: {len(optimizer_tensors)}\n'
+                f'{optimizer_tensors}\n'
+            )
+
+        def post_step(
+                self, trainer: 'pt.Trainer', example, model_output, review
+        ):
+            all_tensors = self.get_all_tensors()
+            parameters = list(trainer.model.parameters())
+            assert len(all_tensors) > len(parameters), ('post_step', all_tensors, parameters)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_dir = Path(tmp_dir)
+
+        t = pt.Trainer(
+            Model(),
+            optimizer=pt.optimizer.Adam(),
+            storage_dir=str(tmp_dir),
+            stop_trigger=(1, 'epoch'),
+            summary_trigger=(1, 'epoch'),
+            checkpoint_trigger=(1, 'epoch'),
+        )
+        t.register_validation_hook(
+            validation_iterator=dt_dataset, max_checkpoints=None
+        )
+        t.register_hook(ReleaseTestHook())  # This hook will do the tests
+        t.train(tr_dataset)
