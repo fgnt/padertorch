@@ -19,7 +19,7 @@ import tensorboardX
 from paderbox.utils.nested import deflatten
 import padertorch as pt
 from padertorch.configurable import Configurable
-from padertorch.train.optimizer import Optimizer, Adam, LRScheduler
+from padertorch.train.optimizer import Optimizer, Adam
 from padertorch.train.runtime_tests import test_run
 from padertorch.train.hooks import *
 from padertorch.train.trigger import AnyTrigger
@@ -216,6 +216,8 @@ class Trainer(Configurable):
             assert not self.checkpoint_dir.exists(),\
                 f'A checkpoint directory already exists. If you want to ' \
                 f'restart the training set resume to True.'
+            self.iteration = 0
+            self.epoch = 0
         torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = False
 
@@ -237,14 +239,6 @@ class Trainer(Configurable):
                 max_it_len = None
             hooks.append(ProgressBarHook(self._stop_trigger, max_it_len))
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
-
-        if self.iteration is None and self.epoch is None:
-            self.iteration = 0
-            self.epoch = 0
-        else:
-            # For training continue set the correct last value (default -1)
-            for hook in hooks:
-                hook.set_last(self.iteration, self.epoch)
 
         # ================ MAIN TRAINING LOOP! ===================
         try:
@@ -422,7 +416,9 @@ class Trainer(Configurable):
             self.hooks.append(hook)
 
     def register_validation_hook(
-            self, validation_iterator, metric='loss', maximize=False, max_checkpoints=1
+            self, validation_iterator, metric='loss', maximize=False,
+            max_checkpoints=1, n_back_off=0, lr_update_factor=1 / 10,
+            back_off_patience=None, early_stopping_patience=None
     ):
         """
 
@@ -434,6 +430,15 @@ class Trainer(Configurable):
                 or a key in review['scalars'].
             maximize: if True the metric has to be maximized else minimized.
             max_checkpoints: The number of checkpoints to keep.
+            n_back_off: number of times the best checkpoint is reloaded to
+                continue training with an updated learning rate.
+            lr_update_factor: the factor by which the lr is multiplied in case
+                of back off. Should be smaller than 1.
+            back_off_patience: the number of allowed degradations before
+                backing off
+            early_stopping_patience: the number of allowed degradations before
+                stopping training. Should be larger than back_off_patience.
+
 
         Returns:
 
@@ -443,7 +448,11 @@ class Trainer(Configurable):
             iterator=validation_iterator,
             metric=metric,
             maximize=maximize,
-            max_checkpoints=max_checkpoints
+            max_checkpoints=max_checkpoints,
+            n_back_off=n_back_off,
+            lr_update_factor=lr_update_factor,
+            back_off_patience=back_off_patience,
+            early_stopping_patience=early_stopping_patience,
         ))
 
     def clip_grad(self, summary: dict):
@@ -475,7 +484,7 @@ class Trainer(Configurable):
         return self.storage_dir / 'checkpoints'
 
     def default_checkpoint_path(self) -> Path:
-        return self.checkpoint_dir / f'ckpt_{self.iteration}.{CKPT_EXT}'
+        return self.checkpoint_dir / f'ckpt_{self.iteration}.pth'
 
     def state_dict(self):
         if isinstance(self.optimizer, dict):
@@ -502,6 +511,12 @@ class Trainer(Configurable):
             str(checkpoint_path)
         )
 
+        # Create relative symlink to latest checkpoint
+        latest_symlink_path = (checkpoint_path.parent / f'ckpt_latest.pth').absolute()
+        if latest_symlink_path.is_symlink():
+            latest_symlink_path.unlink()
+        latest_symlink_path.symlink_to(checkpoint_path.name)
+
         print(f"{datetime.now()}: Saved model and optimizer state "
               f"at iteration {self.iteration} to {checkpoint_path}")
 
@@ -524,10 +539,14 @@ class Trainer(Configurable):
         checkpoint_path = self.checkpoint_dir / 'ckpt_latest.pth'
         assert checkpoint_path.is_file(), checkpoint_path
 
-        checkpoint_dict = torch.load(str(checkpoint_path),
-                                     map_location=map_location)
+        checkpoint_dict = torch.load(
+            str(checkpoint_path), map_location=map_location
+        )
 
         self.load_state_dict(checkpoint_dict)
+
+        for hook in self.hooks:
+            hook.set_last(self.iteration, self.epoch)
 
         print(f"Loaded checkpoint '{checkpoint_path}' (iteration {self.iteration})")
 
