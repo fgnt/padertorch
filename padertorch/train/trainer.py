@@ -449,7 +449,7 @@ class Trainer(Configurable):
         Returns:
 
         """
-        self.register_hook(ValidationHook(
+        self.register_hook(BackOffValidationHook(
             trigger=self._checkpoint_trigger,
             iterator=validation_iterator,
             metric=metric,
@@ -728,7 +728,7 @@ class InteractiveTrainer(Trainer):
 
         if validation_iterator is not None:
 
-            hooks.append(ValidationHook(
+            hooks.append(BackOffValidationHook(
                 trigger=self.validation_trigger,
                 iterator=validation_iterator,
                 # checkpoint_dir=self.checkpoint_dir,

@@ -26,6 +26,7 @@ __all__ = [
     'SummaryHook',
     'CheckpointHook',
     'ValidationHook',
+    'BackOffValidationHook',
     'ProgressBarHook',
     'StopTrainingHook',
     'StopTraining',
@@ -373,8 +374,7 @@ class ValidationHook(SummaryHook):
 
     def __init__(
             self, trigger, iterator, metric='loss', maximize=False,
-            max_checkpoints=1, n_back_off=0, lr_update_factor=1 / 10,
-            back_off_patience=None, early_stopping_patience=None
+            max_checkpoints=1, early_stopping_patience=None
     ):
         """
 
@@ -386,12 +386,6 @@ class ValidationHook(SummaryHook):
                 performance
             maximize: If True metric is to be maximized else minimized
             max_checkpoints: the maximal number of best checkpoints
-            n_back_off: number of times the best checkpoint is reloaded to
-                continue training with an updated learning rate.
-            lr_update_factor: the factor by which the lr is multiplied in case
-                of back off. Should be smaller than 1.
-            back_off_patience: the number of allowed degradations before
-                backing off
             early_stopping_patience: the number of allowed degradations before
                 stopping training. Should be larger than back_off_patience.
         """
@@ -400,20 +394,9 @@ class ValidationHook(SummaryHook):
         self.metric = metric
         self.maximize = maximize
         self.max_checkpoints = max_checkpoints
+        self.early_stopping_patience = early_stopping_patience
         self._json_file = None
         self.ckpt_ranking = []
-
-        self.remaining_lr_updates = n_back_off
-        self.lr_update_factor = lr_update_factor
-        if n_back_off > 0:
-            assert lr_update_factor < 1, lr_update_factor
-            assert back_off_patience is not None
-        self.back_off_patience = back_off_patience
-        if early_stopping_patience is not None \
-                and back_off_patience is not None:
-            assert early_stopping_patience >= back_off_patience, (early_stopping_patience, back_off_patience)
-        self.early_stopping_patience = early_stopping_patience
-
         self.n_degradations = 0
 
     @property
@@ -438,16 +421,13 @@ class ValidationHook(SummaryHook):
     def save_validation_state(self):
         validation_state = {
             'ckpt_ranking': self.ckpt_ranking,
-            'remaining_lr_updates': self.remaining_lr_updates,
-            'n_degradations': self.n_degradations
+            'n_degradations': self.n_degradations,
         }
         pb.io.dump_json(validation_state, self.json_file)
 
     def load_validation_state(self):
         validation_state = pb.io.load_json(self.json_file)
         self.ckpt_ranking = validation_state['ckpt_ranking']
-        assert validation_state['remaining_lr_updates'] <= self.remaining_lr_updates, validation_state['remaining_lr_updates']
-        self.remaining_lr_updates = validation_state['remaining_lr_updates']
         self.n_degradations = validation_state['n_degradations']
 
     def finalize_summary(self, trainer):
@@ -462,79 +442,158 @@ class ValidationHook(SummaryHook):
 
     def pre_step(self, trainer: 'pt.Trainer'):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
-            ckpt_dir = trainer.checkpoint_dir
-            if self._json_file is None:
-                self._json_file = ckpt_dir / self._json_filename
-                if self._json_file.exists():
-                    self.load_validation_state()
-            ckpt_path: Path = trainer.default_checkpoint_path()
-            if not ckpt_path.exists():
-                raise RuntimeError(
-                    'Before each validation the CheckpointHook has to write '
-                    f'a checkpoint.\n'
-                    f'Could not find {ckpt_path}.\n'
-                    f'Found only:\n'
-                    f'{[str(file) for file in ckpt_dir.iterdir()]}'
-                )
-            assert all([len(value) == 0 for value in self.summary.values()]), self.summary
-            assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
-            print('Starting Validation')
-            at_least_one_value = False
-            for model_out, review in trainer.validate(self.iterator):
-                at_least_one_value = True
-                self.update_summary(review)
-            if not at_least_one_value:
-                raise Exception(
-                    f'Got an empty validation iterator: {self.iterator}'
-                )
-            self.finalize_summary(trainer)
-            score = self.summary['scalars'][self.metric]
-            self.dump_summary(trainer)
-            assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
-            print(f'Finished Validation. Mean {self.metric}: {score}')
+            self.run_validation(trainer)
 
-            # Only save the relative checkpoint path, so the folder can be
-            # moved.
-            self.ckpt_ranking.append((ckpt_path.name, score))
-            # Sort the ckpt_ranking according to the score. The first entry
-            # will then be the best checkpoint. When two scores are identical
-            # the older checkpoint wins.
-            self.ckpt_ranking = natsorted(self.ckpt_ranking, key=lambda x: (
-                    -x[1] if self.maximize else x[1],  # score
-                    x[0],  # ckpt name
-            ))
-            if self.ckpt_ranking[0][0] != ckpt_path.name:
-                self.n_degradations += 1
-            else:
-                self.n_degradations = 0
-            best_ckpt_path = ckpt_dir / self._best_ckpt_name
-            if best_ckpt_path.is_symlink():
-                best_ckpt_path.unlink()
-            best_ckpt_path.symlink_to(self.ckpt_ranking[0][0])
-            if self.max_checkpoints is not None:
-                for ckpt_name, _ in self.ckpt_ranking[self.max_checkpoints:]:
-                    ckpt = ckpt_dir / ckpt_name
-                    if ckpt.exists():
-                        ckpt.unlink()
-                self.ckpt_ranking = self.ckpt_ranking[:self.max_checkpoints]
+    def run_validation(self, trainer: 'pt.Trainer'):
+        ckpt_dir = trainer.checkpoint_dir
+        if self._json_file is None:
+            self._json_file = ckpt_dir / self._json_filename
+            if self._json_file.exists():
+                self.load_validation_state()
+        ckpt_path: Path = trainer.default_checkpoint_path()
+        if not ckpt_path.exists():
+            raise RuntimeError(
+                'Before each validation the CheckpointHook has to write '
+                f'a checkpoint.\n'
+                f'Could not find {ckpt_path}.\n'
+                f'Found only:\n'
+                f'{[str(file) for file in ckpt_dir.iterdir()]}'
+            )
+        assert all([len(value) == 0 for value in self.summary.values()]), self.summary
+        assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
+        print('Starting Validation')
+        at_least_one_value = False
+        for model_out, review in trainer.validate(self.iterator):
+            at_least_one_value = True
+            self.update_summary(review)
+        if not at_least_one_value:
+            raise Exception(
+                f'Got an empty validation iterator: {self.iterator}'
+            )
+        self.finalize_summary(trainer)
+        score = self.summary['scalars'][self.metric]
+        self.dump_summary(trainer)
+        assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
+        print(f'Finished Validation. Mean {self.metric}: {score}')
 
-            if (
-                    self.remaining_lr_updates > 0
-                    and self.n_degradations > self.back_off_patience
-            ):
-                self._back_off(trainer)
+        # Only save the relative checkpoint path, so the folder can be
+        # moved.
+        self.ckpt_ranking.append((ckpt_path.name, score))
+        # Sort the ckpt_ranking according to the score. The first entry
+        # will then be the best checkpoint. When two scores are identical
+        # the older checkpoint wins.
+        self.ckpt_ranking = natsorted(self.ckpt_ranking, key=lambda x: (
+                -x[1] if self.maximize else x[1],  # score
+                x[0],  # ckpt name
+        ))
+        best_ckpt_path = ckpt_dir / self._best_ckpt_name
+        if best_ckpt_path.is_symlink():
+            best_ckpt_path.unlink()
+        best_ckpt_path.symlink_to(self.ckpt_ranking[0][0])
+        if self.max_checkpoints is not None:
+            for ckpt_name, _ in self.ckpt_ranking[self.max_checkpoints:]:
+                ckpt = ckpt_dir / ckpt_name
+                if ckpt.exists():
+                    ckpt.unlink()
+            self.ckpt_ranking = self.ckpt_ranking[:self.max_checkpoints]
+        if self.ckpt_ranking[0][0] != ckpt_path.name:
+            self.n_degradations += 1
+        else:
+            self.n_degradations = 0
+        self.save_validation_state()
 
-            self.save_validation_state()
+        if (
+            self.early_stopping_patience is not None
+            and self.n_degradations > self.early_stopping_patience
+        ):
+            print(f'Early stopping after {trainer.epoch} epochs and'
+                  f' {trainer.iteration} iterations')
+            raise StopTraining
 
-            if (
-                self.early_stopping_patience is not None
-                and self.n_degradations >= self.early_stopping_patience
-            ):
-                print(f'Early stopping after {trainer.epoch} epochs and'
-                      f' {trainer.iteration} iterations')
-                raise StopTraining
+    def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
+        pass
 
-    def _back_off(self, trainer):
+
+class BackOffValidationHook(ValidationHook):
+    """ Performs model validation and deletes stale checkpoints
+    (checkpoints that are not among the max_checkpoints best checkpoints).
+
+    ValidationHook tasks:
+     - validate and collect summary
+     - update best checkpoints according to metric
+     - dump summary to tfevents file
+     - remove stale checkpoints
+     - save checkpoint ranking in `_json_filename`
+
+    """
+    _json_filename = 'validation_state.json'
+
+    def __init__(
+            self, trigger, iterator, metric='loss', maximize=False,
+            max_checkpoints=1, early_stopping_patience=None, n_back_off=0,
+            lr_update_factor=1 / 10, back_off_patience=None
+    ):
+        """
+
+        Args:
+            trigger: tuple or Trigger. Do note that trigger must be the same as
+                (or a multiple of) the trigger used for checkpointing!!
+            iterator: validation data iterator
+            metric: summary key of the metric that is to be used to track best
+                performance
+            maximize: If True metric is to be maximized else minimized
+            max_checkpoints: the maximal number of best checkpoints
+            early_stopping_patience: the number of allowed degradations before
+                stopping training. Should be larger than back_off_patience.
+            n_back_off: number of times the best checkpoint is reloaded to
+                continue training with an updated learning rate.
+            lr_update_factor: the factor by which the lr is multiplied in case
+                of back off. Should be smaller than 1.
+            back_off_patience: the number of allowed degradations before
+                backing off
+        """
+        super().__init__(
+            trigger, iterator,
+            metric=metric, maximize=maximize, max_checkpoints=max_checkpoints,
+            early_stopping_patience=early_stopping_patience
+        )
+
+        self.remaining_back_offs = n_back_off
+        self.lr_update_factor = lr_update_factor
+        if n_back_off > 0:
+            assert lr_update_factor < 1, lr_update_factor
+            assert back_off_patience is not None
+        self.back_off_patience = back_off_patience
+        if early_stopping_patience is not None \
+                and back_off_patience is not None:
+            assert early_stopping_patience >= back_off_patience, (
+                early_stopping_patience, back_off_patience
+            )
+
+    def save_validation_state(self):
+        validation_state = {
+            'ckpt_ranking': self.ckpt_ranking,
+            'n_degradations': self.n_degradations,
+            'remaining_back_offs': self.remaining_back_offs,
+        }
+        pb.io.dump_json(validation_state, self.json_file)
+
+    def load_validation_state(self):
+        validation_state = pb.io.load_json(self.json_file)
+        self.ckpt_ranking = validation_state['ckpt_ranking']
+        assert validation_state['remaining_back_offs'] <= self.remaining_back_offs, validation_state['remaining_back_offs']
+        self.remaining_back_offs = validation_state['remaining_back_offs']
+        self.n_degradations = validation_state['n_degradations']
+
+    def run_validation(self, trainer: 'pt.Trainer'):
+        super().run_validation(trainer)
+        if (
+            self.remaining_back_offs > 0
+            and self.n_degradations > self.back_off_patience
+        ):
+            self._back_off(trainer)
+
+    def _back_off(self, trainer: 'pt.Trainer'):
         best_ckpt = self.ckpt_ranking[0][0]
         print(f'Back off to {best_ckpt}.')
 
@@ -544,12 +603,14 @@ class ValidationHook(SummaryHook):
             latest_symlink_path.unlink()
         latest_symlink_path.symlink_to(best_ckpt)
 
-        stale = False
-        for ckpt, _ in natsorted(self.ckpt_ranking, key=lambda x: x[0]):
-            if stale and Path(ckpt).exists():
-                Path(ckpt).unlink()
-            if ckpt == best_ckpt:
-                stale = True
+        best_iter = int(best_ckpt[len('ckpt_'): -len('.pth')])
+        for j in range(1, len(self.ckpt_ranking)):
+            ckpt = self.ckpt_ranking[-j]
+            if int(ckpt[len('ckpt_'): -len('.pth')]) > best_iter:
+                ckpt_path = ckpt_dir / ckpt
+                assert ckpt_path.exists(), ckpt_path
+                ckpt_path.unlink()
+                self.ckpt_ranking.pop(-j)
 
         trainer.load_checkpoint()
 
@@ -563,7 +624,8 @@ class ValidationHook(SummaryHook):
         else:
             update_lr(optimizer)
         self.n_degradations = 0
-        self.remaining_lr_updates -= 1
+        self.remaining_back_offs -= 1
+        self.save_validation_state()
 
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
         pass
