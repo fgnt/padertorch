@@ -317,7 +317,7 @@ class SummaryHook(TriggeredHook):
         self.dump_summary(trainer)
 
     def set_last(self, iteration, epoch):
-        self.reset_summary()
+        self.reset_summary()  # The reset is done for back_off
         super().set_last(iteration, epoch)
 
 
@@ -387,14 +387,18 @@ class ValidationHook(SummaryHook):
         self.metric = metric
         self.maximize = maximize
         self.max_checkpoints = max_checkpoints
-        self.json_file = None
+        self._json_file = None
         self.ckpt_ranking = []
 
         self.remaining_lr_updates = n_back_off
         self.lr_update_factor = lr_update_factor
         if n_back_off > 0:
+            assert lr_update_factor < 1, lr_update_factor
             assert back_off_patience is not None
         self.back_off_patience = back_off_patience
+        if early_stopping_patience is not None \
+                and back_off_patience is not None:
+            assert early_stopping_patience >= back_off_patience, (early_stopping_patience, back_off_patience)
         self.early_stopping_patience = early_stopping_patience
 
         self.n_degradations = 0
@@ -404,21 +408,30 @@ class ValidationHook(SummaryHook):
         return Priority.VALIDATION
 
     @property
+    def json_file(self):
+        if self._json_file is None:
+            raise RuntimeError(
+                'The property json_file will be lazy setted in the pre_step'
+                'function.\n'
+                'The trainer knows, where to store the "validation_state" and '
+                'this hooks sees the trainer first in the pre_step.'
+            )
+        return self._json_file
+
+    @property
     def _best_ckpt_name(self):
         return f"ckpt_best_{self.metric}.pth"
 
     def save_validation_state(self):
-        assert self.json_file is not None
         validation_state = {
             'ckpt_ranking': self.ckpt_ranking,
             'remaining_lr_updates': self.remaining_lr_updates,
             'n_degradations': self.n_degradations
         }
-        pb.io.json_module.dump_json(validation_state, self.json_file)
+        pb.io.dump_json(validation_state, self.json_file)
 
     def load_validation_state(self):
-        assert self.json_file is not None
-        validation_state = pb.io.json_module.load_json(self.json_file)
+        validation_state = pb.io.load_json(self.json_file)
         self.ckpt_ranking = validation_state['ckpt_ranking']
         assert validation_state['remaining_lr_updates'] <= self.remaining_lr_updates, validation_state['remaining_lr_updates']
         self.remaining_lr_updates = validation_state['remaining_lr_updates']
@@ -436,12 +449,19 @@ class ValidationHook(SummaryHook):
     def pre_step(self, trainer: 'pt.Trainer'):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
             ckpt_dir = trainer.checkpoint_dir
-            if self.json_file is None:
-                self.json_file = ckpt_dir / self._json_filename
-                if self.json_file.exists():
+            if self._json_file is None:
+                self._json_file = ckpt_dir / self._json_filename
+                if self._json_file.exists():
                     self.load_validation_state()
             ckpt_path: Path = trainer.default_checkpoint_path()
-            assert ckpt_path.exists(), [str(file) for file in ckpt_dir.iterdir()]
+            if not ckpt_path.exists():
+                raise RuntimeError(
+                    'Before each validation the CheckpointHook has to write '
+                    f'a checkpoint.\n'
+                    f'Could not find {ckpt_path}.\n'
+                    f'Fould only:\n'
+                    f'{[str(file) for file in ckpt_dir.iterdir()]}'
+                )
             assert all([len(value) == 0 for value in self.summary.values()]), self.summary
             assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
             print('Starting Validation')
@@ -509,7 +529,7 @@ class ValidationHook(SummaryHook):
 
         ckpt_dir = trainer.checkpoint_dir
         latest_symlink_path = (ckpt_dir / f'ckpt_latest.pth').absolute()
-        if latest_symlink_path.is_symlink():
+        if latest_symlink_path.is_symlink():  # CB: Change to assert?
             latest_symlink_path.unlink()
         latest_symlink_path.symlink_to(best_ckpt)
 
@@ -598,9 +618,9 @@ class ProgressBarHook(TriggeredHook):
         if self.trigger(iteration, epoch) and iteration > 1:
             self.pbar.update(iteration)
 
-    def post_step(self, trainer: 'pt.Trainer', example,
-                  model_output, review):
-        self.loss = review["loss"]
+    # def post_step(self, trainer: 'pt.Trainer', example,
+    #               model_output, review):
+    #     self.loss = pt.utils.to_numpy(review["loss"])
 
     def close(self, trainer: 'pt.Trainer'):
         self.pbar.finish()

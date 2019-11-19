@@ -270,6 +270,11 @@ class Trainer(Configurable):
                     for hook in hooks:
                         hook.post_step(self, example, model_output, review)
 
+                    # Release pytorch object to reduce memory footprint
+                    del example  # likely to be numpy
+                    del model_output
+                    del review
+
                 if self.iteration == 0 and epoch_start:
                     # epoch_start is used to prevent raising an error,
                     # when train_iterator has only one element
@@ -320,6 +325,7 @@ class Trainer(Configurable):
                 ):
                     with self.validate_timer['time_per_step']:
                         yield self.validation_step(example)
+                    del example
             finally:
                 self.model.train()
                 self._non_validation_start_time = self.validate_timer.timestamp()
