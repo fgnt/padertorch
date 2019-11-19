@@ -126,6 +126,12 @@ def test_summary_hook():
                 def review(self, inputs, outputs): pass
             model = Model()
 
+            class PaderOptimizer:
+                class PytorchOptimizer:
+                    param_groups = [{'lr': 1}]
+                optimizer = PytorchOptimizer()
+            optimizer = PaderOptimizer()
+
             writer = tensorboardX.SummaryWriter(str(tmp_dir / 'experiment_dir'))
 
         trainer = DummyTrainer()
@@ -146,9 +152,13 @@ def test_summary_hook():
             {'step': 10, 'summary': {'value': [
                 {'tag': 'training/a', 'simple_value': 2.0}
             ]}},
-            {'step': 10, 'summary': { 'value': [
+            {'step': 10, 'summary': {'value': [
                 {'tag': 'training/b', 'simple_value': 3.0}
             ]}},
+            {'step': 10,
+             'summary': {'value': [
+                 {'tag': 'training/lr/param_group_0', 'simple_value': 1.0}
+             ]}},
             {'step': 10, 'summary': {'value': [
                 {'tag': 'training/c/text_summary',
                  'tensor': {
