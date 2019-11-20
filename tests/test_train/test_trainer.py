@@ -2,7 +2,6 @@ import os
 import tempfile
 from pathlib import Path
 import inspect
-import copy
 import textwrap
 import collections
 import copy
@@ -179,23 +178,23 @@ def test_single_model():
         hook_calls_ref = textwrap.dedent('''
         I:0, E: 0, True, SummaryHook.pre_step
         I:0, E: 0, True, CheckpointHook.pre_step
-        I:0, E: 0, True, ValidationHook.pre_step
+        I:0, E: 0, True, BackOffValidationHook.pre_step
         I:0, E: 0, False, StopTrainingHook.pre_step
         I:1, E: 0, False, SummaryHook.pre_step
         I:1, E: 0, False, CheckpointHook.pre_step
-        I:1, E: 0, False, ValidationHook.pre_step
+        I:1, E: 0, False, BackOffValidationHook.pre_step
         I:1, E: 0, False, StopTrainingHook.pre_step
         I:2, E: 1, False, SummaryHook.pre_step
         I:2, E: 1, True, CheckpointHook.pre_step
-        I:2, E: 1, True, ValidationHook.pre_step
+        I:2, E: 1, True, BackOffValidationHook.pre_step
         I:2, E: 1, False, StopTrainingHook.pre_step
         I:3, E: 1, True, SummaryHook.pre_step
         I:3, E: 1, False, CheckpointHook.pre_step
-        I:3, E: 1, False, ValidationHook.pre_step
+        I:3, E: 1, False, BackOffValidationHook.pre_step
         I:3, E: 1, False, StopTrainingHook.pre_step
         I:4, E: 2, False, SummaryHook.pre_step
         I:4, E: 2, True, CheckpointHook.pre_step
-        I:4, E: 2, True, ValidationHook.pre_step
+        I:4, E: 2, True, BackOffValidationHook.pre_step
         I:4, E: 2, True, StopTrainingHook.pre_step
         ''').strip()
 
@@ -245,6 +244,7 @@ def test_single_model():
                     'training/grad_norm': 2,
                     'training/grad_norm_': 2,
                     'training/loss': 2,
+                    'training/lr/param_group_0': 2,
                     'training_timings/time_per_iteration': 2,
                     'training_timings/time_rel_to_device': 2,
                     'training_timings/time_rel_forward': 2,
@@ -253,6 +253,7 @@ def test_single_model():
                     'training_timings/time_rel_data_loading': 2,
                     'training_timings/time_rel_step': 2,
                     'validation/loss': 3,
+                    'validation/lr/param_group_0': 3,
                     'validation_timings/time_per_iteration': 3,
                     'validation_timings/time_rel_to_device': 3,
                     'validation_timings/time_rel_forward': 3,
@@ -268,7 +269,7 @@ def test_single_model():
                 }
                 pprint(c)
                 assert c == expect, c
-                assert len(events) == 50, (len(events), events)
+                assert len(events) == 55, (len(events), events)
 
                 assert len(time_rel_data_loading) > 0, (time_rel_data_loading, time_rel_train_step)
                 assert len(time_rel_train_step) > 0, (time_rel_data_loading, time_rel_train_step)
@@ -355,23 +356,23 @@ def test_single_model():
         hook_calls_ref = textwrap.dedent('''
         I:4, E: 2, False, SummaryHook.pre_step
         I:4, E: 2, False, CheckpointHook.pre_step
-        I:4, E: 2, False, ValidationHook.pre_step
+        I:4, E: 2, False, BackOffValidationHook.pre_step
         I:4, E: 2, False, StopTrainingHook.pre_step
         I:5, E: 2, False, SummaryHook.pre_step
         I:5, E: 2, False, CheckpointHook.pre_step
-        I:5, E: 2, False, ValidationHook.pre_step
+        I:5, E: 2, False, BackOffValidationHook.pre_step
         I:5, E: 2, False, StopTrainingHook.pre_step
         I:6, E: 3, True, SummaryHook.pre_step
         I:6, E: 3, True, CheckpointHook.pre_step
-        I:6, E: 3, True, ValidationHook.pre_step
+        I:6, E: 3, True, BackOffValidationHook.pre_step
         I:6, E: 3, False, StopTrainingHook.pre_step
         I:7, E: 3, False, SummaryHook.pre_step
         I:7, E: 3, False, CheckpointHook.pre_step
-        I:7, E: 3, False, ValidationHook.pre_step
+        I:7, E: 3, False, BackOffValidationHook.pre_step
         I:7, E: 3, False, StopTrainingHook.pre_step
         I:8, E: 4, False, SummaryHook.pre_step
         I:8, E: 4, True, CheckpointHook.pre_step
-        I:8, E: 4, True, ValidationHook.pre_step
+        I:8, E: 4, True, BackOffValidationHook.pre_step
         I:8, E: 4, True, StopTrainingHook.pre_step
         ''').strip()
 
@@ -404,11 +405,12 @@ def test_single_model():
                         tags.append(value['tag'])
 
                 c = dict(collections.Counter(tags))
-                assert len(events) == 40, (len(events), events)
+                assert len(events) == 44, (len(events), events)
                 expect = {
                     'training/grad_norm': 2,
                     'training/grad_norm_': 2,
                     'training/loss': 2,
+                    'training/lr/param_group_0': 2,
                     'training_timings/time_per_iteration': 2,
                     'training_timings/time_rel_to_device': 2,
                     'training_timings/time_rel_forward': 2,
@@ -417,6 +419,7 @@ def test_single_model():
                     'training_timings/time_rel_data_loading': 2,
                     'training_timings/time_rel_step': 2,
                     'validation/loss': 2,
+                    'validation/lr/param_group_0': 2,
                     'validation_timings/time_per_iteration': 2,
                     'validation_timings/time_rel_to_device': 2,
                     'validation_timings/time_rel_forward': 2,
@@ -527,7 +530,6 @@ def test_virtual_minibatch():
 
 
 def test_released_tensors():
-
 
     tr_dataset, dt_dataset = get_dataset()
     tr_dataset = tr_dataset[:2]

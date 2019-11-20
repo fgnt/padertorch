@@ -15,7 +15,7 @@ import padertorch as pt
 import paderbox as pb
 
 from padertorch.train.hooks import (
-    SummaryHook, CheckpointHook, StopTrainingHook, ValidationHook
+    SummaryHook, CheckpointHook, StopTrainingHook, BackOffValidationHook
 )
 
 
@@ -181,7 +181,7 @@ def test_run(
                 hooks1 = [
                     SummaryHook((1, 'epoch')),
                     CheckpointHook((1, 'epoch')),
-                    ValidationHook(
+                    BackOffValidationHook(
                         (1, 'epoch'), sub_validation_iterator,
                         max_checkpoints=None
                     ),
@@ -210,7 +210,7 @@ def test_run(
                 hooks2 = [
                     SummaryHook((1, 'epoch')),
                     CheckpointHook((1, 'epoch')),
-                    ValidationHook(
+                    BackOffValidationHook(
                         (1, 'epoch'), sub_validation_iterator,
                         max_checkpoints=None
                     ),
