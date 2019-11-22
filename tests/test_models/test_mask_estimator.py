@@ -11,6 +11,7 @@ import paderbox as pb
 K = pt.modules.mask_estimator.MaskKeys
 AUDIO_KEYS = [DB_K.OBSERVATION, DB_K.SPEECH_IMAGE, DB_K.NOISE_IMAGE]
 
+
 def transform(example):
     example.update({
         key: value for key, value in example[DB_K.AUDIO_DATA].items()
@@ -26,6 +27,7 @@ def transform(example):
     example[K.SPEECH_MASK_TARGET] = target_mask.astype(np.float32)
     example[K.NOISE_MASK_TARGET] = noise_mask.astype(np.float32)
     return example
+
 
 def get_iterators():
     db = pb.database.chime.Chime3()
@@ -69,10 +71,11 @@ class TestMaskEstimatorModel(unittest.TestCase):
                     size=(self.C, num_frames_, self.F)
                 )).astype(np.float32)
                 for num_frames_ in self.num_frames
-            ]
+            ],
+            DB_K.NUM_FRAMES: [num_frames for num_frames in self.num_frames],
         }
 
-    def run_time_test(self):
+    def test_run_time_test(self):
         it_tr, it_dt = get_iterators()
 
         config = pt.Trainer.get_config(
@@ -134,7 +137,8 @@ class TestMaskEstimatorModel(unittest.TestCase):
             inputs = {
                 K.OBSERVATION_ABS: [observation],
                 K.SPEECH_MASK_TARGET: [target_mask],
-                K.NOISE_MASK_TARGET: [noise_mask]
+                K.NOISE_MASK_TARGET: [noise_mask],
+                DB_K.NUM_FRAMES: [observation.shape[1]]
             }
             inputs = pt.data.example_to_device(inputs)
             mask = model(inputs)
