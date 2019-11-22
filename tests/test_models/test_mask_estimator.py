@@ -33,9 +33,9 @@ def get_iterators():
     db = pb.database.chime.Chime3()
     return (
         db.get_iterator_by_names(db.datasets_train).map(
-            AudioReader(audio_keys=AUDIO_KEYS), transform),
+            AudioReader(audio_keys=AUDIO_KEYS)).map(transform),
         db.get_iterator_by_names(db.datasets_eval).map(
-            AudioReader(audio_keys=AUDIO_KEYS), transform),
+            AudioReader(audio_keys=AUDIO_KEYS)).map(transform),
     )
 
 
