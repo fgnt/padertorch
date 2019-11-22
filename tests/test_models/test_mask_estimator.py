@@ -82,7 +82,7 @@ class TestMaskEstimatorModel(unittest.TestCase):
             updates=pb.utils.nested.deflatten({
                 'model.factory': self.model_class,
                 'storage_dir': None,  # will be overwritten
-                'max_trigger': None,  # will be overwritten
+                'stop_trigger': None,  # will be overwritten
             })
         )
 
