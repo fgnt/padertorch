@@ -43,6 +43,13 @@ class ReviewSummary(collections.Mapping):
             []
         ).append(value)
 
+    def add_text(self, name, text):
+        assert isinstance(text, str), (type(text), text)
+        self.data.setdefault(
+            'texts',
+            {}
+        )[f'{self.prefix}{name}'] = text
+
     def add_image(self, name, image):
         # Save the last added value
         image = pt.utils.to_numpy(image, detach=True)
