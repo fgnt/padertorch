@@ -1,22 +1,26 @@
+from functools import partial
+from random import shuffle
 from typing import Dict
 from typing import List
 
 import numpy as np
-from dataclasses import dataclass, asdict
+import torch
+from dataclasses import dataclass
 from dataclasses import field
 from scipy import signal
 
 from paderbox.database.iterator import AudioReader
 from paderbox.database.keys import *
+from paderbox.database.wsj_bss import WsjBss, scenario_map_fn
 from paderbox.speech_enhancement.mask_module import biased_binary_mask
 from paderbox.transform import stft, istft
+from paderbox.transform.module_stft import _samples_to_stft_frames
+from paderbox.transform.module_stft import _stft_frames_to_samples
 from paderbox.utils.mapping import Dispatcher
+from padertorch.configurable import Configurable
 from padertorch.contrib.jensheit import Parameterized, dict_func
-from padertorch.data.utils import Padder
+from padertorch.data.utils import pad_tensor, collate_fn
 from padertorch.modules.mask_estimator import MaskKeys as M_K
-from random import shuffle
-from paderbox.database.wsj_bss import WsjBss, scenario_map_fn
-from functools import partial
 
 WINDOW_MAP = Dispatcher(
     blackman=signal.blackman,
@@ -25,26 +29,133 @@ WINDOW_MAP = Dispatcher(
 )
 
 
-class STFT(Parameterized):
-    @dataclass
-    class opts:
-        size: int = 1024
-        shift: int = 256
-        window: str = 'blackman'
-        window_length: int = None
-        fading: bool = True
-        symmetric_window: bool = False
-        pad: bool = True
+class Padder(Configurable):
+    def __init__(
+            self,
+            to_torch: bool = True,
+            sort_by_key: str = None,
+            padding: bool = True,
+            padding_keys: list = None
+    ):
+        """
+
+        :param to_torch: if true converts numpy arrays to torch.Tensor
+            if they are not strings or complex
+        :param sort_by_key: sort the batch by a key from the batch
+            packed_sequence needs sorted batch with decreasing sequence_length
+        :param padding: if False only collates the batch,
+            if True all numpy arrays with one variable dim size are padded
+        :param padding_keys: list of keys, if no keys are specified all
+            keys from the batch are used
+        """
+        assert not to_torch ^ (padding and to_torch)
+        self.to_torch = to_torch
+        self.padding = padding
+        self.padding_keys = padding_keys
+        self.sort_by_key = sort_by_key
+
+    def pad_batch(self, batch):
+        if isinstance(batch[0], np.ndarray):
+            if batch[0].ndim > 0:
+                dims = np.array(
+                    [[idx for idx in array.shape] for array in batch]).T
+                axis = [idx for idx, dim in enumerate(dims)
+                        if not all(dim == dim[0])]
+
+                assert len(axis) in [0, 1], (
+                    f'only one axis is allowed to differ, '
+                    f'axis={axis} and dims={dims}'
+                )
+                if len(axis) == 1:
+                    axis = axis[0]
+                    pad = max(dims[axis])
+                    array = np.stack([pad_tensor(vec, pad, axis)
+                                      for vec in batch], axis=0)
+                else:
+                    array = np.stack(batch, axis=0)
+                complex_dtypes = [np.complex64, np.complex128]
+                if self.to_torch and not array.dtype.kind in {'U', 'S'} \
+                        and not array.dtype in complex_dtypes:
+                    return torch.from_numpy(array)
+                else:
+                    return array
+            else:
+                return np.array(batch)
+        elif isinstance(batch[0], int):
+            return np.array(batch)
+        else:
+            return batch
+
+    def sort(self, batch):
+        return sorted(batch, key=lambda x: x[self.sort_by_key], reverse=True)
+
+    def __call__(self, unsorted_batch):
+        # assumes batch to be a list of dicts
+        # ToDo: do we automatically sort by sequence length?
+
+        if self.sort_by_key:
+            batch = self.sort(unsorted_batch)
+        else:
+            batch = unsorted_batch
+
+        nested_batch = collate_fn(batch)
+
+        if self.padding:
+            if self.padding_keys is None:
+                padding_keys = nested_batch.keys()
+            else:
+                assert len(self.padding_keys) > 0, \
+                    'Empty padding key list was provided default should be None'
+                padding_keys = self.padding_keys
+
+            def nested_padding(value, key):
+                if isinstance(value, dict):
+                    return {k: nested_padding(v, k) for k, v in value.items()}
+                else:
+                    if key in padding_keys:
+                        return self.pad_batch(value)
+                    else:
+                        return value
+
+            return {key: nested_padding(value, key) for key, value in
+                    nested_batch.items()}
+        else:
+            assert self.padding_keys is None or len(self.padding_keys) == 0, (
+                'Padding keys have to be None or empty if padding is set to '
+                'False, but they are:', self.padding_keys
+            )
+            return nested_batch
+
+
+class STFT:
+    def __init__(self, size: int = 512, shift: int = 160,
+                 window: str = 'blackman', window_length: int = 400,
+                 fading: bool = True, symmetric_window: bool = False):
+        self.size = size
+        self.shift = shift
+        self.window = window
+        self.window_length = window_length
+        self.fading = fading
+        self.symmetric_window = symmetric_window
 
     def __call__(self, signal):
-        return stft(signal, **dict(
-            asdict(self.opts), **dict(window=WINDOW_MAP[self.opts.window])))
+        return stft(signal, pad=True, size=self.size, shift=self.shift,
+                    window_length=self.window_length, fading=self.fading,
+                    symmetric_window=self.symmetric_window,
+                    window=WINDOW_MAP[self.window])
 
     def inverse(self, signal):
-        opts = {key: value for key, value in asdict(self.opts).items()
-                if not key == 'pad'}
-        return istft(signal, **dict(
-            opts, **dict(window=WINDOW_MAP[self.opts.window])))
+        return istft(signal, size=self.size, shift=self.shift,
+                     window_length=self.window_length, fading=self.fading,
+                     symmetric_window=self.symmetric_window,
+                     window=WINDOW_MAP[self.window])
+
+    def frames_to_samples(self, nframes):
+        return _stft_frames_to_samples(nframes, self.window_length, self.shift)
+
+    def samples_to_frames(self, nsamples):
+        return _samples_to_stft_frames(nsamples, self.window_length,
+                                       self.shift)
 
 
 class MaskTransformer(Parameterized):
@@ -202,8 +313,9 @@ class SequenceProvider(Parameterized):
                 for key in audio_keys:
                     signal = new_example[key]
                     if signal.shape[0] < self.opts.num_channels:
-                        signal = signal.swapaxes(0,1)
-                    assert signal.shape[0] == self.opts.num_channels, signal.shape
+                        signal = signal.swapaxes(0, 1)
+                    assert signal.shape[
+                               0] == self.opts.num_channels, signal.shape
                     new_example[key] = signal[idx, None]
                 out_list.append(new_example)
         shuffle(out_list)
@@ -218,7 +330,7 @@ class SequenceProvider(Parameterized):
             unbatch = True
         if prefetch:
             iterator = iterator.prefetch(
-                self.opts.num_workers,self.opts.buffer_size,
+                self.opts.num_workers, self.opts.buffer_size,
                 self.opts.backend, catch_filter_exception=True
             )
         if unbatch:
@@ -228,21 +340,22 @@ class SequenceProvider(Parameterized):
             iterator = iterator.map(self.collate)
         else:
             if self.opts.batch_size is not None:
-                iterator = iterator.batch(self.opts.batch_size, self.opts.drop_last)
+                iterator = iterator.batch(self.opts.batch_size,
+                                          self.opts.drop_last)
                 iterator = iterator.map(self.collate)
         return iterator
 
     def get_train_iterator(self, time_segment=None):
 
         iterator = self.database.get_dataset(self.database.datasets_train)
-        iterator = iterator.map(self.read_audio)\
+        iterator = iterator.map(self.read_audio) \
             .map(self.database.add_num_samples)
         exclude_keys = None
         if isinstance(self.database, WsjBss):
             iterator = iterator.map(
                 partial(scenario_map_fn, snr_range=[20, 30]))
             exclude_keys = [SPEECH_SOURCE, RIR]
-            wsj_bss=True
+            wsj_bss = True
         else:
             wsj_bss = False
         iterator = iterator.map(self.to_train_structure)
@@ -251,7 +364,8 @@ class SequenceProvider(Parameterized):
             iterator = iterator.shuffle(reshuffle=True)
         if self.opts.time_segments is not None or time_segment is not None:
             assert not (self.opts.time_segments and time_segment)
-            iterator = iterator.map(partial(self.segment, exclude_keys=exclude_keys))
+            iterator = iterator.map(
+                partial(self.segment, exclude_keys=exclude_keys))
             unbatch = True
         if not self.opts.multichannel and wsj_bss:
             segment_channels = partial(self.segment_channels,
@@ -267,7 +381,7 @@ class SequenceProvider(Parameterized):
 
         iterator = self.database.get_iterator_by_names(
             self.database.datasets_eval)
-        iterator = iterator.map(self.read_audio)\
+        iterator = iterator.map(self.read_audio) \
             .map(self.database.add_num_samples)
 
         if isinstance(self.database, WsjBss):
@@ -284,11 +398,12 @@ class SequenceProvider(Parameterized):
         if dataset is None:
             dataset = self.database.datasets_test
         iterator = self.database.get_iterator_by_names(dataset)
-        iterator = iterator.map(self.read_audio)\
+        iterator = iterator.map(self.read_audio) \
             .map(self.database.add_num_samples)
 
         if isinstance(self.database, WsjBss):
-            iterator = iterator.map(partial(scenario_map_fn, snr_range=[20,30]))
+            iterator = iterator.map(
+                partial(scenario_map_fn, snr_range=[20, 30]))
 
         iterator = iterator.map(self.to_predict_structure)[:num_examples]
         if iterable_apply_fn is not None:
@@ -297,4 +412,3 @@ class SequenceProvider(Parameterized):
         if filter_fn is not None:
             iterator = iterator.filter(filter_fn)
         return iterator
-
