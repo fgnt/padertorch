@@ -15,10 +15,11 @@ a parameter to the `__init__` you can instead provide the parameters which were
 used for that instance in your modified `finalize_docmatic_config`.
 
 """
+import sys
+import os
 import collections
 import importlib
 import inspect
-import sys
 from pathlib import Path
 
 import paderbox as pb
@@ -589,9 +590,45 @@ def import_class(name: str):
         )
 
 
+def get_module_name_from_file(file):
+    """
+    >>> get_module_name_from_file(__file__)
+    'padertorch.configurable'
+    """
+
+    # coppied from inspect.getabsfile
+    file = os.path.normcase(os.path.abspath(file))
+
+    file, module_path = os.path.split(file)
+    module_path = os.path.splitext(module_path)[0]
+    while file:
+        # See setuptools.PackageFinder._looks_like_package
+        if not os.path.isfile(os.path.join(file, '__init__.py')):
+            break
+        file, part = os.path.split(file)
+        module_path = part + '.' + module_path
+    if '.' in module_path:
+        return module_path
+    else:
+        return '__main__'
+
+
 def resolve_main_python_path() -> str:
-    """Can only resolve, if you run scripts with `python -m`."""
-    return getattr(sys.modules['__main__'].__spec__, 'name', '__main__')
+    """
+    Can only resolve, if you run scripts with `python -m`.
+
+    Added a special fallback:
+        __init__.py files mark package directories.
+        Use this knowledge to find the root of the package.
+        See setuptools.PackageFinder._looks_like_package
+
+    """
+    python_path = getattr(sys.modules['__main__'].__spec__, 'name', '__main__')
+
+    if python_path == '__main__':
+        python_path = get_module_name_from_file(sys.modules['__main__'].__file__)
+
+    return python_path
 
 
 def class_to_str(cls):
