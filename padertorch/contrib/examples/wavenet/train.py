@@ -34,6 +34,7 @@ def prepare_dataset(dataset, storage_dir, training=False):
     dataset = dataset.filter(lambda ex: ex['num_samples'] > 16000, lazy=False)
     batch_size = 3
     stft_shift = 160
+    window_length = 480
     target_sample_rate = 16000
 
     def prepare_example(example):
@@ -49,7 +50,8 @@ def prepare_dataset(dataset, storage_dir, training=False):
     dataset = dataset.map(audio_reader)
 
     stft = STFT(
-        shift=stft_shift, window_length=400, size=512, fading='full', pad=True
+        shift=stft_shift, window_length=window_length, size=512, fading='full',
+        pad=True
     )
     dataset = dataset.map(stft)
     mel_transform = MelTransform(
@@ -68,19 +70,26 @@ def prepare_dataset(dataset, storage_dir, training=False):
 
     def fragment(example):
         audio, features = example['audio_data'], example['mel_transform']
-        fragment_length = 16000
-        mel_fragment_step = fragment_length / stft_shift
-        mel_fragment_length = stft.samples_to_frames(fragment_length)
+        pad_width = window_length - stft_shift
+        assert pad_width > 0, pad_width
+        audio = np.pad(
+            audio, (audio.ndim-1)*[(0, 0)] + [(pad_width, window_length - 1)],
+            mode='constant')
+        fragment_step = 16000
+        fragment_length = fragment_step + 2*pad_width
+        mel_fragment_step = fragment_step / stft_shift
+        mel_fragment_length = stft.samples_to_frames(fragment_step)
         fragments = []
         for audio, features in zip(*fragment_parallel_signals(
             signals=[audio, features], axis=1,
-            step=[fragment_length, mel_fragment_step],
+            step=[fragment_step, mel_fragment_step],
             max_length=[fragment_length, mel_fragment_length],
             min_length=[fragment_length, mel_fragment_length],
+            random_start=training
         )):
             fragments.append({
                 'example_id': example['example_id'],
-                'audio_data': audio.squeeze(0).astype(np.float32),
+                'audio_data': audio[..., pad_width:-pad_width].squeeze(0).astype(np.float32),
                 'features': np.moveaxis(features.squeeze(0), 0, 1).astype(np.float32)
             })
         return fragments
@@ -114,14 +123,14 @@ def train(model, storage_dir):
         model=model,
         optimizer=Adam(lr=5e-4),
         storage_dir=str(storage_dir),
-        summary_trigger=(100, 'iteration'),
-        checkpoint_trigger=(1000, 'iteration'),
+        summary_trigger=(1000, 'iteration'),
+        checkpoint_trigger=(10000, 'iteration'),
         stop_trigger=(100000, 'iteration')
     )
 
     trainer.test_run(train_set, validate_set)
-    trainer.train(train_set)
     trainer.register_validation_hook(validate_set)
+    trainer.train(train_set)
 
 
 if __name__ == '__main__':
