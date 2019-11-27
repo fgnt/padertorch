@@ -239,7 +239,6 @@ class WaveNet(Module):
         """
         Takes in features and gets the 2*R x batch x # layers x samples tensor
         """
-        # TODO(rcosta): trim conv artifacts. maybe pad spec to kernel multiple
         cond_input = self.upsample(features)
         time_cutoff = self.upsample.kernel_size[0] - self.upsample.stride[0]
         cond_input = cond_input[:, :, :-time_cutoff]

@@ -140,6 +140,7 @@ class Trainer(Configurable):
         ]
         self._stop_trigger = stop_trigger
         self._checkpoint_trigger = checkpoint_trigger
+        self.writer_cls = tensorboardX.SummaryWriter
 
     def test_run(
             self,
@@ -229,7 +230,7 @@ class Trainer(Configurable):
         # Reset all gradients
         self.optimizer_zero_grad()
 
-        self.writer = tensorboardX.SummaryWriter(str(self.storage_dir))
+        self.writer = self.writer_cls(str(self.storage_dir))
         hooks = [*self.hooks]
         if progress_bar:
             try:
@@ -693,69 +694,18 @@ class InteractiveTrainer(Trainer):
             optimizer=optimizer,
             loss_weights=loss_weights,
             summary_trigger=summary_trigger,
-            checkpoint_trigger=None,
-            keep_all_checkpoints=False,
+            checkpoint_trigger=summary_trigger,
             stop_trigger=stop_trigger,
         )
+        del self.hooks[1]
+        assert len(self.hooks) == 2, self.hooks
         # Trainer uses checkpoint_trigger as validation_trigger
         if validation_trigger is None:
             self.validation_trigger = summary_trigger
         else:
             self.validation_trigger = validation_trigger
+        self.writer_cls = lambda x: InteractiveWriter()
 
-    def get_default_hooks(
-            self,
-            hooks,
-            *,
-            train_iterator,
-            validation_iterator=None,
-            metrics,
-            n_best_checkpoints,
-    ):
-        if n_best_checkpoints != 1:
-            raise NotImplementedError(
-                f'The implementation for more than one checkpoint is not'
-                f'finished.\n'
-                f'Requested number of checkponts: {n_best_checkpoints}'
-            )
-
-        if hooks is None:
-            hooks = []
-        else:
-            hooks = pt.utils.to_list(hooks)
-
-        self.writer = InteractiveWriter()
-
-        if validation_iterator is not None:
-
-            hooks.append(BackOffValidationHook(
-                trigger=self.validation_trigger,
-                iterator=validation_iterator,
-                # checkpoint_dir=self.checkpoint_dir,
-                # metrics=metrics,
-                # keep_all=self.keep_all_checkpoints,
-                # init_from_json=self.checkpoint_dir.exists(),
-                writer=self.writer,
-            ))
-
-            summary_trigger = AnyTrigger(
-                self._summary_trigger,
-                self.validation_trigger,
-            )
-        else:
-            summary_trigger = self._summary_trigger
-
-        try:
-            max_it_len = len(train_iterator)
-        except TypeError:
-            # TypeError: object of type '...' has no len()
-            max_it_len = None
-
-        hooks.append(SummaryHook(summary_trigger, writer=self.writer))
-        hooks.append(ProgressBarHook(self._stop_trigger, max_it_len))
-        hooks.append(StopTrainingHook(self._stop_trigger))
-        hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
-        return hooks
 
     @functools.wraps(Trainer.train)
     def train(self, *args, **kwargs):

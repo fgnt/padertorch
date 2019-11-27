@@ -365,5 +365,5 @@ def fragment_parallel_signals(
             )
         ]
         fragmented_signals.append(fragments)
-    assert len(set([len(sig) for sig in fragmented_signals])) == 1
+    assert len(set([len(sig) for sig in fragmented_signals])) == 1, ([sig.shape for sig in signals], [len(sig) for sig in fragmented_signals])
     return fragmented_signals
