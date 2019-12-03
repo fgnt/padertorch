@@ -6,10 +6,13 @@ import os
 import tempfile
 from pathlib import Path
 from unittest import mock
+import logging
 
 import numpy as np
 import torch
 import tensorboardX
+
+import lazy_dataset
 
 import padertorch as pt
 import paderbox as pb
@@ -19,7 +22,10 @@ from padertorch.train.hooks import (
 )
 
 
-def nested_test_assert_allclose(struct1, struct2):
+LOG = logging.getLogger('runtime_test')
+
+
+def nested_test_assert_allclose(struct1, struct2, rtol=1e-5, atol=1e-5):
     def assert_func(array1, array2):
         if array1 is None:
             assert array2 is None, 'Validation step has not been deterministic'
@@ -29,16 +35,35 @@ def nested_test_assert_allclose(struct1, struct2):
             # This function should fail when it is called for training data
             # (-> detach=False) because training is often not deterministic.
             # e.g.: dropout.
-            array1 = pt.utils.to_numpy(array1, detach=False)
-            array2 = pt.utils.to_numpy(array2, detach=False)
-            np.testing.assert_allclose(
-                array1, array2,
-                rtol=1e-5,
-                atol=1e-5,
-                err_msg='Validation step has not been deterministic.\n'
-                        'This might be caused by layers changing their\n'
-                        'internal state such as BatchNorm'
-            )
+            if isinstance(array1, str) and isinstance(array2, str):
+                # e.g. review['texts']
+                np.testing.assert_equal(array1, array2)
+            # elif ..:
+            #     # ToDo: Does review['figures'] work?
+            else:
+                array1 = pt.utils.to_numpy(array1, detach=False)
+                array2 = pt.utils.to_numpy(array2, detach=False)
+                try:
+                    np.testing.assert_allclose(
+                        array1, array2,
+                        rtol=rtol,
+                        atol=atol,
+                        err_msg='Validation step has not been deterministic.\n'
+                                'This might be caused by layers changing their\n'
+                                'internal state such as BatchNorm'
+                    )
+                except TypeError as e:
+                    def get_type(array):
+                        if hasattr(array, 'dtype'):
+                            return (type(array), array.dtype)
+                        else:
+                            return type(array)
+                    raise TypeError(
+                        str(e)
+                        + '\n\n'
+                        + f'type1: {get_type(array1)} type2: {get_type(array2)}'
+                        + f'\n\narray1:\n{array1}\n\narray2:\n{array2}'
+                    )
 
     pb.utils.nested.nested_op(
         assert_func,
