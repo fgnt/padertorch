@@ -78,11 +78,10 @@ def config():
 
     if trainer['storage_dir'] is None:
         trainer['storage_dir'] = get_new_folder(get_basedir(), mkdir=False)
-
-
-@decorator_append_file_storage_observer_with_lazy_basedir(ex)
-def basedir(_config):
-    return Path(_config['trainer']['storage_dir']) / 'sacred'
+    
+    ex.observers.append(sacred.observers.FileStorageObserver.create(
+        Path(trainer['storage_dir']) / 'sacred'
+    ))
 
 
 @ex.capture
@@ -106,9 +105,9 @@ def prepare_and_train(
         print('model:')
         print(model)
 
-        it_tr = model.get_iterable(dataset_train).shuffle(reshuffle=False)
+        it_tr = model.get_dataset(dataset_train).shuffle(reshuffle=False)
         it_tr = it_tr.map(model.transform)
-        it_dt = model.get_iterable(dataset_dev)
+        it_dt = model.get_dataset(dataset_dev)
         it_dt = it_dt.map(model.transform)
 
         print('it_tr:')
