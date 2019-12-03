@@ -146,7 +146,8 @@ class Trainer(Configurable):
             self,
             train_iterator,
             validation_iterator,
-            device=0 if torch.cuda.is_available() else 'cpu'
+            device=0 if torch.cuda.is_available() else 'cpu',
+            test_with_known_iterator_length=False,
     ):
         """
         Run a test on the trainer instance (i.e. model test).
@@ -165,7 +166,8 @@ class Trainer(Configurable):
             self,
             train_iterator,
             validation_iterator,
-            device=device
+            device=device,
+            test_with_known_iterator_length=test_with_known_iterator_length,
         )
 
     def train(
