@@ -437,6 +437,7 @@ class Trainer(Configurable):
                 or a key in review['scalars'].
             maximize: if True the metric has to be maximized else minimized.
             max_checkpoints: The number of checkpoints to keep.
+                When max_checkpoints is None, keep all checkpoints.
             n_back_off: number of times the best checkpoint is reloaded to
                 continue training with an updated learning rate.
             lr_update_factor: the factor by which the lr is multiplied in case
