@@ -167,7 +167,10 @@ def test_run(
         sub_train_iterator = list(itertools.islice(train_iterator, 2 * virtual_minibatch_size))
         sub_validation_iterator = list(itertools.islice(validation_iterator, 2))
 
-        if not test_with_known_iterator_length:
+        if test_with_known_iterator_length:
+            sub_train_iterator = lazy_dataset.from_list(sub_train_iterator)
+            sub_validation_iterator = lazy_dataset.from_list(sub_validation_iterator)
+        else:
             sub_train_iterator = Iterable(sub_train_iterator)
             sub_validation_iterator = Iterable(sub_validation_iterator)
 
@@ -301,13 +304,16 @@ def test_run(
         # nested_test_assert_allclose(dt3['review'], dt7['review'])
         # nested_test_assert_allclose(dt4['review'], dt8['review'])
 
+        # Expect that the initial loss is equal for two runs
+        nested_test_assert_allclose(dt1['review']['loss'], dt5['review']['loss'], rtol=1e-6, atol=1e-6)
+        nested_test_assert_allclose(dt2['review']['loss'], dt6['review']['loss'], rtol=1e-6, atol=1e-6)
         try:
             with np.testing.assert_raises(AssertionError):
                 # Expect that the loss changes after training.
-                nested_test_assert_allclose(dt1['review']['loss'], dt3['review']['loss'])
-                nested_test_assert_allclose(dt2['review']['loss'], dt4['review']['loss'])
-                nested_test_assert_allclose(dt5['review']['loss'], dt7['review']['loss'])
-                nested_test_assert_allclose(dt6['review']['loss'], dt8['review']['loss'])
+                nested_test_assert_allclose(dt1['review']['loss'], dt3['review']['loss'], rtol=1e-6, atol=1e-6)
+                nested_test_assert_allclose(dt2['review']['loss'], dt4['review']['loss'], rtol=1e-6, atol=1e-6)
+                nested_test_assert_allclose(dt5['review']['loss'], dt7['review']['loss'], rtol=1e-6, atol=1e-6)
+                nested_test_assert_allclose(dt6['review']['loss'], dt8['review']['loss'], rtol=1e-6, atol=1e-6)
         except AssertionError:
             raise AssertionError(
                 'The loss of the model did not change between two validations.'
