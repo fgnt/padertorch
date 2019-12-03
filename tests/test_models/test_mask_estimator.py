@@ -26,7 +26,7 @@ def transform(example):
     )
     example[K.SPEECH_MASK_TARGET] = target_mask.astype(np.float32)
     example[K.NOISE_MASK_TARGET] = noise_mask.astype(np.float32)
-    return example
+    return {key: [value] for key, value in example.items()}
 
 
 def get_iterators():
@@ -82,7 +82,7 @@ class TestMaskEstimatorModel(unittest.TestCase):
             updates=pb.utils.nested.deflatten({
                 'model.factory': self.model_class,
                 'storage_dir': None,  # will be overwritten
-                'stop_trigger': None,  # will be overwritten
+                'stop_trigger': (2, 'iteration'),  # will be overwritten
             })
         )
 
