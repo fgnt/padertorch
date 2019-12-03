@@ -6,6 +6,7 @@ from pathlib import Path
 import paderbox as pb
 import padertorch as pt
 
+
 def get_new_folder(
         basedir,
         try_id=None,
@@ -108,9 +109,8 @@ def write_makefile_and_config(storage_dir, _config, _run, backend='yaml'):
         config_path = Path(storage_dir) / "config.json"
         pb.io.dump_json(_config, config_path)
     elif backend == 'yaml':
-        import yaml
         config_path = Path(storage_dir) / "config.yaml"
-        config_path.write_text(yaml.dump(_config))
+        pb.io.dump_yaml(_config, config_path)
     else:
         raise ValueError(backend)
 

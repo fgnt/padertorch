@@ -17,7 +17,7 @@ import editdistance
 import paderbox as pb
 from paderbox.database.iterator import AlignmentReader
 
-from paderbox.database.iterator import FilterException
+from lazy_dataset import FilterException
 
 from paderbox.database.chime import Chime4
 import padertorch as pt
@@ -113,12 +113,12 @@ class AcousticExperiment(pt.Model):
        'high_freq': -400,
        'delta_order': 2}},
      'blstm_input_size': 120,
-     'blstm_hidden_size': [150, 150],
-     'blstm_output_size': 150,
+     'blstm_hidden_size': [256, 256],
+     'blstm_output_size': 256,
      'blstm_bidirectional': True,
      'blstm_dropout': 0.3,
-     'dense_input_size': 300,
-     'dense_hidden_size': [500, 500],
+     'dense_input_size': 512,
+     'dense_hidden_size': [512, 512],
      'dense_output_size': 1983,
      'dense_activation': 'relu',
      'dense_dropout': 0.3}
@@ -176,7 +176,7 @@ class AcousticExperiment(pt.Model):
         )
         self.criterion = torch.nn.CrossEntropyLoss()
 
-    def get_iterable(self, dataset):
+    def get_dataset(self, dataset):
         if isinstance(self.db, Chime4):
             it = self.db.get_iterator_by_names(dataset)
             it = it.map(AlignmentReader(

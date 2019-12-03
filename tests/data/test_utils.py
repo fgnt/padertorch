@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 import torch
 
-from padertorch.data.utils import Padder
+from padertorch.contrib.jensheit.data import Padder
 
 
 class TestPadderBase(unittest.TestCase):

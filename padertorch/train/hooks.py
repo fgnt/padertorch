@@ -386,6 +386,7 @@ class ValidationHook(SummaryHook):
                 performance
             maximize: If True metric is to be maximized else minimized
             max_checkpoints: the maximal number of best checkpoints
+                When max_checkpoints is None, keep all checkpoints.
             early_stopping_patience: the number of allowed degradations before
                 stopping training. Should be larger than back_off_patience.
         """
@@ -543,6 +544,7 @@ class BackOffValidationHook(ValidationHook):
                 performance
             maximize: If True metric is to be maximized else minimized
             max_checkpoints: the maximal number of best checkpoints
+                When max_checkpoints is None, keep all checkpoints.
             early_stopping_patience: the number of allowed degradations before
                 stopping training. Should be larger than back_off_patience.
             n_back_off: number of times the best checkpoint is reloaded to
