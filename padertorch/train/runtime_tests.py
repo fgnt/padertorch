@@ -6,10 +6,13 @@ import os
 import tempfile
 from pathlib import Path
 from unittest import mock
+import logging
 
 import numpy as np
 import torch
 import tensorboardX
+
+import lazy_dataset
 
 import padertorch as pt
 import paderbox as pb
@@ -19,7 +22,10 @@ from padertorch.train.hooks import (
 )
 
 
-def nested_test_assert_allclose(struct1, struct2):
+LOG = logging.getLogger('runtime_test')
+
+
+def nested_test_assert_allclose(struct1, struct2, rtol=1e-5, atol=1e-5):
     def assert_func(array1, array2):
         if array1 is None:
             assert array2 is None, 'Validation step has not been deterministic'
@@ -29,16 +35,35 @@ def nested_test_assert_allclose(struct1, struct2):
             # This function should fail when it is called for training data
             # (-> detach=False) because training is often not deterministic.
             # e.g.: dropout.
-            array1 = pt.utils.to_numpy(array1, detach=False)
-            array2 = pt.utils.to_numpy(array2, detach=False)
-            np.testing.assert_allclose(
-                array1, array2,
-                rtol=1e-5,
-                atol=1e-5,
-                err_msg='Validation step has not been deterministic.\n'
-                        'This might be caused by layers changing their\n'
-                        'internal state such as BatchNorm'
-            )
+            if isinstance(array1, str) and isinstance(array2, str):
+                # e.g. review['texts']
+                np.testing.assert_equal(array1, array2)
+            # elif ..:
+            #     # ToDo: Does review['figures'] work?
+            else:
+                array1 = pt.utils.to_numpy(array1, detach=False)
+                array2 = pt.utils.to_numpy(array2, detach=False)
+                try:
+                    np.testing.assert_allclose(
+                        array1, array2,
+                        rtol=rtol,
+                        atol=atol,
+                        err_msg='Validation step has not been deterministic.\n'
+                                'This might be caused by layers changing their\n'
+                                'internal state such as BatchNorm'
+                    )
+                except TypeError as e:
+                    def get_type(array):
+                        if hasattr(array, 'dtype'):
+                            return (type(array), array.dtype)
+                        else:
+                            return type(array)
+                    raise TypeError(
+                        str(e)
+                        + '\n\n'
+                        + f'type1: {get_type(array1)} type2: {get_type(array2)}'
+                        + f'\n\narray1:\n{array1}\n\narray2:\n{array2}'
+                    )
 
     pb.utils.nested.nested_op(
         assert_func,
@@ -142,7 +167,10 @@ def test_run(
         sub_train_iterator = list(itertools.islice(train_iterator, 2 * virtual_minibatch_size))
         sub_validation_iterator = list(itertools.islice(validation_iterator, 2))
 
-        if not test_with_known_iterator_length:
+        if test_with_known_iterator_length:
+            sub_train_iterator = lazy_dataset.from_list(sub_train_iterator)
+            sub_validation_iterator = lazy_dataset.from_list(sub_validation_iterator)
+        else:
             sub_train_iterator = Iterable(sub_train_iterator)
             sub_validation_iterator = Iterable(sub_validation_iterator)
 
@@ -276,13 +304,16 @@ def test_run(
         # nested_test_assert_allclose(dt3['review'], dt7['review'])
         # nested_test_assert_allclose(dt4['review'], dt8['review'])
 
+        # Expect that the initial loss is equal for two runs
+        nested_test_assert_allclose(dt1['review']['loss'], dt5['review']['loss'], rtol=1e-6, atol=1e-6)
+        nested_test_assert_allclose(dt2['review']['loss'], dt6['review']['loss'], rtol=1e-6, atol=1e-6)
         try:
             with np.testing.assert_raises(AssertionError):
                 # Expect that the loss changes after training.
-                nested_test_assert_allclose(dt1['review']['loss'], dt3['review']['loss'])
-                nested_test_assert_allclose(dt2['review']['loss'], dt4['review']['loss'])
-                nested_test_assert_allclose(dt5['review']['loss'], dt7['review']['loss'])
-                nested_test_assert_allclose(dt6['review']['loss'], dt8['review']['loss'])
+                nested_test_assert_allclose(dt1['review']['loss'], dt3['review']['loss'], rtol=1e-6, atol=1e-6)
+                nested_test_assert_allclose(dt2['review']['loss'], dt4['review']['loss'], rtol=1e-6, atol=1e-6)
+                nested_test_assert_allclose(dt5['review']['loss'], dt7['review']['loss'], rtol=1e-6, atol=1e-6)
+                nested_test_assert_allclose(dt6['review']['loss'], dt8['review']['loss'], rtol=1e-6, atol=1e-6)
         except AssertionError:
             raise AssertionError(
                 'The loss of the model did not change between two validations.'

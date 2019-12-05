@@ -21,9 +21,6 @@ import sacred.commands
 import paderbox as pb
 import padertorch as pt
 
-from padertorch.contrib.ldrude.utils import (
-    decorator_append_file_storage_observer_with_lazy_basedir
-)
 from padertorch.contrib.cb import (
     get_new_folder,
     write_makefile_and_config,

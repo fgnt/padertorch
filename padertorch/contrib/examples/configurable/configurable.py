@@ -98,7 +98,7 @@ def config():
     )
     VAE.get_config(  # second alternative update
         deflatten({
-            'encoder.cls': 'RecurrentEncoder',
+            'encoder/cls': 'RecurrentEncoder',
             'encoder/RecurrentEncoder/recurrent/cls': LSTM,
         }, sep='/'),
         model,

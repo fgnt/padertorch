@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import numpy as np
 
 import torch
+import torch.nn
 import einops
 import editdistance
 
@@ -62,6 +63,40 @@ def get_blstm_stack(
         bidirectional=bidirectional,
         batch_first=batch_first,
         dropout=dropout,
+    )
+
+
+class RNN(torch.nn.Module):
+    """
+    A thin wrapper around a RNN layer where the forward only returns the output
+    and not the state.
+    """
+    def __init__(self, rnn):
+        super().__init__()
+        self.rnn = rnn
+
+    def forward(self, input):
+        output, state = self.rnn(input)
+        return output
+
+
+def get_callable_blstm_stack(
+        input_size: int,
+        hidden_size: (tuple, list),
+        output_size: int,
+        bidirectional=True,
+        batch_first=False,
+        dropout=0.
+) -> RNN:
+    return RNN(
+        get_blstm_stack(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            output_size=output_size,
+            bidirectional=bidirectional,
+            batch_first=batch_first,
+            dropout=dropout,
+        )
     )
 
 
