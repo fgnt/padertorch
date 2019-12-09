@@ -41,11 +41,11 @@ train:
 ccsalloc:
 \tccsalloc \\
 \t\t--notifyuser=awe \\
-\t\t--res=rset=1:ncpus=4:gtx1080=1:vmem=50g:ompthreads=1 \\
+\t\t--res=rset=1:ncpus=4:gtx1080=1:ompthreads=1 \\
 \t\t--time=100h \\
 \t\t--join \\
 \t\t--stdout=stdout \\
-\t\t--tracefile=trace_%reqid.trace \\
+\t\t--tracefile=%x.%reqid.trace \\
 \t\t-N train_{nickname} \\
 \t\tpython -m {main_python_path} with config.json
 """
@@ -79,7 +79,7 @@ def config():
             "gradient_clipping": 1
         },
         "summary_trigger": (1000, "iteration"),
-        "max_trigger": (350_000, "iteration"),
+        "stop_trigger": (300_000, "iteration"),
         "loss_weights": {
             "pit_ips_loss": 1.0,
             "pit_mse_loss": 0.0,
@@ -139,6 +139,8 @@ def prepare_and_train(_config, _run, train_dataset, validate_dataset):
     checkpoint_path = trainer.checkpoint_dir / 'ckpt_latest.pth'
 
     db = MerlMixtures()
+    print(repr(train_dataset), repr(validate_dataset))
+
     trainer.test_run(
         prepare_iterable_captured(db, train_dataset),
         prepare_iterable_captured(db, validate_dataset),
