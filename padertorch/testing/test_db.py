@@ -1,11 +1,11 @@
 from pathlib import Path
-
-import cached_property
 import numpy as np
 
-from lazy_dataset.database import DictDatabase
+import cached_property
 
-class MnistDatabase(DictDatabase):
+from lazy_dataset.database import Database
+
+class MnistDatabase(Database):
     """
     >>> db = MnistDatabase()
     >>> db.get_dataset('train')
@@ -17,28 +17,35 @@ class MnistDatabase(DictDatabase):
     >>> db.get_dataset('test')[0]['image'].shape
     (28, 28)
     """
-    def __init__(self):
-        # Do not call super
-        pass
 
     def __repr__(self):
         return f'{type(self).__name__}()'
 
     @cached_property.cached_property
-    def database_dict(self):
-        from paderbox.database.mnist.create_json import download, construct_json
+    def data(self):
+        import torchvision.datasets as datasets
         from appdirs import user_cache_dir
 
-        path = Path(user_cache_dir('paderbox')) / 'fgnt_mnist.npz'
+        path = Path(user_cache_dir('padertorch')) / 'data'
 
-        if not path.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            data = download()
-            np.savez_compressed(path, **data)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        train_set = datasets.MNIST(
+            root=str(path), train=True, download=True, transform=None)
+        test_set = datasets.MNIST(
+            root=str(path), train=False, download=True, transform=None)
 
-        data = np.load(str(path))
-        data_dict = dict(data)
-        data.close()
+        def create_dict(image, digit):
+            return dict(image=(np.array(image.getdata()) / 256).astype(np.float32),
+                        digit=digit.numpy().astype(np.int32))
 
-        json = construct_json(data_dict)
-        return json
+        out_dict = {
+            'datasets':{
+                'train': {f'example_{idx}': create_dict(*train_set[idx])
+                          for idx in range(len(train_set))},
+                'test': {f'example_{idx}': create_dict(*test_set[idx])
+                         for idx in range(len(test_set))}
+            }
+        }
+        del train_set
+        del test_set
+        return out_dict
