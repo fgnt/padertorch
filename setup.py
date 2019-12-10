@@ -21,6 +21,9 @@ here = path.abspath(path.dirname(__file__))
 with open(path.join(here, 'DESCRIPTION.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
+# testing dependencies
+test = ['tensorflow', 'coverage', 'pylint', 'sacred', 'protobuf_to_dict']
+
 setup(
     name='padertorch',
 
@@ -95,7 +98,7 @@ setup(
     # $ pip install -e .[dev,test]
     extras_require={
         'dev': ['check-manifest'],
-        'test': ['tensorflow', 'coverage', 'pylint'],
+        'test': test,
     },
 
     ext_modules=cythonize(
