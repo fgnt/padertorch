@@ -51,8 +51,8 @@ class Model(pt.Model):
 def get_dataset():
     db = MnistDatabase()
     return (
-        db.get_iterator_by_names('train'),
-        db.get_iterator_by_names('test'),
+        db.get_dataset('train'),
+        db.get_dataset('test'),
     )
 
 
