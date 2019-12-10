@@ -96,9 +96,8 @@ def prepare_dataset(dataset, training=False):
 def get_model():
     cnn = CNN1d(
         in_channels=64,
-        hidden_channels=512,
-        num_layers=4,
-        out_channels=None,
+        out_channels=4*[512],
+        output_layer=False,
         kernel_size=5,
         norm='batch'
     )

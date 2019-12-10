@@ -17,6 +17,7 @@ from padertorch.contrib.je.data.transforms import (
 )
 from padertorch.contrib.je.modules.conv import CNN2d
 from torch import nn
+from padertorch.contrib.je.modules.norm import Norm
 
 storage_dir = str(
     Path(os.environ['STORAGE_ROOT']) / 'audio_tagging' / timeStamped('')[1:]
@@ -37,40 +38,52 @@ class WALNet(Model):
     """
     >>> from paderbox.utils.nested import deflatten
     >>> tagger = WALNet(output_size=10)
-    >>> inputs = {'log_mel': torch.zeros(4,1,128,128), 'events': torch.zeros((4,10))}
+    >>> inputs = {'log_mel': torch.zeros(4,1,128,128), 'events': torch.zeros((4, 10))}
     >>> outputs = tagger(inputs)
     >>> outputs.shape
     torch.Size([4, 10, 1])
     >>> review = tagger.review(inputs, outputs)
     """
 
-    def __init__(self, output_size):
+    def __init__(self, input_size, output_size):
         super().__init__()
-        input_channels = 1
+        in_channels = 1
+        self.in_norm = Norm(
+            data_format='bcft',
+            shape=(None, in_channels, input_size, None),
+            statistics_axis='bt',
+            scale=True,
+            independent_axis=None,
+            momentum=None,
+        )
         self.cnn = CNN2d(
-            in_channels=input_channels,
-            out_channels=output_size,
-            hidden_channels=[
-                16, 16, 32, 32, 64, 64, 128, 128, 256, 256, 512, 1024
+            in_channels=in_channels,
+            out_channels=[
+                16, 16, 32, 32, 64, 64, 128, 128, 256, 256, 512, 1024, output_size
             ],
             kernel_size=11 * [3] + [2, 1],
-            num_layers=13,
-            padding=11 * ['both'] + 2 * [None],
+            pad_side=11 * ['both'] + 2 * [None],
             pool_size=[1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 2, 1, 1],
             norm='batch',
-            activation='relu'
+            activation_fn='relu',
         )
 
     def forward(self, inputs):
-        y = self.cnn(inputs['features']).squeeze(2)
-        return nn.Sigmoid()(y)
+        x, seq_len = inputs['features'], inputs['seq_len']
+        x = self.in_norm(x, seq_len=seq_len)
+        y, seq_len = self.cnn(x, seq_len=seq_len)
+        return nn.Sigmoid()(y.squeeze(2)), seq_len
 
     def review(self, inputs, outputs):
         # compute loss
         x = inputs['features']
         targets = inputs['events']
-        frame_probs = outputs
-        sequence_probs = frame_probs.mean(-1)
+        frame_probs, seq_len = outputs
+
+        seq_len = torch.Tensor(seq_len)[:, None, None].to(frame_probs.device)
+        idx = torch.arange(frame_probs.shape[-1]).to(x.device)
+        mask = (idx < seq_len.long()).float()
+        sequence_probs = (frame_probs * mask).sum(dim=-1) / seq_len.squeeze(-1)
         bce = nn.BCELoss(reduction='none')(sequence_probs, targets).sum(-1)
 
         # create review including metrics and visualizations
@@ -132,7 +145,7 @@ def get_datasets():
 
 def prepare_dataset(dataset, training=False):
     dataset = dataset.filter(lambda ex: ex['audio_length'] > 1.3, lazy=False)
-    batch_size = 48
+    batch_size = 24
     label_encoder = MultiHotLabelEncoder(
         label_key='events', storage_dir=storage_dir
     )
@@ -150,15 +163,15 @@ def prepare_dataset(dataset, training=False):
         sample_rate=44100, fft_length=2048, n_mels=128, fmin=50
     )
     dataset = dataset.map(mel_transform)
-    normalizer = Normalizer(
-        key='mel_transform', center_axis=(1,), scale_axis=(1, 2),
-        storage_dir=storage_dir
-    )
-    normalizer.initialize_moments(
-        dataset.shuffle()[:2000].prefetch(num_workers=8, buffer_size=16),
-        verbose=True
-    )
-    dataset = dataset.map(normalizer)
+    # normalizer = Normalizer(
+    #     key='mel_transform', center_axis=(1,), scale_axis=(1, 2),
+    #     storage_dir=storage_dir
+    # )
+    # normalizer.initialize_moments(
+    #     dataset.shuffle()[:2000].prefetch(num_workers=8, buffer_size=16),
+    #     verbose=True
+    # )
+    # dataset = dataset.map(normalizer)
 
     def finalize(example):
         return {
@@ -182,10 +195,10 @@ def prepare_dataset(dataset, training=False):
 
 
 def main():
-    model = WALNet(527)
+    model = WALNet(128, 527)
     trainer = Trainer(
         model=model,
-        optimizer=optimizer.Adam(lr=3e-5, gradient_clipping=30.),
+        optimizer=optimizer.Adam(lr=3e-4, gradient_clipping=60.),
         storage_dir=storage_dir,
         summary_trigger=(100, 'iteration'),
         stop_trigger=(20000, 'iteration'),
