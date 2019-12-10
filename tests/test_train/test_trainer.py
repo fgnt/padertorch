@@ -15,6 +15,7 @@ import torch
 
 import tensorflow as tf
 from google.protobuf.json_format import MessageToDict
+from padertorch.testing.test_db import MnistDatabase
 
 import padertorch as pt
 import paderbox as pb
@@ -48,7 +49,7 @@ class Model(pt.Model):
 
 
 def get_dataset():
-    db = pb.database.mnist.MnistDatabase()
+    db = MnistDatabase()
     return (
         db.get_iterator_by_names('train'),
         db.get_iterator_by_names('test'),
