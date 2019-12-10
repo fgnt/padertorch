@@ -80,10 +80,7 @@ setup(
         'tensorboardX',
         'einops',
         'progressbar2',
-        ''
-    ],
-    dependency_links=[
-        'http://github.com/fgnt/paderbox/tarball/master#egg=package-1.0'
+        'paderbox @ git+http://github.com/fgnt/paderbox',
     ],
 
     # Installation problems in a clean, new environment:
