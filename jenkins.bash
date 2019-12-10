@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
+# This file is only required for internal testing
 # cd dirname "$(readlink -f "$0")"
 
-git clone git@ntgit.upb.de:python/toolbox
+git clone https://github.com/fgnt/paderbox
 
 # include common stuff (installation of toolbox, paths, traps, nice level...)
 source toolbox/jenkins_common.bash
