@@ -31,7 +31,7 @@ setup(
 
     description='A collection of common functionality to simplify the design, '
     'training and evaluation of machine learning models based on pytorch '
-    'with an emphasis on speech processing .',
+    'with an emphasis on speech processing.',
     long_description=long_description,
 
     # The project's main homepage.
@@ -95,7 +95,7 @@ setup(
     # $ pip install -e .[dev,test]
     extras_require={
         'dev': ['check-manifest'],
-        'test': ['coverage'],
+        'test': ['tensorflow', 'coverage', 'pylint'],
     },
 
     ext_modules=cythonize(
