@@ -16,6 +16,8 @@ __all__ = [
 
 
 class MaskKeys:
+    OBSERVATION = 'observation'
+    SPEECH_IMAGE = 'speech_image'
     SPEECH_MASK_PRED = 'speech_mask_prediction'
     SPEECH_TARGET = 'speech_target'
     NOISE_MASK_PRED = 'noise_mask_prediction'
@@ -27,6 +29,7 @@ class MaskKeys:
     OBSERVATION_ABS = 'observation_abs'
     MASK_ESTIMATOR_STATE = 'mask_estimator_state'
     SPEECH_PRED = 'speech_prediction'
+    NUM_FRAMES = 'num_frames'
     VAD = 'vad'
     VAD_LOGITS = 'vad_logits'
 

@@ -3,9 +3,8 @@ import padertorch as pt
 import torch
 import torch.nn.functional as F
 from padertorch.modules.mask_estimator import MaskEstimator
-from padertorch.modules.mask_estimator import MaskKeys as M_K
+from padertorch.modules.mask_estimator import MaskKeys as K
 from padertorch.ops.mappings import TORCH_POOLING_FN_MAP
-from paderbox.database import keys as K
 
 from padertorch.summary import mask_to_image, stft_to_image
 
@@ -54,7 +53,7 @@ class MaskEstimatorModel(pt.Model):
                 observation_abs is a list of tensors with shape C,T,F
         :return:
         """
-        obs = batch[M_K.OBSERVATION_ABS]
+        obs = batch[K.OBSERVATION_ABS]
         num_frames = batch[K.NUM_FRAMES]
         out = {key: [v[:, :frames] for v, frames in zip(value, num_frames)]
                for key, value in self.estimator(obs).items()}
@@ -76,23 +75,23 @@ class MaskEstimatorModel(pt.Model):
 
     def add_images(self, batch, output):
         images = dict()
-        if M_K.SPEECH_PRED in output:
-            speech_pred = output[M_K.SPEECH_PRED][0]
+        if K.SPEECH_PRED in output:
+            speech_pred = output[K.SPEECH_PRED][0]
             images['speech_pred'] = mask_to_image(speech_pred, True)
-        if M_K.SPEECH_MASK_PRED in output:
-            speech_mask = output[M_K.SPEECH_MASK_PRED][0]
+        if K.SPEECH_MASK_PRED in output:
+            speech_mask = output[K.SPEECH_MASK_PRED][0]
             images['speech_mask'] = mask_to_image(speech_mask, True)
-        observation = batch[M_K.OBSERVATION_ABS][0]
+        observation = batch[K.OBSERVATION_ABS][0]
         images['observed_stft'] = stft_to_image(observation, True)
-        if M_K.NOISE_MASK_PRED in output:
-            noise_mask = output[M_K.NOISE_MASK_PRED][0]
+        if K.NOISE_MASK_PRED in output:
+            noise_mask = output[K.NOISE_MASK_PRED][0]
             images['noise_mask'] = mask_to_image(noise_mask, True)
-        if batch is not None and M_K.SPEECH_MASK_TARGET in batch:
+        if batch is not None and K.SPEECH_MASK_TARGET in batch:
             images['speech_mask_target'] = mask_to_image(
-                batch[M_K.SPEECH_MASK_TARGET][0], True)
-            if M_K.NOISE_MASK_TARGET in batch:
+                batch[K.SPEECH_MASK_TARGET][0], True)
+            if K.NOISE_MASK_TARGET in batch:
                 images['noise_mask_target'] = mask_to_image(
-                    batch[M_K.NOISE_MASK_TARGET][0], True)
+                    batch[K.NOISE_MASK_TARGET][0], True)
         return images
 
     # ToDo: add scalar review
@@ -106,17 +105,17 @@ class MaskEstimatorModel(pt.Model):
             audio_dict.update({
             K.SPEECH_IMAGE: (maybe_remove_channel(batch[K.SPEECH_IMAGE][0]),
                              self.sample_rate)})
-        if M_K.SPEECH_PRED in output and self.transformer is not None:
-            phase = np.exp(1j*np.angle(batch[M_K.OBSERVATION_STFT][0]))
-            enh = output[M_K.SPEECH_PRED][0].detach().cpu().numpy() * phase
+        if K.SPEECH_PRED in output and self.transformer is not None:
+            phase = np.exp(1j*np.angle(batch[K.OBSERVATION_STFT][0]))
+            enh = output[K.SPEECH_PRED][0].detach().cpu().numpy() * phase
             enhanced_time = self.transformer.inverse(enh)
-            audio_dict.update({M_K.SPEECH_PRED: (maybe_remove_channel(
+            audio_dict.update({K.SPEECH_PRED: (maybe_remove_channel(
                 enhanced_time), self.sample_rate)})
-        if M_K.SPEECH_MASK_PRED in output and self.transformer is not None:
-            obs = batch[M_K.OBSERVATION_STFT][0]
-            enh = output[M_K.SPEECH_MASK_PRED][0].detach().cpu().numpy() * obs
+        if K.SPEECH_MASK_PRED in output and self.transformer is not None:
+            obs = batch[K.OBSERVATION_STFT][0]
+            enh = output[K.SPEECH_MASK_PRED][0].detach().cpu().numpy() * obs
             enhanced_time = self.transformer.inverse(enh)
-            audio_dict.update({M_K.SPEECH_MASK_PRED: (maybe_remove_channel(
+            audio_dict.update({K.SPEECH_MASK_PRED: (maybe_remove_channel(
                 enhanced_time), self.sample_rate)})
         return audio_dict
 
@@ -128,34 +127,34 @@ class MaskEstimatorModel(pt.Model):
         weighted_noise_loss = list()
         weighted_speech_loss = list()
         power_weights = None
-        for idx, observation_abs in enumerate(batch[M_K.OBSERVATION_ABS]):
-            if M_K.OBSERVATION_STFT in batch:
-                power_weights = np.abs(batch[M_K.OBSERVATION_STFT][idx]) ** 2
+        for idx, observation_abs in enumerate(batch[K.OBSERVATION_ABS]):
+            if K.OBSERVATION_STFT in batch:
+                power_weights = np.abs(batch[K.OBSERVATION_STFT][idx]) ** 2
                 power_weights = observation_abs.new(power_weights)
-            if M_K.SPEECH_MASK_TARGET in batch:
-                speech_mask_target = batch[M_K.SPEECH_MASK_TARGET][idx]
+            if K.SPEECH_MASK_TARGET in batch:
+                speech_mask_target = batch[K.SPEECH_MASK_TARGET][idx]
             else:
                 speech_mask_target = None
-            if M_K.SPEECH_TARGET in batch:
-                speech_target = batch[M_K.SPEECH_TARGET][idx]
+            if K.SPEECH_TARGET in batch:
+                speech_target = batch[K.SPEECH_TARGET][idx]
             else:
                 speech_target = None
-            if M_K.NOISE_MASK_TARGET in batch:
-                noise_mask_target = batch[M_K.NOISE_MASK_TARGET][idx]
+            if K.NOISE_MASK_TARGET in batch:
+                noise_mask_target = batch[K.NOISE_MASK_TARGET][idx]
             else:
                 noise_mask_target = None
-            if M_K.NOISE_MASK_LOGITS in output:
-                noise_mask_logits = output[M_K.NOISE_MASK_LOGITS][idx]
+            if K.NOISE_MASK_LOGITS in output:
+                noise_mask_logits = output[K.NOISE_MASK_LOGITS][idx]
             else:
                 noise_mask_logits = None
 
-            if M_K.SPEECH_MASK_LOGITS in output:
-                speech_mask_logits = output[M_K.SPEECH_MASK_LOGITS][idx]
+            if K.SPEECH_MASK_LOGITS in output:
+                speech_mask_logits = output[K.SPEECH_MASK_LOGITS][idx]
             else:
                 speech_mask_logits = None
 
-            if M_K.SPEECH_PRED in output:
-                speech_pred = output[M_K.SPEECH_PRED][idx]
+            if K.SPEECH_PRED in output:
+                speech_pred = output[K.SPEECH_PRED][idx]
             else:
                 speech_pred = None
 
@@ -193,9 +192,9 @@ class MaskEstimatorModel(pt.Model):
                     TORCH_POOLING_FN_MAP[self.reduction](sample_loss))
 
             # VAD
-            if M_K.VAD in batch and M_K.VAD_LOGITS in output:
-                vad_target = batch[M_K.VAD][idx]
-                vad_logits = output[M_K.VAD_LOGITS][idx]
+            if K.VAD in batch and K.VAD_LOGITS in output:
+                vad_target = batch[K.VAD][idx]
+                vad_logits = output[K.VAD_LOGITS][idx]
                 vad_loss.append(get_loss(
                     vad_target, vad_logits))
 

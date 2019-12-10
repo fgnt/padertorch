@@ -1,42 +1,9 @@
 import unittest
 import padertorch as pt
-from paderbox.database import keys as DB_K
-from paderbox.database.iterator import AudioReader
 import numpy as np
-from paderbox.transform import stft
 import torch
-import paderbox as pb
-
 
 K = pt.modules.mask_estimator.MaskKeys
-AUDIO_KEYS = [DB_K.OBSERVATION, DB_K.SPEECH_IMAGE, DB_K.NOISE_IMAGE]
-
-
-def transform(example):
-    example.update({
-        key: value for key, value in example[DB_K.AUDIO_DATA].items()
-    })
-    example[K.OBSERVATION_STFT] = stft(example[DB_K.OBSERVATION])
-    example[K.OBSERVATION_ABS] = np.abs(example[K.OBSERVATION_STFT]).astype(np.float32)
-    example[DB_K.NUM_FRAMES] = example[K.OBSERVATION_STFT].shape[-2]
-    speech = stft(example[DB_K.SPEECH_IMAGE])
-    noise = stft(example[DB_K.NOISE_IMAGE])
-    target_mask, noise_mask = pb.speech_enhancement.biased_binary_mask(
-        np.stack([speech, noise], axis=0),
-    )
-    example[K.SPEECH_MASK_TARGET] = target_mask.astype(np.float32)
-    example[K.NOISE_MASK_TARGET] = noise_mask.astype(np.float32)
-    return {key: [value] for key, value in example.items()}
-
-
-def get_iterators():
-    db = pb.database.chime.Chime3()
-    return (
-        db.get_iterator_by_names(db.datasets_train).map(
-            AudioReader(audio_keys=AUDIO_KEYS)).map(transform),
-        db.get_iterator_by_names(db.datasets_eval).map(
-            AudioReader(audio_keys=AUDIO_KEYS)).map(transform),
-    )
 
 
 class TestMaskEstimatorModel(unittest.TestCase):
@@ -72,28 +39,8 @@ class TestMaskEstimatorModel(unittest.TestCase):
                 )).astype(np.float32)
                 for num_frames_ in self.num_frames
             ],
-            DB_K.NUM_FRAMES: [num_frames for num_frames in self.num_frames],
+            K.NUM_FRAMES: [num_frames for num_frames in self.num_frames],
         }
-
-    def test_run_time_test(self):
-        it_tr, it_dt = get_iterators()
-
-        config = pt.Trainer.get_config(
-            updates=pb.utils.nested.deflatten({
-                'model.factory': self.model_class,
-                'storage_dir': None,  # will be overwritten
-                'stop_trigger': (2, 'iteration'),  # will be overwritten
-            })
-        )
-
-        pt.train.runtime_tests.test_run_from_config(
-            config, it_tr, it_dt,
-            test_with_known_iterator_length=False,
-        )
-        pt.train.runtime_tests.test_run_from_config(
-            config, it_tr, it_dt,
-            test_with_known_iterator_length=True,
-        )
 
     def test_signature(self):
         assert callable(getattr(self.model, 'forward', None))
@@ -138,7 +85,7 @@ class TestMaskEstimatorModel(unittest.TestCase):
                 K.OBSERVATION_ABS: [observation],
                 K.SPEECH_MASK_TARGET: [target_mask],
                 K.NOISE_MASK_TARGET: [noise_mask],
-                DB_K.NUM_FRAMES: [observation.shape[1]]
+                K.NUM_FRAMES: [observation.shape[1]]
             }
             inputs = pt.data.example_to_device(inputs)
             mask = model(inputs)
