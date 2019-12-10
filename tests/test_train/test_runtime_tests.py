@@ -8,7 +8,7 @@ import torch
 
 import padertorch as pt
 import paderbox as pb
-
+from padertorch.testing.test_db import MnistDatabase
 
 class Model(pt.Model):
 
@@ -41,7 +41,7 @@ class Model(pt.Model):
 
 
 def get_datasets():
-    db = pb.database.mnist.MnistDatabase()
+    db = MnistDatabase()
     return (
         db.get_dataset('train'),
         db.get_dataset('test'),
