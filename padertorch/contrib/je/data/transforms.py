@@ -210,9 +210,8 @@ class LabelEncoder:
 
 class Collate:
     """
-
     >>> batch = [{'a': np.ones((5,2)), 'b': '0'}, {'a': np.ones((3,2)), 'b': '1'}]
-    >>> Collate()(batch)
+    >>> Collate(to_tensor=True)(batch)
     {'a': tensor([[[1., 1.],
              [1., 1.],
              [1., 1.],
@@ -225,7 +224,7 @@ class Collate:
              [0., 0.],
              [0., 0.]]], dtype=torch.float64), 'b': ['0', '1']}
 
-    >>> Collate(pad=False)(batch)
+    >>> Collate(cut_end=True, to_tensor=True)(batch)
     {'a': tensor([[[1., 1.],
              [1., 1.],
              [1., 1.]],
@@ -234,27 +233,25 @@ class Collate:
              [1., 1.],
              [1., 1.]]], dtype=torch.float64), 'b': ['0', '1']}
     """
-    def __init__(self, pad=True, to_tensor=True):
+    def __init__(self, stack_arrays=True, cut_end=False, to_tensor=False):
+        self.stack_arrays = stack_arrays
+        self.cut_end = cut_end
         self.to_tensor = to_tensor
-        self.pad = pad
 
-    def __call__(self, example, training=False):
+    def __call__(self, example):
         example = nested_op(self.collate, *example, sequence_type=())
         return example
 
     def collate(self, *batch):
         batch = list(batch)
-        if isinstance(batch[0], np.ndarray):
-            ref_len = None
-            for array in batch:
-                if ref_len is None:
-                    ref_len = np.array(array.shape)
-                elif self.pad:
-                    ref_len = np.maximum(ref_len, array.shape)
-                else:
-                    ref_len = np.minimum(ref_len, array.shape)
+        if self.stack_arrays and isinstance(batch[0], np.ndarray):
+            shapes = [array.shape for array in batch]
+            if self.cut_end:
+                target_shape = np.min(shapes, axis=0)
+            else:
+                target_shape = np.max(shapes, axis=0)
             for i, array in enumerate(batch):
-                diff = ref_len - array.shape
+                diff = target_shape - array.shape
                 assert np.argwhere(diff != 0).size <= 1, (
                     diff, 'arrays are only allowed to differ in one dim',
                 )
