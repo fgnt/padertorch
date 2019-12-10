@@ -22,7 +22,8 @@ with open(path.join(here, 'DESCRIPTION.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
 # testing dependencies
-test = ['tensorflow', 'coverage', 'pylint', 'sacred', 'protobuf_to_dict']
+test = ['tensorflow', 'coverage', 'pylint', 'sacred',
+        'protobuf3_to_dict', 'torchvision']
 
 setup(
     name='padertorch',
