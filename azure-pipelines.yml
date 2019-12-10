@@ -22,9 +22,10 @@ steps:
   displayName: 'Use Python $(python.version)'
 
 - script: |
+    sudo apt-get install libsndfile1
     python -m pip install --upgrade pip
     # pip install -r requirements.txt
-    pip install numpy
+    pip install numpy scipy Cython
     pip install --editable .
   displayName: 'Install dependencies'
 
@@ -34,8 +35,8 @@ steps:
     pip install pytest-cov
     python -m coverage xml --include="padertorch*"
     pytest --junitxml='test_results.xml' --cov=padertorch  \
-      --doctest-modules --doctest-continue-on-failure --cov-report term \
-       -v "tests/" # --processes=-1
+      --doctest-modules --doctest-continue-on-failure --cov-report=html \
+       -v "tests/"
     pylint --rcfile="toolbox/pylint.cfg" -f parseable paderbox > pylint.txt
   displayName: 'pytest'
 
