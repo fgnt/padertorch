@@ -65,7 +65,7 @@ setup(
     ],
 
     # What does your project relate to?
-    keywords='pytorch',
+    keywords='pytorch, audio, speech',
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
@@ -80,6 +80,10 @@ setup(
         'tensorboardX',
         'einops',
         'progressbar2',
+        ''
+    ],
+    dependency_links=[
+        'http://github.com/fgnt/paderbox/tarball/master#egg=package-1.0'
     ],
 
     # Installation problems in a clean, new environment:
