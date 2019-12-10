@@ -22,7 +22,7 @@ with open(path.join(here, 'DESCRIPTION.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
 # testing dependencies
-test = ['tensorflow==1.12.0', 'coverage', 'pylint', 'sacred', 'appdirs'
+test = ['tensorflow==1.13.0', 'coverage', 'pylint', 'sacred', 'appdirs',
         'protobuf3_to_dict', 'torchvision']
 
 setup(
