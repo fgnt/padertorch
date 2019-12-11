@@ -512,6 +512,8 @@ def test_virtual_minibatch():
 
 
 def test_released_tensors():
+    import gc
+    gc.collect()
 
     tr_dataset, dt_dataset = get_dataset()
     tr_dataset = tr_dataset[:2]
