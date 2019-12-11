@@ -13,9 +13,8 @@ import pytest
 import numpy as np
 import torch
 
-import tensorflow as tf
-from google.protobuf.json_format import MessageToDict
 from padertorch.testing.test_db import MnistDatabase
+from padertorch.summary.tfevents import load_events_as_dict
 
 import padertorch as pt
 import paderbox as pb
@@ -115,24 +114,6 @@ class TriggerMock(pt.train.trigger.Trigger):
         return self.trigger.set_last(iteration=iteration, epoch=epoch)
 
 
-def load_tfevents_as_dict(
-        path
-):
-    """
-
-    >> path = '/net/home/boeddeker/sacred/torch/am/32/events.out.tfevents.1545605113.ntsim1'
-    >> load_tfevents_as_dict(path)[2]
-    {'wall_time': 1545605119.7274427, 'step': 1, 'summary': {'value': [{'tag': 'training/grad_norm', 'simple_value': 0.21423661708831787}]}}
-
-    """
-    # MessageToDict(e, preserving_proto_field_name=True)
-    #   Converts int to str
-    return [
-        MessageToDict(e)
-        for e in tf.train.summary_iterator(str(path))
-    ]
-
-
 def test_single_model():
     tr_dataset, dt_dataset = get_dataset()
     tr_dataset = tr_dataset[:2]
@@ -219,7 +200,7 @@ def test_single_model():
         for file in sorted(files_after):
             if 'tfevents' in file.name:
                 old_event_files.append(file)
-                events = load_tfevents_as_dict(file)
+                events = list(load_events_as_dict(file))
 
                 tags = []
                 time_rel_data_loading = []
@@ -229,9 +210,9 @@ def test_single_model():
                         value, = event['summary']['value']
                         tags.append(value['tag'])
                         if value['tag'] == 'training_timings/time_rel_data_loading':
-                            time_rel_data_loading.append(value['simpleValue'])
+                            time_rel_data_loading.append(value['simple_value'])
                         elif value['tag'] == 'training_timings/time_rel_step':
-                            time_rel_train_step.append(value['simpleValue'])
+                            time_rel_train_step.append(value['simple_value'])
 
                 c = dict(collections.Counter(tags))
                 # Training summary is written two times (at iteration 3 when
@@ -397,7 +378,7 @@ def test_single_model():
                 if file in old_event_files:
                     continue
 
-                events = load_tfevents_as_dict(file)
+                events = list(load_events_as_dict(file))
 
                 tags = []
                 for event in events:
