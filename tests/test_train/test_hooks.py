@@ -145,7 +145,7 @@ def test_summary_hook():
             del e['wall_time']
 
         expect = [
-            {},
+            {'file_version': 'brain.Event:2'},
             {'step': 10, 'summary': {'value': [
                 {'tag': 'training/loss', 'simple_value': 1.0}
             ]}},
@@ -167,7 +167,7 @@ def test_summary_hook():
                          'dim': [{'size': 1}]},
                      'string_val': [b'abc']
                  },
-                 'metadata': {'plugin_data': [{'plugin_name': 'text'}]}}
+                 'metadata': {'plugin_data': {'plugin_name': 'text'}}}
             ]}}
         ]
 
