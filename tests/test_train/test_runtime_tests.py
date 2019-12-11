@@ -31,6 +31,8 @@ class Model(pt.Model):
 
     def review(self, inputs, output):
         digits = inputs['digit']
+        if not isinstance(digits, int):
+            digits = digits.cpu().numpy()
 
         target = torch.tensor(
             np.array(digits).astype(np.int64),
@@ -140,6 +142,8 @@ class ZeroGradModel(pt.Model):
 
     def review(self, inputs, output):
         digits = inputs['digit']
+        if not isinstance(digits, int):
+            digits = digits.cpu().numpy()
 
         target = torch.tensor(
             np.array(digits).astype(np.int64),
