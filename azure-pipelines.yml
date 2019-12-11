@@ -36,7 +36,6 @@ steps:
     pytest --junitxml='test_results.xml' --cov=padertorch  \
       --doctest-modules --doctest-continue-on-failure --cov-report=html \
        -v "tests/"
-#    pylint --rcfile="./pylint.cfg" -f parseable padertorch > pylint.txt # ToDo is this necessary?
   displayName: 'pytest'
 
 - task: PublishTestResults@2

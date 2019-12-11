@@ -28,7 +28,7 @@ pytest --junitxml='test_results.xml' --cov=padertorch  \
 python -m coverage xml --include="padertorch*"
 
 # Pylint tests
-pylint --rcfile="toolbox/pylint.cfg" -f parseable paderbox > pylint.txt
+pylint --rcfile="paderbox/pylint.cfg" -f parseable padertorch > pylint.txt
 # --files-output=y is a bad option, because it produces hundreds of files
 
 pip freeze > pip.txt
