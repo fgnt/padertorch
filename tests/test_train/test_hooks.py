@@ -140,7 +140,7 @@ def test_summary_hook():
         DummyTrainer.writer.close()
 
         event_file, = (tmp_dir / 'experiment_dir').glob('*tfevents*')
-        events = list(pt.summary.tfevents.load_events_as_dict(event_file, backend='tf'))
+        events = list(pt.summary.tfevents.load_events_as_dict(event_file))
         for e in events:
             del e['wall_time']
 
@@ -167,7 +167,7 @@ def test_summary_hook():
                          'dim': [{'size': 1}]},
                      'string_val': [b'abc']
                  },
-                 'metadata': {'plugin_data': {'plugin_name': 'text'}}}
+                 'metadata': {'plugin_data': [{'plugin_name': 'text'}]}}
             ]}}
         ]
 
