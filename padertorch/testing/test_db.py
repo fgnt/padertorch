@@ -36,7 +36,7 @@ class MnistDatabase(Database):
 
         def create_dict(image, digit):
             if not isinstance(digit, int):
-                digit = digit.numpy().astype(np.int32)
+                digit = digit.cpu().numpy().astype(np.int32)
             return dict(image=(np.array(image.getdata()) / 256).astype(np.float32),
                         digit=digit)
 
