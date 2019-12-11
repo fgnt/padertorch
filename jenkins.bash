@@ -6,12 +6,12 @@
 git clone https://github.com/fgnt/paderbox
 
 # include common stuff (installation of toolbox, paths, traps, nice level...)
-source toolbox/jenkins_common.bash
+source paderbox/jenkins_common.bash
 
 # Cuda
-source toolbox/bash/cuda.bash
+source paderbox/bash/cuda.bash
 
-pip install --user -e .
+pip install --user -e .[test]
 
 # Unittets
 # It seems, that jenkins currentliy does not work with matlab: Error: Segmentation violation
