@@ -9,9 +9,9 @@ class Classifier(Model):
     >>> from paderbox.utils.nested import deflatten
     >>> classifier = Classifier.from_config(\
         Classifier.get_config(deflatten({\
-            'net.kwargs.input_size': 40,\
-            'net.kwargs.hidden_size': 2*[128],\
-            'net.kwargs.output_size': 10\
+            'net.input_size': 40,\
+            'net.hidden_size': 2*[128],\
+            'net.output_size': 10\
         })))
     >>> inputs = (torch.zeros(8,40), torch.zeros(8).long(),)
     >>> outputs = classifier(inputs)

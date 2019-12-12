@@ -9,13 +9,13 @@ class MnistDatabase(Database):
     """
     >>> db = MnistDatabase()
     >>> db.get_dataset('train')
-      ExamplesIterator(name=train, len=60000)
-    MapIterator(<built-in function loads>)
+      DictDataset(len=60000)
+    MapDataset(_pickle.loads)
     >>> db.get_dataset('test')
-      ExamplesIterator(name=test, len=10000)
-    MapIterator(<built-in function loads>)
+      DictDataset(len=10000)
+    MapDataset(_pickle.loads)
     >>> db.get_dataset('test')[0]['image'].shape
-    (28, 28)
+    (784,)
     """
 
     def __repr__(self):

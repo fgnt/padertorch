@@ -30,13 +30,13 @@ def fully_connected_stack(
 
         >>> fully_connected_stack(513, [1024, 1024], 1024)
         Sequential(
-          (dropout_0): Dropout(p=0.5)
+          (dropout_0): Dropout(p=0.5, inplace=False)
           (linear_0): Linear(in_features=513, out_features=1024, bias=True)
           (relu_0): ReLU()
-          (dropout_1): Dropout(p=0.5)
+          (dropout_1): Dropout(p=0.5, inplace=False)
           (linear_1): Linear(in_features=1024, out_features=1024, bias=True)
           (relu_1): ReLU()
-          (dropout_2): Dropout(p=0.5)
+          (dropout_2): Dropout(p=0.5, inplace=False)
           (linear_2): Linear(in_features=1024, out_features=1024, bias=True)
         )
         """
