@@ -626,10 +626,16 @@ class ContextTimerDict:
     Ignore timing when an exception is raised
     >>> with contextlib.suppress(Exception), timer['test_2']:
     ...     raise Exception
-    >>> timer
+
+    >>> timer  # doctest: +SKIP
     ContextTimerDict: {'test': array([0.1, 0.1]), 'test_2': array([0.1]), 'test_3': array([1.96e-06, 4.80e-06, 3.87e-06])}
-    >>> timer.as_dict
-    {'test': array([0.1, 0.1]), 'test_2': array([0.1]), 'test_3': array([1.96e-06, 4.80e-06, 3.87e-06])}
+    >>> d = timer.as_dict
+    >>> for k, v in d.items():
+    ...     v = [f'{e:.2f}' for e in v]
+    ...     print(f'{k}: {v}')
+    test: ['0.10', '0.10']
+    test_2: ['0.10']
+    test_3: ['0.00', '0.00', '0.00']
 """
     def __init__(self):
         self.timestamp = time.perf_counter  # time.process_time
