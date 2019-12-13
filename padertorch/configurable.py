@@ -58,9 +58,9 @@ class Configurable:
         )
         >>> str_factory = class_to_str(get_dense_layer)
         >>> str_factory
-        'configurable.get_dense_layer'
+        'padertorch.configurable.get_dense_layer'
         >>> config = {
-        ...     'factory': 'configurable.get_dense_layer',
+        ...     'factory': 'padertorch.configurable.get_dense_layer',
         ...     'in_units': 5,
         ...     'out_units': 3,
         ... }
@@ -104,9 +104,9 @@ class Configurable:
     Example::
 
         >>> DenseLayer.get_config({'in_units': 5})
-        {'factory': 'configurable.DenseLayer', 'in_units': 5, 'out_units': 3}
+        {'factory': 'padertorch.configurable.DenseLayer', 'in_units': 5, 'out_units': 3}
         >>> DenseLayer.get_config({'in_units': 5, 'out_units': 10})
-        {'factory': 'configurable.DenseLayer', 'in_units': 5, 'out_units': 10}
+        {'factory': 'padertorch.configurable.DenseLayer', 'in_units': 5, 'out_units': 10}
 
     When a configurable object depends on other exchangeable configurable
     objects, it is recommended to overwrite the classmethod
@@ -135,7 +135,7 @@ class Configurable:
         ...         return self.a(self.l(x))
         >>> config = CustomizableDenseLayer.get_config()
         >>> pprint(config)
-        {'factory': 'configurable.CustomisableDenseLayer',
+        {'factory': 'padertorch.configurable.CustomizableDenseLayer',
          'linear': {'factory': 'torch.nn.modules.linear.Linear',
           'in_features': 5,
           'out_features': 3,
@@ -143,7 +143,7 @@ class Configurable:
          'activation': {'factory': 'torch.nn.modules.activation.ReLU',
           'inplace': False}}
         >>> CustomizableDenseLayer.from_config(config)
-        CustomisableDenseLayer(
+        CustomizableDenseLayer(
           (l): Linear(in_features=5, out_features=3, bias=True)
           (a): ReLU()
         )
@@ -172,7 +172,7 @@ class Configurable:
         ...     }}
         ... )
         >>> pprint(config)
-        {'factory': 'configurable.CustomisableDenseLayer',
+        {'factory': 'padertorch.configurable.CustomizableDenseLayer',
          'linear': {'factory': 'torch.nn.modules.linear.Bilinear',
           'in1_features': 10,
           'in2_features': 15,
@@ -181,7 +181,7 @@ class Configurable:
          'activation': {'factory': 'torch.nn.modules.activation.ReLU',
           'inplace': False}}
         >>> CustomizableDenseLayer.from_config(config)
-        CustomisableDenseLayer(
+        CustomizableDenseLayer(
           (l): Bilinear(in1_features=10, in2_features=15, out_features=3, bias=True)
           (a): ReLU()
         )
@@ -223,11 +223,11 @@ class Configurable:
         ...         return self.net(x)
         >>> config = EncoderDecoder.get_config()
         >>> pprint(config)
-        {'factory': 'configurable.EncoderDecoder',
-         'encoder': {'factory': 'configurable.DenseLayer',
+        {'factory': 'padertorch.configurable.EncoderDecoder',
+         'encoder': {'factory': 'padertorch.configurable.DenseLayer',
           'in_units': 5,
           'out_units': 3},
-         'decoder': {'factory': 'configurable.DenseLayer',
+         'decoder': {'factory': 'padertorch.configurable.DenseLayer',
           'in_units': 3,
           'out_units': 20},
          'in_features': 5}
@@ -337,7 +337,7 @@ class Configurable:
         # Calculate the config and convert it to a nested dict structure
         config = _DogmaticConfig(config).to_dict()
 
-        test_config(config, {})
+        _test_config(config, {})
 
         # For sacred make an inplace change to the update
         # (Earlier nessesary, now optional)
@@ -429,8 +429,10 @@ class Configurable:
         return cls.from_config(configurable_config)
 
 
-def test_config(config, updates):
+def _test_config(config, updates):
     """Test if the config updates are valid."""
+    # Rename this function, when it is nessesary to make it public.
+    # The name test_config without an leading `_` confuses pytest.
     sig = inspect.signature(import_class(config['factory']))
 
     # Remove default -> force completely described
@@ -508,31 +510,54 @@ def fix_doctext_import_class(locals_dict):
     imported.
 
     Use this function inside a doctest as
-        >>> fix_doctext_import_class(locals())
+        >>> fix_doctext_import_class(locals())  # doctest: +SKIP
 
     Example::
         >>> abc = 1
         >>> class Foo: pass
+        >>> def foo(): pass
         >>> import_class(class_to_str(Foo))  # doctest: +ELLIPSIS
         Traceback (most recent call last):
         ...
-        AttributeError: Module ... 'configurable' ... has no attribute Foo. ...
+        AttributeError: Module ...configurable... has no attribute Foo. ...
 
         >>> fix_doctext_import_class(locals())
+        >>> class_to_str(Foo)
+        'padertorch.configurable.Foo'
+        >>> class_to_str(foo)
+        'padertorch.configurable.foo'
+        >>> Foo
+        <class 'padertorch.configurable.Foo'>
+        >>> import_class(class_to_str(foo)) == foo
+        True
         >>> import_class(class_to_str(Foo))
-        <class 'configurable.Foo'>
+        <class 'padertorch.configurable.Foo'>
     """
     cache = {}
+    cls_cache = {}
 
     class_to_str_orig = class_to_str
     import_class_orig = import_class
 
+    # Fix the case when this function is called multiple times.
+    # This is necessary, when multiple doctest are executed (e.g. pytest).
+    # Then this fix will be called multiple times.
+    if hasattr(class_to_str_orig, 'orig'):
+        class_to_str_orig = class_to_str_orig.orig
+    if hasattr(import_class_orig, 'orig'):
+        import_class_orig = import_class_orig.orig
+
     def class_to_str_fix(cls):
         nonlocal cache
-        name = class_to_str_orig(cls)
+        nonlocal cls_cache
+        if cls in cls_cache:
+            return cls_cache[cls]
+        name = class_to_str_orig(cls, fix_module=True)
         if (not isinstance(cls, str)) \
-                and cls.__module__ == locals_dict['__name__']:
+                and locals_dict['__name__'].endswith(cls.__module__):
+            cls.__module__ = _get_correct_module_str_for_callable(cls)
             cache[name] = cls
+            cls_cache[cls] = name
         return name
 
     def import_class_fix(name):
@@ -540,6 +565,9 @@ def fix_doctext_import_class(locals_dict):
             return cache[name]
         else:
             return import_class_orig(name)
+
+    class_to_str_fix.orig = class_to_str_orig
+    import_class_fix.orig = import_class_orig
 
     # for code in the doctest
     locals_dict['import_class'] = import_class_fix
@@ -631,7 +659,44 @@ def resolve_main_python_path() -> str:
     return python_path
 
 
-def class_to_str(cls):
+def _get_correct_module_str_for_callable(callable_obj):
+    """
+
+    When a script is called with `python path/to/script.py` the module path is
+    wrong. This functions determines the module path as when the
+    script was called with `python -m path.to.script`
+
+    >>> _get_correct_module_str_for_callable(_get_correct_module_str_for_callable)
+    'padertorch.configurable'
+    >>> import torch.nn
+    >>> _get_correct_module_str_for_callable(torch.nn.modules.linear.Linear)
+    'torch.nn.modules.linear'
+    """
+
+    if inspect.isclass(callable_obj):
+        # classes have no __globals__
+        file = inspect.getabsfile(callable_obj)
+    elif inspect.isfunction(callable_obj):
+        # inspect.getabsfile yields `/path/to/func<doctest func>`
+        file = callable_obj.__globals__['__file__']
+    else:
+        raise TypeError(callable_obj)
+
+    try:
+        candidates = [f
+            for f in Path(file).parents
+            if (f / '__init__.py').exists()
+        ]
+        p = candidates[-1]
+
+    except IndexError:
+        raise Exception(file)
+    module = '.'.join(
+        Path(file).relative_to(p.parent).with_suffix('').parts)
+    return module
+
+
+def class_to_str(cls, fix_module=False):
     """Convert a class to an importable str.
 
     Opposite of import_class.
@@ -642,13 +707,32 @@ def class_to_str(cls):
     >>> class_to_str('padertorch.Model')
     'padertorch.base.Model'
 
+    # Pycharm starts doctests with the absolute file, so the package is not
+    # correctly recognized.
+    >>> class_to_str(class_to_str)  # doctest: +SKIP
+    'configurable.class_to_str'
+
+    # With the option fix_module the module will be correctly identified.
+    # Usually this is not nessesary. But we need it to fix some doctests.
+    >>> class_to_str(class_to_str, fix_module=True)
+    'padertorch.configurable.class_to_str'
+
+    >>> import torch.nn
+    >>> class_to_str(torch.nn.Linear)
+    'torch.nn.modules.linear.Linear'
+    >>> class_to_str(torch.nn.Linear, fix_module=True)
+    'torch.nn.modules.linear.Linear'
+
     TODO: fix __main__ for scripts in packages that are called with shell
           path (path/to/script.py) and not python path (path.to.script).
     """
     if isinstance(cls, str):
         cls = import_class(cls)
 
-    module = cls.__module__
+    if fix_module and '.' not in cls.__module__:
+        module = _get_correct_module_str_for_callable(cls)
+    else:
+        module = cls.__module__
 
     if module == '__main__':
         # Try to figure out the module.
