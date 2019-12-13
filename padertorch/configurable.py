@@ -520,7 +520,6 @@ def fix_doctext_import_class(locals_dict):
         Traceback (most recent call last):
         ...
         AttributeError: Module ...configurable... has no attribute Foo. ...
-
         >>> fix_doctext_import_class(locals())
         >>> class_to_str(Foo)
         'padertorch.configurable.Foo'
@@ -547,17 +546,35 @@ def fix_doctext_import_class(locals_dict):
     if hasattr(import_class_orig, 'orig'):
         import_class_orig = import_class_orig.orig
 
+    def is_doctest_callable(obj):
+        if inspect.isfunction(obj):
+            return obj.__code__.co_filename.startswith('<doctest')
+        elif inspect.isclass(obj):
+            try:
+                return False
+            except OSError:  # OSError: could not find class definition
+                return True
+        else:
+            raise TypeError(obj)
+
     def class_to_str_fix(cls):
         nonlocal cache
         nonlocal cls_cache
         if cls in cls_cache:
             return cls_cache[cls]
         name = class_to_str_orig(cls, fix_module=True)
-        if (not isinstance(cls, str)) \
+        if '__name__' not in locals_dict:
+            # This function was called in another doctest.
+            # Remove this function from globals.
+            globals()['import_class'] = import_class_orig
+            globals()['class_to_str'] = class_to_str_orig
+
+        elif (not isinstance(cls, str)) \
                 and locals_dict['__name__'].endswith(cls.__module__):
-            cls.__module__ = _get_correct_module_str_for_callable(cls)
+            if is_doctest_callable(cls):
+                cls.__module__ = _get_correct_module_str_for_callable(cls)
             cache[name] = cls
-            cls_cache[cls] = name
+            # cls_cache[cls] = name
         return name
 
     def import_class_fix(name):
@@ -671,6 +688,15 @@ def _get_correct_module_str_for_callable(callable_obj):
     >>> import torch.nn
     >>> _get_correct_module_str_for_callable(torch.nn.modules.linear.Linear)
     'torch.nn.modules.linear'
+
+    >>> def foo(): pass
+    >>> class Foo: pass
+
+    >>> _get_correct_module_str_for_callable(foo)
+    'padertorch.configurable'
+    >>> _get_correct_module_str_for_callable(Foo)
+    'padertorch.configurable'
+
     """
 
     if inspect.isclass(callable_obj):
