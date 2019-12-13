@@ -35,7 +35,8 @@ steps:
     python -m coverage xml --include="padertorch*"
     pytest --junitxml='test_results.xml' --cov=padertorch  \
       --doctest-modules --doctest-continue-on-failure --cov-report=html \
-       -v "tests/"
+      --ignore "padertorch/modules/wavenet/nv_wavenet" --ignore "padertorch/contrib" \
+       -v "tests/" "padertorch/"
   displayName: 'pytest'
 
 - task: PublishTestResults@2
