@@ -30,6 +30,8 @@ class MaskKeys:
     MASK_ESTIMATOR_STATE = 'mask_estimator_state'
     SPEECH_PRED = 'speech_prediction'
     NUM_FRAMES = 'num_frames'
+    NUM_SAMPLES = 'num_samples'
+    SPEECH_SOURCE = 'speech_source'
     VAD = 'vad'
     VAD_LOGITS = 'vad_logits'
 

@@ -11,8 +11,7 @@ from scipy import signal
 
 from paderbox.database.iterator import AudioReader
 from paderbox.database.keys import *
-from paderbox.database.wsj_bss import WsjBss, scenario_map_fn
-from paderbox.speech_enhancement.mask_module import biased_binary_mask
+from pb_bss.extraction.mask_module import biased_binary_mask
 from paderbox.transform import stft, istft
 from paderbox.transform.module_stft import _samples_to_stft_frames
 from paderbox.transform.module_stft import _stft_frames_to_samples
@@ -347,17 +346,10 @@ class SequenceProvider(Parameterized):
 
     def get_train_iterator(self, time_segment=None):
 
-        iterator = self.database.get_dataset(self.database.datasets_train)
+        iterator = self.database.get_dataset(self.database.ah.datasets_train)
         iterator = iterator.map(self.read_audio) \
             .map(self.database.add_num_samples)
         exclude_keys = None
-        if isinstance(self.database, WsjBss):
-            iterator = iterator.map(
-                partial(scenario_map_fn, snr_range=[20, 30]))
-            exclude_keys = [SPEECH_SOURCE, RIR]
-            wsj_bss = True
-        else:
-            wsj_bss = False
         iterator = iterator.map(self.to_train_structure)
         unbatch = False
         if self.opts.shuffle:
@@ -367,7 +359,7 @@ class SequenceProvider(Parameterized):
             iterator = iterator.map(
                 partial(self.segment, exclude_keys=exclude_keys))
             unbatch = True
-        if not self.opts.multichannel and wsj_bss:
+        if not self.opts.multichannel:
             segment_channels = partial(self.segment_channels,
                                        exclude_keys=exclude_keys)
         else:
@@ -379,14 +371,10 @@ class SequenceProvider(Parameterized):
     def get_eval_iterator(self, num_examples=-1, transform_fn=lambda x: x,
                           filter_fn=lambda x: True):
 
-        iterator = self.database.get_iterator_by_names(
-            self.database.datasets_eval)
+        iterator = self.database.get_dataset(
+            self.database.ah.datasets_validation)
         iterator = iterator.map(self.read_audio) \
             .map(self.database.add_num_samples)
-
-        if isinstance(self.database, WsjBss):
-            iterator = iterator.map(
-                partial(scenario_map_fn, snr_range=[20, 30]))
 
         iterator = iterator.map(self.to_eval_structure)[:num_examples]
         return self.get_map_iterator(iterator, self.opts.batch_size_eval)
@@ -396,14 +384,10 @@ class SequenceProvider(Parameterized):
                              iterable_apply_fn=None,
                              filter_fn=lambda x: True):
         if dataset is None:
-            dataset = self.database.datasets_test
-        iterator = self.database.get_iterator_by_names(dataset)
+            dataset = self.database.ah.datasets_test
+        iterator = self.database.get_dataset(dataset)
         iterator = iterator.map(self.read_audio) \
             .map(self.database.add_num_samples)
-
-        if isinstance(self.database, WsjBss):
-            iterator = iterator.map(
-                partial(scenario_map_fn, snr_range=[20, 30]))
 
         iterator = iterator.map(self.to_predict_structure)[:num_examples]
         if iterable_apply_fn is not None:
