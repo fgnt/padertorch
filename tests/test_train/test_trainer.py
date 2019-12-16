@@ -38,7 +38,8 @@ class Model(pt.Model):
 
     def review(self, inputs, output):
         digits = inputs['digit']
-
+        if not isinstance(digits, int):
+            digits = digits.cpu()
         target = torch.tensor(
             np.array(digits).astype(np.int64),
             device=output.device,
