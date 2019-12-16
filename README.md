@@ -14,9 +14,33 @@ The examples in contrib/examples are only working in the Paderborn NT environmen
 
 ## padertorch.Trainer
 
+- Logging:
+  - The `review` of the model returns a dictionary that will be logged and visualized via 'tensorboard'. The keys define the logging type (e.g. `scalars`).
+  - As logging backend we use `TensorboardX` to generate a `tfevents` file that can be visualized from a `tensorboard`.
+- Dataset type: 
+  - lazy_dataset.Dataset, torch.utils.data.DataLoader and other iterables...
+- Validation:
+  - The `ValidationHook` runs periodically and and logs the validations results.
+- Learning rate decay with backoff:
+  - The `ValidationHook` has also parameters to do a learning rate with backoff.
+- Test run: 
+  - The trainer has a test run function to train the model for few iterations and test if
+    - the model is executable (burn test)
+    - the validation is deterministic/reproducable
+    - the model changes the parameter in the training
+- Hooks:
+  - The hooks are used to extend the basic features of the trainer. Usually the user dont rearly care about the hooks. By default a `SummaryHook`, a `CheckpointHook` and a `StopTrainingHook` is registerd. So the user only need to register a `ValidationHook`
+- Checkpointing:
+  - The parameters of the model and the state of the trainer are periodically saved. The intervall can be specified with the `checkpoint_trigger` (The units are `epoch` and `iteration`)
+- Virtual minibatch:
+  - The `Trainer` usually do not know if the model is trained with a single example or multiple examples (minibatch), because the exaples that are yielded from the dataset are directly forwarded to the model. 
+  - When the `virtual_minibatch_size` option is larger than one, the trainer calls the forward and backward step `virtual_minibatch_size` times before applying the gradients. This increases the minibatch size, while the memory consumption stays similar.
+
+
 ```python
 import torch
 import padertorch as pt
+
 train_dataset = ...
 validation_dataset = ...
 
@@ -59,29 +83,6 @@ trainer.test_run(train_dataset, validation_dataset)
 trainer.register_validation_hook(validation_dataset)
 trainer.train(train_dataset)
 ```
-- Logging:
-  - The `review` of the model returns a dictionary that will be logged and visualized via 'tensorboard'. The keys define the logging type (e.g. `scalars`).
-  - As logging backend we use `TensorboardX` to generate a `tfevents` file that can be visualized from a `tensorboard`.
-- Dataset type: 
-  - lazy_dataset.Dataset, torch.utils.data.DataLoader and other iterables...
-- Validation:
-  - The `ValidationHook` runs periodically and and logs the validations results.
-- Learning rate decay with backoff:
-  - The `ValidationHook` has also parameters to do a learning rate with backoff.
-- Test run: 
-  - The trainer has a test run function to train the model for few iterations and test if
-    - the model is executable (burn test)
-    - the validation is deterministic/reproducable
-    - the model changes the parameter in the training
-- Hooks:
-  - The hooks are used to extend the basic features of the trainer. Usually the user dont rearly care about the hooks. By default a `SummaryHook`, a `CheckpointHook` and a `StopTrainingHook` is registerd. So the user only need to register a `ValidationHook`
-- Checkpointing:
-  - The parameters of the model and the state of the trainer are periodically saved. The intervall can be specified with the `checkpoint_trigger` (The units are `epoch` and `iteration`)
-- Virtual minibatch:
-  - The `Trainer` usually do not know if the model is trained with a single example or multiple examples (minibatch), because the exaples that are yielded from the dataset are directly forwarded to the model. 
-  - When the `virtual_minibatch_size` option is larger than one, the trainer calls the forward and backward step `virtual_minibatch_size` times before applying the gradients. This increases the minibatch size, while the memory consumption stays similar.
-
-
 
 ## padertorch.Configurable
 
