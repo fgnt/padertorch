@@ -1,6 +1,6 @@
 [![Build Status](https://dev.azure.com/fgnt/fgnt/_apis/build/status/fgnt.padertorch?branchName=master)](https://dev.azure.com/fgnt/fgnt/_build/latest?definitionId=3&branchName=master)
-[![Azure DevOps tests](https://img.shields.io/azure-devops/tests/fgnt/fgnt/3)](https://dev.azure.com/fgnt/fgnt/_build/latest?definitionId=2&branchName=master)
-[![Azure DevOps coverage](https://img.shields.io/azure-devops/coverage/fgnt/fgnt/3)](https://dev.azure.com/fgnt/fgnt/_build/latest?definitionId=2&branchName=master)
+[![Azure DevOps tests](https://img.shields.io/azure-devops/tests/fgnt/fgnt/3)](https://dev.azure.com/fgnt/fgnt/_build/latest?definitionId=3&branchName=master)
+[![Azure DevOps coverage](https://img.shields.io/azure-devops/coverage/fgnt/fgnt/3)](https://dev.azure.com/fgnt/fgnt/_build/latest?definitionId=3&branchName=master)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/fgnt/padertorch/master/LICENSE)
 
 # padertorch
