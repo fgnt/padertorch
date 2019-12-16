@@ -78,8 +78,8 @@ trainer.train(train_dataset)
 - Virtual minibatch:
   - The `Trainer` usually do not know if the model is trained with a single example or multiple examples (minibatch), because the exaples that are yielded from the dataset are directly forwarded to the model. 
   - When the `virtual_minibatch_size` option is larger than one, the trainer calls the forward and backward step `virtual_minibatch_size` times before applying the gradients. This increases the minibatch size, while the memory consumption stays similar.
-- dataset type: 
-  - lazy_dataset.Dataset, list of examples, torch.utils.data.DataLoader, ...
+- Dataset type: 
+  - lazy_dataset.Dataset, torch.utils.data.DataLoader and other iterables...
 
 
 ## padertorch.Configurable
