@@ -2,18 +2,24 @@
 # Create and test a Python package on multiple Python versions.
 # Add steps that analyze code, save the dist with the build record, publish to a PyPI-compatible index, and more:
 # https://docs.microsoft.com/azure/devops/pipelines/languages/python
+#
+# See https://docs.microsoft.com/en-us/azure/devops/pipelines/agents/hosted?view=azure-devops
+# for vmImage. e.g. ubuntu-18.04, ubuntu-latest, ...
+# Note: ubuntu-latest is not ubuntu-18.04. But I do not know why.
 
 trigger:
 - master
 
-pool:
-  vmImage: 'ubuntu-latest'
 strategy:
   matrix:
     Python36:
+      IMAGE_NAME: 'ubuntu-18.04'
       python.version: '3.6'
     Python37:
+      IMAGE_NAME: 'ubuntu-18.04'
       python.version: '3.7'
+pool:
+  vmImage: $(IMAGE_NAME)
 
 steps:
 - task: UsePythonVersion@0
