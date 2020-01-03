@@ -65,7 +65,8 @@ class MaskEstimator(pt.Module):
         assert recu_in == num_features, (recu_in, num_features)
         fc = config['fully_connected']['output_size']
         assert fc == 2 * num_features, (fc, num_features)
-        if 'normalization' not in config.keys() or config['normalization'] is not None:
+        if 'normalization' not in config.keys() or\
+                config['normalization'] is not None:
             config['normalization'] = dict(
                 factory=Normalization,
                 num_features=num_features,

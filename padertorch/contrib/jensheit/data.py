@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from dataclasses import field
 from scipy import signal
 
-from paderbox.database.iterator import AudioReader
-from paderbox.database.keys import *
+from padercontrib.database.iterator import AudioReader
+from padercontrib.database.keys import *
 from pb_bss.extraction.mask_module import biased_binary_mask
 from paderbox.transform import stft, istft
 from paderbox.transform.module_stft import _samples_to_stft_frames
@@ -129,16 +129,18 @@ class Padder(Configurable):
 class STFT:
     def __init__(self, size: int = 512, shift: int = 160,
                  window: str = 'blackman', window_length: int = 400,
-                 fading: bool = True, symmetric_window: bool = False):
+                 fading: bool = True,  pad: bool = True,
+                 symmetric_window: bool = False):
         self.size = size
         self.shift = shift
         self.window = window
         self.window_length = window_length
         self.fading = fading
+        self.pad = pad
         self.symmetric_window = symmetric_window
 
     def __call__(self, signal):
-        return stft(signal, pad=True, size=self.size, shift=self.shift,
+        return stft(signal, pad=self.pad, size=self.size, shift=self.shift,
                     window_length=self.window_length, fading=self.fading,
                     symmetric_window=self.symmetric_window,
                     window=WINDOW_MAP[self.window])
@@ -346,7 +348,7 @@ class SequenceProvider(Parameterized):
 
     def get_train_iterator(self, time_segment=None):
 
-        iterator = self.database.get_dataset(self.database.ah.datasets_train)
+        iterator = self.database.get_dataset_train()
         iterator = iterator.map(self.read_audio) \
             .map(self.database.add_num_samples)
         exclude_keys = None
@@ -371,8 +373,7 @@ class SequenceProvider(Parameterized):
     def get_eval_iterator(self, num_examples=-1, transform_fn=lambda x: x,
                           filter_fn=lambda x: True):
 
-        iterator = self.database.get_dataset(
-            self.database.ah.datasets_validation)
+        iterator = self.database.get_dataset_validation()
         iterator = iterator.map(self.read_audio) \
             .map(self.database.add_num_samples)
 
@@ -384,8 +385,9 @@ class SequenceProvider(Parameterized):
                              iterable_apply_fn=None,
                              filter_fn=lambda x: True):
         if dataset is None:
-            dataset = self.database.ah.datasets_test
-        iterator = self.database.get_dataset(dataset)
+            iterator = self.database.get_dataset_test()
+        else:
+            iterator = self.database.get_dataset(dataset)
         iterator = iterator.map(self.read_audio) \
             .map(self.database.add_num_samples)
 

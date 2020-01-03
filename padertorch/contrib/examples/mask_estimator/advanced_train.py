@@ -11,13 +11,14 @@ from pathlib import Path
 import os
 
 import sacred
-from paderbox.database.chime import Chime3
-from paderbox.database.keys import OBSERVATION, NOISE_IMAGE, SPEECH_IMAGE
+from padercontrib.database.chime import Chime3
+from padercontrib.database.keys import OBSERVATION, NOISE_IMAGE, SPEECH_IMAGE
 from paderbox.io import dump_json
 from paderbox.utils.nested import deflatten
 from padertorch.configurable import Configurable
 from padertorch.configurable import config_to_instance, recursive_class_to_str
 from padertorch.contrib.jensheit.data import SequenceProvider, MaskTransformer
+from paderbox.transform.module_stft import STFT
 from padertorch.contrib.jensheit.utils import get_experiment_name
 from padertorch.contrib.jensheit.utils import compare_configs
 from padertorch.models.mask_estimator import MaskEstimatorModel
@@ -47,6 +48,7 @@ def config():
         'database.factory': Chime3,
         'audio_keys': [OBSERVATION, NOISE_IMAGE, SPEECH_IMAGE],
         'transform.factory': MaskTransformer,
+        'transform.stft': dict(factory=STFT, shift=256, size=1024),
     })
     trainer_opts['model']['transformer'] = provider_opts['transform']
 
@@ -86,7 +88,6 @@ def config():
 
 @ex.capture
 def initialize_trainer_provider(task, trainer_opts, provider_opts, _run):
-
 
     storage_dir = Path(trainer_opts['storage_dir'])
     if (storage_dir / 'init.json').exists():
