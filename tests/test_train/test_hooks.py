@@ -144,8 +144,14 @@ def test_summary_hook():
         for e in events:
             del e['wall_time']
 
+        if 'file_version' in events[0]:
+            # Do not care about the brain.Event file_version.
+            # In tensorboradX 1.6: file_version is missing
+            # In tensorboradX 2: file_version is 'brain.Event:2'
+            del events[0]['file_version']
+
         expect = [
-            {'file_version': 'brain.Event:2'},
+            {},
             {'step': 10, 'summary': {'value': [
                 {'tag': 'training/loss', 'simple_value': 1.0}
             ]}},
@@ -171,4 +177,4 @@ def test_summary_hook():
             ]}}
         ]
 
-        assert events == expect, pretty(events)
+        assert events == expect, pretty([events, expect])
