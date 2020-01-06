@@ -75,24 +75,50 @@ def deep_clustering_loss(x, t):
     ) / N ** 2
 
 
-def pit_loss(estimate, target, loss_fn=torch.nn.functional.mse_loss):
+def pit_loss(
+        estimate: torch.Tensor,
+        target: torch.Tensor,
+        loss_fn=torch.nn.functional.mse_loss,
+        axis: int = -2,
+        return_permutation: bool = False
+):
     """Does not support batch dimension. Does not support PackedSequence.
 
     Parameters:
-        estimate: Padded sequence with shape (T, K, F)
-        target: Padded sequence with shape (T, K, F)
+        estimate: Padded sequence. The speaker axis is specified with `axis`,
+            so the default shape is (T, K, F)
+        target: Padded sequence with the same shape as `estimate` (defaults
+            to (T, K, F))
+        loss_fn: Loss function to apply on each permutation. It must accept two
+            arguments (estimate and target) of the same shape that this function
+            receives the arguments.
+        axis: Speaker axis K. The permutation is applied along this axis.
+        return_permutation: If `True`, this function returns the permutation
+            that minimizes the loss along with the minimal loss otherwise it
+            only returns the loss.
 
-    >>> T, K, F = 4, 2, 5
-    >>> estimate, target = torch.ones(T, K, F), torch.zeros(T, K, F)
-    >>> pit_loss(estimate, target)
-    tensor(1.)
+    Examples:
+        >>> T, K, F = 4, 2, 5
+        >>> estimate, target = torch.ones(T, K, F), torch.zeros(T, K, F)
+        >>> pit_loss(estimate, target)
+        tensor(1.)
 
-    >>> T, K, F = 4, 2, 5
-    >>> estimate, target = torch.ones(T, K, F), torch.zeros(T, F, dtype=torch.int64)
-    >>> pit_loss(estimate, target, loss_fn=torch.nn.functional.cross_entropy)
-    tensor(0.6931)
+        >>> T, K, F = 4, 2, 5
+        >>> estimate, target = torch.ones(T, K, F), torch.zeros(T, F, dtype=torch.int64)
+        >>> pit_loss(estimate, target, loss_fn=torch.nn.functional.cross_entropy)
+        tensor(0.6931)
+
+        >>> T, K, F = 4, 2, 5
+        >>> estimate, target = torch.ones(K, F, T), torch.zeros(K, F, T)
+        >>> pit_loss(estimate, target, axis=0)
+        tensor(1.)
+
+        >>> T, K, F = 4, 2, 5
+        >>> estimate, target = torch.ones(K, F, T), torch.zeros(K, F, T)
+        >>> pit_loss(estimate, target, axis=0, return_permutation=True)
+        (tensor(1.), (0, 1))
     """
-    sources = estimate.size()[1]
+    sources = estimate.size()[axis]
     assert sources < 30, f'Are you sure? sources={sources}'
     if loss_fn in [torch.nn.functional.cross_entropy]:
         estimate_shape = list(estimate.shape)
@@ -105,12 +131,19 @@ def pit_loss(estimate, target, loss_fn=torch.nn.functional.mse_loss):
             f'{estimate.size()} != {target.size()}'
         )
     candidates = []
+    filler = (slice(None),) * axis 
     for permutation in itertools.permutations(range(sources)):
-        candidates.append(loss_fn(
-            estimate[:, permutation, :],
+        candidates.append((loss_fn(
+            estimate[filler + (permutation, )],
             target
-        ))
-    return torch.min(torch.stack(candidates))
+        ), permutation))
+
+    min_loss, min_perm = min(candidates, key=lambda x: x[0])
+
+    if return_permutation:
+        return min_loss, min_perm
+    else:
+        return min_loss
 
 # this function is kept at the moment for backwards compatibility
 # ToDo: remove this function
