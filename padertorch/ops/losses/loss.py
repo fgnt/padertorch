@@ -167,10 +167,6 @@ def pit_loss(
     else:
         return min_loss
 
-# this function is kept at the moment for backwards compatibility
-# ToDo: remove this function
-pit_mse_loss = partial(pit_loss, axis=-2)
-
 
 def _batch_diag(bmat):
     """
