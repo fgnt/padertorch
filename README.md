@@ -1,7 +1,7 @@
 # padertorch
 [![Build Status](https://dev.azure.com/fgnt/fgnt/_apis/build/status/fgnt.padertorch?branchName=master)](https://dev.azure.com/fgnt/fgnt/_build/latest?definitionId=3&branchName=master)
-[![Azure DevOps tests](https://img.shields.io/azure-devops/tests/fgnt/fgnt/3)](https://dev.azure.com/fgnt/fgnt/_build/latest?definitionId=3&branchName=master)
-[![Azure DevOps coverage](https://img.shields.io/azure-devops/coverage/fgnt/fgnt/3)](https://dev.azure.com/fgnt/fgnt/_build/latest?definitionId=3&branchName=master)
+[![Azure DevOps tests](https://img.shields.io/azure-devops/tests/fgnt/fgnt/3/master)](https://dev.azure.com/fgnt/fgnt/_build/latest?definitionId=3&branchName=master)
+[![Azure DevOps coverage](https://img.shields.io/azure-devops/coverage/fgnt/fgnt/3/master)](https://dev.azure.com/fgnt/fgnt/_build/latest?definitionId=3&branchName=master)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/fgnt/lazy_dataset/blob/master/LICENSE)
 
 Padertorch is designed to simplify the training of deep learning models written with PyTorch.
