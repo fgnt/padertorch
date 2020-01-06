@@ -129,9 +129,10 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
                 batch['X_abs']
         ):
 
-            pit_mse_loss.append(pt.ops.losses.loss.pit_mse_loss(
+            pit_mse_loss.append(pt.ops.losses.loss.pit_loss(
                 mask * observation[:, None, :],
-                target
+                target,
+                axis=-2
             ))
 
         pit_ips_loss = list()
@@ -142,9 +143,10 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
                 batch['cos_phase_difference']
         ):
             estimation = mask * observation[:, None, :]
-            pit_ips_loss.append(pt.ops.losses.loss.pit_mse_loss(
+            pit_ips_loss.append(pt.ops.losses.loss.pit_loss(
                 estimation,
-                target * cos_phase_diff
+                target * cos_phase_diff,
+                axis=-2
             ))
 
         pit_ips_clean_loss = list()
@@ -155,9 +157,10 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
                 batch['cos_phase_difference']
         ):
             estimation = mask * observation[:, None, :]
-            pit_ips_clean_loss.append(pt.ops.losses.loss.pit_mse_loss(
+            pit_ips_clean_loss.append(pt.ops.losses.loss.pit_loss(
                 estimation,
-                target * cos_phase_diff
+                target * cos_phase_diff,
+                axis=-2
             ))
 
         binary_loss = list()
@@ -165,9 +168,10 @@ class MultiChannelPermutationInvariantTraining(pt.Model):
                 model_out,
                 batch['target_mask'],
         ):
-            binary_loss.append(pt.ops.losses.loss.pit_mse_loss(
+            binary_loss.append(pt.ops.losses.loss.pit_loss(
                 mask,
-                target
+                target,
+                axis=-2
             ))
 
         losses = {
@@ -300,9 +304,10 @@ class PermutationInvariantTrainingModel(pt.Model):
                 batch['Y_abs'],
                 batch['X_abs']
         ):
-            pit_mse_loss.append(pt.ops.losses.loss.pit_mse_loss(
+            pit_mse_loss.append(pt.ops.losses.loss.pit_loss(
                 mask * observation[:, None, :],
-                target
+                target,
+                axis=-2
             ))
 
         pit_ips_loss = list()
@@ -312,9 +317,10 @@ class PermutationInvariantTrainingModel(pt.Model):
             batch['X_abs'],
             batch['cos_phase_difference']
         ):
-            pit_ips_loss.append(pt.ops.losses.loss.pit_mse_loss(
+            pit_ips_loss.append(pt.ops.losses.loss.pit_loss(
                 mask * observation[:, None, :],
-                target * cos_phase_diff
+                target * cos_phase_diff,
+                axis=-2
             ))
 
         losses = {

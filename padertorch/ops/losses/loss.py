@@ -12,7 +12,6 @@ __all__ = [
     'softmax_cross_entropy',
     'deep_clustering_loss',
     'pit_loss',
-    'pit_mse_loss',
     'kl_divergence',
 ]
 
@@ -166,10 +165,6 @@ def pit_loss(
         return min_loss, permutations[int(idx)]
     else:
         return min_loss
-
-# this function is kept at the moment for backwards compatibility
-# ToDo: remove this function
-pit_mse_loss = partial(pit_loss, axis=-2)
 
 
 def _batch_diag(bmat):
