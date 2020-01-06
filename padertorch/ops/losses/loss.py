@@ -12,7 +12,6 @@ __all__ = [
     'softmax_cross_entropy',
     'deep_clustering_loss',
     'pit_loss',
-    'pit_mse_loss',
     'kl_divergence',
 ]
 
