@@ -131,7 +131,7 @@ class TestPermutationInvariantTrainingLoss(unittest.TestCase):
     def check_toy_example(self, estimate, target, reference_loss):
         estimate = torch.from_numpy(np.array(estimate, dtype=np.float32))
         target = torch.from_numpy(np.array(target, dtype=np.float32))
-        actual_loss = pt.ops.losses.loss.pit_mse_loss(estimate, target)
+        actual_loss = pt.ops.losses.loss.pit_loss(estimate, target, axis=-2)
         np.testing.assert_allclose(actual_loss, reference_loss, rtol=1e-4)
 
     def test_toy_example_1(self):
