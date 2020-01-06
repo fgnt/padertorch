@@ -114,9 +114,20 @@ def pit_loss(
         tensor(1.)
 
         >>> T, K, F = 4, 2, 5
-        >>> estimate, target = torch.ones(K, F, T), torch.zeros(K, F, T)
+        >>> estimate = torch.stack([torch.ones(F, T), torch.zeros(F, T)])
+        >>> target = estimate[(1, 0), :, :]
         >>> pit_loss(estimate, target, axis=0, return_permutation=True)
-        (tensor(1.), (0, 1))
+        (tensor(1.), (1, 0))
+
+        >>> K = 5
+        >>> estimate, target = torch.ones(K), torch.zeros(K)
+        >>> pit_loss(estimate, target, axis=0)
+        tensor(1.)
+
+        >>> A, B, K, C, F = 4, 5, 3, 100, 128
+        >>> estimate, target = torch.ones(A, B, K, C, F), torch.zeros(A, B, K, C, F)
+        >>> pit_loss(estimate, target, axis=-3)
+        tensor(1.)
     """
     axis = axis % estimate.ndimension()
     sources = estimate.size()[axis]
