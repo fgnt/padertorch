@@ -132,17 +132,18 @@ def pit_loss(
             f'{estimate.size()} != {target.size()}'
         )
     candidates = []
-    filler = (slice(None),) * axis 
-    for permutation in itertools.permutations(range(sources)):
-        candidates.append((loss_fn(
+    filler = (slice(None),) * axis
+    permutations = list(itertools.permutations(range(sources)))
+    for permutation in permutations:
+        candidates.append(loss_fn(
             estimate[filler + (permutation, )],
             target
-        ), permutation))
+        ))
 
-    min_loss, min_perm = min(candidates, key=lambda x: x[0])
+    min_loss, idx = torch.min(torch.stack(candidates), dim=0)
 
     if return_permutation:
-        return min_loss, min_perm
+        return min_loss, permutations[int(idx)]
     else:
         return min_loss
 
