@@ -1,3 +1,4 @@
+from functools import partial
 import torch
 import torch.nn.functional
 from torch.distributions import Normal, MultivariateNormal
@@ -79,13 +80,18 @@ def deep_clustering_loss(x, t):
 def pit_loss(
         estimate: torch.Tensor,
         target: torch.Tensor,
+        axis: int,
         loss_fn=torch.nn.functional.mse_loss,
-        axis: int = -2,
         return_permutation: bool = False
 ):
-    """Does not support batch dimension. Does not support PackedSequence.
+    """
+    Permutation invariant loss function. Calls `loss_fn` on every possible
+    permutation between `estimate`s and `target`s and returns the minimum
+    loss among them. The tensors are permuted along `axis`.
 
-    Parameters:
+    Does not support batch dimension. Does not support PackedSequence.
+
+    Args:
         estimate: Padded sequence. The speaker axis is specified with `axis`,
             so the default shape is (T, K, F)
         target: Padded sequence with the same shape as `estimate` (defaults
@@ -93,7 +99,9 @@ def pit_loss(
         loss_fn: Loss function to apply on each permutation. It must accept two
             arguments (estimate and target) of the same shape that this function
             receives the arguments.
-        axis: Speaker axis K. The permutation is applied along this axis.
+        axis: Speaker axis K. The permutation is applied along this axis. axis=-2
+            and an input shape of (T, K, F) corresponds to the old default
+            behaviour.
         return_permutation: If `True`, this function returns the permutation
             that minimizes the loss along with the minimal loss otherwise it
             only returns the loss.
@@ -101,17 +109,17 @@ def pit_loss(
     Examples:
         >>> T, K, F = 4, 2, 5
         >>> estimate, target = torch.ones(T, K, F), torch.zeros(T, K, F)
-        >>> pit_loss(estimate, target)
+        >>> pit_loss(estimate, target, 1)
         tensor(1.)
 
         >>> T, K, F = 4, 2, 5
         >>> estimate, target = torch.ones(T, K, F), torch.zeros(T, F, dtype=torch.int64)
-        >>> pit_loss(estimate, target, loss_fn=torch.nn.functional.cross_entropy)
+        >>> pit_loss(estimate, target, 1, loss_fn=torch.nn.functional.cross_entropy)
         tensor(0.6931)
 
         >>> T, K, F = 4, 2, 5
         >>> estimate, target = torch.ones(K, F, T), torch.zeros(K, F, T)
-        >>> pit_loss(estimate, target, axis=0)
+        >>> pit_loss(estimate, target, 0)
         tensor(1.)
 
         >>> T, K, F = 4, 2, 5
@@ -161,7 +169,7 @@ def pit_loss(
 
 # this function is kept at the moment for backwards compatibility
 # ToDo: remove this function
-pit_mse_loss = pit_loss
+pit_mse_loss = partial(pit_loss, axis=-2)
 
 
 def _batch_diag(bmat):
