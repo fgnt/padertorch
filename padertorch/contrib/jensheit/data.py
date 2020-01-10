@@ -12,14 +12,15 @@ from scipy import signal
 from padercontrib.database.iterator import AudioReader
 from padercontrib.database.keys import *
 from pb_bss.extraction.mask_module import biased_binary_mask
-from paderbox.transform import stft, istft
-from paderbox.transform.module_stft import _samples_to_stft_frames
-from paderbox.transform.module_stft import _stft_frames_to_samples
 from paderbox.utils.mapping import Dispatcher
+from paderbox.transform import STFT
 from padertorch.configurable import Configurable
 from padertorch.contrib.jensheit import Parameterized, dict_func
 from padertorch.data.utils import pad_tensor, collate_fn
 from padertorch.modules.mask_estimator import MaskKeys as M_K
+from paderbox.array import segment_axis
+from copy import deepcopy
+
 
 WINDOW_MAP = Dispatcher(
     blackman=signal.blackman,
@@ -124,39 +125,6 @@ class Padder(Configurable):
                 'False, but they are:', self.padding_keys
             )
             return nested_batch
-
-
-class STFT:
-    def __init__(self, size: int = 512, shift: int = 160,
-                 window: str = 'blackman', window_length: int = 400,
-                 fading: bool = True,  pad: bool = True,
-                 symmetric_window: bool = False):
-        self.size = size
-        self.shift = shift
-        self.window = window
-        self.window_length = window_length
-        self.fading = fading
-        self.pad = pad
-        self.symmetric_window = symmetric_window
-
-    def __call__(self, signal):
-        return stft(signal, pad=self.pad, size=self.size, shift=self.shift,
-                    window_length=self.window_length, fading=self.fading,
-                    symmetric_window=self.symmetric_window,
-                    window=WINDOW_MAP[self.window])
-
-    def inverse(self, signal):
-        return istft(signal, size=self.size, shift=self.shift,
-                     window_length=self.window_length, fading=self.fading,
-                     symmetric_window=self.symmetric_window,
-                     window=WINDOW_MAP[self.window])
-
-    def frames_to_samples(self, nframes):
-        return _stft_frames_to_samples(nframes, self.window_length, self.shift)
-
-    def samples_to_frames(self, nsamples):
-        return _samples_to_stft_frames(nsamples, self.window_length,
-                                       self.shift)
 
 
 class MaskTransformer(Parameterized):
@@ -268,14 +236,12 @@ class SequenceProvider(Parameterized):
             exclude_keys = []
         elif isinstance(exclude_keys, str):
             exclude_keys = [exclude_keys]
-        from paderbox.utils.numpy_utils import segment_axis_v2
-        from copy import deepcopy
         segment_len = shift = self.opts.time_segments
         num_samples = example[NUM_SAMPLES]
         audio_keys = [key for key in example['audio_keys']
                       if not key in exclude_keys]
         for key in audio_keys:
-            example[key] = segment_axis_v2(
+            example[key] = segment_axis(
                 example[key][..., :num_samples], segment_len,
                 shift=shift, axis=-1, end='cut')
         lengths = ([example[key].shape[-2] for key in audio_keys])
