@@ -634,6 +634,46 @@ class BackOffValidationHook(ValidationHook):
         pass
 
 
+class LRSchedulerHook(TriggeredHook):
+    """
+    A hook that applies a learning rate scheduler from `torch.optim.lr_scheduler`
+    to the training.
+
+    Examples:
+        >>> trainer = pt.Trainer(...)   # doctest: +SKIP
+        >>> trainer.register_hook(LRSchedulerHook(
+        ...     torch.optim.lr_scheduler.StepLR(
+        ...         trainer.optimizer.optimizer, step_size=2, gamma=0.98)
+        ... ))  # doctest: +SKIP
+
+    Note:
+
+        This hook can only be used with learning rate schedulers that
+        don't require metrics.
+
+    """
+    # It is very likely that this check is exclusive to this hook
+    IS_PYTORCH_1_1 = LooseVersion(torch.__version__) >= '1.1.0'
+
+    def __init__(self, lr_scheduler, trigger=(1, 'epoch')):
+        super().__init__(trigger)
+        self.lr_scheduler = lr_scheduler
+
+    def pre_step(self, trainer: 'pt.Trainer'):
+        if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
+            if trainer.epoch > 0 or not self.IS_PYTORCH_1_1:
+                self.lr_scheduler.step()
+
+    def set_last(self, iteration, epoch):
+        super().set_last(iteration, epoch)
+
+        # Call step instead of setting `last_epoch` directly because step
+        # updates the LR of the optimizer. Note that this might print
+        # a warning message in PyTorch 1.1+ if this is called before
+        # the first optimizer step.
+        self.lr_scheduler.step(epoch=epoch)
+
+
 class ProgressBarHook(TriggeredHook):
     """ Adds a progress bar to the console output. """
     def __init__(self, stop_trigger, max_it_len=None, update_interval=10):
@@ -819,41 +859,3 @@ class ModelAttributeAnnealingHook(TriggeredHook):
             setattr(module, self.name[-1], self.onset_value)
 
 
-class LRSchedulerHook(TriggeredHook):
-    """
-    A hook that applies a learning rate scheduler from `torch.optim.lr_scheduler`
-    to the training.
-
-    Examples:
-        >>> trainer = pt.Trainer(...)   # doctest: +SKIP
-        >>> trainer.register_hook(LRSchedulerHook(
-        ...     torch.optim.lr_scheduler.StepLR(
-        ...         trainer.optimizer.optimizer, step_size=2, gamma=0.98)
-        ... ))  # doctest: +SKIP
-
-    Note:
-
-        This hook can only be used with learning rate schedulers that
-        don't require metrics.
-
-    """
-    # It is very likely that this check is exclusive to this hook
-    IS_PYTORCH_1_1 = LooseVersion(torch.__version__) >= '1.1.0'
-
-    def __init__(self, lr_scheduler, trigger=(1, 'epoch')):
-        super().__init__(trigger)
-        self.lr_scheduler = lr_scheduler
-
-    def pre_step(self, trainer: 'pt.Trainer'):
-        if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
-            if trainer.epoch > 0 or not self.IS_PYTORCH_1_1:
-                self.lr_scheduler.step()
-
-    def set_last(self, iteration, epoch):
-        super().set_last(iteration, epoch)
-
-        # Call step instead of setting `last_epoch` directly because step
-        # updates the LR of the optimizer. Note that this might print
-        # a warning message in PyTorch 1.1+ if this is called before
-        # the first optimizer step.
-        self.lr_scheduler.step(epoch=epoch)
