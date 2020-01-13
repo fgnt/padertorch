@@ -653,7 +653,9 @@ class LRSchedulerHook(TriggeredHook):
 
     """
     # It is very likely that this check is exclusive to this hook
-    IS_PYTORCH_1_1 = LooseVersion(torch.__version__) >= '1.1.0'
+    # See https://github.com/pytorch/pytorch/pull/7889 and
+    # https://github.com/pytorch/pytorch/pull/20203
+    PYTORCH_ge_1_1 = LooseVersion(torch.__version__) >= '1.1.0'
 
     def __init__(self, lr_scheduler, trigger=(1, 'epoch')):
         super().__init__(trigger)
@@ -661,7 +663,7 @@ class LRSchedulerHook(TriggeredHook):
 
     def pre_step(self, trainer: 'pt.Trainer'):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
-            if trainer.epoch > 0 or not self.IS_PYTORCH_1_1:
+            if trainer.epoch > 0 or not self.PYTORCH_ge_1_1:
                 self.lr_scheduler.step()
 
     def set_last(self, iteration, epoch):
