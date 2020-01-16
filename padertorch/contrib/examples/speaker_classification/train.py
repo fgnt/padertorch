@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 import numpy as np
-from paderbox.database.librispeech import LibriSpeech
+from padercontrib.database.librispeech import LibriSpeech
 from paderbox.utils.timer import timeStamped
 from padertorch import Trainer
 from padertorch.contrib.examples.speaker_classification.model import SpeakerClf

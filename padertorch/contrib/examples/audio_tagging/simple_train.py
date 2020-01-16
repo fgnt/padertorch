@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from paderbox.database.audio_set import AudioSet
+from padercontrib.database.audio_set import AudioSet
 from paderbox.utils.timer import timeStamped
 from padertorch import Model, Trainer, optimizer
 from padertorch.contrib.je.data.transforms import (

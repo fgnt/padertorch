@@ -1,7 +1,7 @@
 import numpy as np
 
 import paderbox as pb
-from paderbox.database import keys as DB_K
+from padercontrib.database import keys as DB_K
 from paderbox.utils.numpy_utils import morph
 from padertorch.data import example_to_device
 from padertorch.modules.mask_estimator import MaskKeys as M_K

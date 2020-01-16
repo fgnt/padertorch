@@ -11,7 +11,7 @@ import numpy as np
 import torch
 
 import paderbox as pb
-import paderbox.database.keys as K
+import padercontrib.database.keys as K
 import padertorch as pt
 from padertorch.summary import mask_to_image, stft_to_image
 

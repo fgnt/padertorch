@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 import numpy as np
-from paderbox.database.librispeech import LibriSpeech
+from padercontrib.database.librispeech import LibriSpeech
 from paderbox.utils.timer import timeStamped
 from padertorch import modules, models
 from padertorch.contrib.je.data.transforms import AudioReader, STFT, \

@@ -16,11 +16,11 @@ import editdistance
 
 
 import paderbox as pb
-from paderbox.database.iterator import AlignmentReader
+from padercontrib.database.iterator import AlignmentReader
 
 from lazy_dataset import FilterException
 
-from paderbox.database.chime import Chime4
+from padercontrib.database.chime import Chime4
 import padertorch as pt
 
 

@@ -20,7 +20,7 @@ TODO: Change to sacred IDs again, otherwise I can not apply `unique` to `_id`.
 """
 from sacred import Experiment
 import sacred.commands
-from paderbox.database.merl_mixtures import MerlMixtures
+from padercontrib.database.merl_mixtures import MerlMixtures
 import os
 from pathlib import Path
 import padertorch as pt

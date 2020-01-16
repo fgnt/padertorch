@@ -3,8 +3,8 @@ from functools import partial
 import einops
 import numpy as np
 import padertorch as pt
-from paderbox.database.iterator import AudioReader
-from paderbox.database.keys import *
+from padercontrib.database.iterator import AudioReader
+from padercontrib.database.keys import *
 from paderbox.transform import stft
 from paderbox.speech_enhancement import ideal_binary_mask
 

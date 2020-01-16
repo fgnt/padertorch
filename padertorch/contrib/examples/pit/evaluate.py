@@ -34,7 +34,7 @@ import torch
 
 import paderbox as pb
 import padertorch as pt
-from paderbox.database.merl_mixtures import MerlMixtures
+from padercontrib.database.merl_mixtures import MerlMixtures
 from paderbox.transform import istft
 from paderbox.utils.mpi import COMM
 from paderbox.utils.mpi import RANK
