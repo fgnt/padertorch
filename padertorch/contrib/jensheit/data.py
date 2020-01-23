@@ -93,6 +93,7 @@ class SequenceProvider(Parameterized):
         backend: str = 't'
         drop_last: bool = False
         time_segments: int = None
+        time_segments_random_offset: bool = False
 
     def __init__(self, database, collate, transform=None, **kwargs):
         self.database = database
@@ -138,10 +139,15 @@ class SequenceProvider(Parameterized):
         num_samples = example[NUM_SAMPLES]
         audio_keys = [key for key in example['audio_keys']
                       if key not in exclude_keys]
+        if self.opts.time_segments_random_offset:
+            offset = np.random.randint(0, num_samples % segment_len)
+        else:
+            offset = 0
         for key in audio_keys:
             example[key] = segment_axis(
-                example[key][..., :num_samples], segment_len,
-                shift=shift, axis=-1, end='cut')
+                example[key][..., offset:num_samples], segment_len,
+                shift=shift, axis=-1, end='cut'
+            )
         lengths = ([example[key].shape[-2] for key in audio_keys])
         assert lengths.count(lengths[-2]) == len(lengths), {
             audio_keys[idx]: leng for idx, leng in enumerate(lengths)}
