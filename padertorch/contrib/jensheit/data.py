@@ -1,25 +1,22 @@
+from copy import deepcopy
 from functools import partial
 from random import shuffle
 from typing import Dict
 from typing import List
 
 import numpy as np
-import torch
 from dataclasses import dataclass
 from dataclasses import field
-from scipy import signal
-
+from paderbox.array import segment_axis
+from paderbox.transform import STFT
+from paderbox.utils.mapping import Dispatcher
 from padercontrib.database.iterator import AudioReader
 from padercontrib.database.keys import *
-from pb_bss.extraction.mask_module import biased_binary_mask
-from paderbox.utils.mapping import Dispatcher
-from paderbox.transform import STFT
 from padertorch.contrib.jensheit import Parameterized, dict_func
-
+from padertorch.contrib.jensheit.batch import Padder
 from padertorch.modules.mask_estimator import MaskKeys as M_K
-from paderbox.array import segment_axis
-from copy import deepcopy
-
+from pb_bss.extraction.mask_module import biased_binary_mask
+from scipy import signal
 
 WINDOW_MAP = Dispatcher(
     blackman=signal.blackman,
@@ -140,7 +137,7 @@ class SequenceProvider(Parameterized):
         segment_len = shift = self.opts.time_segments
         num_samples = example[NUM_SAMPLES]
         audio_keys = [key for key in example['audio_keys']
-                      if not key in exclude_keys]
+                      if key not in exclude_keys]
         for key in audio_keys:
             example[key] = segment_axis(
                 example[key][..., :num_samples], segment_len,
@@ -175,7 +172,7 @@ class SequenceProvider(Parameterized):
         for ex in example:
             audio_keys = [key for key, value in ex.items()
                           if isinstance(value, np.ndarray)
-                          if not key in exclude_keys]
+                          if key not in exclude_keys]
             for idx in range(self.opts.num_channels):
                 new_example = deepcopy(ex)
                 for key in audio_keys:
@@ -237,8 +234,7 @@ class SequenceProvider(Parameterized):
                                      segment_channels=segment_channels,
                                      unbatch=unbatch)
 
-    def get_eval_iterator(self, num_examples=-1, transform_fn=lambda x: x,
-                          filter_fn=lambda x: True):
+    def get_eval_iterator(self, num_examples=-1):
 
         iterator = self.database.get_dataset_validation()
         iterator = iterator.map(self.read_audio) \
