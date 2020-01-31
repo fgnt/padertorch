@@ -42,6 +42,8 @@ class Padder(Configurable):
                     f'only one axis is allowed to differ, '
                     f'axis={axis} and dims={dims}'
                 )
+                dtypes = [vec.dtype for vec in batch]
+                assert dtypes.count(dtypes[-2]) == len(dtypes), dtypes
                 if len(axis) == 1:
                     axis = axis[0]
                     pad = max(dims[axis])
@@ -49,6 +51,7 @@ class Padder(Configurable):
                                       for vec in batch], axis=0)
                 else:
                     array = np.stack(batch, axis=0)
+                array = array.astype(dtypes[0])
                 complex_dtypes = [np.complex64, np.complex128]
                 if self.to_torch and not array.dtype.kind in {'U', 'S'} \
                         and not array.dtype in complex_dtypes:
