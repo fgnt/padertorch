@@ -43,7 +43,7 @@ class Padder(Configurable):
                     f'axis={axis} and dims={dims}'
                 )
                 dtypes = [vec.dtype for vec in batch]
-                assert dtypes.count(dtypes[-2]) == len(dtypes), dtypes
+                assert dtypes.count(dtypes[-1]) == len(dtypes), dtypes
                 if len(axis) == 1:
                     axis = axis[0]
                     pad = max(dims[axis])
