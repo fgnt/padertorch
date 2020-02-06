@@ -590,7 +590,7 @@ class BackOffValidationHook(ValidationHook):
 
     def load_state_dict(self, state_dict):
         super().load_state_dict(state_dict)
-        assert state_dict['remaining_back_offs'] <= self.remaining_back_offs, state_dict['remaining_back_offs']
+        assert state_dict['remaining_back_offs'] <= self.remaining_back_offs, (state_dict['remaining_back_offs'], self.remaining_back_offs)
         self.remaining_back_offs = state_dict['remaining_back_offs']
 
     def run_validation(self, trainer: 'pt.Trainer'):
