@@ -22,7 +22,6 @@ from padertorch.configurable import Configurable
 from padertorch.train.optimizer import Optimizer, Adam
 from padertorch.train.runtime_tests import test_run
 from padertorch.train.hooks import *
-from padertorch.train.trigger import AnyTrigger
 
 __all__ = [
     'Trainer',
@@ -136,7 +135,7 @@ class Trainer(Configurable):
         self.hooks = [
             SummaryHook(summary_trigger),
             CheckpointHook(checkpoint_trigger),
-            StopTrainingHook(stop_trigger)
+            StopTrainingHook(stop_trigger),
         ]
         self._stop_trigger = stop_trigger
         self._checkpoint_trigger = checkpoint_trigger
@@ -504,13 +503,19 @@ class Trainer(Configurable):
             }
         else:
             optimizer_state_dict = self.optimizer.state_dict()
-            
-        return dict(
+        state_dict = dict(
                 model=self.model.state_dict(),
                 iteration=self.iteration,
                 epoch=self.epoch,
                 optimizer=optimizer_state_dict,
+                hooks=dict(),
         )
+        for hook in self.hooks:
+            hook_state = hook.state_dict()
+            if hook_state is not None:
+                assert hook.uid not in state_dict['hooks'], (hook.uid, state_dict['hooks'].keys())
+                state_dict['hooks'][hook.uid] = hook.state_dict()
+        return state_dict
 
     def save_checkpoint(self, checkpoint_path=None):
         if checkpoint_path is None:
@@ -545,6 +550,14 @@ class Trainer(Configurable):
         self.iteration = state_dict['iteration']
         self.epoch = state_dict['epoch']
 
+        hook_states = state_dict['hooks']
+        for hook in self.hooks:
+            hook.set_last(self.iteration, self.epoch)
+            if hook.uid in hook_states:
+                hook.load_state_dict(hook_states.pop(hook.uid))
+
+        assert len(hook_states) == 0, hook_states.keys()
+
     def load_checkpoint(self, map_location='cpu'):
         checkpoint_path = self.checkpoint_dir / 'ckpt_latest.pth'
         assert checkpoint_path.is_file(), checkpoint_path
@@ -554,9 +567,6 @@ class Trainer(Configurable):
         )
 
         self.load_state_dict(checkpoint_dict)
-
-        for hook in self.hooks:
-            hook.set_last(self.iteration, self.epoch)
 
         print(f"Loaded checkpoint '{checkpoint_path}' (iteration {self.iteration})")
 

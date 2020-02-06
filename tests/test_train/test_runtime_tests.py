@@ -10,6 +10,7 @@ import padertorch as pt
 import paderbox as pb
 from padertorch.testing.test_db import MnistDatabase
 
+
 class Model(pt.Model):
 
     def __init__(self):

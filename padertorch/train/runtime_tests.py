@@ -357,7 +357,6 @@ def test_run(
                 expect = {
                     'ckpt_latest.pth',
                     'ckpt_best_loss.pth',
-                    'validation_state.json',
                     f'ckpt_0.pth',
                     f'ckpt_{2*virtual_minibatch_size}.pth',
                 }
