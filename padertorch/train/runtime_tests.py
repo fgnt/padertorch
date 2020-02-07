@@ -108,12 +108,12 @@ def test_run(
         exit_stack.enter_context(mock.patch.object(
             trainer,
             'iteration',
-            new=None,
+            new=-1,
         ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
             'epoch',
-            new=None,
+            new=-1,
         ))
 
         class SpyMagicMock(mock.MagicMock):

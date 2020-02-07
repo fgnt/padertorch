@@ -82,6 +82,7 @@ class TriggerMock(pt.train.trigger.Trigger):
     def __init__(self, trigger, log_list):
         self.trigger = trigger
         self.log_list = log_list
+        self.last = (-1, -1)
 
     def __deepcopy__(self, memo):
         # The hooks make alwaiys a deepcopy of the trigger, so one trigger can
@@ -337,7 +338,7 @@ def test_single_model():
         hook_calls_ref = textwrap.dedent('''
         I:4, E: 2, False, SummaryHook.pre_step
         I:4, E: 2, False, BackOffValidationHook.pre_step
-        I:4, E: 2, True, CheckpointHook.pre_step
+        I:4, E: 2, False, CheckpointHook.pre_step
         I:4, E: 2, False, StopTrainingHook.pre_step
         I:5, E: 2, False, SummaryHook.pre_step
         I:5, E: 2, False, BackOffValidationHook.pre_step
@@ -490,14 +491,14 @@ def test_virtual_minibatch():
         post_state_dict = pb.utils.nested.nested_op(
             pt.utils.to_numpy, post_state_dict)
 
-        assert pre_state_dict['iteration'] == np.array(None)
+        assert pre_state_dict['iteration'] == np.array(-1)
         del pre_state_dict['iteration']
         assert intermediate_state_dict['iteration'] == 2
         del intermediate_state_dict['iteration']
         assert post_state_dict['iteration'] == 4
         del post_state_dict['iteration']
 
-        assert pre_state_dict['epoch'] == np.array(None)
+        assert pre_state_dict['epoch'] == np.array(-1)
         del pre_state_dict['epoch']
         del pre_state_dict['hooks']
         assert intermediate_state_dict['epoch'] == 1

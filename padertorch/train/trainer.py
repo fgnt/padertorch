@@ -126,8 +126,8 @@ class Trainer(Configurable):
         self.writer = None
         self.train_timer = ContextTimerDict()
         self.validate_timer = ContextTimerDict()
-        self.iteration = None
-        self.epoch = None
+        self.iteration = -1
+        self.epoch = -1
 
         self.loss_weights = loss_weights
         self.virtual_minibatch_size = virtual_minibatch_size

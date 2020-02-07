@@ -375,7 +375,11 @@ class CheckpointHook(TriggeredHook):
         self._save_latest_checkpoint(trainer)
 
     def set_last(self, iteration, epoch):
-        pass
+        if self.trigger.last[0] > iteration:
+            super().set_last(-1, -1)
+            # has to be triggered after back off
+        else:
+            super().set_last(iteration, epoch)
 
 
 class ValidationHook(SummaryHook):
