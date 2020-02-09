@@ -514,7 +514,7 @@ class Trainer(Configurable):
             hook_state = hook.state_dict()
             if hook_state is not None:
                 assert hook.uid not in state_dict['hooks'], (hook.uid, state_dict['hooks'].keys())
-                state_dict['hooks'][hook.uid] = hook.state_dict()
+                state_dict['hooks'][hook.uid] = hook_state
         return state_dict
 
     def save_checkpoint(self, checkpoint_path=None):
