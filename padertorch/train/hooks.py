@@ -47,7 +47,7 @@ class Priority(IntEnum):
     Print and ProgressBar may access Summary
     """
     END = 10
-    CHECKPOINT = 11
+    CHECKPOINT = 11  # CheckpointHook has to be called after all other hooks (except StopTrainingHook) to save latest hook states
     DEFAULT = 15
     VALIDATION = 20
     PROGRESS = 30
@@ -465,6 +465,11 @@ class ValidationHook(SummaryHook):
     def run_validation(self, trainer: 'pt.Trainer'):
         ckpt_dir = trainer.checkpoint_dir
         ckpt_path: Path = trainer.default_checkpoint_path()
+        # note that ckpt_path does not exist at this moment but will be written
+        # after validation such that the state of this hook, which will be
+        # saved in the checkpoint, includes the latest validation result.
+        # post_step asserts that checkpoint is written and sets symlink to the
+        # current best checkpoint.
         assert all([len(value) == 0 for value in self.summary.values()]), self.summary
         assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
         print('Starting Validation')
