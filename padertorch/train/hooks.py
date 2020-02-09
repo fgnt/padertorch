@@ -65,7 +65,7 @@ class Hook:
         """
         A unique ID of a hook.
 
-        The default `uid` disallows to register a state full hook more than one
+        The default `uid` disallows to register a state full hook more than once
         in the trainer. Hooks that may registered more than once should
         overwrite this property (e.g. `ModelAttributeAnnealingHook`)
         """
