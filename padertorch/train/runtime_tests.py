@@ -108,12 +108,12 @@ def test_run(
         exit_stack.enter_context(mock.patch.object(
             trainer,
             'iteration',
-            new=None,
+            new=-1,
         ))
         exit_stack.enter_context(mock.patch.object(
             trainer,
             'epoch',
-            new=None,
+            new=-1,
         ))
 
         class SpyMagicMock(mock.MagicMock):
@@ -357,7 +357,6 @@ def test_run(
                 expect = {
                     'ckpt_latest.pth',
                     'ckpt_best_loss.pth',
-                    'validation_state.json',
                     f'ckpt_0.pth',
                     f'ckpt_{2*virtual_minibatch_size}.pth',
                 }

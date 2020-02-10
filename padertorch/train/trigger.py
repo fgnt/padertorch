@@ -79,29 +79,26 @@ class IntervalTrigger(Trigger):
         assert isinstance(self.period, int), (type(self.period), self.period)
         assert unit == 'epoch' or unit == 'iteration', unit
         self.unit = unit
-        self.last = -1
+        self.last = (-1, -1)
 
     def __call__(self, iteration, epoch):
         if self.unit == 'epoch':
             index = epoch
+            last = self.last[1]
         elif self.unit == 'iteration':
             index = iteration
+            last = self.last[0]
         else:
             raise ValueError(self.unit, 'Expect epoch or iteration')
 
-        if self.last == index:
+        if last == index:
             return False
         else:
-            self.last = index
+            self.set_last(iteration, epoch)
             return (index % self.period) == 0
 
     def set_last(self, iteration, epoch):
-        if self.unit == 'epoch':
-            self.last = epoch
-        elif self.unit == 'iteration':
-            self.last = iteration
-        else:
-            raise ValueError(self.unit, 'Expect epoch or iteration')
+        self.last = (iteration, epoch)
 
 
 class EndTrigger(IntervalTrigger):

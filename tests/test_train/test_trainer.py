@@ -82,6 +82,7 @@ class TriggerMock(pt.train.trigger.Trigger):
     def __init__(self, trigger, log_list):
         self.trigger = trigger
         self.log_list = log_list
+        self.last = (-1, -1)
 
     def __deepcopy__(self, memo):
         # The hooks make alwaiys a deepcopy of the trigger, so one trigger can
@@ -160,24 +161,24 @@ def test_single_model():
 
         hook_calls_ref = textwrap.dedent('''
         I:0, E: 0, True, SummaryHook.pre_step
-        I:0, E: 0, True, CheckpointHook.pre_step
         I:0, E: 0, True, BackOffValidationHook.pre_step
+        I:0, E: 0, True, CheckpointHook.pre_step
         I:0, E: 0, False, StopTrainingHook.pre_step
         I:1, E: 0, False, SummaryHook.pre_step
-        I:1, E: 0, False, CheckpointHook.pre_step
         I:1, E: 0, False, BackOffValidationHook.pre_step
+        I:1, E: 0, False, CheckpointHook.pre_step
         I:1, E: 0, False, StopTrainingHook.pre_step
         I:2, E: 1, False, SummaryHook.pre_step
-        I:2, E: 1, True, CheckpointHook.pre_step
         I:2, E: 1, True, BackOffValidationHook.pre_step
+        I:2, E: 1, True, CheckpointHook.pre_step
         I:2, E: 1, False, StopTrainingHook.pre_step
         I:3, E: 1, True, SummaryHook.pre_step
-        I:3, E: 1, False, CheckpointHook.pre_step
         I:3, E: 1, False, BackOffValidationHook.pre_step
+        I:3, E: 1, False, CheckpointHook.pre_step
         I:3, E: 1, False, StopTrainingHook.pre_step
         I:4, E: 2, False, SummaryHook.pre_step
-        I:4, E: 2, True, CheckpointHook.pre_step
         I:4, E: 2, True, BackOffValidationHook.pre_step
+        I:4, E: 2, True, CheckpointHook.pre_step
         I:4, E: 2, True, StopTrainingHook.pre_step
         ''').strip()
 
@@ -264,26 +265,24 @@ def test_single_model():
 
             elif file.name == 'checkpoints':
                 checkpoints_files = tuple(file.glob('*'))
-                assert len(checkpoints_files) == 6, checkpoints_files
+                assert len(checkpoints_files) == 5, checkpoints_files
                 checkpoints_files_name = [
                     f.name
                     for f in checkpoints_files
                 ]
                 expect = {
                     'ckpt_0.pth', 'ckpt_2.pth', 'ckpt_4.pth',
-                    'validation_state.json', 'ckpt_best_loss.pth',
-                    'ckpt_latest.pth'
+                    'ckpt_best_loss.pth', 'ckpt_latest.pth'
                 }
                 assert expect == set(checkpoints_files_name), (
                     expect, checkpoints_files_name
                 )
-                ckpt_ranking = pb.io.load_json(file / 'validation_state.json')['ckpt_ranking']
+                ckpt_ranking = torch.load(file / 'ckpt_latest.pth')['hooks']['BackOffValidationHook']['ckpt_ranking']
                 assert ckpt_ranking[0][1] > 0, ckpt_ranking
-                for ckpt in ckpt_ranking:
-                    ckpt[1] = -1
+                for i, ckpt in enumerate(ckpt_ranking):
+                    ckpt_ranking[i] = (ckpt[0], -1)
                 expect = [
-                    [f'ckpt_{i}.pth', -1]
-                    for i in [0, 2, 4]
+                    (f'ckpt_{i}.pth', -1) for i in [0, 2, 4]
                 ]
                 assert ckpt_ranking == expect, (ckpt_ranking, expect)
 
@@ -338,24 +337,24 @@ def test_single_model():
 
         hook_calls_ref = textwrap.dedent('''
         I:4, E: 2, False, SummaryHook.pre_step
-        I:4, E: 2, False, CheckpointHook.pre_step
         I:4, E: 2, False, BackOffValidationHook.pre_step
+        I:4, E: 2, False, CheckpointHook.pre_step
         I:4, E: 2, False, StopTrainingHook.pre_step
         I:5, E: 2, False, SummaryHook.pre_step
-        I:5, E: 2, False, CheckpointHook.pre_step
         I:5, E: 2, False, BackOffValidationHook.pre_step
+        I:5, E: 2, False, CheckpointHook.pre_step
         I:5, E: 2, False, StopTrainingHook.pre_step
         I:6, E: 3, True, SummaryHook.pre_step
-        I:6, E: 3, True, CheckpointHook.pre_step
         I:6, E: 3, True, BackOffValidationHook.pre_step
+        I:6, E: 3, True, CheckpointHook.pre_step
         I:6, E: 3, False, StopTrainingHook.pre_step
         I:7, E: 3, False, SummaryHook.pre_step
-        I:7, E: 3, False, CheckpointHook.pre_step
         I:7, E: 3, False, BackOffValidationHook.pre_step
+        I:7, E: 3, False, CheckpointHook.pre_step
         I:7, E: 3, False, StopTrainingHook.pre_step
         I:8, E: 4, False, SummaryHook.pre_step
-        I:8, E: 4, True, CheckpointHook.pre_step
         I:8, E: 4, True, BackOffValidationHook.pre_step
+        I:8, E: 4, True, CheckpointHook.pre_step
         I:8, E: 4, True, StopTrainingHook.pre_step
         ''').strip()
 
@@ -419,14 +418,13 @@ def test_single_model():
                 assert c == expect, c
             elif file.name == 'checkpoints':
                 checkpoints_files = tuple(file.glob('*'))
-                assert len(checkpoints_files) == 8, checkpoints_files
+                assert len(checkpoints_files) == 7, checkpoints_files
                 checkpoints_files_name = [
                     f.name
                     for f in checkpoints_files
                 ]
                 expect = {
                     *[f'ckpt_{i}.pth'for i in [0, 2, 4, 6, 8]],
-                    'validation_state.json',
                     'ckpt_best_loss.pth',
                     'ckpt_latest.pth'
                 }
@@ -493,19 +491,22 @@ def test_virtual_minibatch():
         post_state_dict = pb.utils.nested.nested_op(
             pt.utils.to_numpy, post_state_dict)
 
-        assert pre_state_dict['iteration'] == np.array(None)
+        assert pre_state_dict['iteration'] == np.array(-1)
         del pre_state_dict['iteration']
         assert intermediate_state_dict['iteration'] == 2
         del intermediate_state_dict['iteration']
         assert post_state_dict['iteration'] == 4
         del post_state_dict['iteration']
 
-        assert pre_state_dict['epoch'] == np.array(None)
+        assert pre_state_dict['epoch'] == np.array(-1)
         del pre_state_dict['epoch']
+        del pre_state_dict['hooks']
         assert intermediate_state_dict['epoch'] == 1
         del intermediate_state_dict['epoch']
+        del intermediate_state_dict['hooks']
         assert post_state_dict['epoch'] == 2
         del post_state_dict['epoch']
+        del post_state_dict['hooks']
 
         np.testing.assert_equal(pre_state_dict, intermediate_state_dict)
         with pytest.raises(AssertionError):
