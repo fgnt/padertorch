@@ -505,7 +505,7 @@ class ValidationHook(SummaryHook):
                 if ckpt_name == ckpt_path.name:
                     continue
                 ckpt = ckpt_dir / ckpt_name
-                if ckpt.exists():
+                if ckpt.exists():  # may not exist anymore after backoff
                     ckpt.unlink()
                 self.ckpt_ranking.pop(i)
         if self.ckpt_ranking[0][0] != ckpt_path.name:
@@ -533,6 +533,7 @@ class ValidationHook(SummaryHook):
     def close(self, trainer: 'pt.Trainer'):
         ckpt_name = trainer.default_checkpoint_path().name
         if ckpt_name not in [ckpt[0] for ckpt in self.ckpt_ranking]:
+            # add to ranking to make sure it is deleted after resume
             self.ckpt_ranking.append((ckpt_name, -np.inf if self.maximize else np.inf))
 
 
@@ -625,7 +626,7 @@ class BackOffValidationHook(ValidationHook):
             ckpt = self.ckpt_ranking[-j][0]
             if int(ckpt[len('ckpt_'): -len('.pth')]) > best_iter:
                 ckpt_path = ckpt_dir / ckpt
-                if ckpt_path.exists():
+                if ckpt_path.exists():  # latest checkpoint does not exist because it is written after validation
                     ckpt_path.unlink()
                     self.ckpt_ranking.pop(-j)
 
