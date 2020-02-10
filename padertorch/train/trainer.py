@@ -15,6 +15,7 @@ import numpy as np
 import torch
 import torch.nn
 import tensorboardX
+import warnings
 
 from paderbox.utils.nested import deflatten
 import padertorch as pt
@@ -550,13 +551,19 @@ class Trainer(Configurable):
         self.iteration = state_dict['iteration']
         self.epoch = state_dict['epoch']
 
-        hook_states = state_dict['hooks']
-        for hook in self.hooks:
-            hook.set_last(self.iteration, self.epoch)
-            if hook.uid in hook_states:
-                hook.load_state_dict(hook_states.pop(hook.uid))
-
-        assert len(hook_states) == 0, hook_states.keys()
+        if 'hooks' in state_dict:
+            hook_states = state_dict['hooks']
+            for hook in self.hooks:
+                hook.set_last(self.iteration, self.epoch)
+                if hook.uid in hook_states:
+                    hook.load_state_dict(hook_states.pop(hook.uid))
+            assert len(hook_states) == 0, hook_states.keys()
+        else:
+            warnings.warn(
+                "You are resuming an old checkpoint which does not include "
+                "hook states. If you want to recover hook states you have to "
+                "add them manually to the checkpoint prior to resumption."
+            )
 
     def load_checkpoint(self, map_location='cpu'):
         checkpoint_path = self.checkpoint_dir / 'ckpt_latest.pth'
