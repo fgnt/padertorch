@@ -71,15 +71,17 @@ def spectrogram_to_image(signal, batch_first=False, color='viridis'):
     """
         For more details of the output shape, see the tensorboardx docs
     Args:
-        mask: Shape (frames, batch [optional], features)
+        signal: Shape (frames, batch [optional], features)
         batch_first: if true mask shape (batch [optional], frames, features]
+        color: A color map name. The name is forwarded to
+               `matplotlib.pyplot.cm.get_cmap` to get the color map.
+
 
     Returns: Shape(features, frames)
-
     """
     signal = to_numpy(signal, detach=True)
 
-    signal = signal / np.max(signal)
+    signal = signal / (np.max(signal) + np.finfo(signal.dtype).tiny)
 
     signal = _remove_batch_axis(signal, batch_first=batch_first)
 
