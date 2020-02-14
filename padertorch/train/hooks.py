@@ -852,7 +852,7 @@ class ModelAttributeAnnealingHook(TriggeredHook):
     def uid(self):
         return super().uid + f"({'.'.join(self.name)})"
 
-    def get_module(self, trainer):
+    def get_module(self, trainer: 'pt.Trainer'):
         module = trainer.model
         for attr_name in self.name[:-1]:
             module = getattr(module, attr_name)
