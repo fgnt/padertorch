@@ -19,21 +19,14 @@ class SpeakerClf(Model):
         seq_len = inputs['seq_len']
 
         # cnn
-        x = self.cnn(x)
-        seq_len = self.cnn.get_out_shape(seq_len)
+        x, seq_len = self.cnn(x, seq_len=seq_len)
 
         # rnn
         if self.enc.batch_first:
             x = rearrange(x, 'b f t -> b t f')
         else:
             x = rearrange(x, 'b f t -> t b f')
-        if seq_len is not None:
-            x = pack_padded_sequence(
-                x, seq_len, batch_first=self.enc.batch_first
-            )
         x, _ = self.enc(x)
-        if seq_len is not None:
-            x = pad_packed_sequence(x, batch_first=self.enc.batch_first)[0]
         if not self.enc.batch_first:
             x = rearrange(x, 't b f -> b t f')
         x = x[torch.arange(len(seq_len)), seq_len - 1]

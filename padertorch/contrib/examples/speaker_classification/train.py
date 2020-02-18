@@ -8,8 +8,8 @@ import os
 from pathlib import Path
 
 import numpy as np
-from padercontrib.database.librispeech import LibriSpeech
 from paderbox.utils.timer import timeStamped
+from padercontrib.database.librispeech import LibriSpeech
 from padertorch import Trainer
 from padertorch.contrib.examples.speaker_classification.model import SpeakerClf
 from padertorch.contrib.je.data.transforms import LabelEncoder, AudioReader, \
@@ -45,11 +45,11 @@ def get_datasets():
 
 def prepare_dataset(dataset, training=False):
     batch_size = 16
-    label_encoder = LabelEncoder(
-        label_key='speaker_id', storage_dir=storage_dir
+    speaker_encoder = LabelEncoder(
+        label_key='speaker_id', storage_dir=storage_dir, to_array=True
     )
-    label_encoder.initialize_labels(dataset, verbose=True)
-    dataset = dataset.map(label_encoder)
+    speaker_encoder.initialize_labels(dataset=dataset, verbose=True)
+    dataset = dataset.map(speaker_encoder)
     audio_reader = AudioReader(
         source_sample_rate=16000, target_sample_rate=16000
     )
@@ -77,7 +77,7 @@ def prepare_dataset(dataset, training=False):
             'example_id': example['example_id'],
             'features': np.moveaxis(example['mel_transform'], 1, 2).astype(np.float32),
             'seq_len': example['mel_transform'].shape[-2],
-            'speaker_id': example['speaker_id'].astype(np.int64)
+            'speaker_id': example['speaker_id'].astype(np.int)
         }
 
     dataset = dataset.map(finalize)
