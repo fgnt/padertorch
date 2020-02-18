@@ -6,10 +6,9 @@ import torch.nn.functional as F
 from padertorch.base import Module
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 from padertorch.utils import to_list
-from padertorch.contrib.je.modules.norm import Norm
+from padertorch.contrib.je.modules.norm import Norm, MulticlassNorm
 from torch import nn
 from copy import copy
-from einops import rearrange
 from collections import defaultdict
 
 
@@ -104,6 +103,7 @@ class _Conv(Module):
             stride=1,
             bias=True,
             norm=None,
+            n_norm_classes=None,
             norm_kwargs={},
             activation_fn='relu',
             pre_activation=False,
@@ -152,24 +152,31 @@ class _Conv(Module):
 
         if norm is None:
             self.norm = None
-        elif norm == 'batch':
+        else:
             num_channels = in_channels if pre_activation else out_channels
             if self.is_2d():
-                self.norm = Norm(
-                    data_format='bcft',
-                    shape=(None, num_channels, None, None),
-                    statistics_axis='bft',
+                norm_kwargs = {
+                    "data_format": 'bcft',
+                    "shape": (None, num_channels, None, None),
                     **norm_kwargs
-                )
+                }
             else:
-                self.norm = Norm(
-                    data_format='bct',
-                    shape=(None, num_channels, None),
-                    statistics_axis='bt',
+                norm_kwargs = {
+                    "data_format": 'bct',
+                    "shape": (None, num_channels, None),
                     **norm_kwargs
-                )
-        else:
-            raise ValueError(f'{norm} normalization not known.')
+                }
+            if norm == 'batch':
+                norm_kwargs["statistics_axis"] = 'btf' if self.is_2d() else 'bt'
+            elif norm == 'sequence':
+                norm_kwargs["statistics_axis"] = 'tf' if self.is_2d() else 't'
+            else:
+                raise ValueError(f'{norm} normalization not known.')
+            if n_norm_classes is None:
+                self.norm = Norm(**norm_kwargs)
+            else:
+                norm_kwargs["n_classes"] = n_norm_classes
+                self.norm = MulticlassNorm(**norm_kwargs)
 
         if self.gated:
             self.gate_conv = self.conv_cls(
@@ -180,13 +187,16 @@ class _Conv(Module):
             if bias:
                 torch.nn.init.zeros_(self.gate_conv.bias)
 
-    def forward(self, x, seq_len=None, out_shape=None, out_lengths=None):
+    def forward(
+            self, x, seq_len=None, out_shape=None, out_lengths=None,
+            **norm_kwargs
+    ):
         if self.training and self.dropout > 0.:
             x = F.dropout(x, self.dropout)
 
         if self.pre_activation:
             if self.norm is not None:
-                x = self.norm(x, seq_len=seq_len)
+                x = self.norm(x, seq_len=seq_len, **norm_kwargs)
             x = self.activation_fn(x)
 
         if not self.is_transpose():
@@ -200,7 +210,7 @@ class _Conv(Module):
 
         if not self.pre_activation:
             if self.norm is not None:
-                y = self.norm(y, seq_len=seq_len)
+                y = self.norm(y, seq_len=seq_len, **norm_kwargs)
             y = self.activation_fn(y)
         if self.gated:
             g = self.gate_conv(x)
@@ -453,6 +463,7 @@ class _CNN(Module):
             dilation=1,
             stride=1,
             norm=None,
+            n_norm_classes=None,
             norm_kwargs={},
             activation_fn='relu',
             pre_activation=False,
@@ -508,6 +519,7 @@ class _CNN(Module):
                 stride=self.strides[i],
                 pad_side=self.pad_sides[i],
                 norm=None if pre_activation else norm,
+                n_norm_classes=n_norm_classes,
                 norm_kwargs=norm_kwargs,
                 activation_fn='identity' if pre_activation else activation_fn,
                 pre_activation=pre_activation,
@@ -532,6 +544,7 @@ class _CNN(Module):
                 stride=self.strides[i],
                 pad_side=self.pad_sides[i],
                 norm=norm,
+                n_norm_classes=n_norm_classes,
                 norm_kwargs=norm_kwargs,
                 activation_fn=activation_fn,
                 pre_activation=pre_activation,
@@ -559,6 +572,7 @@ class _CNN(Module):
                 stride=self.strides[i],
                 pad_side=self.pad_sides[i],
                 norm=norm if pre_activation else None,
+                n_norm_classes=n_norm_classes,
                 norm_kwargs=norm_kwargs,
                 activation_fn=activation_fn if pre_activation else 'identity',
                 pre_activation=pre_activation,
@@ -593,7 +607,11 @@ class _CNN(Module):
         self.residual_channels = residual_channels
         self.layer_in_channels = layer_in_channels
 
-    def forward(self, x, seq_len=None, out_shapes=None, out_lengths=None, pool_indices=None):
+    def forward(
+            self, x, seq_len=None,
+            out_shapes=None, out_lengths=None, pool_indices=None,
+            **norm_kwargs
+    ):
         if not self.is_transpose():
             assert out_shapes is None, out_shapes
             assert out_lengths is None, out_lengths
@@ -631,7 +649,9 @@ class _CNN(Module):
             in_shape = x.shape
             in_lengths = seq_len
             x, seq_len = conv(
-                x, seq_len=seq_len, out_shape=shapes[i], out_lengths=lengths[i]
+                x,
+                seq_len=seq_len, out_shape=shapes[i], out_lengths=lengths[i],
+                **norm_kwargs
             )
             shapes[i] = in_shape
             lengths[i] = in_lengths
@@ -797,108 +817,3 @@ class CNN2d(_CNN):
 
 class CNNTranspose2d(_CNN):
     conv_cls = ConvTranspose2d
-
-
-class HybridCNN(Module):
-    """
-    Combines CNN2d and CNN1d sequentially.
-    """
-    def __init__(
-            self,
-            cnn_2d: CNN2d,
-            cnn_1d: CNN1d,
-            input_size=None,
-            return_pool_data=False
-    ):
-        super().__init__()
-        assert cnn_2d.return_pool_data == cnn_1d.return_pool_data == return_pool_data, (
-                cnn_2d.return_pool_data, cnn_1d.return_pool_data, return_pool_data
-        )
-        self.cnn_2d = cnn_2d
-        self.cnn_1d = cnn_1d
-        self.input_size = input_size
-        self.return_pool_data = return_pool_data
-
-    def forward(self, x):
-        x = self.cnn_2d(x)
-        if self.return_pool_data:
-            x, pool_indices_2d, shapes_2d = x
-        x = rearrange(x, 'b c f t -> b (c f) t')
-        x = self.cnn_1d(x)
-        if self.return_pool_data:
-            x, pool_indices_1d, shapes_1d = x
-            return x, (pool_indices_2d, pool_indices_1d), (shapes_2d, shapes_1d)
-        return x
-
-    @classmethod
-    def finalize_dogmatic_config(cls, config):
-        config['cnn_2d'] = {
-            'factory': CNN2d,
-            'return_pool_data': config['return_pool_data']
-        }
-        config['cnn_1d'] = {
-            'factory': CNN1d,
-            'return_pool_data': config['return_pool_data']
-        }
-        if config['input_size'] is not None:
-            cnn_2d = config['cnn_2d']['factory'].from_config(config['cnn_2d'])
-            output_size = cnn_2d.get_out_shape((config['input_size'], 1000))[0]
-            out_channels = cnn_2d.out_channels \
-                if cnn_2d.out_channels is not None \
-                else cnn_2d.hidden_channels[-1]
-            in_channels = out_channels * output_size
-            config['cnn_1d']['in_channels'] = in_channels
-
-    @classmethod
-    def get_transpose_config(cls, config, transpose_config=None):
-        assert config['factory'] == cls, (config['factory'], cls)
-        if transpose_config is None:
-            transpose_config = dict()
-        transpose_config['factory'] = HybridCNNTranspose
-        transpose_config['cnn_transpose_1d'] = config['cnn_1d']['factory'].get_transpose_config(config['cnn_1d'])
-        transpose_config['cnn_transpose_2d'] = config['cnn_2d']['factory'].get_transpose_config(config['cnn_2d'])
-        return transpose_config
-
-    def get_out_shape(self, in_shape):
-        out_shape = self.cnn_2d.get_out_shape(in_shape)
-        out_shape = self.cnn_1d.get_out_shape(out_shape[..., -1])
-        return out_shape
-
-
-class HybridCNNTranspose(Module):
-    """
-    Combines (MultiScale)CNNTranspose1d and (MultiScale)CNNTranspose2d sequentially.
-    """
-    def __init__(
-            self,
-            cnn_transpose_1d: CNNTranspose1d,
-            cnn_transpose_2d: CNNTranspose2d
-    ):
-        super().__init__()
-        self.cnn_transpose_1d = cnn_transpose_1d
-        self.cnn_transpose_2d = cnn_transpose_2d
-
-    def forward(self, x, pool_indices=(None, None), out_shapes=(None, None)):
-        pool_indices_2d, pool_indices_1d = pool_indices
-        shapes_2d, shapes_1d = out_shapes
-        x = self.cnn_transpose_1d(x, pool_indices_1d, shapes_1d)
-        x = x.view(
-            (x.shape[0], self.cnn_transpose_2d.in_channels, -1, x.shape[-1])
-        )
-        x = self.cnn_transpose_2d(x, pool_indices_2d, shapes_2d)
-        return x
-
-    @classmethod
-    def finalize_dogmatic_config(cls, config):
-        config['cnn_transpose_1d']['factory'] = CNNTranspose1d
-        config['cnn_transpose_2d']['factory'] = CNNTranspose2d
-
-    @classmethod
-    def get_transpose_config(cls, config, transpose_config=None):
-        assert config['factory'] == cls
-        if transpose_config is None:
-            transpose_config = dict()
-        transpose_config['factory'] = HybridCNN
-        transpose_config['cnn_2d'] = config['cnn_transpose_2d']['factory'].get_transpose_config(config['cnn_transpose_2d'])
-        transpose_config['cnn_1d'] = config['cnn_transpose_1d']['factory'].get_transpose_config(config['cnn_transpose_1d'])
-        return transpose_config

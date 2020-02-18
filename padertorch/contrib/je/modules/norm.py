@@ -6,7 +6,7 @@ from torch import nn
 
 class Norm(Module):
     """
-    >>> norm = Norm(data_format='bct', shape=(None, 10, None), statistics_axis='bt', momentum=0.5)
+    >>> norm = Norm(data_format='bct', shape=(None, 10, None), statistics_axis='bt', momentum=0.5, straightness=1.)
     >>> x, seq_len = 2*torch.ones((3,10,4)), [1, 2, 3]
     >>> mask = norm.compute_mask(x, seq_len=seq_len)
     >>> mask
@@ -129,7 +129,7 @@ class Norm(Module):
             scale=True,
             eps: float = 1e-5,
             momentum=0.95,
-            n_freeze=None,
+            interpolation_factor=0.,
     ):
         super().__init__()
         self.data_format = data_format.lower()
@@ -159,6 +159,8 @@ class Norm(Module):
             self.register_parameter('running_mean', None)
             self.register_parameter('running_power', None)
         self.momentum = momentum
+        assert 0. <= interpolation_factor <= 1., interpolation_factor
+        self.interpolation_factor = interpolation_factor
 
         if independent_axis is not None:
             self.learnable_scale = Scale(
@@ -174,15 +176,10 @@ class Norm(Module):
         else:
             self.learnable_scale = None
             self.learnable_shift = None
-        self.n_freeze = n_freeze
 
     @property
-    def freezed(self):
-        return (
-            self.n_freeze is not None
-            and self.track_running_stats
-            and self.num_tracked_values.max().item() >= self.n_freeze
-        )
+    def running_var(self):
+        return self.running_power - self.running_mean ** 2
 
     def reset_running_stats(self):
         if self.track_running_stats:
@@ -200,13 +197,8 @@ class Norm(Module):
 
     def forward(self, x, seq_len=None):
         mask = self.compute_mask(x, seq_len)
-        if (self.training and not self.freezed) or not self.track_running_stats:
+        if self.training or not self.track_running_stats:
             mean, power, n_values = self.compute_stats(x, mask)
-            x = x - mean
-            if self.scale:
-                n = torch.max(n_values, 2. * torch.ones_like(n_values))
-                var = n / (n - 1.) * (power - mean ** 2)
-                x = x / (torch.sqrt(var) + self.eps)
             if self.track_running_stats:
                 self.num_tracked_values += n_values.data
                 if self.momentum is None:
@@ -218,6 +210,16 @@ class Norm(Module):
                 if self.scale:
                     self.running_power *= momentum
                     self.running_power += (1 - momentum) * power.data
+                if self.interpolation_factor > 0.:
+                    # perform straight through backpropagation
+                    # https://arxiv.org/pdf/1611.01144.pdf
+                    mean = mean + self.interpolation_factor * (self.running_mean.data - mean).detach()
+                    power = power + self.interpolation_factor * (self.running_power.data - power).detach()
+            x = x - mean
+            if self.scale:
+                n = torch.max(n_values, 2. * torch.ones_like(n_values))
+                var = n / (n - 1.) * (power - mean ** 2)
+                x = x / (torch.sqrt(var) + self.eps)
         else:
             x = x - self.running_mean.data
             if self.scale:
@@ -289,28 +291,29 @@ class Scale(nn.Module):
         return x * self.scale
 
 
-class ConditionedNorm(Module):
+class MulticlassNorm(Module):
     """
-    >>> norm = ConditionedNorm(data_format='bct', n_conditions=3, shape=(None, 10, None), statistics_axis='bt', momentum=0.5)
-    >>> x, seq_len, conditions = 2*torch.ones((3,10,4)), [1, 2, 3], [0, 1, 0]
-    >>> norm(x, conditions, seq_len).shape
+    >>> norm = MulticlassNorm(data_format='bct', n_classes=3, shape=(None, 10, None), statistics_axis='bt', momentum=0.5)
+    >>> x, seq_len, class_idx = 2*torch.ones((3,10,4)), [1, 2, 3], [0, 1, 0]
+    >>> norm(x, 0, seq_len).shape
+    torch.Size([3, 10, 4])
+    >>> norm(x, class_idx, seq_len).shape
     torch.Size([3, 10, 4])
     """
     def __init__(
-            self, n_conditions, data_format='bcft', shape=None, *,
-            independent_axis='c', scale=True, **kwargs
+            self, n_classes, data_format='bcft', shape=None, *,
+            independent_axis='c', **kwargs
     ):
         super().__init__()
-        self.n_conditions = n_conditions
+        self.n_classes = n_classes
         self.norms = nn.ModuleList([
             Norm(
                 data_format,
                 shape,
-                scale=scale,
                 independent_axis=None,
                 **kwargs
             )
-            for _ in range(n_conditions)
+            for _ in range(n_classes)
         ])
         assert self.norms[0].batch_axis == 0, self.norms[0].batch_axis
 
@@ -329,30 +332,40 @@ class ConditionedNorm(Module):
             self.learnable_scale = None
             self.learnable_shift = None
 
-    def forward(self, x, conditions, seq_len=None):
-        idx = np.arange(x.shape[0]).astype(np.int)
-        sort_idx = np.argsort(conditions).flatten()
-        reverse_idx = np.zeros_like(idx)
-        reverse_idx[sort_idx] = idx
-        x = x[sort_idx]
-        if seq_len is not None:
-            seq_len = np.array(seq_len)[sort_idx]
-        conditions = np.array(conditions)[sort_idx]
-        conditions_set = sorted(set(conditions.tolist()))
-        idx_arrays = [
-            np.argwhere(conditions == c).flatten() for c in conditions_set
-        ]
-        x = torch.cat(
-            tuple([
-                self.norms[c](
-                    x[idx_array],
-                    seq_len=None if seq_len is None else seq_len[idx_array]
-                )
-                for c, idx_array in zip(conditions_set, idx_arrays)
-            ]),
-            dim=0
-        )
-        x = x[reverse_idx]
+    def forward(self, x, class_idx, seq_len=None):
+        class_idx = np.array(class_idx)
+        assert class_idx.ndim <= 1, class_idx.shape
+        if class_idx.ndim == 0:
+            class_idx = class_idx[None]
+        classes_contained = sorted(set(class_idx.tolist()))
+        if len(classes_contained) == 1:
+            class_idx = classes_contained[0]
+            x = self.norms[class_idx](x, seq_len=seq_len)
+        else:
+            idx = np.arange(x.shape[0]).astype(np.int)
+            sort_idx = np.argsort(class_idx).flatten()
+            reverse_idx = np.zeros_like(idx)
+            reverse_idx[sort_idx] = idx
+            x = x[sort_idx]
+            if seq_len is not None:
+                seq_len = np.array(seq_len)[sort_idx]
+            class_idx = np.array(class_idx)[sort_idx]
+            classes_contained = sorted(set(class_idx.tolist()))
+            idx_arrays = [
+                np.argwhere(class_idx == c).flatten()
+                for c in classes_contained
+            ]
+            x = torch.cat(
+                tuple([
+                    self.norms[c](
+                        x[idx_array],
+                        seq_len=None if seq_len is None else seq_len[idx_array]
+                    )
+                    for c, idx_array in zip(classes_contained, idx_arrays)
+                ]),
+                dim=0
+            )
+            x = x[reverse_idx]
 
         if self.learnable_scale is not None:
             x = self.learnable_scale(x)
