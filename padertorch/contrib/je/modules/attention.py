@@ -1,11 +1,14 @@
 import torch
+from torch import nn
 import numpy as np
 
 from padertorch.base import Module
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
+from padertorch.contrib.je.modules.norm import Norm
+nn.LayerNorm
 
 
-def scaled_dot_product_attention(q, k, v, causal=False):
+def scaled_dot_product_attention(q, k, v, seq_len=None, causal=False):
     """
     >>> q = torch.zeros((2, 3, 4))
     >>> k = torch.zeros((2, 6, 4))
@@ -19,10 +22,14 @@ def scaled_dot_product_attention(q, k, v, causal=False):
     tensor(1, dtype=torch.uint8)
     >>> (torch.abs(x[0,-1] - v[0].mean(0)) < 1e-6).all()
     tensor(1, dtype=torch.uint8)
+    >>> x = scaled_dot_product_attention(q, k, v, seq_len=[6,4])
     """
     y = q@k.transpose(-2, -1)/np.sqrt(k.shape[-1])
     if causal:
         mask = get_causal_mask(y)
+        y = y + torch.log((mask > 0).float())
+    elif seq_len is not None:
+        mask = get_seq_len_mask(y, seq_len)
         y = y + torch.log((mask > 0).float())
     return torch.softmax(y, dim=-1)@v
 
@@ -53,7 +60,7 @@ class MultiHeadAttention(Module):
         self.lin_value = torch.nn.Linear(input_size, output_size)
         self.out = torch.nn.Linear(output_size, output_size)
 
-    def forward(self, q, k, v):
+    def forward(self, q, k, v, seq_len=None):
         B, Tq, _ = q.shape
         B, Tk, _ = k.shape
         q = self.lin_queue(q).view(
@@ -65,32 +72,9 @@ class MultiHeadAttention(Module):
         v = self.lin_value(v).view(
             B, Tk, self.num_heads, self.output_size//self.num_heads
         ).transpose(1, 2)
-        x = scaled_dot_product_attention(q, k, v, causal=self.causal)
+        x = scaled_dot_product_attention(q, k, v, seq_len=seq_len, causal=self.causal)
         x = x.transpose(1, 2).contiguous().view(B, Tq, self.output_size)
         return self.out(x)
-
-
-class Norm(Module):
-    # ToDo: replace by general norm module
-    def __init__(self, method, size):
-        super().__init__()
-        self.method = method
-
-        if method is None:
-            self.norm = None
-        elif method == 'batch':
-            self.norm = torch.nn.BatchNorm1d(size)
-        elif method == 'layer':
-            self.norm = torch.nn.LayerNorm(size)
-        else:
-            raise ValueError(f'{method} normalization not known.')
-
-    def forward(self, y):
-        if self.method == 'batch':
-            y = self.norm(y.transpose(1, -1)).transpose(1, -1)
-        elif self.method == 'layer':
-            y = self.norm(y)
-        return y
 
 
 class TransformerBlock(Module):
@@ -99,87 +83,125 @@ class TransformerBlock(Module):
     """
     def __init__(
             self, input_size, hidden_size, num_heads=1, causal=False,
-            activation='leaky_relu', residual=False, norm='layer'
+            cross_attention=False, activation='relu',
+            norm='layer', norm_kwargs={},
     ):
         super().__init__()
         self.activation = ACTIVATION_FN_MAP[activation]()
-        self.residual = residual
-        self.multiheadattention = MultiHeadAttention(
-            input_size, hidden_size, num_heads, causal
+        self.multi_head_self_attention = MultiHeadAttention(
+            input_size, hidden_size, num_heads, causal=causal
         )
+        self.cross_attention = cross_attention
         self.hidden = torch.nn.Linear(hidden_size, hidden_size)
         self.out = torch.nn.Linear(hidden_size, hidden_size)
 
-        self.norm_hidden = Norm(norm, hidden_size)
-        self.norm_output = Norm(norm, hidden_size)
+        norm_kwargs = {
+            "data_format": 'btc',
+            "shape": (None, None, hidden_size),
+            "statistics_axis": 'bt',
+            **norm_kwargs
+        }
+        if norm is None:
+            self.norm = None
+        elif norm == 'batch':
+            norm_kwargs['statistics_axis'] = 'bt'
+        elif norm == 'layer':
+            norm_kwargs['statistics_axis'] = 'tc'
+            # ToDo: where is the difference between layer norm and instance norm?
+        else:
+            raise ValueError(f'{norm} normalization not known.')
+        self.self_attention_norm = Norm(**norm_kwargs)
+        self.output_norm = Norm(**norm_kwargs)
 
-    def forward(self, q, k, v):
-        h = self.multiheadattention(q, k, v)
-        if self.residual and h.shape == q.shape:
-            h = h + q
-        h = self.norm_hidden(h)
+        if cross_attention:
+            self.multi_head_cross_attention = MultiHeadAttention(
+                hidden_size, hidden_size, num_heads, causal=False
+            )
+            self.cross_attention_norm = Norm(**norm_kwargs)
+
+    def forward(self, x, seq_len=None, state=None, v=None, v_seq_len=None):
+        x_ = x if state is None else torch.cat([state, x], 1)
+        h = self.multi_head_self_attention(x, x_, x_, seq_len=seq_len)
+        if h.shape == x.shape:
+            h = h + x
+        h = self.self_attention_norm(h, seq_len=seq_len)
+        if self.cross_attention:
+            assert v is not None
+            q = h
+            h = self.multi_head_cross_attention(q, v, v, seq_len=v_seq_len)
+            if h.shape == q.shape:
+                h = h + q
+            h = self.cross_attention_norm(h, seq_len=seq_len)
         y = self.out(self.activation(self.hidden(h)))
-        if self.residual and y.shape == h.shape:
-            y = y + h
-        y = self.norm_output(y)
-        return y
+        y = y + h
+        y = self.output_norm(y, seq_len=seq_len)
+        return y, x_
 
 
-class Transformer(Module):
+class TransformerStack(Module):
     def __init__(
-            self, input_size, hidden_size, num_layers, num_heads=1,
-            causal=False, activation='leaky_relu', residual=False, norm='layer'
+            self, input_size, hidden_sizes, num_heads=1, causal=False,
+            cross_attention=False, activation='relu',
+            norm='layer', norm_kwargs={}
     ):
         """
         https://arxiv.org/abs/1706.03762
 
         Args:
             input_size:
-            hidden_size:
-            num_layers:
+            hidden_sizes:
             num_heads:
+            causal:
+            cross_attention:
             activation:
-            residual:
             norm:
+            norm_kwargs:
 
         Returns:
 
         >>> x = torch.zeros((2, 3, 8))
-        >>> attn = Transformer(8, 6, 2, 1)
-        >>> attn(x).shape
+        >>> attn = TransformerStack(8, [6, 6], 1)
+        >>> attn(x)[0].shape
         torch.Size([2, 3, 6])
-        >>> attn = Transformer(8, 6, 2, 2)
-        >>> attn(x).shape
+        >>> attn = TransformerStack(8, [6, 6], 2)
+        >>> attn(x)[0].shape
         torch.Size([2, 3, 6])
-        >>> attn(x, [torch.zeros((2, 6, 8)), torch.zeros((2, 6, 6))]).shape
+        >>> attn(x, state=[torch.zeros((2, 6, 8)), torch.zeros((2, 6, 6))])[0].shape
         torch.Size([2, 3, 6])
-        >>> attn = Transformer(8, 6, 2, 2, causal=True)
-        >>> attn(x).shape
+        >>> attn = TransformerStack(8, [6, 6], 2, causal=True)
+        >>> attn(x)[0].shape
         torch.Size([2, 3, 6])
-        >>> attn(x, [torch.zeros((2, 6, 8)), torch.zeros((2, 6, 6))]).shape
+        >>> attn(x, state=[torch.zeros((2, 6, 8)), torch.zeros((2, 6, 6))])[0].shape
         torch.Size([2, 3, 6])
         """
         super().__init__()
-        self.num_layer = num_layers
         stack = list()
-        for _ in range(num_layers):
+        for hidden_size in hidden_sizes:
             stack.append(
                 TransformerBlock(
-                    input_size, hidden_size, num_heads, causal=causal,
-                    activation=activation, residual=residual, norm=norm
+                    input_size, hidden_size, num_heads,
+                    causal=causal, cross_attention=cross_attention,
+                    activation=activation, norm=norm, norm_kwargs=norm_kwargs
                 )
             )
             input_size = hidden_size
         self.stack = torch.nn.ModuleList(stack)
 
-    def forward(self, x, state=None):
+    def forward(self, x, seq_len=None, state=None, v=None, v_seq_len=None):
+        new_state = []
         for i, layer in enumerate(self.stack):
-            q = k = v = x
-            if state is not None:
-                k = v = torch.cat([state[i], x], 1)
-            x = layer(q, k, v)
-        return x
+            x, x_ = layer(
+                x, seq_len=seq_len, state=None if state is None else state[i],
+                v=v, v_seq_len=v_seq_len
+            )
+            new_state.append(x_)
+        return x, new_state
 
 
 def get_causal_mask(x):
     return torch.tril(torch.ones_like(x), diagonal=(x.shape[-1] - x.shape[-2]))
+
+
+def get_seq_len_mask(x, seq_len):
+    idx = torch.arange(x.shape[-1]).to(x.device)
+    return idx > seq_len
