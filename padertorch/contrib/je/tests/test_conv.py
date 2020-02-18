@@ -3,7 +3,7 @@ from padertorch.contrib.je.modules.conv import Conv1d, ConvTranspose1d
 from padertorch.contrib.je.modules.conv import Conv2d, ConvTranspose2d
 from padertorch.contrib.je.modules.conv import CNN1d, CNNTranspose1d
 from padertorch.contrib.je.modules.conv import CNN2d, CNNTranspose2d
-from padertorch.contrib.je.modules.conv import HybridCNN, HybridCNNTranspose
+from padertorch.contrib.je.modules.hybrid import HybridCNN, HybridCNNTranspose
 from copy import copy
 
 
