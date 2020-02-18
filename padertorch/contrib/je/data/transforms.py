@@ -58,23 +58,23 @@ class AudioReader:
 
 
 class STFT(BaseSTFT):
-    def transform(self, audio):
-        return super().__call__(audio)
-
     def __call__(self, example):
-        audio = example["audio_data"]
-        example["stft"] = self.transform(audio)
+        if isinstance(example, dict):
+            audio = example["audio_data"]
+            x = super().__call__(audio)
+            example["stft"] = np.stack([x.real, x.imag], axis=-1)
+        else:
+            example = super().__call__(example)
         return example
 
 
 class MelTransform(BaseMelTransform):
-    def transform(self, stft):
-        x = stft.real**2 + stft.imag**2
-        return super().__call__(x)
-
     def __call__(self, example):
-        stft = example["stft"]
-        example["mel_transform"] = self.transform(stft)
+        if isinstance(example, dict):
+            x = np.sum(example["stft"] ** 2, axis=-1)
+            example["mel_transform"] = super().__call__(x)
+        else:
+            example = super().__call__(example)
         return example
 
 
@@ -166,34 +166,44 @@ class Normalizer:
 
 
 class LabelEncoder:
-    def __init__(self, label_key, storage_dir=None):
+    def __init__(self, label_key, storage_dir=None, to_array=False):
         self.label_key = label_key
+        self.storage_dir = None if storage_dir is None else Path(storage_dir)
+        self.to_array = to_array
+
         self.label_mapping = None
         self.inverse_label_mapping = None
-
-        self.storage_dir = None if storage_dir is None else Path(storage_dir)
 
     def __call__(self, example):
         def encode(labels):
             if isinstance(labels, (list, tuple)):
                 return [self.label_mapping[label] for label in labels]
             return self.label_mapping[labels]
-        example[self.label_key] = np.array(encode(example[self.label_key]))
+        y = encode(example[self.label_key])
+        if self.to_array:
+            example[self.label_key] = np.array(y)
+        else:
+            example[self.label_key] = y
         return example
 
-    def initialize_labels(self, dataset=None, verbose=False):
+    def initialize_labels(self, labels=None, dataset=None, verbose=False):
         filepath = None if self.storage_dir is None \
             else (self.storage_dir / f"{self.label_key}.json").expanduser().absolute()
+
         if filepath and Path(filepath).exists():
             with filepath.open() as fid:
-                labels = json.load(fid)
+                labels_ = json.load(fid)
             if verbose:
                 print(f'Restored labels from {filepath}')
+            if labels is not None:
+                assert labels_ == labels
+            labels = labels_
         else:
-            labels = set()
-            for example in dataset:
-                labels.update(to_list(example[self.label_key]))
-            labels = sorted(labels)
+            if labels is None:
+                labels = set()
+                for example in dataset:
+                    labels.update(to_list(example[self.label_key]))
+                labels = sorted(labels)
             if filepath:
                 with filepath.open('w') as fid:
                     json.dump(labels, fid, indent=4)
@@ -206,6 +216,15 @@ class LabelEncoder:
         self.inverse_label_mapping = {
             i: label for label, i in self.label_mapping.items()
         }
+
+
+class MultiHotLabelEncoder(LabelEncoder):
+    def __call__(self, example):
+        labels = super().__call__(example)[self.label_key]
+        nhot_encoding = np.zeros(len(self.label_mapping)).astype(np.float32)
+        nhot_encoding[labels] = 1
+        example[self.label_key] = nhot_encoding
+        return example
 
 
 class Collate:
@@ -253,7 +272,8 @@ class Collate:
             for i, array in enumerate(batch):
                 diff = target_shape - array.shape
                 assert np.argwhere(diff != 0).size <= 1, (
-                    diff, 'arrays are only allowed to differ in one dim',
+                    'arrays are only allowed to differ in one dim',
+                    array.shape, target_shape,
                 )
                 if np.any(diff > 0):
                     pad = [(0, n) for n in diff]
