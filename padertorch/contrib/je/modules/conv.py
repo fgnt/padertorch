@@ -470,7 +470,7 @@ class _CNN(Module):
             gated=False,
             pool_type='max',
             pool_size=1,
-            return_pool_data=False
+            return_pool_data=False,
     ):
         super().__init__()
 

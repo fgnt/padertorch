@@ -2,11 +2,29 @@ import numpy as np
 import torch
 from padertorch.base import Module
 from torch import nn
+from torch.autograd import Function
+from padertorch.contrib.je.modules.global_pooling import compute_mask
+
+
+class PrintGrad(Function):
+    # Note that both forward and backward are @staticmethods
+    @staticmethod
+    # bias is an optional argument
+    def forward(ctx, input, i=0):
+        ctx.i = i
+        return input
+
+    # This function has only a single output, so it gets only one gradient
+    @staticmethod
+    def backward(ctx, grad_output):
+        print(ctx.i, grad_output.max().item())
+        assert not torch.isnan(grad_output).any()
+        return grad_output, None
 
 
 class Norm(Module):
     """
-    >>> norm = Norm(data_format='bct', shape=(None, 10, None), statistics_axis='bt', momentum=0.5, straightness=1.)
+    >>> norm = Norm(data_format='bct', shape=(None, 10, None), statistics_axis='bt', momentum=0.5, interpolation_factor=1.)
     >>> x, seq_len = 2*torch.ones((3,10,4)), [1, 2, 3]
     >>> mask = norm.compute_mask(x, seq_len=seq_len)
     >>> mask
@@ -127,7 +145,7 @@ class Norm(Module):
             batch_axis='b',
             sequence_axis='t',
             scale=True,
-            eps: float = 1e-5,
+            eps: float = 1e-3,
             momentum=0.95,
             interpolation_factor=0.,
     ):
@@ -179,7 +197,10 @@ class Norm(Module):
 
     @property
     def running_var(self):
-        return self.running_power - self.running_mean ** 2
+        n = torch.max(self.num_tracked_values, 2. * torch.ones_like(self.num_tracked_values))
+        running_var = n / (n-1) * (self.running_power - self.running_mean ** 2) + self.eps
+        assert (running_var >= 0).all(), running_var.min()
+        return running_var
 
     def reset_running_stats(self):
         if self.track_running_stats:
@@ -202,7 +223,7 @@ class Norm(Module):
             if self.track_running_stats:
                 self.num_tracked_values += n_values.data
                 if self.momentum is None:
-                    momentum = 1 - n_values / self.num_tracked_values
+                    momentum = 1 - n_values / self.num_tracked_values.data
                 else:
                     momentum = self.momentum
                 self.running_mean *= momentum
@@ -218,16 +239,13 @@ class Norm(Module):
             x = x - mean
             if self.scale:
                 n = torch.max(n_values, 2. * torch.ones_like(n_values))
-                var = n / (n - 1.) * (power - mean ** 2)
-                x = x / (torch.sqrt(var) + self.eps)
+                var = n / (n - 1.) * (power - mean ** 2) + self.eps
+                assert (var > 0).all(), var.min()
+                x = x / torch.sqrt(var)
         else:
             x = x - self.running_mean.data
             if self.scale:
-                n = torch.max(self.num_tracked_values, 2. * torch.ones_like(self.num_tracked_values))
-                running_var = (
-                    n / (n - 1.) * (self.running_power - self.running_mean**2)
-                )
-                x = x / (torch.sqrt(running_var).data + self.eps)
+                x = x / (torch.sqrt(self.running_var.data))
 
         if self.learnable_scale is not None:
             x = self.learnable_scale(x)
@@ -237,14 +255,7 @@ class Norm(Module):
 
     def compute_mask(self, x, seq_len=None):
         if seq_len is not None:
-            assert self.sequence_axis is not None, self.sequence_axis
-            seq_len = torch.Tensor(seq_len).long()
-            for dim in range(self.batch_axis + 1, x.dim()):
-                seq_len = seq_len.unsqueeze(-1)
-            idx = torch.arange(x.shape[self.sequence_axis])
-            for dim in range(self.sequence_axis + 1, x.dim()):
-                idx = idx.unsqueeze(-1)
-            mask = (idx < seq_len).float().to(x.device).expand(x.shape)
+            mask = compute_mask(x, seq_len, self.batch_axis, self.sequence_axis)
         else:
             mask = torch.ones_like(x)
         return mask

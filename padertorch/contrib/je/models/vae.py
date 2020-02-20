@@ -10,6 +10,7 @@ from padertorch.contrib.je.modules.norm import Norm
 from sklearn import metrics
 from torch.distributions import Normal
 from torchvision.utils import make_grid
+from padertorch.contrib.je.modules.global_pooling import Mean
 
 
 class VAE(Model):
@@ -43,7 +44,7 @@ class VAE(Model):
     torch.Size([4, 1, 80, 100])
     >>> outputs[1].shape
     torch.Size([4, 1, 80, 100])
-    >>> outputs[2].shape
+    >>> outputs[2][0].shape
     torch.Size([4, 16, 100])
     >>> outputs[3][0].shape
     torch.Size([4, 16, 100])
@@ -77,14 +78,9 @@ class VAE(Model):
     def feature_extraction(self, x, seq_len=None):
         x = self.mel_transform(torch.sum(x**2, dim=(-1,))).transpose(-2, -1)
         x = self.in_norm(x, seq_len=seq_len)
-        if isinstance(self.encoder, CNN1d):
-            x = rearrange(x, 'b c f t -> b (c f) t')
         return x
 
     def inverse_feature_extraction(self, x):
-        if x.dim() == 3:
-            b, f, t = x.shape
-            x = x.view((b, -1, self.mel_transform.n_mels, t))
         return self.mel_transform.inverse(
             (
                 torch.sqrt(self.in_norm.running_var) * x
@@ -93,12 +89,14 @@ class VAE(Model):
         )
 
     def encode(self, x, seq_len=None):
+        if isinstance(self.encoder, CNN1d):
+            x = rearrange(x, 'b c f t -> b (c f) t')
         if self.encoder.return_pool_data:
             h, seq_len, shapes, lengths, pool_indices = self.encoder(
                 x, seq_len=seq_len
             )
         else:
-            h, seq_len = self.encoder(x)
+            h, seq_len = self.encoder(x, seq_len=seq_len)
             shapes = lengths = pool_indices = None
         assert not h.shape[1] % self.n_params
         params = tuple(torch.split(h, h.shape[1] // self.n_params, dim=1))
@@ -109,7 +107,7 @@ class VAE(Model):
         if self.training:
             std = torch.exp(0.5 * logvar)
             eps = torch.randn_like(std)
-            return eps.mul(std).add_(mu)
+            return eps * std + mu
         else:
             return mu
 
@@ -118,6 +116,9 @@ class VAE(Model):
             z, seq_len=seq_len, out_shapes=shapes, out_lengths=lengths,
             pool_indices=pool_indices
         )
+        if x_hat.dim() == 3:
+            b, f, t = x_hat.shape
+            x_hat = x_hat.view((b, -1, self.mel_transform.n_mels, t))
         return x_hat, seq_len  # (B, C, F, T)
 
     def forward(self, inputs):
@@ -126,25 +127,23 @@ class VAE(Model):
         x = self.feature_extraction(x, seq_len)
         params, seq_len, shapes, lengths, pool_indices = self.encode(x, seq_len)
         z = self.reparameterize(params)
-        x_hat, seq_len = self.decode(
+        x_hat, _ = self.decode(
             z, seq_len, shapes=shapes, lengths=lengths, pool_indices=pool_indices
         )
-        return x, x_hat, z, params
+        return x, x_hat, (z, seq_len), params
 
     def review(self, inputs, outputs):
         # visualization
-        seq_len = inputs['seq_len']
-        x, x_hat, z, params, *_ = outputs
+        x, x_hat, (z, seq_len), params, *_ = outputs
         (mu, log_var) = params[:2]
-        mse = (x - x_hat).pow(2).sum(dim=((1, 2) if x.dim() == 4 else 1))
         kld = -0.5 * (1 + log_var - mu.pow(2) - log_var.exp()).sum(dim=1)
-
         if seq_len is not None:
-            seq_len = torch.Tensor(seq_len)[:, None].to(mse.device)
-            idx = torch.arange(mse.shape[-1]).to(mse.device)
-            mask = (idx < seq_len.long()).float()
-            mse = (mse * mask).sum(dim=-1) / (seq_len.squeeze(-1) + 1e-6)
-            kld = (kld * mask).sum(dim=-1) / (seq_len.squeeze(-1) + 1e-6)
+            kld = Mean(axis=-1)(kld, seq_len)
+
+        mse = (x - x_hat).pow(2).sum(dim=((1, 2) if x.dim() == 4 else 1))
+        seq_len = inputs['seq_len']
+        if seq_len is not None:
+            mse = Mean(axis=-1)(mse, seq_len)
 
         x_hat = x_hat.contiguous()
         mu = mu.contiguous()

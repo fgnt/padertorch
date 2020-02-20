@@ -2,17 +2,71 @@ import torch
 from torch import nn
 
 
-class TakeLast(nn.Module):
-    def __init__(self):
+def compute_mask(x, seq_len, batch_axis=0, seq_axis=1):
+    if batch_axis < 0:
+        batch_axis = x.dim() + batch_axis
+    if seq_axis < 0:
+        seq_axis = x.dim() + seq_axis
+    seq_len = torch.Tensor(seq_len).long().to(x.device)
+    for dim in range(batch_axis + 1, x.dim()):
+        seq_len = seq_len.unsqueeze(-1)
+    idx = torch.arange(x.shape[seq_axis]).to(x.device)
+    for dim in range(seq_axis + 1, x.dim()):
+        idx = idx.unsqueeze(-1)
+    mask = (idx < seq_len).float().expand(x.shape)
+    return mask
+
+
+class Mean(nn.Module):
+    """
+    >>> seq_axis = 1
+    >>> x = torch.cumsum(torch.ones((3,7,4)), dim=seq_axis)
+    >>> x = Mean(axis=seq_axis)(x, seq_len=[4,5,6])
+    """
+    def __init__(self, axis=-1):
+        self.axis = axis
         super().__init__()
 
     def __call__(self, x, seq_len=None):
         if seq_len is None:
+            x = x.mean(self.axis)
+        else:
+            mask = compute_mask(x, seq_len, 0, self.axis)
+            x = (x * mask).sum(dim=self.axis) / (mask.sum(self.axis) + 1e-6)
+        return x
+
+
+class Max(nn.Module):
+    """
+    >>> seq_axis = 1
+    >>> x = torch.cumsum(torch.ones((3,7,4)), dim=seq_axis)
+    >>> Max(axis=seq_axis)(x, seq_len=[4,5,6])
+    """
+    def __init__(self, axis=-1):
+        self.axis = axis
+        super().__init__()
+
+    def __call__(self, x, seq_len=None):
+        if seq_len is not None:
+            mask = compute_mask(x, seq_len, 0, self.axis)
+            x = (x + torch.log(mask))
+        x = x.max(self.axis)
+        return x
+
+
+class TakeLast(nn.Module):
+    def __init__(self, axis=-1):
+        self.axis = axis
+        super().__init__()
+
+    def __call__(self, x, seq_len=None):
+        if self.axis != -1:
+            raise NotImplementedError
+        if seq_len is None:
             x = x[:, -1]
         else:
             x = x[torch.arange(x.shape[0]), seq_len - 1]
-        seq_len = None
-        return x, seq_len
+        return x
 
 
 class AutoPool(nn.Module):

@@ -5,7 +5,6 @@ from torch import nn
 from torch.distributions import Beta
 from torch.nn.functional import interpolate
 from padertorch.contrib.je.modules.features import hz2mel, mel2hz
-from functools import partial
 
 
 def linear_warping(f, n, alpha_sampling_fn, fhi_sampling_fn):
@@ -205,7 +204,7 @@ class Resample(nn.Module):
 class Mask(nn.Module):
     """
     >>> x = torch.ones((3, 4, 5))
-    >>> x = Mask(axis=-1, max_masked_rate=1., max_masked_values=10)(x, seq_len=[1,2,3])
+    >>> x = Mask(axis=-1, max_masked_rate=1., max_masked_steps=10)(x, seq_len=[1,2,3])
     """
     def __init__(self, axis, n_masks=1, max_masked_steps=None, max_masked_rate=0.2):
         super().__init__()
@@ -219,15 +218,14 @@ class Mask(nn.Module):
             return x
         mask = torch.ones_like(x)
         idx = torch.arange(x.shape[self.axis]).float()
-        if self.axis < 0:
-            n = abs(self.axis + 1)
-        else:
-            n = (x.dim() - self.axis - 1)
-        idx = idx[(...,) + n*(None,)]
+        axis = self.axis
+        if axis < 0:
+            axis = x.dim() + axis
+        idx = idx[(...,) + (x.dim() - axis - 1)*(None,)]
         idx = idx.expand(x.shape)
         for i in range(self.n_masks):
             if seq_len is None:
-                seq_len = x.shape[self.axis] * torch.ones(x.shape[0])
+                seq_len = x.shape[axis] * torch.ones(x.shape[0])
             else:
                 seq_len = torch.Tensor(seq_len)
             max_width = torch.floor(self.max_masked_rate * seq_len)
