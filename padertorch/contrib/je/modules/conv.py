@@ -169,7 +169,7 @@ class _Conv(Module):
             if norm == 'batch':
                 norm_kwargs["statistics_axis"] = 'btf' if self.is_2d() else 'bt'
             elif norm == 'sequence':
-                norm_kwargs["statistics_axis"] = 'tf' if self.is_2d() else 't'
+                norm_kwargs["statistics_axis"] = 't'
             else:
                 raise ValueError(f'{norm} normalization not known.')
             if n_norm_classes is None:
@@ -612,6 +612,7 @@ class _CNN(Module):
             out_shapes=None, out_lengths=None, pool_indices=None,
             **norm_kwargs
     ):
+        assert x.dim() == (3 + self.is_2d()), (x.shape, self.is_2d())
         if not self.is_transpose():
             assert out_shapes is None, out_shapes
             assert out_lengths is None, out_lengths
@@ -768,6 +769,13 @@ class _CNN(Module):
                 transpose_config[kw] = config[kw][::-1]
             else:
                 transpose_config[kw] = config[kw]
+        for kw in [
+            'activation_fn', 'pre_activation', 'dropout', 'gated',
+            'n_norm_classes', 'norm_kwargs'
+        ]:
+            if kw not in config.keys():
+                continue
+            transpose_config[kw] = config[kw]
         return transpose_config
 
     def get_out_shape(self, in_shape):

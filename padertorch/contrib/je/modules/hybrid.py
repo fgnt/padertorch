@@ -63,10 +63,8 @@ class HybridCNN(Module):
         }
         if config['input_size'] is not None:
             cnn_2d = config['cnn_2d']['factory'].from_config(config['cnn_2d'])
-            output_size = cnn_2d.get_out_shape((1, config['cnn_2d']['in_channels'], config['input_size'], 1000))[-2]
-            out_channels = cnn_2d.out_channels[-1]
-            in_channels = out_channels * output_size
-            config['cnn_1d']['in_channels'] = in_channels
+            _, out_channels, output_size, _ = cnn_2d.get_out_shape((1, config['cnn_2d']['in_channels'], config['input_size'], 1000))
+            config['cnn_1d']['in_channels'] = out_channels * output_size
 
     @classmethod
     def get_transpose_config(cls, config, transpose_config=None):
@@ -99,12 +97,18 @@ class HybridCNNTranspose(Module):
 
     def forward(
             self, x, seq_len=None,
-            out_shapes=(None, None),
-            out_lengths=(None, None),
-            pool_indices=(None, None)
+            out_shapes=None,
+            out_lengths=None,
+            pool_indices=None,
     ):
+        if out_shapes is None:
+            out_shapes = (None, None)
         shapes_2d, shapes_1d = out_shapes
+        if out_lengths is None:
+            out_lengths = (None, None)
         lengths_2d, lengths_1d = out_lengths
+        if pool_indices is None:
+            pool_indices = (None, None)
         pool_indices_2d, pool_indices_1d = pool_indices
         x, seq_len = self.cnn_transpose_1d(
             x,
