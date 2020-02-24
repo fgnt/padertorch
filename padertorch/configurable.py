@@ -21,6 +21,7 @@ import collections
 import importlib
 import inspect
 from pathlib import Path
+import copy
 
 import paderbox as pb
 
@@ -831,7 +832,7 @@ def config_to_instance(config):
                 pass
             return new
         else:
-            d = config.__class__()
+            d = copy.copy(config)  # config.__class__() not possible in sacred>=0.8 because of ReadOnlyDict.
             for k, v in config.items():
                 d[k] = config_to_instance(v)
             return d
