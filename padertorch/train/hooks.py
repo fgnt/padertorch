@@ -303,34 +303,53 @@ class SummaryHook(TriggeredHook):
 
         time_prefix = f'{prefix}_timings'
 
+        tags = set()
+
+        def check_tag(tag):
+            if tag in tags:
+                # ToDo: Find an issue that describes this problem.
+                #       Once this is solved, we can remove this exception.
+                raise AssertionError(
+                    f'The tag {tag!r} is used multiple times.\n\n'
+                    'Tensorboard has problems, when different events have the '
+                    'same tag.\n'
+                    'e.g. you cannot report the `grad_norm` as scalar and '
+                    'histogram.\n'
+                    'A common workaround is to use `grad_norm` for the scalar '
+                    'and append an `_` for the histogram (i.e. `grad_norm_`).'
+                )
+            tags.add(tag)
+            return tag
+
         for key, scalar in self.summary['scalars'].items():
-            trainer.writer.add_scalar(
-                f'{prefix}/{key}', scalar, iteration)
+            tag = check_tag(f'{prefix}/{key}')
+            trainer.writer.add_scalar(tag, scalar, iteration)
         for key, scalar in self.summary['timings'].items():
-            trainer.writer.add_scalar(
-                f'{time_prefix}/{key}', scalar.mean(), iteration)
+            tag = check_tag(f'{time_prefix}/{key}')
+            trainer.writer.add_scalar(tag, scalar.mean(), iteration)
         for key, histogram in self.summary['histograms'].items():
-            trainer.writer.add_histogram(
-                f'{prefix}/{key}', np.array(histogram), iteration
-            )
+            tag = check_tag(f'{prefix}/{key}')
+            trainer.writer.add_histogram(tag, np.array(histogram), iteration)
         for key, audio in self.summary['audios'].items():
+            tag = check_tag(f'{prefix}/{key}')
             if isinstance(audio, (tuple, list)):
                 assert len(audio) == 2, (len(audio), audio)
                 trainer.writer.add_audio(
-                    f'{prefix}/{key}', audio[0],
-                    iteration, sample_rate=audio[1]
+                    tag, audio[0], iteration, sample_rate=audio[1]
                 )
             else:
                 trainer.writer.add_audio(
-                    f'{prefix}/{key}', audio,
-                    iteration, sample_rate=16000
+                    tag, audio, iteration, sample_rate=16000
                 )
         for key, image in self.summary['images'].items():
-            trainer.writer.add_image(f'{prefix}/{key}', image, iteration)
+            tag = check_tag(f'{prefix}/{key}')
+            trainer.writer.add_image(tag, image, iteration)
         for key, text in self.summary['texts'].items():
-            trainer.writer.add_text(f'{prefix}/{key}', text, iteration)
+            tag = check_tag(f'{prefix}/{key}')
+            trainer.writer.add_text(tag, text, iteration)
         for key, figure in self.summary['figures'].items():
-            trainer.writer.add_figure(f'{prefix}/{key}', figure, iteration)
+            tag = check_tag(f'{prefix}/{key}')
+            trainer.writer.add_figure(tag, figure, iteration)
 
         self.reset_summary()
 
