@@ -2,6 +2,8 @@ import unittest
 import types
 import tempfile
 from pathlib import Path
+import unittest
+from unittest.mock import MagicMock
 
 from IPython.lib.pretty import pretty
 import pytest
@@ -178,3 +180,33 @@ def test_summary_hook():
         ]
 
         assert events == expect, pretty([events, expect])
+
+
+def test_summary_hook_fail_duplicate_key():
+    hook = pt.train.hooks.SummaryHook((1, 'iteration'))
+
+    hook.update_summary({
+        'loss': torch.tensor(1),
+        'scalars': {
+            'a': 2,
+            'b': torch.tensor(3),
+        },
+        'histograms': {
+            'a': [1, 2]
+        }
+    })
+
+    class DummyTrainer:
+        iteration = 1
+        writer = MagicMock()
+
+    with pytest.raises(AssertionError) as excinfo:
+        hook.dump_summary(DummyTrainer())
+
+    expect = """The tag 'training/a' is used multiple times.
+
+Tensorboard has problems, when different events have the same tag.
+e.g. you cannot report the `grad_norm` as scalar and histogram.
+A common workaround is to use `grad_norm` for the scalar and append an `_` for the histogram (i.e. `grad_norm_`)."""
+
+    unittest.TestCase().assertMultiLineEqual(expect, str(excinfo.value))
