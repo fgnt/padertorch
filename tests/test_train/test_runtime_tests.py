@@ -100,6 +100,21 @@ def test_single_model_dir_unchanged():
             t.test_run(tr_dataset, dt_dataset)
 
 
+def test_single_model_with_back_off_validation():
+    tr_dataset, dt_dataset = get_datasets()
+    model = Model()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_dir = Path(tmp_dir)
+        t = pt.Trainer(
+            model, optimizer=pt.optimizer.Adam(),
+            storage_dir=tmp_dir, stop_trigger=(2, 'epoch')
+        )
+        t.register_validation_hook(dt_dataset, n_back_off=4,
+                                   back_off_patience=5)
+        with assert_dir_unchanged_after_context(tmp_dir):
+            t.test_run(tr_dataset, dt_dataset)
+
 # def test_lr_scheduler():
 #     tr_dataset, dt_dataset = get_iterators()
 #
