@@ -199,6 +199,20 @@ def test_run(
 
         # ================ Train Call ===================
         with ensure_unchanged_parameter(trainer):
+            hooks = [
+                SummaryHook((1, 'epoch')),
+                CheckpointHook((1, 'epoch')),
+                BackOffValidationHook(
+                    (1, 'epoch'), sub_validation_iterator,
+                    max_checkpoints=None
+                ),
+                StopTrainingHook((1, 'epoch'))
+            ]
+            exit_stack.enter_context(mock.patch.object(
+                trainer,
+                'hooks',
+                new=hooks,
+            ))
             with backup_state_dict(trainer):
 
                 exit_stack.enter_context(mock.patch.object(
@@ -206,20 +220,7 @@ def test_run(
                     'storage_dir',
                     new=storage_dir,
                 ))
-                hooks1 = [
-                    SummaryHook((1, 'epoch')),
-                    CheckpointHook((1, 'epoch')),
-                    BackOffValidationHook(
-                        (1, 'epoch'), sub_validation_iterator,
-                        max_checkpoints=None
-                    ),
-                    StopTrainingHook((1, 'epoch'))
-                ]
-                exit_stack.enter_context(mock.patch.object(
-                    trainer,
-                    'hooks',
-                    new=hooks1,
-                ))
+
 
                 trainer.train(
                     sub_train_iterator,
@@ -233,21 +234,6 @@ def test_run(
                     trainer,
                     'storage_dir',
                     new=storage_dir_2,
-                ))
-
-                hooks2 = [
-                    SummaryHook((1, 'epoch')),
-                    CheckpointHook((1, 'epoch')),
-                    BackOffValidationHook(
-                        (1, 'epoch'), sub_validation_iterator,
-                        max_checkpoints=None
-                    ),
-                    StopTrainingHook((1, 'epoch'))
-                ]
-                exit_stack.enter_context(mock.patch.object(
-                    trainer,
-                    'hooks',
-                    new=hooks2,
                 ))
 
                 trainer.train(
@@ -339,12 +325,11 @@ def test_run(
         # end trainer_step_mock_to_inputs_output_review
 
         # Test that the summary is empty
-        for hooks in [hooks1, hooks2]:
-            for hook in hooks:
-                summary = getattr(hook, 'summary', {})
-                assert all([
-                    len(s) == 0 for s in summary.values()
-                ]), (hook, summary)
+        for hook in hooks:
+            summary = getattr(hook, 'summary', {})
+            assert all([
+                len(s) == 0 for s in summary.values()
+            ]), (hook, summary)
 
         files = list(storage_dir.glob('*'))
         assert len(files) == 2, files
