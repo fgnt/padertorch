@@ -167,6 +167,8 @@ class SummaryHook(TriggeredHook):
             texts=dict(),
             figures=dict(),
             timings=dict(),
+            buffers=dict(),
+            snapshots=dict()
         ))
 
     def reset_summary(self):
@@ -183,6 +185,8 @@ class SummaryHook(TriggeredHook):
             'images',
             'texts',
             'figures',
+            'buffer',
+            'snapshot'
         }
         redundant_keys = set(review.keys()) - allowed_keys
         assert len(redundant_keys) == 0, (redundant_keys, review.keys(), allowed_keys)
@@ -292,6 +296,9 @@ class SummaryHook(TriggeredHook):
 
     def finalize_summary(self, trainer):
         assert len(self.summary['timings']) == 0, self.summary['timings']
+        assert len(self.summary['buffer']) == 0, self.summary['buffer']
+        assert len(self.summary['snapshots']) == 0, self.summary['snapshots']
+
         for key, timing in self.compute_timings(trainer.train_timer).items():
             self.summary['timings'][key] = timing
         self.maybe_add_lr_to_summary(trainer)
