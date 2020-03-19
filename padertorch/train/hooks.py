@@ -204,6 +204,8 @@ class SummaryHook(TriggeredHook):
             # do not hold more than 1M values in memory
             self.summary['histograms'][key] = \
                 self.summary['histograms'][key][-1000000:]
+        for key, buffer in popped_review.pop('buffers', dict()).items():
+            self.summary['buffers'][key].extend(self._detach(buffer))
         for key, audio in popped_review.pop('audios', dict()).items():
             self.summary['audios'][key] = audio  # snapshot
         for key, image in popped_review.pop('images', dict()).items():
@@ -226,6 +228,12 @@ class SummaryHook(TriggeredHook):
             assert np.isscalar(scalars)
             scalars = [scalars]
         return scalars
+
+    @staticmethod
+    def _detach(buffer):
+        if torch.is_tensor(buffer):
+            buffer.detach()
+        return buffer
 
     def compute_timings(self, timer: 'pt.trainer.ContextTimerDict'):
         timer_dict = timer.as_dict
@@ -296,13 +304,14 @@ class SummaryHook(TriggeredHook):
 
     def finalize_summary(self, trainer):
         assert len(self.summary['timings']) == 0, self.summary['timings']
-        assert len(self.summary['buffer']) == 0, self.summary['buffer']
-        assert len(self.summary['snapshots']) == 0, self.summary['snapshots']
 
         for key, timing in self.compute_timings(trainer.train_timer).items():
             self.summary['timings'][key] = timing
         self.maybe_add_lr_to_summary(trainer)
         self.summary = trainer.model.modify_summary(self.summary)
+        # Assert the intermediate types were converted in he modify summary
+        assert len(self.summary['buffers']) == 0, "intermediate format buffers has to be converted during modify_summary"
+        assert len(self.summary['snapshots']) == 0, "intermediate format snapshots has to be converted during modify summary"
 
     def dump_summary(self, trainer: 'pt.Trainer'):
         iteration = trainer.iteration
