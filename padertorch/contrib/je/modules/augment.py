@@ -8,6 +8,41 @@ from padertorch.contrib.je.modules.features import hz2mel, mel2hz
 
 
 def linear_warping(f, n, alpha_sampling_fn, fhi_sampling_fn):
+    """
+    >>> from functools import partial
+    >>> np.random.seed(0)
+    >>> sample_rate = 16000
+    >>> fmin = 0
+    >>> fmax = sample_rate/2
+    >>> n_mels = 10
+    >>> alpha_max = 1.2
+    >>> kwargs = dict(
+    ...     alpha_sampling_fn=partial(
+    ...         log_uniform_sampling_fn, scale=2*np.log(alpha_max)
+    ...     ),
+    ...     fhi_sampling_fn=partial(
+    ...         uniform_sampling_fn, center=.7, scale=.2
+    ...     ),
+    ... )
+    >>> f = mel2hz(np.linspace(hz2mel(fmin), hz2mel(fmax), n_mels+2))
+    >>> f
+    array([   0.        ,  180.21928115,  406.83711843,  691.7991039 ,
+           1050.12629534, 1500.70701371, 2067.29249375, 2779.74887082,
+           3675.63149949, 4802.16459006, 6218.73051459, 8000.        ])
+    >>> linear_warping(f, (), **kwargs)
+    array([   0.        ,  183.45581459,  414.14345066,  704.2230295 ,
+           1068.98537001, 1527.65800595, 2104.41871721, 2829.67000102,
+           3741.64166342, 4888.40600786, 6305.18977698, 8000.        ])
+    >>> linear_warping(f, 2, **kwargs)
+    array([[   0.        ,  187.10057293,  422.37133266,  718.21398838,
+            1090.22314517, 1558.00833455, 2146.22768187, 2885.88769767,
+            3815.97770824, 4985.52508038, 6350.49184281, 8000.        ],
+           [   0.        ,  183.19308056,  413.5503401 ,  703.21448495,
+            1067.45443547, 1525.47018891, 2101.40489926, 2825.61752316,
+            3736.28311632, 4881.40513599, 6293.32469307, 8000.        ]])
+    >>> linear_warping(f, [2, 3], **kwargs).shape
+    (2, 3, 12)
+    """
     fmin = f[0]
     f = f - fmin
     fmax = f[-1]
@@ -16,7 +51,7 @@ def linear_warping(f, n, alpha_sampling_fn, fhi_sampling_fn):
     breakpoints = fhi * np.minimum(alphas, 1) / alphas
 
     if breakpoints.ndim == 0:
-        breakpoints = breakpoints[None]
+        breakpoints = np.array(breakpoints)
     breakpoints[(breakpoints > fmax) + ((alphas * breakpoints) > fmax)] = fmax
     bp_value = alphas * breakpoints
 
@@ -46,7 +81,18 @@ def truncexponential_sampling_fn(n, shift=0., scale=.5, truncation=3.):
 
 
 def uniform_sampling_fn(n, center=0., scale=1.):
-    return center - scale / 2 + scale * np.random.rand(n)
+    """
+    Same as:
+        np.random.uniform(
+            low=center - scale / 2,
+            high=center + scale / 2,
+            size=n
+        )
+    """
+    if np.isscalar(n):
+        return center - scale / 2 + scale * np.random.rand(n)
+    else:
+        return center - scale / 2 + scale * np.random.rand(*n)
 
 
 def log_uniform_sampling_fn(n, center=0., scale=1.):
