@@ -18,21 +18,20 @@ from padertorch.train.optimizer import Adam
 from padertorch.train.trainer import Trainer
 
 
-def get_datasets(storage_dir):
+def get_datasets(storage_dir, max_length=1., batch_size=3):
     db = LibriSpeech()
     train_clean_100 = db.get_dataset('train_clean_100')
 
     train_set, validate_set = split_dataset(train_clean_100, fold=0)
     test_set = db.get_dataset('test_clean')
-    training_data = prepare_dataset(train_set, storage_dir, training=True)
-    validation_data = prepare_dataset(validate_set, storage_dir, training=False)
-    test_data = prepare_dataset(test_set, storage_dir, training=False)
+    training_data = prepare_dataset(train_set, storage_dir, max_length=max_length, batch_size=batch_size, training=True)
+    validation_data = prepare_dataset(validate_set, storage_dir, max_length=max_length, batch_size=batch_size, training=False)
+    test_data = prepare_dataset(test_set, storage_dir, max_length=max_length, batch_size=batch_size, training=False)
     return training_data, validation_data, test_data
 
 
-def prepare_dataset(dataset, storage_dir, training=False):
+def prepare_dataset(dataset, storage_dir, max_length=1., batch_size=3, training=False):
     dataset = dataset.filter(lambda ex: ex['num_samples'] > 16000, lazy=False)
-    batch_size = 3
     stft_shift = 160
     window_length = 480
     target_sample_rate = 16000
@@ -75,7 +74,7 @@ def prepare_dataset(dataset, storage_dir, training=False):
         audio = np.pad(
             audio, (audio.ndim-1)*[(0, 0)] + [(pad_width, window_length - 1)],
             mode='constant')
-        fragment_step = 16000
+        fragment_step = int(max_length*target_sample_rate)
         fragment_length = fragment_step + 2*pad_width
         mel_fragment_step = fragment_step / stft_shift
         mel_fragment_length = stft.samples_to_frames(fragment_step)
