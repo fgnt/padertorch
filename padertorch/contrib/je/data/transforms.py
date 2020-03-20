@@ -373,10 +373,8 @@ def fragment_parallel_signals(
 
         start_idx = round(start * step[i])
         assert abs(start_idx - start * step[i]) < 1e-6, (start_idx, start*step[i])
-        fragments = [x[get_slice(0, start_idx)]] if start_idx >= min_len \
-            else []
-        fragments += [
-            x[get_slice(idx, idx+max_len)]
+        fragments = [
+            x[get_slice(idx, idx + max_len)]
             for idx in np.arange(
                 start_idx, x.shape[ax] - min_len + 1, step[i]
             )
