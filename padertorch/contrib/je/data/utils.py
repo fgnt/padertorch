@@ -1,4 +1,29 @@
 import numpy as np
+from lazy_dataset.core import DynamicTimeSeriesBucket
+
+
+class DynamicDisjointExamplesTimeSeriesBucket(DynamicTimeSeriesBucket):
+    def __init__(self, init_example, **kwargs):
+        """
+        Extension of the DynamicTimeSeriesBucket such that examples are
+        balanced with respect to the dataset they originate from
+
+        Args:
+            init_example: first example in the bucket
+            dataset_sizes:
+            **kwargs: kwargs of DynamicTimeSeriesBucket
+        """
+        super().__init__(init_example, **kwargs)
+        self.example_ids = set()
+
+    def assess(self, example):
+        return (
+            example["example_id"] not in self.example_ids and super().assess(example)
+        )
+
+    def _append(self, example):
+        super()._append(example)
+        self.example_ids.add(example["example_id"])
 
 
 def split_dataset(dataset, fold, nfolfds=5, seed=0):
