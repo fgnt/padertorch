@@ -13,23 +13,23 @@ def linear_warping(f, n, alpha_sampling_fn, fhi_sampling_fn):
     fmax = f[-1]
     alphas = np.array(alpha_sampling_fn(n))
     fhi = np.array(fhi_sampling_fn(n) * fmax)
-    cutoff = fhi * np.minimum(alphas, 1) / alphas
+    breakpoints = fhi * np.minimum(alphas, 1) / alphas
 
-    if cutoff.ndim == 0:
-        cutoff = cutoff[None]
-    cutoff[(cutoff > fmax) + ((alphas * cutoff) > fmax)] = fmax
-    cutoff_value = alphas * cutoff
+    if breakpoints.ndim == 0:
+        breakpoints = breakpoints[None]
+    breakpoints[(breakpoints > fmax) + ((alphas * breakpoints) > fmax)] = fmax
+    bp_value = alphas * breakpoints
 
-    f, cutoff, cutoff_value = np.broadcast_arrays(
-        f, cutoff[..., None], cutoff_value[..., None]
+    f, breakpoints, bp_value = np.broadcast_arrays(
+        f, breakpoints[..., None], bp_value[..., None]
     )
     f_warped = alphas[..., None] * f
-    idx = f > cutoff
+    idx = f > breakpoints
     f_warped[idx] = (
         fmax
         + (
             (f[idx] - fmax)
-            * (fmax - cutoff_value[idx]) / (fmax - cutoff[idx])
+            * (fmax - bp_value[idx]) / (fmax - breakpoints[idx])
         )
     )
     return fmin + f_warped
@@ -108,66 +108,33 @@ class Mixup(nn.Module):
     >>> mixup_params
     >>> mixup(y, mixup_params=mixup_params, cutoff_value=1.)[0]
     """
-    def __init__(
-            self, interpolate=False, alpha=1., p=1., shift=False, max_seq_len=None,
-    ):
+    def __init__(self, interpolate=False, alpha=1., p=1.):
         super().__init__()
         self.interpolate = interpolate
         self.beta_dist = Beta(alpha, alpha)
         self.p = p
-        self.shift = shift
-        self.max_seq_len = max_seq_len
 
-    def forward(self, x, seq_len=None, sequence_axis=None, cutoff_value=None, mixup_params=None):
-        if mixup_params is not None or (
-                self.training and (np.random.rand() < self.p)
-        ):
-            if mixup_params is not None:
-                shuffle_idx, shift, lambdas = mixup_params
+    def forward(self, *arrays):
+        if self.training:
+            arr0 = arrays[0]
+            shuffle_idx = np.random.permutation(arr0.shape[0])
+            lambda2 = torch.from_numpy(
+                np.random.binomial(1, self.p, arr0.shape[0])
+            ).float().to(arr0.device)
+            if self.interpolate:
+                w = self.beta_dist.sample((arr0.shape[0],)).to(arr0.device)
+                lambda2 = lambda2 * w
+                lambda1 = 1. - lambda2
             else:
-                shuffle_idx = np.random.permutation(x.shape[0])
-                if self.shift:
-                    assert sequence_axis is not None
-                    seq_len_ = np.array(
-                        x.shape[0] * [x.shape[sequence_axis]]
-                    ) if seq_len is None else seq_len
-                    max_shift = np.min(seq_len_)
-                    if self.max_seq_len is not None:
-                        max_shift = min(
-                            max_shift, self.max_seq_len - np.max(seq_len_)
-                        )
-                    shift = int(np.random.rand() * (max_shift + 1))
-                else:
-                    shift = 0
-                if self.interpolate:
-                    lambda2 = self.beta_dist.sample((x.shape[0],)).to(x.device)
-                    lambda1 = 1. - lambda2
-                else:
-                    lambda1 = lambda2 = torch.ones((x.shape[0],)).to(x.device)
-                lambdas = (lambda1, lambda2)
-            if shuffle_idx is not None:  # may be None when mixup_params are given from a call where no mixup was performed
-                x1 = x
-                x2 = x[shuffle_idx]
-                if shift > 0 and sequence_axis is not None:
-                    pad_shape = [*x.shape]
-                    pad_shape[sequence_axis] = shift
-                    pad = torch.zeros(tuple(pad_shape)).to(x.device)
-                    x1 = torch.cat((x1, pad), dim=sequence_axis)
-                    x2 = torch.cat((pad, x2), dim=sequence_axis)
-                (lambda1, lambda2) = lambdas
-                lambda1_ = lambda1[(...,) + (x.dim() - 1) * (None,)]
-                lambda2_ = lambda2[(...,) + (x.dim() - 1) * (None,)]
-                x = lambda1_ * x1 + lambda2_ * x2
-                if cutoff_value is not None:
-                    x = torch.min(x, cutoff_value*torch.ones_like(x))
-
-                if seq_len is not None:
-                    seq_len = np.array(seq_len)
-                    seq_len = np.maximum(seq_len, (seq_len[shuffle_idx] + shift))
-            mixup_params = (shuffle_idx, shift, lambdas)
-        else:
-            mixup_params = 3*(None,)
-        return x, seq_len, mixup_params
+                lambda1 = torch.ones(arr0.shape[0]).to(arr0.device)
+            arrays = list(arrays)
+            for i, arr in enumerate(arrays):
+                x1 = arr
+                x2 = arr[shuffle_idx]
+                lambda1_ = lambda1[(...,) + (x1.dim() - 1) * (None,)]
+                lambda2_ = lambda2[(...,) + (x2.dim() - 1) * (None,)]
+                arrays[i] = lambda1_ * x1 + lambda2_ * x2
+        return (*arrays,)
 
 
 class Resample(nn.Module):
@@ -206,7 +173,7 @@ class Mask(nn.Module):
     >>> x = torch.ones((3, 4, 5))
     >>> x = Mask(axis=-1, max_masked_rate=1., max_masked_steps=10)(x, seq_len=[1,2,3])
     """
-    def __init__(self, axis, n_masks=1, max_masked_steps=None, max_masked_rate=0.2):
+    def __init__(self, axis, n_masks=1, max_masked_steps=None, max_masked_rate=1.):
         super().__init__()
         self.axis = axis
         self.n_masks = n_masks
@@ -223,20 +190,20 @@ class Mask(nn.Module):
             axis = x.dim() + axis
         idx = idx[(...,) + (x.dim() - axis - 1)*(None,)]
         idx = idx.expand(x.shape)
+        if seq_len is None:
+            seq_len = x.shape[axis] * torch.ones(x.shape[0])
+        else:
+            seq_len = torch.Tensor(seq_len)
+        max_width = self.max_masked_rate/self.n_masks * seq_len
+        if self.max_masked_values is not None:
+            max_width = torch.min(self.max_masked_values*torch.ones_like(max_width)/self.n_masks, max_width)
+        max_width = torch.floor(max_width)
         for i in range(self.n_masks):
-            if seq_len is None:
-                seq_len = x.shape[axis] * torch.ones(x.shape[0])
-            else:
-                seq_len = torch.Tensor(seq_len)
-            max_width = torch.floor(self.max_masked_rate * seq_len)
-            if self.max_masked_values is not None:
-                max_width = torch.min(self.max_masked_values*torch.ones_like(max_width), max_width)
             width = torch.floor(torch.rand(x.shape[0]) * (max_width + 1))
             max_onset = seq_len - width
             onset = torch.floor(torch.rand(x.shape[0]) * (max_onset + 1))
             width = width[(...,) + (x.dim()-1)*(None,)]
             onset = onset[(...,) + (x.dim()-1)*(None,)]
             offset = onset + width
-
             mask = mask * ((idx < onset) + (idx >= offset)).float().to(x.device)
         return x * mask
