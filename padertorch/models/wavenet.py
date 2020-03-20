@@ -16,7 +16,6 @@ class WaveNet(Model):
     @classmethod
     def finalize_dogmatic_config(cls, config):
         config['wavenet']['factory'] = modules.WaveNet
-        return config
 
     def forward(self, inputs):
         return self.wavenet(inputs[self.feature_key], inputs[self.audio_key])

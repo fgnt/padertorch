@@ -254,12 +254,15 @@ class WaveNet(Module):
         from .nv_wavenet.nv_wavenet import NVWaveNet
         return NVWaveNet(**(self.export_weights()))
 
-    def infer_gpu(self, x):
-        self.cuda()
+    def infer_gpu(self, x, device=0):
+        self.cuda(device)
         from .nv_wavenet.nv_wavenet import Impl
-        cond_input = self.get_cond_input(x.cuda())
-        audio = self.nv_wavenet.infer(cond_input, Impl.AUTO)
-        return mu_law_decode(audio, self.n_out_channels)
+        with torch.no_grad():
+            cond_input = self.get_cond_input(x.cuda(device))
+            audio = self.nv_wavenet.infer(cond_input, Impl.AUTO)
+            audio = mu_law_decode(audio, self.n_out_channels)
+        self.cpu()
+        return audio
 
     def infer_cpu(self, x):
         raise NotImplementedError

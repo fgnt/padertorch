@@ -19,12 +19,12 @@ class CRNN(BaseCRNN):
     def __init__(
             self, cnn_2d, cnn_1d, rnn, fcn, *, sample_rate, fft_length, n_mels,
             post_rnn_pooling=None, decision_boundary=.5,
-            max_scale=2.,
+            max_scale=None,
             fmin=50., fmax=None, frequency_warping=True,
             n_norm_classes=None,
-            mixup_prob=0., shifted_mixup=False, max_seq_len=None,
+            mixup_prob=0.,
             n_time_masks=1, max_masked_time_steps=70, max_masked_time_rate=.2,
-            n_frequency_masks=1, max_masked_frequency_steps=70, max_masked_frequency_rate=.2,
+            n_frequency_masks=1, max_masked_frequency_steps=16, max_masked_frequency_rate=.2,
     ):
         super().__init__(
             cnn_2d, cnn_1d, rnn, fcn, post_rnn_pooling=post_rnn_pooling
@@ -65,10 +65,7 @@ class CRNN(BaseCRNN):
             )
 
         if mixup_prob > 0.:
-            self.mixup = Mixup(
-                interpolate=False, p=mixup_prob,
-                shift=shifted_mixup, max_seq_len=max_seq_len
-            )
+            self.mixup = Mixup(interpolate=False, p=mixup_prob,)
         else:
             self.mixup = None
         if n_time_masks > 0:
@@ -104,10 +101,8 @@ class CRNN(BaseCRNN):
             )
 
         if self.mixup is not None:
-            x, seq_len, mixup_params = self.mixup(
-                x, seq_len=seq_len, sequence_axis=-1
-            )
-            y, *_ = self.mixup(y, mixup_params=mixup_params, cutoff_value=1)
+            x, y = self.mixup(x, y)
+            y = torch.min(y, torch.ones_like(y))
 
         if self.time_masking is not None:
             x = self.time_masking(x, seq_len=seq_len)
@@ -115,7 +110,7 @@ class CRNN(BaseCRNN):
             x = self.freq_masking(x)
         h, seq_len = self.cnn_2d(x, seq_len)
         h, seq_len = self.cnn_1d(h, seq_len)
-        h = self.rnn(h)
+        h = self.rnn(h, seq_len=seq_len)
         h, seq_len = self.post_rnn_pooling(h, seq_len)
         return nn.Sigmoid()(self.fcn(h)), y, x
 

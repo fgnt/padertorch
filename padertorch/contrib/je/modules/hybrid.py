@@ -6,6 +6,7 @@ from padertorch.contrib.je.modules.conv import (
 )
 from padertorch.modules.fully_connected import fully_connected_stack
 from torch import nn
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
 class HybridCNN(Module):
@@ -29,19 +30,21 @@ class HybridCNN(Module):
         self.return_pool_data = return_pool_data
 
     def forward(self, x, seq_len=None):
-        if self.return_pool_data:
+        if self.cnn_2d.return_pool_data:
             x, seq_len, shapes_2d, lengths_2d, pool_indices_2d = self.cnn_2d(
                 x, seq_len
             )
         else:
             x, seq_len = self.cnn_2d(x, seq_len)
+            shapes_2d = lengths_2d = pool_indices_2d = None
         x = rearrange(x, 'b c f t -> b (c f) t')
-        if self.return_pool_data:
+        if self.cnn_1d.return_pool_data:
             x, seq_len, shapes_1d, lengths_1d, pool_indices_1d = self.cnn_1d(
                 x, seq_len=seq_len
             )
         else:
             x, seq_len = self.cnn_1d(x, seq_len)
+            shapes_1d = lengths_1d = pool_indices_1d = None
         if self.return_pool_data:
             return (
                 x, seq_len,
@@ -189,7 +192,7 @@ class CRNN(Module):
             x, seq_len = self._cnn_1d(x, seq_len)
         return x, seq_len
 
-    def rnn(self, x):
+    def rnn(self, x, seq_len=None):
         if self._rnn is None:
             x = rearrange(x, 'b f t -> b t f')
         elif isinstance(self._rnn, nn.RNNBase):
@@ -197,7 +200,13 @@ class CRNN(Module):
                 x = rearrange(x, 'b f t -> b t f')
             else:
                 x = rearrange(x, 'b f t -> t b f')
+            if seq_len is not None:
+                x = pack_padded_sequence(
+                    x, seq_len, batch_first=self._rnn.batch_first
+                )
             x, _ = self._rnn(x)
+            if seq_len is not None:
+                x = pad_packed_sequence(x, batch_first=self._rnn.batch_first)[0]
             if not self._rnn.batch_first:
                 x = rearrange(x, 't b f -> b t f')
         else:
@@ -217,7 +226,7 @@ class CRNN(Module):
     def forward(self, x, seq_len=None):
         x, seq_len = self.cnn_2d(x, seq_len)
         x, seq_len = self.cnn_1d(x, seq_len)
-        x = self.rnn(x)
+        x = self.rnn(x, seq_len=seq_len)
         x, seq_len = self.post_rnn_pooling(x, seq_len)
         y = self.fcn(x)
         return y, seq_len
@@ -230,15 +239,16 @@ class CRNN(Module):
         config['cnn_1d'] = {'factory': CNN1d}
         config['rnn'] = {'factory': nn.GRU}
         config['fcn'] = {'factory': fully_connected_stack}
-        in_channels = config['cnn_2d']['in_channels']
         input_size = config[cls.input_size_key]
         if config['cnn_2d'] is not None and input_size is not None:
+            in_channels = config['cnn_2d']['in_channels']
             cnn_2d = config['cnn_2d']['factory'].from_config(config['cnn_2d'])
             output_size = cnn_2d.get_out_shape((1, in_channels, input_size, 1000))[2]
             input_size = cnn_2d.out_channels[-1] * output_size
 
-        if config['cnn_1d'] is not None and input_size is not None:
-            config['cnn_1d']['in_channels'] = input_size
+        if config['cnn_1d'] is not None:
+            if input_size is not None:
+                config['cnn_1d']['in_channels'] = input_size
             input_size = config['cnn_1d']['out_channels'][-1]
 
         if config['rnn'] is not None:

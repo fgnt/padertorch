@@ -2,21 +2,22 @@ import numpy as np
 import torch
 from einops import rearrange
 from padertorch.base import Model
-from padertorch.contrib.je.modules.conv import CNN2d, CNN1d
+from padertorch.contrib.je.modules.conv import CNN1d, CNNTranspose1d
 from padertorch.contrib.je.modules.dist import GMM
 from padertorch.contrib.je.modules.features import MelTransform
+from padertorch.contrib.je.modules.global_pooling import Mean
 from padertorch.contrib.je.modules.hybrid import HybridCNN, HybridCNNTranspose
 from padertorch.contrib.je.modules.norm import Norm
 from sklearn import metrics
 from torch.distributions import Normal
 from torchvision.utils import make_grid
-from padertorch.contrib.je.modules.global_pooling import Mean
 
 
 class VAE(Model):
     """
     >>> config = VAE.get_config(dict(\
             encoder=dict(\
+                factory=HybridCNN,\
                 input_size=80,\
                 cnn_2d=dict(\
                     in_channels=1, out_channels=3*[32], kernel_size=3, \
@@ -26,7 +27,6 @@ class VAE(Model):
                 ),\
                 return_pool_data=True,\
             ),\
-            decoder=dict(cnn_transpose_1d=dict(in_channels=16)),\
             sample_rate=16000,\
             fft_length=512,\
             n_mels=80,\
@@ -40,15 +40,13 @@ class VAE(Model):
     >>> vae = VAE.from_config(config)
     >>> inputs = {'stft': torch.zeros((4, 1, 100, 257, 2)), 'seq_len': None}
     >>> outputs = vae(inputs)
-    >>> outputs[0].shape
+    >>> outputs[0][0].shape
     torch.Size([4, 1, 80, 100])
-    >>> outputs[1].shape
+    >>> outputs[0][1].shape
     torch.Size([4, 1, 80, 100])
-    >>> outputs[2][0].shape
+    >>> outputs[1][0][0].shape
     torch.Size([4, 16, 100])
-    >>> outputs[3][0].shape
-    torch.Size([4, 16, 100])
-    >>> outputs[3][1].shape
+    >>> outputs[1][0][1].shape
     torch.Size([4, 16, 100])
     >>> review = vae.review(inputs, outputs)
     """
@@ -122,48 +120,45 @@ class VAE(Model):
         return x_hat, seq_len  # (B, C, F, T)
 
     def forward(self, inputs):
-        x = inputs['stft']
+        x_target = inputs['stft']
         seq_len = inputs['seq_len']
-        x = self.feature_extraction(x, seq_len)
-        params, seq_len, shapes, lengths, pool_indices = self.encode(x, seq_len)
+        x_target = self.feature_extraction(x_target, seq_len)
+        params, seq_len, shapes, lengths, pool_indices = self.encode(x_target, seq_len)
         z = self.reparameterize(params)
         x_hat, _ = self.decode(
             z, seq_len, shapes=shapes, lengths=lengths, pool_indices=pool_indices
         )
-        return x, x_hat, (z, seq_len), params
+        return (x_target, x_hat), (params, seq_len)
 
     def review(self, inputs, outputs):
         # visualization
-        x, x_hat, (z, seq_len), params, *_ = outputs
+        (x_target, *x_hats), (params, seq_len), *_ = outputs
         (mu, log_var) = params[:2]
         kld = -0.5 * (1 + log_var - mu.pow(2) - log_var.exp()).sum(dim=1)
-        if seq_len is not None:
-            kld = Mean(axis=-1)(kld, seq_len)
+        kld = Mean(axis=-1)(kld, seq_len)
 
-        mse = (x - x_hat).pow(2).sum(dim=((1, 2) if x.dim() == 4 else 1))
-        seq_len = inputs['seq_len']
-        if seq_len is not None:
-            mse = Mean(axis=-1)(mse, seq_len)
-
-        x_hat = x_hat.contiguous()
         mu = mu.contiguous()
         review = dict(
             losses=dict(
-                mse=mse.mean(),
                 kld=kld.mean(),
             ),
             histograms=dict(
-                mse_=mse,
                 kld_=kld.flatten(),
                 mu_=mu.flatten(),
                 log_var_=log_var.flatten(),
             ),
             images=dict(
-                targets=x[:3],
+                targets=x_target[:3],
                 latents=mu[:3],
-                reconstructions=x_hat[:3],
             )
         )
+        seq_len = inputs['seq_len']
+        for i, x_hat in enumerate(x_hats):
+            mse = (x_hat - x_target).pow(2).sum(dim=(1, 2))
+            mse = Mean(axis=-1)(mse, seq_len)
+            review['losses'][f'mse{i}'] = mse.mean()
+            review['histograms'][f'mse{i}_'] = mse
+            review['images'][f'x_hat_{i}_'] = x_hat.contiguous()[:3]
         return review
 
     def modify_summary(self, summary):
@@ -178,21 +173,25 @@ class VAE(Model):
 
     @classmethod
     def finalize_dogmatic_config(cls, config):
-        config['encoder']['factory'] = HybridCNN
+        config['encoder']['factory'] = CNN1d
         if config['encoder']['factory'] == HybridCNN:
             config['encoder'].update({
-                'cnn_2d': {'factory': CNN2d},
-                'cnn_1d': {
-                    'factory': CNN1d,
-                    'out_channels': 2*config['decoder']['cnn_transpose_1d']['in_channels']
-                }
+                'input_size': config['n_mels'],
             })
-        if config['encoder']['factory'] == CNN1d:
+            content_emb_dim = config['encoder']['cnn_1d']['out_channels'][-1] // 2
+        elif config['encoder']['factory'] == CNN1d:
             config['encoder']['in_channels'] = config['n_mels']
-            config['encoder']['out_channels'] = 2 * config['decoder']['in_channels']
-        config['decoder'].update(
-            config['encoder']['factory'].get_transpose_config(config['encoder'])
-        )
+            content_emb_dim = config['encoder']['out_channels'][-1] // 2
+        else:
+            raise ValueError(f'Factory {config["encoder"]["factory"]} not allowed.')
+
+        config['decoder'] = config['encoder']['factory'].get_transpose_config(config['encoder'])
+        if config['decoder']['factory'] == HybridCNNTranspose:
+            config['decoder']['cnn_transpose_1d']['in_channels'] = content_emb_dim
+        elif config['decoder']['factory'] == CNNTranspose1d:
+            config['decoder']['in_channels'] = content_emb_dim
+        else:
+            raise ValueError(f'Factory {config["decoder"]["factory"]} not allowed.')
 
 
 class GMMVAE(VAE):

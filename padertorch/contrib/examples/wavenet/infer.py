@@ -36,7 +36,7 @@ def load_model(exp_dir):
 @ex.automain
 def main(exp_dir, num_examples):
     model = load_model()
-    _, _, test_set = get_datasets(exp_dir)
+    _, _, test_set = get_datasets(exp_dir, max_length=10., batch_size=1)
     storage_dir = Path(exp_dir) / 'inferred'
     os.makedirs(str(storage_dir), exist_ok=True)
     i = 0
