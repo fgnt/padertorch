@@ -84,6 +84,7 @@ setup(
         'tensorboardX',
         'einops',
         'progressbar2',
+        'natsort',
         'paderbox @ git+http://github.com/fgnt/paderbox',
     ],
 
