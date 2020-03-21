@@ -85,7 +85,7 @@ setup(
         'einops',
         'progressbar2',
         'natsort',
-        'paderbox @ git+http://github.com/fgnt/paderbox',
+        'paderbox @ git+http://github.com/fgnt/paderbox[all]',
     ],
 
     # Installation problems in a clean, new environment:
