@@ -33,7 +33,7 @@ class MelTransform(Module):
             log: apply log to mel spectrogram
             eps:
 
-        >>> mel_transform = MelTransform(16000, 512, 40)
+        >>> mel_transform = MelTransform(40, 16000, 512)
         >>> spec = torch.zeros((10, 1, 100, 257))
         >>> logmelspec = mel_transform(spec)
         >>> logmelspec.shape
@@ -104,6 +104,8 @@ def get_fbanks(
         n_mels, sample_rate, fft_length, fmin=0., fmax=None, warping_fn=None
 ):
     fmax = sample_rate/2 if fmax is None else fmax
+    if fmax < 0:
+        fmax = fmax % sample_rate/2
     f = mel2hz(np.linspace(hz2mel(fmin), hz2mel(fmax), n_mels+2))
     if warping_fn is not None:
         f = warping_fn(f)
