@@ -91,10 +91,10 @@ def download(verbose=True):
     Done.
     Downloading http://yann.lecun.com/exdb/mnist/t10k-labels-idx1-ubyte.gz
     Done.
-    {'train_data': ndarray(shape=(60000, 28, 28), dtype=uint8),
-     'train_digits': ndarray(shape=(60000,), dtype=uint8),
-     'test_data': ndarray(shape=(10000, 28, 28), dtype=uint8),
-     'test_digits': ndarray(shape=(10000,), dtype=uint8)}
+    {'train_data': array(shape=(60000, 28, 28), dtype=uint8),
+     'train_digits': array(shape=(60000,), dtype=uint8),
+     'test_data': array(shape=(10000, 28, 28), dtype=uint8),
+     'test_digits': array(shape=(10000,), dtype=uint8)}
 
     """
     # URLs for the train image and label data
