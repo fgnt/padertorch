@@ -85,7 +85,8 @@ setup(
         'einops',
         'progressbar2',
         'natsort',
-        'paderbox[all] @ git+http://github.com/fgnt/paderbox',
+        'matplotlib',
+        'paderbox @ git+http://github.com/fgnt/paderbox',
     ],
 
     # Installation problems in a clean, new environment:
