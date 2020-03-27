@@ -85,7 +85,6 @@ setup(
         'einops',
         'progressbar2',
         'natsort',
-        'matplotlib',
         'paderbox @ git+http://github.com/fgnt/paderbox',
     ],
 
