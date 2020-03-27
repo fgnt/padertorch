@@ -22,7 +22,7 @@ with open(path.join(here, 'DESCRIPTION.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
 # testing dependencies
-test = ['coverage', 'pylint', 'sacred', 'appdirs',
+test = ['pytest', 'coverage', 'pylint', 'sacred', 'appdirs',
         'protobuf3_to_dict', 'torchvision']
 
 setup(
