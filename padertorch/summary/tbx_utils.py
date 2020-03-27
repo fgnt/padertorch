@@ -100,9 +100,18 @@ def spectrogram_to_image(signal, batch_first=False, color='viridis'):
         try:
             cmap = _spectrogram_to_image_cmap[color]
         except KeyError:
-            import matplotlib.pyplot as plt
-            cmap = plt.cm.get_cmap(color)
-            _spectrogram_to_image_cmap[color] = cmap
+            try:
+                import matplotlib.pyplot as plt
+                cmap = plt.cm.get_cmap(color)
+                _spectrogram_to_image_cmap[color] = cmap
+            except ImportError:
+                from warnings import warn
+                gray_scale = lambda x: x.transpose(1, 0)[None, ::-1, :]
+                warn('Since matplotlib is not installed, all images are '
+                     'switched to grey scale')
+                _spectrogram_to_image_cmap[color] = gray_scale
+                # gray image
+                return gray_scale(signal)
 
         return cmap(signal).transpose(2, 1, 0)[:, ::-1, :]
     else:
