@@ -81,7 +81,7 @@ def load_labels(src, num_samples, verbose):
 def download(verbose=True):
     """
 
-    >>> from paderbox.notebook import pprint
+    >>> from paderbox.utils.pretty import pprint
     >>> pprint(download())
     Downloading http://yann.lecun.com/exdb/mnist/train-images-idx3-ubyte.gz
     Done.

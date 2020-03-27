@@ -30,7 +30,8 @@ def get_blstm_stack(
         output_size: int,
         bidirectional=True,
         batch_first=False,
-        dropout=0.
+        dropout=0.,
+        rnn_type='LSTM',
 ):
     """
 
@@ -56,7 +57,14 @@ def get_blstm_stack(
     if dropout is None or dropout is False:
         dropout = 0
 
-    return torch.nn.LSTM(
+    if rnn_type == 'LSTM':
+        Rnn = torch.nn.LSTM
+    elif rnn_type == 'GRU':
+        Rnn = torch.nn.GRU
+    else:
+        raise ValueError(rnn_type)
+
+    return Rnn(
         input_size,
         hidden_size=output_size,
         num_layers=num_layers,
@@ -86,7 +94,8 @@ def get_callable_blstm_stack(
         output_size: int,
         bidirectional=True,
         batch_first=False,
-        dropout=0.
+        dropout=0.,
+        rnn_type='LSTM',
 ) -> RNN:
     return RNN(
         get_blstm_stack(
@@ -96,6 +105,7 @@ def get_callable_blstm_stack(
             bidirectional=bidirectional,
             batch_first=batch_first,
             dropout=dropout,
+            rnn_type=rnn_type,
         )
     )
 

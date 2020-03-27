@@ -13,7 +13,9 @@ import padertorch as pt
 
 class ReviewSummary(collections.Mapping):
     """
-    >>> ReviewSummary()
+    >>> review_summary = ReviewSummary()
+    >>> review_summary
+    ReviewSummary(prefix='', _data={})
     """
 
     _keys = set(pt.train.hooks.SummaryHook.empty_summary_dict().keys()) | {
@@ -32,16 +34,16 @@ class ReviewSummary(collections.Mapping):
         else:
             self.data['loss'] = value
 
-    def add_scalar(self, name, value):
+    def add_scalar(self, name, *value):
         # Save the mean of all added values
-        value = pt.utils.to_numpy(value, detach=True)
+        value = pt.data.batch.example_to_numpy(value, detach=True)
         self.data.setdefault(
             'scalars',
             {}
         ).setdefault(
             f'{self.prefix}{name}',
             []
-        ).append(value)
+        ).extend(value)
 
     def add_text(self, name, text):
         assert isinstance(text, str), (type(text), text)
@@ -75,6 +77,16 @@ class ReviewSummary(collections.Mapping):
         image = pt.summary.mask_to_image(mask, batch_first=batch_first)
         self.add_image(name, image)
 
+    def add_histogram(self, name, values):
+        value = pt.utils.to_numpy(values, detach=True)
+        self.data.setdefault(
+            'histograms',
+            {}
+        ).setdefault(
+            f'{self.prefix}{name}',
+            []
+        ).append(value)
+
     def __contains__(self, item):
         return item in self.data
 
@@ -100,3 +112,44 @@ class ReviewSummary(collections.Mapping):
 
     def __len__(self):
         return len(self.data)
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}(prefix={self.prefix!r}, _data={dict(self)!r})'
+
+    def _repr_pretty_(self, p, cycle):
+        """
+        >>> review_summary = ReviewSummary()
+        >>> review_summary.add_to_loss(1)
+        >>> review_summary.add_scalar('abc', 2)
+        >>> review_summary
+        ReviewSummary(prefix='', _data={'loss': 1, 'scalars': {'abc': [2]}})
+        >>> from IPython.lib.pretty import pprint
+        >>> pprint(review_summary)
+        ReviewSummary(prefix='', _data={'loss': 1, 'scalars': {'abc': [2]}})
+        >>> pprint(review_summary, max_width=79-18)
+        ReviewSummary(
+            prefix='',
+            _data={'loss': 1, 'scalars': {'abc': [2]}}
+        )
+        >>> pprint(review_summary, max_width=79-40)
+        ReviewSummary(
+            prefix='',
+            _data={'loss': 1,
+                   'scalars': {'abc': [2]}}
+        )
+        """
+        if cycle:
+            p.text(f'{self.__class__.__name__}(...)')
+        else:
+            txt = f'{self.__class__.__name__}('
+            with p.group(4, txt, ''):
+                p.breakable(sep='')
+                p.text('prefix=')
+                p.pretty(self.prefix)
+                p.text(',')
+                p.breakable()
+                txt = '_data='
+                with p.group(len(txt), txt, ''):
+                    p.pretty(dict(self))
+            p.breakable('')
+            p.text(')')
