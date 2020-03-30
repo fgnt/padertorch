@@ -22,7 +22,7 @@ with open(path.join(here, 'DESCRIPTION.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
 # testing dependencies
-test = ['coverage', 'pylint', 'sacred', 'appdirs',
+test = ['pytest', 'coverage', 'pylint', 'sacred', 'appdirs',
         'protobuf3_to_dict', 'torchvision']
 
 setup(
@@ -85,7 +85,7 @@ setup(
         'einops',
         'progressbar2',
         'natsort',
-        'paderbox[all] @ git+http://github.com/fgnt/paderbox',
+        'paderbox @ git+http://github.com/fgnt/paderbox',
     ],
 
     # Installation problems in a clean, new environment:
