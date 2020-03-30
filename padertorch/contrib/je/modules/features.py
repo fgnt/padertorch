@@ -4,7 +4,40 @@ from typing import Optional
 import numpy as np
 import torch
 from padertorch.base import Module
+from padertorch.contrib.je.modules.norm import Norm
 from torch import nn
+
+
+class NormalizedLogMelExtractor(nn.Module):
+    def __init__(
+            self, n_mels, sample_rate, fft_length, fmin=50, fmax=None,
+            warping_fn=None, statistics_axis='bt', momentum=None, interpolation_factor=1.,
+    ):
+        super().__init__()
+        self.mel_transform = MelTransform(
+            n_mels=n_mels, sample_rate=sample_rate, fft_length=fft_length,
+            fmin=fmin, fmax=fmax,
+            warping_fn=warping_fn,
+        )
+        self.norm = Norm(
+            data_format='bcft',
+            shape=(None, 1, n_mels, None),
+            statistics_axis=statistics_axis,
+            scale=True,
+            independent_axis=None,
+            momentum=momentum,
+            interpolation_factor=interpolation_factor,
+        )
+
+    def forward(self, x, seq_len=None):
+        x = self.mel_transform(torch.sum(x**2, dim=(-1,))).transpose(-2, -1)
+        x = self.norm(x, seq_len=seq_len)
+        return x
+
+    def inverse(self, x):
+        return self.mel_transform.inverse(
+            self.norm.inverse(x).transpose(-2, -1)
+        )
 
 
 class MelTransform(Module):
