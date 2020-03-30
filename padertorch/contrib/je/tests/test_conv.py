@@ -56,10 +56,10 @@ def run_conv_sweep(x, enc_cls, dec_cls, kwargs_sweep):
         out_lengths = z.shape[0]*[z.shape[-1]]
         # print(z.shape)
         assert all(z.shape == enc.get_out_shape(x.shape)), (
-            z.shape, enc.get_out_shape(x.shape)
+            z.shape, enc.get_shapes(x.shape)
         )
         assert all(out_lengths == enc.get_out_lengths(in_lengths)), (
-            out_lengths, enc.get_out_lengths(in_lengths)
+            out_lengths, enc.get_seq_lens(in_lengths)
         )
         dec = dec_cls(
             in_channels=out_channels,
@@ -109,34 +109,30 @@ def run_cnn_sweep(x, enc_cls, kwargs_sweep):
 
     for kwargs in sweep(kwargs_sweep):
         enc = enc_cls(
-            return_pool_data=True,
+            return_pool_indices=True,
             **kwargs
         )
         in_lengths = x.shape[0]*[x.shape[-1]]
-        z, seq_len, shapes, lengths, pool_indices = enc(x, seq_len=in_lengths)
+        z, seq_len, pool_indices = enc(x, seq_len=in_lengths)
+        shapes = enc.get_shapes(x.shape)
+        lengths = enc.get_seq_lens(in_lengths)
         out_lengths = z.shape[0]*[z.shape[-1]]
         # print(z.shape)
-        assert all(z.shape == enc.get_out_shape(x.shape)), (
-            z.shape, enc.get_out_shape(x.shape)
-        )
-        assert all(out_lengths == enc.get_out_lengths(in_lengths)), (
-            out_lengths, enc.get_out_lengths(in_lengths)
-        )
+        assert all(z.shape == shapes[-1]), (z.shape, shapes)
+        assert all(out_lengths == lengths[-1]), (out_lengths, lengths)
         kwargs = copy(kwargs)
         kwargs['factory'] = enc_cls
         transpose_kwargs = enc.get_transpose_config(kwargs)
         dec_cls = transpose_kwargs.pop('factory')
         dec = dec_cls(**transpose_kwargs)
         x_hat, seq_len = dec(
-            z, seq_len=seq_len,
-            out_shapes=shapes, out_lengths=lengths, pool_indices=pool_indices
+            z, seq_len=seq_len, shapes=shapes, seq_lens=lengths, pool_indices=pool_indices
         )
         assert x_hat.shape == x.shape, (x_hat.shape, x.shape)
         transpose_kwargs = copy(transpose_kwargs)
         transpose_kwargs['factory'] = dec_cls
-        transpose_transpose_kwargs = dec.get_transpose_config(transpose_kwargs)
         # ToDo: compare transpose_transpose_kwargs to kwargs
-        pass
+        # transpose_transpose_kwargs = dec.get_transpose_config(transpose_kwargs)
 
 
 def test_cnn_1d_shapes():
