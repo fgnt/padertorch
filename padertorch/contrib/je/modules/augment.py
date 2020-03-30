@@ -6,6 +6,7 @@ from torch.distributions import Beta
 from torch.nn.functional import interpolate
 from padertorch.contrib.je.modules.features import hz2mel, mel2hz
 from einops import rearrange
+from padertorch.utils import to_list
 
 
 def linear_warping(f, n, alpha_sampling_fn, fhi_sampling_fn):
