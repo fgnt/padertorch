@@ -71,6 +71,7 @@ class MaskTransformer(Parameterized):
 
 
 class SequenceProvider(Parameterized):
+    is_training = False
     @dataclass
     class opts:
         reference_channel: int = 0
@@ -139,10 +140,13 @@ class SequenceProvider(Parameterized):
         num_samples = example[NUM_SAMPLES]
         audio_keys = [key for key in example['audio_keys']
                       if key not in exclude_keys]
+
+        offset = 0
         if self.opts.time_segments_random_offset:
-            offset = np.random.randint(0, num_samples % segment_len)
-        else:
-            offset = 0
+            max_offset = num_samples % segment_len
+            if max_offset > 0:
+                offset = np.random.randint(0, max_offset)
+
         for key in audio_keys:
             example[key] = segment_axis(
                 example[key][..., offset:num_samples], segment_len,
@@ -216,8 +220,11 @@ class SequenceProvider(Parameterized):
                 iterator = iterator.map(self.collate)
         return iterator
 
-    def get_train_iterator(self, time_segment=None):
+    def train(self):
+        self._train = True
 
+    def get_train_iterator(self, time_segment=None):
+        self.is_training = True
         iterator = self.database.get_dataset_train()
         iterator = iterator.map(self.read_audio) \
             .map(self.database.add_num_samples)
@@ -241,6 +248,7 @@ class SequenceProvider(Parameterized):
                                      unbatch=unbatch)
 
     def get_eval_iterator(self, num_examples=-1):
+        self._train = False
 
         iterator = self.database.get_dataset_validation()
         iterator = iterator.map(self.read_audio) \
@@ -253,6 +261,7 @@ class SequenceProvider(Parameterized):
                              dataset=None,
                              iterable_apply_fn=None,
                              filter_fn=lambda x: True):
+        self._train = False
         if dataset is None:
             iterator = self.database.get_dataset_test()
         else:
