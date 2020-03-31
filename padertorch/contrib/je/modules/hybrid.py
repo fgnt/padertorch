@@ -18,38 +18,36 @@ class HybridCNN(Module):
             cnn_2d: CNN2d,
             cnn_1d: CNN1d,
             input_size=None,
-            return_pool_data=False
+            return_pool_indices=False
     ):
         super().__init__()
-        assert cnn_2d.return_pool_data == cnn_1d.return_pool_data == return_pool_data, (
-                cnn_2d.return_pool_data, cnn_1d.return_pool_data, return_pool_data
+        assert cnn_2d.return_pool_indices == cnn_1d.return_pool_indices == return_pool_indices, (
+            cnn_2d.return_pool_indices, cnn_1d.return_pool_indices, return_pool_indices
         )
         self.cnn_2d = cnn_2d
         self.cnn_1d = cnn_1d
         self.input_size = input_size
-        self.return_pool_data = return_pool_data
+        self.return_pool_indices = return_pool_indices
 
     def forward(self, x, seq_len=None):
-        if self.cnn_2d.return_pool_data:
-            x, seq_len, shapes_2d, lengths_2d, pool_indices_2d = self.cnn_2d(
+        if self.cnn_2d.return_pool_indices:
+            x, seq_len, pool_indices_2d = self.cnn_2d(
                 x, seq_len
             )
         else:
             x, seq_len = self.cnn_2d(x, seq_len)
-            shapes_2d = lengths_2d = pool_indices_2d = None
+            pool_indices_2d = None
         x = rearrange(x, 'b c f t -> b (c f) t')
-        if self.cnn_1d.return_pool_data:
-            x, seq_len, shapes_1d, lengths_1d, pool_indices_1d = self.cnn_1d(
+        if self.cnn_1d.return_pool_indices:
+            x, seq_len, pool_indices_1d = self.cnn_1d(
                 x, seq_len=seq_len
             )
         else:
             x, seq_len = self.cnn_1d(x, seq_len)
-            shapes_1d = lengths_1d = pool_indices_1d = None
-        if self.return_pool_data:
+            pool_indices_1d = None
+        if self.return_pool_indices:
             return (
                 x, seq_len,
-                (shapes_2d, shapes_1d),
-                (lengths_2d, lengths_1d),
                 (pool_indices_2d, pool_indices_1d)
             )
         return x, seq_len
@@ -58,15 +56,15 @@ class HybridCNN(Module):
     def finalize_dogmatic_config(cls, config):
         config['cnn_2d'] = {
             'factory': CNN2d,
-            'return_pool_data': config['return_pool_data']
+            'return_pool_indices': config['return_pool_indices']
         }
         config['cnn_1d'] = {
             'factory': CNN1d,
-            'return_pool_data': config['return_pool_data']
+            'return_pool_indices': config['return_pool_indices']
         }
         if config['input_size'] is not None:
             cnn_2d = config['cnn_2d']['factory'].from_config(config['cnn_2d'])
-            _, out_channels, output_size, _ = cnn_2d.get_out_shape((1, config['cnn_2d']['in_channels'], config['input_size'], 1000))
+            _, out_channels, output_size, _ = cnn_2d.get_shapes((1, config['cnn_2d']['in_channels'], config['input_size'], 1000))[-1]
             config['cnn_1d']['in_channels'] = out_channels * output_size
 
     @classmethod
@@ -79,10 +77,16 @@ class HybridCNN(Module):
         transpose_config['cnn_transpose_2d'] = config['cnn_2d']['factory'].get_transpose_config(config['cnn_2d'])
         return transpose_config
 
-    def get_out_shape(self, in_shape):
-        out_shape = self.cnn_2d.get_out_shape(in_shape)
-        out_shape = self.cnn_1d.get_out_shape(out_shape[..., -1])
-        return out_shape
+    def get_shapes(self, in_shape):
+        cnn_2d_shapes = self.cnn_2d.get_shapes(in_shape)
+        out_shape = cnn_2d_shapes[-1]
+        cnn_1d_shapes = self.cnn_1d.get_shapes((out_shape[0], out_shape[1]*out_shape[2], out_shape[3]))
+        return cnn_2d_shapes, cnn_1d_shapes
+
+    def get_seq_lens(self, in_lengths):
+        cnn_2d_lengths = self.cnn_2d.get_seq_lens(in_lengths)
+        cnn_1d_lengths = self.cnn_1d.get_seq_lens(cnn_2d_lengths[-1])
+        return cnn_2d_lengths, cnn_1d_lengths
 
 
 class HybridCNNTranspose(Module):
@@ -100,24 +104,24 @@ class HybridCNNTranspose(Module):
 
     def forward(
             self, x, seq_len=None,
-            out_shapes=None,
-            out_lengths=None,
+            shapes=None,
+            seq_lens=None,
             pool_indices=None,
     ):
-        if out_shapes is None:
-            out_shapes = (None, None)
-        shapes_2d, shapes_1d = out_shapes
-        if out_lengths is None:
-            out_lengths = (None, None)
-        lengths_2d, lengths_1d = out_lengths
+        if shapes is None:
+            shapes = (None, None)
+        shapes_2d, shapes_1d = shapes
+        if seq_lens is None:
+            seq_lens = (None, None)
+        lengths_2d, lengths_1d = seq_lens
         if pool_indices is None:
             pool_indices = (None, None)
         pool_indices_2d, pool_indices_1d = pool_indices
         x, seq_len = self.cnn_transpose_1d(
             x,
             seq_len=seq_len,
-            out_shapes=shapes_1d,
-            out_lengths=lengths_1d,
+            shapes=shapes_1d,
+            seq_lens=lengths_1d,
             pool_indices=pool_indices_1d,
         )
         x = x.view(
@@ -126,8 +130,8 @@ class HybridCNNTranspose(Module):
         x, seq_len = self.cnn_transpose_2d(
             x,
             seq_len=seq_len,
-            out_shapes=shapes_2d,
-            out_lengths=lengths_2d,
+            shapes=shapes_2d,
+            seq_lens=lengths_2d,
             pool_indices=pool_indices_2d,
         )
         return x, seq_len
@@ -243,7 +247,7 @@ class CRNN(Module):
         if config['cnn_2d'] is not None and input_size is not None:
             in_channels = config['cnn_2d']['in_channels']
             cnn_2d = config['cnn_2d']['factory'].from_config(config['cnn_2d'])
-            output_size = cnn_2d.get_out_shape((1, in_channels, input_size, 1000))[2]
+            output_size = cnn_2d.get_shapes((1, in_channels, input_size, 1000))[2]
             input_size = cnn_2d.out_channels[-1] * output_size
 
         if config['cnn_1d'] is not None:

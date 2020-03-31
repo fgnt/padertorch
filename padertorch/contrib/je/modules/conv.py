@@ -239,7 +239,7 @@ class _Conv(Module):
     def trim_padded_or_pad_trimmed(self, y, out_shape=None):
         assert self.is_transpose()
         if out_shape is not None:
-            assert y.shape[:2] == out_shape[:2], (y.shape, out_shape)
+            assert y.shape[:2] == tuple(out_shape)[:2], (y.shape, out_shape)
             size = np.array(y.shape[2:]) - np.array(out_shape[2:])
             pad_side = [
                 'both' if side is None else side  # if no padding has been used both sides have been trimmed
@@ -470,7 +470,7 @@ class _CNN(Module):
             gated=False,
             pool_type='max',
             pool_size=1,
-            return_pool_data=False,
+            return_pool_indices=False,
     ):
         super().__init__()
 
@@ -495,7 +495,7 @@ class _CNN(Module):
         self.strides = to_list(stride, num_layers)
         self.pool_types = to_list(pool_type, num_layers)
         self.pool_sizes = to_list(pool_size, num_layers)
-        self.return_pool_data = return_pool_data
+        self.return_pool_indices = return_pool_indices
 
         convs = list()
         i = 0
@@ -608,17 +608,16 @@ class _CNN(Module):
         self.layer_in_channels = layer_in_channels
 
     def forward(
-            self, x, seq_len=None,
-            out_shapes=None, out_lengths=None, pool_indices=None,
+            self, x, seq_len=None, shapes=None, seq_lens=None, pool_indices=None,
             **norm_kwargs
     ):
         assert x.dim() == (3 + self.is_2d()), (x.shape, self.is_2d())
         if not self.is_transpose():
-            assert out_shapes is None, out_shapes
-            assert out_lengths is None, out_lengths
+            assert shapes is None, shapes
+            assert seq_lens is None, seq_lens
             assert pool_indices is None, pool_indices.shape
-        shapes = to_list(copy(out_shapes), self.num_layers)[::-1]
-        lengths = to_list(copy(out_lengths), self.num_layers)[::-1]
+        out_shapes = to_list(copy(shapes), self.num_layers+1)[::-1][1:]
+        out_lengths = to_list(copy(seq_lens), self.num_layers+1)[::-1][1:]
         pool_indices = to_list(copy(pool_indices), self.num_layers)[::-1]
         residual_skip_signals = defaultdict(list)
         dense_skip_signals = defaultdict(list)
@@ -647,15 +646,11 @@ class _CNN(Module):
                         dense_skip_signals[dst_idx].append((i, x_skip))
                     else:
                         dense_skip_signals[dst_idx].append((i, x))
-            in_shape = x.shape
-            in_lengths = seq_len
             x, seq_len = conv(
                 x,
-                seq_len=seq_len, out_shape=shapes[i], out_lengths=lengths[i],
+                seq_len=seq_len, out_shape=out_shapes[i], out_lengths=out_lengths[i],
                 **norm_kwargs
             )
-            shapes[i] = in_shape
-            lengths[i] = in_lengths
             for src_idx, x_ in dense_skip_signals[i + 1]:
                 x_ = F.interpolate(x_, size=x.shape[2:])
                 if self.is_transpose():
@@ -674,8 +669,8 @@ class _CNN(Module):
                 pad_side=self.pad_sides[i],
                 seq_len=seq_len
             )
-        if self.return_pool_data:
-            return x, seq_len, shapes, lengths, pool_indices
+        if self.return_pool_indices:
+            return x, seq_len, pool_indices
         return x, seq_len
 
     def maybe_pool(self, x, pool_type, pool_size, pad_side, seq_len=None):
@@ -778,12 +773,13 @@ class _CNN(Module):
             transpose_config[kw] = config[kw]
         return transpose_config
 
-    def get_out_shape(self, in_shape):
+    def get_shapes(self, in_shape):
         assert in_shape[1] == self.in_channels, (in_shape[1], self.in_channels)
         out_shape = in_shape
+        shapes = [in_shape]
         for i, conv in enumerate(self.convs):
             out_shape = conv.get_out_shape(out_shape)
-            out_shape[1] = self.layer_in_channels[i + 1]
+            out_shape[1] = self.layer_in_channels[i + 1]  # has to be adjusted with dense skip connections
             if self.pool_types[i] is not None:
                 if self.is_transpose():
                     raise NotImplementedError
@@ -793,10 +789,12 @@ class _CNN(Module):
                         [pad is None for pad in to_list(self.pad_sides[i])],
                         np.floor(out_shape_), np.ceil(out_shape_)
                     )
-        return out_shape
+            shapes.append(out_shape)
+        return shapes
 
-    def get_out_lengths(self, in_lengths):
+    def get_seq_lens(self, in_lengths):
         out_lengths = in_lengths
+        seq_lens = [in_lengths]
         for i, conv in enumerate(self.convs):
             out_lengths = conv.get_out_lengths(out_lengths)
             if self.pool_types[i] is not None:
@@ -808,7 +806,8 @@ class _CNN(Module):
                         out_lengths = np.floor(out_lengths)
                     else:
                         out_lengths = np.ceil(out_lengths)
-        return out_lengths
+            seq_lens.append(out_lengths)
+        return seq_lens
 
 
 class CNN1d(_CNN):

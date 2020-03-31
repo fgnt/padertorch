@@ -5,6 +5,8 @@ from torch import nn
 from torch.distributions import Beta
 from torch.nn.functional import interpolate
 from padertorch.contrib.je.modules.features import hz2mel, mel2hz
+from einops import rearrange
+from padertorch.utils import to_list
 
 
 def linear_warping(f, n, alpha_sampling_fn, fhi_sampling_fn):
@@ -76,7 +78,21 @@ def mel_warping(f, n, alpha_sampling_fn, fhi_sampling_fn):
     return mel2hz(f)
 
 
-def truncexponential_sampling_fn(n, shift=0., scale=.5, truncation=3.):
+class LinearWarping:
+    def __init__(self, alpha_sampling_fn, fhi_sampling_fn):
+        self.alpha_sampling_fn = alpha_sampling_fn
+        self.fhi_sampling_fn = fhi_sampling_fn
+
+    def __call__(self, f, n):
+        return linear_warping(f, n, self.alpha_sampling_fn, self.fhi_sampling_fn)
+
+
+class MelWarping(LinearWarping):
+    def __call__(self, f, n):
+        return mel_warping(f, n, self.alpha_sampling_fn, self.fhi_sampling_fn)
+
+
+def truncexponential_sampling_fn(n, shift=0., scale=1., truncation=3.):
     return truncexpon(truncation/scale, shift, scale).rvs(n)
 
 
@@ -99,14 +115,59 @@ def log_uniform_sampling_fn(n, center=0., scale=1.):
     return np.exp(uniform_sampling_fn(n, center, scale))
 
 
-def truncnormal_sampling_fn(n, center=0., scale=.5, truncation=2.):
+def truncnormal_sampling_fn(n, center=0., scale=.5, truncation=3.):
     return (
         truncnorm(-truncation / scale, truncation / scale, center, scale).rvs(n)
     )
 
 
-def log_truncnormal_sampling_fn(n, center=0., scale=.5, truncation=2.):
+def log_truncnormal_sampling_fn(n, center=0., scale=.5, truncation=3.):
     return np.exp(truncnormal_sampling_fn(n, center, scale, truncation))
+
+
+class TruncExponentialSampler:
+    def __init__(self, shift=0., scale=1., truncation=3.):
+        self.shift = shift
+        self.scale = scale
+        self.truncation = truncation
+
+    def __call__(self, n):
+        return truncexponential_sampling_fn(
+            n, shift=self.shift, scale=self.scale, truncation=self.truncation
+        )
+
+
+class UniformSampler:
+    def __init__(self, center=0., scale=1.):
+        self.center = center
+        self.scale = scale
+
+    def __call__(self, n):
+        return uniform_sampling_fn(n, center=self.center, scale=self.scale)
+
+
+class LogUniformSampler(UniformSampler):
+    def __call__(self, n):
+        return log_uniform_sampling_fn(n, center=self.center, scale=self.scale)
+
+
+class TruncNormalSampler:
+    def __init__(self, center=0., scale=1., truncation=3.):
+        self.center = center
+        self.scale = scale
+        self.truncation = truncation
+
+    def __call__(self, n):
+        return truncnormal_sampling_fn(
+            n, center=self.center, scale=self.scale, truncation=self.truncation
+        )
+
+
+class LogTruncNormalSampler(TruncNormalSampler):
+    def __call__(self, n):
+        return log_truncnormal_sampling_fn(
+            n, center=self.center, scale=self.scale, truncation=self.truncation
+        )
 
 
 class Scale(nn.Module):
@@ -149,10 +210,8 @@ class Mixup(nn.Module):
     """
     >>> x = torch.cumsum(torch.ones((3, 4, 5)), 0)
     >>> y = torch.arange(3).float()
-    >>> mixup = Mixup(interpolate=True, p=0.5, shift=True)
-    >>> x, seq_len, mixup_params = mixup(x, seq_len=[3,4,5], sequence_axis=-1)
-    >>> mixup_params
-    >>> mixup(y, mixup_params=mixup_params, cutoff_value=1.)[0]
+    >>> mixup = Mixup(interpolate=True, p=0.5)
+    >>> x, seq_len = mixup(x, seq_len=[3,4,5])
     """
     def __init__(self, interpolate=False, alpha=1., p=1.):
         super().__init__()
@@ -160,13 +219,14 @@ class Mixup(nn.Module):
         self.beta_dist = Beta(alpha, alpha)
         self.p = p
 
-    def forward(self, *arrays):
+    def forward(self, *arrays, seq_len=None):
         if self.training:
             arr0 = arrays[0]
             shuffle_idx = np.random.permutation(arr0.shape[0])
-            lambda2 = torch.from_numpy(
-                np.random.binomial(1, self.p, arr0.shape[0])
-            ).float().to(arr0.device)
+            lambda2 = np.random.binomial(1, self.p, arr0.shape[0])
+            if seq_len is not None:
+                seq_len = np.maximum(seq_len, lambda2*np.array(seq_len)[shuffle_idx])
+            lambda2 = torch.from_numpy(lambda2).float().to(arr0.device)
             if self.interpolate:
                 w = self.beta_dist.sample((arr0.shape[0],)).to(arr0.device)
                 lambda2 = lambda2 * w
@@ -180,38 +240,94 @@ class Mixup(nn.Module):
                 lambda1_ = lambda1[(...,) + (x1.dim() - 1) * (None,)]
                 lambda2_ = lambda2[(...,) + (x2.dim() - 1) * (None,)]
                 arrays[i] = lambda1_ * x1 + lambda2_ * x2
-        return (*arrays,)
+        return (*arrays, seq_len)
+
+
+class ShiftedMixup(nn.Module):
+    """
+    >>> x = torch.cumsum(torch.ones((3, 4, 5)), 0)
+    >>> y = torch.arange(3).float()
+    >>> mixup = ShiftedMixup(interpolate=True, p=0.5)
+    >>> x, y, seq_len = mixup(x, y, seq_len=[3,4,5], seq_axis=[-1, None])
+    >>> x, y, seq_len
+    """
+    def __init__(self, interpolate=False, alpha=1., p=1., max_shift=None):
+        super().__init__()
+        self.interpolate = interpolate
+        self.beta_dist = Beta(alpha, alpha)
+        self.p = p
+        self.max_shift = max_shift
+
+    def forward(self, *arrays, seq_len=None, seq_axis=-2):
+        if self.training and np.random.rand() < self.p:
+            seq_axis = to_list(seq_axis, len(arrays))
+            arr0 = arrays[0]
+            shuffle_idx = np.random.permutation(arr0.shape[0])
+            if seq_len is None:
+                seq_len = arr0.shape[0] * [arr0.shape[seq_axis[0]]]
+            max_shift = min(seq_len)
+            if self.max_shift is not None:
+                max_shift = min(max_shift, self.max_shift)
+            shift = int(np.random.randn() * max_shift)
+
+            seq_len = np.maximum(seq_len, shift + np.array(seq_len)[shuffle_idx])
+            if self.interpolate:
+                lambda2 = self.beta_dist.sample((arr0.shape[0],)).to(arr0.device)
+                lambda1 = 1. - lambda2
+            else:
+                lambda1 = lambda2 = torch.ones(arr0.shape[0]).to(arr0.device)
+            arrays = list(arrays)
+            for i, arr in enumerate(arrays):
+                x1 = arr
+                x2 = arr[shuffle_idx]
+                if seq_axis[i] is not None and shift > 0:
+                    pad_shape = list(arr.shape)
+                    pad_shape[seq_axis[i]] = shift
+                    pad = torch.zeros(tuple(pad_shape)).to(arr.device)
+                    x1 = torch.cat((x1, pad), dim=seq_axis[i])
+                    x2 = torch.cat((pad, x2), dim=seq_axis[i])
+                lambda1_ = lambda1[(...,) + (x1.dim() - 1) * (None,)]
+                lambda2_ = lambda2[(...,) + (x2.dim() - 1) * (None,)]
+                arrays[i] = lambda1_ * x1 + lambda2_ * x2
+        return (*arrays, seq_len)
 
 
 class Resample(nn.Module):
     """
     >>> x = torch.cumsum(torch.ones((3, 4, 5)), -1)
-    >>> Resample(alpha_sampling_fn=log_uniform_sampling_fn, scale=.5)(x, seq_len=[3,4,5])
+    >>> from functools import partial
+    >>> Resample(rate_sampling_fn=LogUniformSampler(scale=.5))(x, seq_len=[3,4,5])
     """
-    def __init__(self, alpha_sampling_fn, **kwargs):
+    def __init__(self, rate_sampling_fn):
         super().__init__()
-        self.alpha_sampling_fn = alpha_sampling_fn
-        self.kwargs = kwargs
+        self.rate_sampling_fn = rate_sampling_fn
 
-    def forward(self, x, seq_len=None, alpha=None, interpolation_mode='linear'):
+    def forward(self, *arrays, seq_len=None, interpolation_mode='linear'):
         """
 
         Args:
-            x:
-            x: features (BxFxT)
+            arrays: features (BxFxT)
             seq_len:
-            alpha:
             interpolation_mode:
 
         Returns:
 
         """
-        assert x.dim() == 3, x.shape
-        if alpha is not None or self.training:
-            alpha = self.alpha_sampling_fn(1, **self.kwargs)[0] if alpha is None else alpha
-            x = interpolate(x, scale_factor=alpha, mode=interpolation_mode)
-            seq_len = (alpha * np.array(seq_len)).astype(np.int)
-        return x, seq_len, alpha
+        if self.training:
+            rate = self.rate_sampling_fn(1)[0]
+            seq_len = (rate * np.array(seq_len)).astype(np.int)
+            arrays = list(arrays)
+            for i, arr in enumerate(arrays):
+                if arr.dim() == 4:
+                    arr = rearrange(arr, 'b c f t -> b (c f) t')
+                assert arr.dim() == 3, arr.shape
+                arr = interpolate(arr, scale_factor=rate, mode=interpolation_mode)
+                if arrays[i].dim() == 4:
+                    b, c, f, _ = arrays[i].shape
+                    _, _, t = arr.shape[-1]
+                    arr = arr.view((b, c, f, t))
+                arrays[i] = arr
+        return (*arrays, seq_len)
 
 
 class Mask(nn.Module):

@@ -269,6 +269,11 @@ class Norm(Module):
         power = (x ** 2).sum(dim=self.statistics_axis, keepdim=True) / torch.max(n_values, torch.ones_like(n_values))
         return mean, power, n_values
 
+    def inverse(self, x):
+        if not self.track_running_stats:
+            raise NotImplementedError
+        return torch.sqrt(self.running_var) * x + self.running_mean
+
 
 class Shift(nn.Module):
     def __init__(self, shape, data_format='bft', independent_axis='f'):
