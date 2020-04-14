@@ -210,103 +210,90 @@ class Mixup(nn.Module):
     """
     >>> x = torch.cumsum(torch.ones((3, 4, 5)), 0)
     >>> y = torch.arange(3).float()
-    >>> mixup = Mixup(interpolate=True, p=0.5)
-    >>> x, seq_len = mixup(x, seq_len=[3,4,5])
+    >>> mixup = Mixup(p=1., interpolate=True)
+    >>> mixup(x, seq_len=[3,4,5])
     """
-    def __init__(self, interpolate=False, alpha=1., p=1.):
+    def __init__(self, p, weight_sampling_fn=lambda n: np.random.beta(1., 1., n), interpolate=False):
         super().__init__()
-        self.interpolate = interpolate
-        self.beta_dist = Beta(alpha, alpha)
         self.p = p
+        self.weight_sampling_fn = weight_sampling_fn
+        self.interpolate = interpolate
 
-    def forward(self, *arrays, seq_len=None):
+    def forward(self, *tensors, seq_len=None):
         if self.training:
-            arr0 = arrays[0]
-            shuffle_idx = np.random.permutation(arr0.shape[0])
-            lambda2 = np.random.binomial(1, self.p, arr0.shape[0])
+            B = tensors[0].shape[0]
+            shuffle_idx = np.random.permutation(B)
+            lambda2 = np.random.binomial(1, self.p, B)
             if seq_len is not None:
                 seq_len = np.maximum(seq_len, lambda2*np.array(seq_len)[shuffle_idx])
-            lambda2 = torch.from_numpy(lambda2).float().to(arr0.device)
+            lambda2 = lambda2 * self.weight_sampling_fn(B)
+            lambda2 = torch.from_numpy(lambda2).float().to(tensors[0].device)
             if self.interpolate:
-                w = self.beta_dist.sample((arr0.shape[0],)).to(arr0.device)
-                lambda2 = lambda2 * w
+                assert all(lambda2 >= 0.) and all(lambda2 <= 1.)
                 lambda1 = 1. - lambda2
             else:
-                lambda1 = torch.ones(arr0.shape[0]).to(arr0.device)
-            arrays = list(arrays)
-            for i, arr in enumerate(arrays):
-                x1 = arr
-                x2 = arr[shuffle_idx]
+                lambda1 = torch.ones_like(lambda2)
+            tensors = list(tensors)
+            for i, tensor in enumerate(tensors):
+                x1 = tensor
+                x2 = tensor[shuffle_idx]
                 lambda1_ = lambda1[(...,) + (x1.dim() - 1) * (None,)]
                 lambda2_ = lambda2[(...,) + (x2.dim() - 1) * (None,)]
-                arrays[i] = lambda1_ * x1 + lambda2_ * x2
-        return (*arrays, seq_len)
+                tensors[i] = lambda1_ * x1 + lambda2_ * x2
+        return (*tensors, seq_len)
 
 
-class ShiftedMixup(nn.Module):
+class Crop(nn.Module):
     """
-    >>> x = torch.cumsum(torch.ones((3, 4, 5)), 0)
-    >>> y = torch.arange(3).float()
-    >>> mixup = ShiftedMixup(interpolate=True, p=0.5)
-    >>> x, y, seq_len = mixup(x, y, seq_len=[3,4,5], seq_axis=[-1, None])
-    >>> x, y, seq_len
+    >>> x = torch.cumsum(torch.ones((3, 4, 5)), -1)
+    >>> Crop(min_crop_rate=0.5)(x, seq_len=[3,4,5])
     """
-    def __init__(self, interpolate=False, alpha=1., p=1., max_shift=None):
+    def __init__(self, max_cutoff_rate=.1):
         super().__init__()
-        self.interpolate = interpolate
-        self.beta_dist = Beta(alpha, alpha)
-        self.p = p
-        self.max_shift = max_shift
+        self.max_cutoff_rate = max_cutoff_rate
 
-    def forward(self, *arrays, seq_len=None, seq_axis=-2):
-        if self.training and np.random.rand() < self.p:
-            seq_axis = to_list(seq_axis, len(arrays))
-            arr0 = arrays[0]
-            shuffle_idx = np.random.permutation(arr0.shape[0])
-            if seq_len is None:
-                seq_len = arr0.shape[0] * [arr0.shape[seq_axis[0]]]
-            max_shift = min(seq_len)
-            if self.max_shift is not None:
-                max_shift = min(max_shift, self.max_shift)
-            shift = int(np.random.randn() * max_shift)
+    def forward(self, *tensors, seq_len=None, seq_axes=-1):
+        """
 
-            seq_len = np.maximum(seq_len, shift + np.array(seq_len)[shuffle_idx])
-            if self.interpolate:
-                lambda2 = self.beta_dist.sample((arr0.shape[0],)).to(arr0.device)
-                lambda1 = 1. - lambda2
-            else:
-                lambda1 = lambda2 = torch.ones(arr0.shape[0]).to(arr0.device)
-            arrays = list(arrays)
-            for i, arr in enumerate(arrays):
-                x1 = arr
-                x2 = arr[shuffle_idx]
-                if seq_axis[i] is not None and shift > 0:
-                    pad_shape = list(arr.shape)
-                    pad_shape[seq_axis[i]] = shift
-                    pad = torch.zeros(tuple(pad_shape)).to(arr.device)
-                    x1 = torch.cat((x1, pad), dim=seq_axis[i])
-                    x2 = torch.cat((pad, x2), dim=seq_axis[i])
-                lambda1_ = lambda1[(...,) + (x1.dim() - 1) * (None,)]
-                lambda2_ = lambda2[(...,) + (x2.dim() - 1) * (None,)]
-                arrays[i] = lambda1_ * x1 + lambda2_ * x2
-        return (*arrays, seq_len)
+        Args:
+            tensors: features (BxFxT)
+            seq_len:
+
+        Returns:
+
+        """
+        if self.training:
+            seq_axes = to_list(seq_axes, len(tensors))
+            T = tensors[0].shape[seq_axes[0]]
+            max_cutoff = int(self.max_cutoff_rate * min(seq_len))
+            cutoff_front = int(np.random.rand() * (max_cutoff + 1))
+            cutoff_end = int(np.random.rand() * (max_cutoff + 1))
+            seq_len = np.minimum(
+                np.array(seq_len) - cutoff_front,
+                T - (cutoff_front + cutoff_end)
+            ).astype(np.int)
+            tensors = list(tensors)
+            for i, tensor in enumerate(tensors):
+                tensors[i] = tensor.narrow(
+                    seq_axes[i], cutoff_front, T - cutoff_end
+                )
+        return (*tensors, seq_len)
 
 
 class Resample(nn.Module):
     """
     >>> x = torch.cumsum(torch.ones((3, 4, 5)), -1)
-    >>> from functools import partial
     >>> Resample(rate_sampling_fn=LogUniformSampler(scale=.5))(x, seq_len=[3,4,5])
     """
     def __init__(self, rate_sampling_fn):
         super().__init__()
         self.rate_sampling_fn = rate_sampling_fn
 
-    def forward(self, *arrays, seq_len=None, interpolation_mode='linear'):
+    def forward(self, *tensors, seq_len=None, interpolation_mode='linear'):
         """
 
         Args:
-            arrays: features (BxFxT)
+            tensors: features (BxFxT)
             seq_len:
             interpolation_mode:
 
@@ -316,18 +303,18 @@ class Resample(nn.Module):
         if self.training:
             rate = self.rate_sampling_fn(1)[0]
             seq_len = (rate * np.array(seq_len)).astype(np.int)
-            arrays = list(arrays)
-            for i, arr in enumerate(arrays):
-                if arr.dim() == 4:
-                    arr = rearrange(arr, 'b c f t -> b (c f) t')
-                assert arr.dim() == 3, arr.shape
-                arr = interpolate(arr, scale_factor=rate, mode=interpolation_mode)
-                if arrays[i].dim() == 4:
-                    b, c, f, _ = arrays[i].shape
-                    _, _, t = arr.shape[-1]
-                    arr = arr.view((b, c, f, t))
-                arrays[i] = arr
-        return (*arrays, seq_len)
+            tensors = list(tensors)
+            for i, tensor in enumerate(tensors):
+                if tensor.dim() == 4:
+                    tensor = rearrange(tensor, 'b c f t -> b (c f) t')
+                assert tensor.dim() == 3, tensor.shape
+                tensor = interpolate(tensor, scale_factor=rate, mode=interpolation_mode)
+                if tensors[i].dim() == 4:
+                    b, c, f, _ = tensors[i].shape
+                    t = tensor.shape[-1]
+                    tensor = tensor.view((b, c, f, t))
+                tensors[i] = tensor
+        return (*tensors, seq_len)
 
 
 class Mask(nn.Module):
@@ -369,3 +356,20 @@ class Mask(nn.Module):
             offset = onset + width
             mask = mask * ((idx < onset) + (idx >= offset)).float().to(x.device)
         return x * mask
+
+
+class Noise(nn.Module):
+    """
+    >>> x = torch.zeros((3, 4, 5))
+    >>> Noise(1.)(x)
+    """
+    def __init__(self, max_scale):
+        super().__init__()
+        self.max_scale = max_scale
+
+    def forward(self, x):
+        if self.training:
+            B = x.shape[0]
+            scale = torch.rand(B) * self.max_scale
+            x = x + scale[(...,) + (x.dim()-1)*(None,)] * torch.randn_like(x)
+        return x
