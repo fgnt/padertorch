@@ -9,19 +9,26 @@ from torch import nn
 
 
 class NormalizedLogMelExtractor(nn.Module):
+    """
+    >>> x = torch.ones((10,1,100,257,2))
+    >>> NormalizedLogMelExtractor(40, 16000, 512)(x).shape
+    >>> NormalizedLogMelExtractor(40, 16000, 512, add_deltas=True, add_delta_deltas=True)(x).shape
+    """
     def __init__(
             self, n_mels, sample_rate, fft_length, fmin=50, fmax=None,
-            warping_fn=None, statistics_axis='bt', momentum=None, interpolation_factor=1.,
+            warping_fn=None, add_deltas=False, add_delta_deltas=False,
+            statistics_axis='bt', momentum=None, interpolation_factor=1.,
     ):
         super().__init__()
         self.mel_transform = MelTransform(
             n_mels=n_mels, sample_rate=sample_rate, fft_length=fft_length,
-            fmin=fmin, fmax=fmax,
-            warping_fn=warping_fn,
+            fmin=fmin, fmax=fmax, log=True, warping_fn=warping_fn,
         )
+        self.add_deltas = add_deltas
+        self.add_delta_deltas = add_delta_deltas
         self.norm = Norm(
             data_format='bcft',
-            shape=(None, 1, n_mels, None),
+            shape=(None, 1 + add_deltas + add_delta_deltas, n_mels, None),
             statistics_axis=statistics_axis,
             scale=True,
             independent_axis=None,
@@ -31,6 +38,13 @@ class NormalizedLogMelExtractor(nn.Module):
 
     def forward(self, x, seq_len=None):
         x = self.mel_transform(torch.sum(x**2, dim=(-1,))).transpose(-2, -1)
+        if self.add_deltas or self.add_delta_deltas:
+            deltas = compute_deltas(x)
+            if self.add_deltas:
+                x = torch.cat((x, deltas), dim=1)
+            if self.add_delta_deltas:
+                delta_deltas = compute_deltas(deltas)
+                x = torch.cat((x, delta_deltas), dim=1)
         x = self.norm(x, seq_len=seq_len)
         return x
 
@@ -171,3 +185,57 @@ def bin2hz(k, sample_rate, fft_length):
 
 def hz2bin(f, sample_rate, fft_length):
     return f * fft_length / sample_rate
+
+
+def compute_deltas(specgram, win_length=5, mode="replicate"):
+    # type: (Tensor, int, str) -> Tensor
+    r"""Compute delta coefficients of a tensor, usually a spectrogram:
+
+    !!!copy from torchaudio.functional!!!
+
+    .. math::
+        d_t = \frac{\sum_{n=1}^{\text{N}} n (c_{t+n} - c_{t-n})}{2 \sum_{n=1}^{\text{N} n^2}
+
+    where :math:`d_t` is the deltas at time :math:`t`,
+    :math:`c_t` is the spectrogram coeffcients at time :math:`t`,
+    :math:`N` is (`win_length`-1)//2.
+
+    Args:
+        specgram (torch.Tensor): Tensor of audio of dimension (..., freq, time)
+        win_length (int): The window length used for computing delta
+        mode (str): Mode parameter passed to padding
+
+    Returns:
+        deltas (torch.Tensor): Tensor of audio of dimension (..., freq, time)
+
+    Example
+        >>> specgram = torch.randn(1, 40, 1000)
+        >>> delta = compute_deltas(specgram)
+        >>> delta2 = compute_deltas(delta)
+    """
+
+    # pack batch
+    shape = specgram.size()
+    specgram = specgram.reshape(1, -1, shape[-1])
+
+    assert win_length >= 3
+
+    n = (win_length - 1) // 2
+
+    # twice sum of integer squared
+    denom = n * (n + 1) * (2 * n + 1) / 3
+
+    specgram = torch.nn.functional.pad(specgram, (n, n), mode=mode)
+
+    kernel = (
+        torch
+        .arange(-n, n + 1, 1, device=specgram.device, dtype=specgram.dtype)
+        .repeat(specgram.shape[1], 1, 1)
+    )
+
+    output = torch.nn.functional.conv1d(specgram, kernel, groups=specgram.shape[1]) / denom
+
+    # unpack batch
+    output = output.reshape(shape)
+
+    return output
