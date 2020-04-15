@@ -186,9 +186,13 @@ class LabelEncoder:
             example[self.label_key] = y
         return example
 
-    def initialize_labels(self, labels=None, dataset=None, verbose=False):
+    def initialize_labels(
+            self, labels=None, dataset=None, dataset_name=None, verbose=False
+    ):
+        filename = f"{self.label_key}.json" if dataset_name is None \
+            else f"{self.label_key}_{dataset_name}.json"
         filepath = None if self.storage_dir is None \
-            else (self.storage_dir / f"{self.label_key}.json").expanduser().absolute()
+            else (self.storage_dir / filename).expanduser().absolute()
 
         if filepath and Path(filepath).exists():
             with filepath.open() as fid:

@@ -3,25 +3,25 @@ import torch
 import torch.distributions as D
 from padertorch.base import Module
 from padertorch.ops.losses.loss import kl_divergence
-from torch import nn
 from sklearn import metrics
+from torch import nn
 
 
 class GMM(Module):
     """
-    >>> gmm = FBGMM(10, 3)
+    >>> gmm = GMM(10, 3)
     >>> log_gamma, log_rho = gmm(D.Normal(loc=torch.zeros((8, 10)), scale=torch.ones((8, 10))))
     """
     def __init__(
             self, feature_size, num_classes, covariance_type='full',
-            loc_init_std=1.0, scale_init_std=1.0
+            locs_init_std=1.0, scale_init=1.0
     ):
         super().__init__()
         self.feature_size = feature_size
         self.num_classes = num_classes
         self.covariance_type = covariance_type
 
-        locs_init = loc_init_std * np.random.randn(num_classes, feature_size)
+        locs_init = locs_init_std * np.random.randn(num_classes, feature_size)
 
         class_probs_init = np.ones(num_classes) * 1 / num_classes
         log_class_weights_init = np.log(class_probs_init)
@@ -29,13 +29,13 @@ class GMM(Module):
         if covariance_type == 'full':
             scales_init = np.broadcast_to(
                 np.diag(
-                    np.ones(feature_size) * scale_init_std
+                    np.ones(feature_size) * scale_init
                 ),
                 (num_classes, feature_size, feature_size)
             )
         elif covariance_type in ['diag', 'fix']:
             scales_init = (
-                    np.ones((num_classes,  feature_size)) * scale_init_std
+                    np.ones((num_classes,  feature_size)) * scale_init
             )
         else:
             raise ValueError
@@ -91,13 +91,13 @@ class GMM(Module):
         return log_class_posterior, log_rho
 
 
-class FBGMM(Module):
+class BGMM(Module):
     """
-    >>> fbgmm = FBGMM(10, 3)
-    >>> log_gamma, log_rho = fbgmm(D.Normal(loc=torch.zeros((8, 10)), scale=torch.ones((8, 10))))
+    >>> bgmm = BGMM(10, 3)
+    >>> log_gamma, log_rho = bgmm(D.Normal(loc=torch.zeros((8, 10)), scale=torch.ones((8, 10))))
     """
     def __init__(
-            self, feature_size, num_classes, init_std=1.0,
+            self, feature_size, num_classes, locs_init_std=1.0, scales_init=1.,
             alpha_0=0.1, virtual_dataset_size=1000, momentum=0.99
     ):
         super().__init__()
@@ -111,7 +111,7 @@ class FBGMM(Module):
         self.alpha_0 = alpha_0
         self.scatter_prior = torch.Tensor(
             np.diag(
-                np.ones(feature_size) * init_std
+                np.ones(feature_size) * locs_init_std
                 # * (1 / num_classes) ** (1 / feature_size)
             )
         )
@@ -120,7 +120,7 @@ class FBGMM(Module):
         count_init = count_init / count_init.sum(-1) * virtual_dataset_size
         self.register_buffer('counts', torch.Tensor(count_init))
 
-        locs_init = init_std * np.random.randn(num_classes, feature_size)
+        locs_init = locs_init_std * np.random.randn(num_classes, feature_size)
         unnormalized_locs_init = locs_init * count_init[:, None]
         self.register_buffer(
             'unnormalized_locs', torch.Tensor(unnormalized_locs_init)
@@ -128,7 +128,7 @@ class FBGMM(Module):
 
         scales_init = np.broadcast_to(
             np.diag(
-                np.ones(feature_size) * init_std
+                np.ones(feature_size) * scales_init
                 # * (1 / num_classes) ** (1 / feature_size)
             ),
             (num_classes, feature_size, feature_size)
@@ -143,8 +143,12 @@ class FBGMM(Module):
         )
 
     @property
-    def probs(self):
+    def class_probs(self):
         return (self.alpha_0 + self.counts) / (self.alpha_0 + self.counts).sum()
+
+    @property
+    def log_class_probs(self):
+        return torch.log(self.class_probs + 1e-9)
 
     @property
     def locs(self):

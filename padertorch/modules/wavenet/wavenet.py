@@ -262,6 +262,12 @@ class WaveNet(Module):
             audio = self.nv_wavenet.infer(cond_input, Impl.AUTO)
             audio = mu_law_decode(audio, self.n_out_channels)
         self.cpu()
+        if self.fading is not None:
+            assert self.fading in ['half', 'full']
+            pad_width = self.upsamp_window - self.upsamp_stride
+            if self.fading == 'half':
+                pad_width //= 2
+            audio = audio[..., pad_width:]
         return audio
 
     def infer_cpu(self, x):
