@@ -25,6 +25,7 @@ import copy
 
 import paderbox as pb
 
+# pylint: disable=import-outside-toplevel
 
 class Configurable:
     """Allow subclasses to be configured automatically from JSON config files.
