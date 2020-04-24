@@ -538,16 +538,11 @@ def fix_doctext_import_class(locals_dict):
     cache = {}
     cls_cache = {}
 
-    class_to_str_orig = class_to_str
-    import_class_orig = import_class
-
     # Fix the case when this function is called multiple times.
-    # This is necessary, when multiple doctest are executed (e.g. pytest).
+    # This is necessary when multiple doctest are executed (e.g. pytest).
     # Then this fix will be called multiple times.
-    if hasattr(class_to_str_orig, 'orig'):
-        class_to_str_orig = class_to_str_orig.orig
-    if hasattr(import_class_orig, 'orig'):
-        import_class_orig = import_class_orig.orig
+    class_to_str_orig = getattr(class_to_str, 'orig', class_to_str)
+    import_class_orig = getattr(import_class, 'orig', import_class)
 
     def is_doctest_callable(obj):
         if inspect.isfunction(obj):
