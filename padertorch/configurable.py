@@ -271,9 +271,10 @@ class Configurable:
     # TODO: Drop get_signature?
     @classmethod
     def get_signature(cls):
-        raise NotImplementedError('get_signature should no longer be used'
-                                  'if additional defaults have to be'
-                                  'specified use finalize_dogmatic_config')
+        """This function is an outdated concept and thus deprecated."""
+        raise DeprecationWarning('get_signature should no longer be used'
+                                 'if additional defaults have to be'
+                                 'specified use finalize_dogmatic_config')
 
     @classmethod
     def finalize_dogmatic_config(cls, config):
