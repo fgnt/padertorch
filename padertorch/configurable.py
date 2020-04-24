@@ -707,8 +707,8 @@ def _get_correct_module_str_for_callable(callable_obj):
         raise TypeError(callable_obj)
 
     try:
-        candidates = [f
-            for f in Path(file).parents
+        candidates = [
+            f for f in Path(file).parents
             if (f / '__init__.py').exists()
         ]
         p = candidates[-1]
