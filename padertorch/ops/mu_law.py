@@ -8,7 +8,7 @@ __all__ = [
 
 
 def mu_law_decode(x, mu_quantization=256):
-    assert(torch.max(x) <= mu_quantization)
+    assert(torch.max(x) <= mu_quantization - 1)
     assert(torch.min(x) >= 0)
     x = x.float()
     mu = mu_quantization - 1.
