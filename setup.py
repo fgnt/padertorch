@@ -85,6 +85,7 @@ setup(
         'einops',
         'progressbar2',
         'natsort',
+        'lazy_dataset',
         'paderbox @ git+http://github.com/fgnt/paderbox',
     ],
 
