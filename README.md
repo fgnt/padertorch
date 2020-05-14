@@ -46,15 +46,15 @@ import padertorch as pt
 train_dataset = ...
 validation_dataset = ...
 
-class MyModel(pt.base.Model):
+class MyModel(pt.Model):
     def __init__(self):
         self.net = torch.nn.Sequential(...)
 
-    def forward(inputs):
-        outputs = self.net(inputs['observation'])
-        return outputs
+    def forward(self, example):
+        output = self.net(example['observation'])
+        return output
 
-    def review(self, inputs, outputs):
+    def review(self, example, output):
         loss = ...  # calculate loss
         with torch.no_grad():
             ...  # calculate general metrics
