@@ -70,9 +70,9 @@ class ProgresbarHookTest(unittest.TestCase):
             progressbar_hook.pre_step(trainer)
             if not epoch == 0:
                 assert iteration + 1 == self.iterator_length, iteration
-                assert progressbar_hook.pbar.max_value == \
+                assert progressbar_hook.pbar.total == \
                        self.num_epochs * self.iterator_length, \
-                    (progressbar_hook.pbar.max_value)
+                    (progressbar_hook.pbar.total)
             for iteration in range(self.iterator_length):
                 if not epoch == 0:
                     progressbar_hook.pre_step(trainer)

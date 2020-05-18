@@ -8,19 +8,20 @@ E.g., adding a learning rate schedule without adding further conditions to the
 trainer.
 
 """
+import types
 from collections import defaultdict
 from enum import IntEnum
 from pathlib import Path
-import types
 
-from distutils.version import LooseVersion
 import numpy as np
-import progressbar
-import torch
-from natsort import natsorted
-
 import padertorch as pt
+import torch
+from distutils.version import LooseVersion
+from natsort import natsorted
 from padertorch.train.trigger import IntervalTrigger, EndTrigger
+from tqdm import tqdm
+
+tqdm.monitor_interval = 0
 
 __all__ = [
     'SummaryHook',
@@ -724,8 +725,9 @@ class LRSchedulerHook(TriggeredHook):
 
 
 class ProgressBarHook(TriggeredHook):
+
     """ Adds a progress bar to the console output. """
-    def __init__(self, stop_trigger, max_it_len=None, update_interval=10):
+    def __init__(self, stop_trigger, max_it_len=None, update_interval=100):
         """
         :param stop_trigger: has to be defined if max_trigger unit is session
             integer with the length of the iterator
@@ -751,19 +753,13 @@ class ProgressBarHook(TriggeredHook):
                 max_iteration = length * max_it_len
             else:
                 self.num_epochs = length
-                max_iteration = progressbar.UnknownLength
+                max_iteration = None
         else:
             raise ValueError(f'unit {unit} is unknown,'
                              f' choose iteration or epoch')
-
         self.loss = None
-        self.pbar = progressbar.ProgressBar(
-            min_value=1,
-            max_value=max_iteration,
-            redirect_stderr=True,
-            redirect_stdout=True,
-            max_error=False,
-        )
+        self.pbar = tqdm(initial=1, total=max_iteration)
+
 
     @property
     def priority(self):
@@ -771,24 +767,24 @@ class ProgressBarHook(TriggeredHook):
 
     def set_last(self, iteration, epoch):
         super().set_last(iteration, epoch)
-        self.pbar.value = iteration
+        self.pbar.n = iteration
 
     def pre_step(self, trainer: 'pt.Trainer'):
         iteration = trainer.iteration
         epoch = trainer.epoch
-        if epoch == 1 and self.pbar.max_value is progressbar.UnknownLength:
+        if epoch == 1 and self.pbar.total is None:
             if hasattr(self, 'num_epochs'):
                 # sets the max length of the bar after the first epoch
-                self.pbar.max_value = (iteration + 1) * self.num_epochs
+                self.pbar.total = (iteration + 1) * self.num_epochs
         if self.trigger(iteration, epoch) and iteration > 1:
-            self.pbar.update(iteration)
+            self.pbar.update(iteration - self.pbar.n)
 
     # def post_step(self, trainer: 'pt.Trainer', example,
     #               model_output, review):
     #     self.loss = pt.utils.to_numpy(review["loss"])
 
     def close(self, trainer: 'pt.Trainer'):
-        self.pbar.finish()
+        self.pbar.close()
 
 
 class StopTrainingHook(TriggeredHook):

@@ -83,7 +83,7 @@ setup(
         'torch',
         'tensorboardX',
         'einops',
-        'progressbar2',
+        'tqdm',
         'natsort',
         'lazy_dataset',
         'IPython',
