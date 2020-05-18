@@ -15,6 +15,7 @@ from padercontrib.database.chime import Chime3
 from padercontrib.database.keys import OBSERVATION, NOISE_IMAGE, SPEECH_IMAGE
 from paderbox.io import dump_json
 from paderbox.utils.nested import deflatten
+from paderbox.utils.pretty import pprint
 from padertorch.configurable import Configurable
 from padertorch.configurable import config_to_instance, recursive_class_to_str
 from padertorch.contrib.jensheit.data import SequenceProvider, MaskTransformer
@@ -25,6 +26,7 @@ from padertorch.models.mask_estimator import MaskEstimatorModel
 from padertorch.train.optimizer import Adam
 from padertorch.train.trainer import Trainer
 from sacred.utils import apply_backspaces_and_linefeeds
+from copy import deepcopy
 
 model_dir = Path(os.environ['STORAGE_ROOT'])
 ex = sacred.Experiment('Train Mask Estimator')
@@ -58,7 +60,7 @@ def config():
         ex_name = get_experiment_name(trainer_opts['model'])
         if add_name is not None:
             ex_name += f'_{add_name}'
-        observer = sacred.observers.FileStorageObserver.create(
+        observer = sacred.observers.FileStorageObserver(
             str(model_dir / ex_name))
         storage_dir = observer.basedir
     else:
@@ -81,8 +83,8 @@ def config():
         metric = 'loss',
         maximize = False,
         max_checkpoints=1,
-        validation_length = 1000  # number of examples taken from the validation iterator
     )
+    validation_length = 1000  # number of examples taken from the validation iterator
 
 
 
@@ -90,6 +92,9 @@ def config():
 def initialize_trainer_provider(task, trainer_opts, provider_opts, _run):
 
     storage_dir = Path(trainer_opts['storage_dir'])
+
+    trainer_opts = deepcopy(trainer_opts)
+    provider_opts = deepcopy(provider_opts)
     if (storage_dir / 'init.json').exists():
         assert task in ['restart', 'validate'], task
     elif task in ['train', 'create_checkpoint']:
@@ -98,7 +103,10 @@ def initialize_trainer_provider(task, trainer_opts, provider_opts, _run):
                   storage_dir / 'init.json')
     else:
         raise ValueError(task, storage_dir)
-    sacred.commands.print_config(_run)
+    pprint('provider_opts:')
+    pprint(provider_opts)
+    pprint('trainer_opts:')
+    pprint(trainer_opts)
 
     trainer = Trainer.from_config(trainer_opts)
     assert isinstance(trainer, Trainer)
@@ -161,11 +169,11 @@ def create_checkpoint(_config):
 
 
 @ex.automain
-def train(validation_kwargs):
+def train(validation_kwargs, validation_length):
     trainer, provider = initialize_trainer_provider(task='train')
     train_iterator = provider.get_train_iterator()
     validation_iterator = provider.get_eval_iterator(
-        num_examples=validation_kwargs.pop('validation_length')
+        num_examples=validation_length
     )
     trainer.test_run(train_iterator, validation_iterator)
     trainer.register_validation_hook(
