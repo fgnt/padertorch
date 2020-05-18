@@ -189,32 +189,6 @@ def dump_config_and_makefile(_config):
     Dumps the configuration into the experiment dir and creates a Makefile
     next to it. If a Makefile already exists, it does not do anything.
     """
-
-    MAKEFILE_TEMPLATE = """
-    SHELL := /bin/bash
-    MODEL_PATH := $(shell pwd)
-
-    export OMP_NUM_THREADS=1
-    export MKL_NUM_THREADS=1
-
-    train:
-    \tpython -m {main_python_path} with config.json
-
-    ccsalloc:
-    \tccsalloc \\
-    \t\t--notifyuser=awe \\
-    \t\t--res=rset=1:ncpus=4:gtx1080=1:ompthreads=1 \\
-    \t\t--time=100h \\
-    \t\t--join \\
-    \t\t--stdout=stdout \\
-    \t\t--tracefile=%x.%reqid.trace \\
-    \t\t-N train_{nickname} \\
-    \t\tpython -m {main_python_path} with config.json
-
-    evaluate:
-    \tpython -m {eval_python_path} init with model_path=$(MODEL_PATH)
-    """
-
     experiment_dir = Path(_config['trainer']['storage_dir'])
     makefile_path = Path(experiment_dir) / "Makefile"
 
@@ -223,16 +197,34 @@ def dump_config_and_makefile(_config):
 
         pb.io.dump_json(_config, config_path)
 
-        makefile_path.write_text(MAKEFILE_TEMPLATE.format(
-            main_python_path=pt.configurable.resolve_main_python_path(),
-            experiment_dir=experiment_dir,
-            nickname=nickname,
-            eval_python_path='.'.join(
-                pt.configurable.resolve_main_python_path().split('.')[:-1]
-            ) + '.evaluate',
-            model_path=Path(experiment_dir)
-        ))
-
+        main_python_path = pt.configurable.resolve_main_python_path()
+        eval_python_path = '.'.join(
+            pt.configurable.resolve_main_python_path().split('.')[:-1]
+        ) + '.evaluate'
+        makefile_path.write_text(
+            f"SHELL := /bin/bash\n"
+            f"MODEL_PATH := $(shell pwd)\n"
+            f"\n"
+            f"export OMP_NUM_THREADS=1\n"
+            f"export MKL_NUM_THREADS=1\n"
+            f"\n"
+            f"train:\n"
+            f"\tpython -m {main_python_path} with config.json\n"
+            f"\n"
+            f"ccsalloc:\n"
+            f"\tccsalloc \\\n"
+            f"\t\t--notifyuser=awe \\\n"
+            f"\t\t--res=rset=1:ncpus=4:gtx1080=1:ompthreads=1 \\\n"
+            f"\t\t--time=100h \\\n"
+            f"\t\t--join \\\n"
+            f"\t\t--stdout=stdout \\\n"
+            f"\t\t--tracefile=%x.%reqid.trace \\\n"
+            f"\t\t-N train_{nickname} \\\n"
+            f"\t\tpython -m {main_python_path} with config.json\n"
+            f"\n"
+            f"evaluate:\n"
+            f"\tpython -m {eval_python_path} init with model_path=$(MODEL_PATH)\n"
+        )
 
 @ex.command
 def init(_config, _run):
