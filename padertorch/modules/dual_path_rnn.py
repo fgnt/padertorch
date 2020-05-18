@@ -133,10 +133,9 @@ def segment(
         [Bx]NxKxS
         S is the number of frames, K is the window size, N is the feature size
     """
-    # assert hop_size == window_size / 2, 'Not yet implemented for hop_size != window_size / 2!'
-
-    # Add padding for the first and last blocks. Should be each hop_size so that the first half of the first block and
-    # the last half of the last block are filled with 0s for the case of 50% overlap.
+    # Add padding for the first and last blocks. Should be each hop_size so
+    # that the first half of the first block and the last half of the last
+    # block are filled with 0s for the case of 50% overlap.
     padding = window_size - hop_size
     signal = F.pad(signal, [0, 0, padding, padding])
 
@@ -151,7 +150,9 @@ def segment(
     return segmented, sequence_lengths
 
 
-def overlap_add(signal: torch.Tensor, hop_size: int, unpad: bool = True):
+def overlap_add(
+        signal: torch.Tensor, hop_size: int, unpad: bool = True
+) -> torch.Tensor:
     """
     Examples:
         >>> import torch
@@ -212,20 +213,13 @@ def overlap_add(signal: torch.Tensor, hop_size: int, unpad: bool = True):
 
 def pack(x: torch.Tensor, sequence_lengths: torch.Tensor):
     """
-    Packs `x` such that it combines its batch (0) and time (1) axis and removes any padded values in between. It can be
-    reverted with `unpack`.
+    Packs `x` such that it combines its batch (0) and time (1) axis and removes
+    any padded values in between. It can be reverted with `unpack`.
 
     .. note::
 
-        This is different from `pack_padded_sequence` in that it does not interleave the time steps and does not
-        return a `PackedSequence`.
-
-    Args:
-        x:
-        sequence_lengths:
-
-    Returns:
-
+        This is different from `pack_padded_sequence` in that it does not
+        interleave the time steps and does not return a `PackedSequence`.
     """
     assert len(sequence_lengths) == len(x)
     return torch.cat([x_[:l] for x_, l in zip(x, sequence_lengths)])
@@ -252,13 +246,6 @@ def unpack(x: torch.Tensor, sequence_lengths: torch.Tensor):
         True
         >>> bool(torch.all(unpacked == a))
         True
-
-    Args:
-        x:
-        sequence_lengths:
-
-    Returns:
-
     """
     segments = []
     start = 0
@@ -270,24 +257,18 @@ def unpack(x: torch.Tensor, sequence_lengths: torch.Tensor):
 
 def apply_examplewise(fn, x: torch.Tensor, sequence_lengths, time_axis=1):
     """
-    Applies a function to each element of x (along batch (0) dimension) and respects the sequence lengths along time
-    axis. Assumes that fn does not change the dimensions of its input (e.g., norm).
-
-    Args:
-        fn:
-        x:
-        sequence_lengths:
-        time_axis:
-
-    Returns:
-
+    Applies a function to each element of x (along batch (0) dimension) and
+    respects the sequence lengths along time axis. Assumes that fn does not
+    change the dimensions of its input (e.g., norm).
     """
     if sequence_lengths is None:
         return fn(x)
     else:
         # Check inputs
         assert time_axis != 0, 'The first axis must be the batch axis!'
-        assert len(sequence_lengths) == x.shape[0], 'Number of sequence lengths and batch size must match!'
+        assert len(sequence_lengths) == x.shape[0], (
+            'Number of sequence lengths and batch size must match!'
+        )
 
         time_axis = time_axis % x.dim()
         selector = [slice(None)] * (time_axis - 1)
@@ -391,8 +372,6 @@ class _ChunkRNN(torch.nn.Module):
     def __init__(self, feat_size: int, rnn_size: int, lstm_reshape_to: str,
                  rnn_type='blstm'):
         """
-
-
         Args:
             feat_size: The features size (N)
             rnn_size: Number of units in the RNN (in each direction if
@@ -455,19 +434,18 @@ class _ChunkRNN(torch.nn.Module):
             sequence (B, N, K, S): Chunked input sequence
             sequence_lengths (B): Sequence lengths along segment dimension (S)
             may_deactivate_seq: If set to `True`, the handling of sequence
-                lengths is disabled when all examples in the batch have the same
-                 length
+                lengths is disabled when all examples in the batch have the
+                same length
 
         """
         # The handling of sequence lengths can be disabled if all examples in a
         # batch have the same length and this length matches the size of the
         # time axis of the input sequence (i.e., the signal is not 0-padded)
+        # This speeds up the computations
         if may_deactivate_seq and sequence_lengths is not None and (
                 len(sequence_lengths) == 1 or all(
             sequence_lengths[1:] == sequence_lengths[:-1])
         ) and sequence_lengths[0] == sequence.shape[-1]:
-            # This deactivates complicated example-wise operations which runs
-            # faster
             sequence_lengths = None
 
         B, N, K, S = sequence.shape
@@ -522,7 +500,8 @@ class _ChunkRNN(torch.nn.Module):
 
     def flatten_parameters(self) -> None:
         """
-        Calls `flatten_parameters` on `self.rnn` if it is a RNN. Does nothing in case of CNN.
+        Calls `flatten_parameters` on `self.rnn` if it is a RNN. Does nothing
+        in case of CNN.
         """
         if hasattr(self.rnn, 'flatten_parameters'):
             self.rnn.flatten_parameters()
@@ -638,7 +617,7 @@ class DPRNN(torch.nn.Module):
             self,
             sequence: torch.Tensor,
             sequence_lengths: Optional[torch.Tensor] = None
-    ) -> List[torch.Tensor]:
+    ) -> torch.Tensor:
         """
 
         Args:
