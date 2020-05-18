@@ -12,6 +12,10 @@ import torch
 
 import paderbox as pb
 import padercontrib.database.keys as K
+from padercontrib.database import JsonAudioDatabase
+from padercontrib.database.iterator import AudioReader
+from padercontrib.database.chime import Chime3
+from pb_bss.extraction.mask_module import biased_binary_mask
 import padertorch as pt
 from padertorch.summary import mask_to_image, stft_to_image
 
@@ -103,7 +107,7 @@ def change_example_structure(example):
         net_input['observation_stft']).astype(np.float32)
     speech_image = stft(audio_data[K.SPEECH_IMAGE])
     noise_image = stft(audio_data[K.NOISE_IMAGE])
-    target_mask, noise_mask = pb.speech_enhancement.biased_binary_mask(
+    target_mask, noise_mask = biased_binary_mask(
         np.stack([speech_image, noise_image], axis=0)
     )
     net_input['speech_mask_target'] = target_mask.astype(np.float32)
@@ -111,25 +115,25 @@ def change_example_structure(example):
     return net_input
 
 
-def get_train_iterator(database: pb.database.JsonDatabase):
+def get_train_iterator(database: JsonAudioDatabase):
     # AudioReader is a specialized function to read audio organized
     # in a json as described in pb.database.database
-    audio_reader = pb.database.iterator.AudioReader(audio_keys=[
+    audio_reader = AudioReader(audio_keys=[
         K.OBSERVATION, K.NOISE_IMAGE, K.SPEECH_IMAGE
     ])
-    train_iterator = database.get_dataset(database.datasets_train)
+    train_iterator = database.get_dataset_train()
     return train_iterator.map(audio_reader)\
         .map(change_example_structure)\
         .prefetch(num_workers=4, buffer_size=4)
 
 
-def get_validation_iterator(database: pb.database.JsonDatabase):
+def get_validation_iterator(database: JsonAudioDatabase):
     # AudioReader is a specialized function to read audio organized
     # in a json as described in pb.database.database
-    audio_reader = pb.database.iterator.AudioReader(audio_keys=[
+    audio_reader = AudioReader(audio_keys=[
         K.OBSERVATION, K.NOISE_IMAGE, K.SPEECH_IMAGE
     ])
-    val_iterator = database.get_iterator_by_names(database.datasets_eval)
+    val_iterator = database.get_dataset_validation()
     return val_iterator.map(audio_reader)\
         .map(change_example_structure)\
         .prefetch(num_workers=4, buffer_size=4)
@@ -138,7 +142,7 @@ def get_validation_iterator(database: pb.database.JsonDatabase):
 def train():
     model = SimpleMaskEstimator(513)
     print(f'Simple training for the following model: {model}')
-    database = pb.database.chime.Chime3()
+    database = Chime3()
     train_iterator = get_train_iterator(database)
     validation_iterator = get_validation_iterator(database)
     trainer = pt.Trainer(model, STORAGE_ROOT / 'simple_mask_estimator',
