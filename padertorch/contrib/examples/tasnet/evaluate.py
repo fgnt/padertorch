@@ -29,10 +29,12 @@ from pprint import pprint
 import matplotlib as mpl
 import numpy as np
 import paderbox as pb
+from lazy_dataset.database import JsonDatabase
+
 import padertorch as pt
 import sacred.commands
+from sacred.utils import InvalidConfigError, MissingConfigError
 import torch
-from padercontrib.database.wsj0_mix import WSJ0_2Mix_8k
 import dlp_mpi as mpi
 from padertorch.contrib.ldrude.utils import (
     get_new_folder
@@ -103,6 +105,14 @@ def config():
     export_audio = False
     sample_rate = 8000
     target = 'speech_source'
+    database_json = None
+
+    if database_json is None:
+        raise MissingConfigError(
+            'You have to set the path to the database JSON!', 'database_json')
+    if not Path(database_json).exists():
+        raise InvalidConfigError('The database JSON does not exist!',
+                                 'database_json')
 
     locals()  # Fix highlighting
 
@@ -154,14 +164,15 @@ def init(_config, _run):
 
 
 @ex.main
-def main(_run, batch_size, datasets, debug, experiment_dir, export_audio, sample_rate, _log):
+def main(_run, batch_size, datasets, debug, experiment_dir, export_audio,
+         sample_rate, _log, database_json):
     experiment_dir = Path(experiment_dir)
 
     if mpi.IS_MASTER:
         sacred.commands.print_config(_run)
 
     model = get_model()
-    db = WSJ0_2Mix_8k()
+    db = JsonDatabase(database_json)
 
     model.eval()
     with torch.no_grad():

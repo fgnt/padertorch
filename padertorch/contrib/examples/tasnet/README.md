@@ -34,13 +34,13 @@ Different Configurations
 Different loss functions can be selected by adjusting the loss weights with for example
 
 ```bash
-$ python -m padercontrib.pytorch.examples.dual_path_rnn.train with trainer.loss_weights.log-mse=1 trainer.loss_weights.si-sdr=0
+$ python -m padertorch.contrib.examples.tasnet.train with trainer.loss_weights.log-mse=1 trainer.loss_weights.si-sdr=0
 ```
 
 There is a named config for simple access to `log-mse`:
 
 ```bash
-$ python -m padercontrib.pytorch.examples.dual_path_rnn.train with log_mse
+$ python -m padertorch.contrib.examples.tasnet.train with log_mse
 ```
 
 Available loss functions are: `log-mse`, `si-sdr`.
