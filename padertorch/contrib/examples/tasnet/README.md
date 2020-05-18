@@ -50,6 +50,8 @@ The configuration that has the best performance in the paper (window size of 2) 
 Evaluation
 ----------
 
+The evaluation requires `dlp_mpi` and `pb_bss` as additional dependencies.
+`dlp_mpi` can be installed via `pip install dlp_mpi` and `pb_bss` is available at [github.com/fgnt/pb_bss](github.com/fgnt/pb_bss).
 The evaluation can be initialized by using the `Makefile` that was created by the training script.
 Go into the model directory and run
 
