@@ -82,7 +82,7 @@ def config():
     # Start with an empty dict to allow tracking by Sacred
     trainer = {
         "model": {
-            "factory": 'padertorch.models.dual_path_rnn_source_separator.DPRNNSourceSeparator',
+            "factory": 'padertorch.contrib.examples.tasnet.tasnet.TasNet',
         },
         "storage_dir": None,
         "optimizer": {
