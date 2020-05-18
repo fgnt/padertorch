@@ -100,7 +100,6 @@ def config():
     assert len(model_path) > 0, 'Set the model path on the command line.'
     checkpoint_name = 'ckpt_best_loss.pth'
     experiment_dir = get_storage_dir()
-    batch_size = 1
     datasets = ["mix_2_spk_min_cv", "mix_2_spk_min_tt"]
     export_audio = False
     sample_rate = 8000
@@ -164,7 +163,7 @@ def init(_config, _run):
 
 
 @ex.main
-def main(_run, batch_size, datasets, debug, experiment_dir, export_audio,
+def main(_run, datasets, debug, experiment_dir, export_audio,
          sample_rate, _log, database_json):
     experiment_dir = Path(experiment_dir)
 
@@ -179,7 +178,7 @@ def main(_run, batch_size, datasets, debug, experiment_dir, export_audio,
         summary = defaultdict(dict)
         for dataset in datasets:
             iterable = prepare_iterable(
-                db, dataset, batch_size,
+                db, dataset, 1,
                 chunk_size=-1,
                 prefetch=False,
                 iterator_slice=slice(mpi.RANK, 20 if debug else None, mpi.SIZE),
