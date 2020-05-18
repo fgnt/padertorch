@@ -7,7 +7,8 @@ Currently, only the DPRNN-TasNet is provided, but the BLSTM-based TasNet [2] and
 Results
 -------
 
-The model can achieve up to 19dB SDR gain on the WSJ0-2mix database.
+The model can achieve up to 19dB SDR gain on the WSJ0-2mix database, though this training needs a lot of time.
+With the default parameters, the following numbers can be obtained:
 
 | trained with  | SI-SDRi  | SDRi  |
 |---|---|---|
@@ -18,10 +19,10 @@ Training
 --------
 
 A storage root must be set with `export STORAGE=/path/to/your/storage`.
-After installing `padercontrib`, a training can be started with
+After installing `padertorch`, a training can be started with
 
 ```bash
-$ python -m padercontrib.pytorch.examples.dual_path_rnn.train
+$ python -m padertorch.contrib.examples.tasnet.train
 ```
 
 This creates a `Makefile` for easy re-running and evaluation. You can call `...train init` to just create the `Makefile` without starting the training run.
@@ -33,7 +34,7 @@ Different Configurations
 Different loss functions can be selected by adjusting the loss weights with for example
 
 ```bash
-$ python -m padercontrib.pytorch.examples.dual_path_rnn.train with trainer.loss_weights.log-mse=1 trainer.loss_weights.si-snr=0
+$ python -m padercontrib.pytorch.examples.dual_path_rnn.train with trainer.loss_weights.log-mse=1 trainer.loss_weights.si-sdr=0
 ```
 
 There is a named config for simple access to `log-mse`:
@@ -42,7 +43,7 @@ There is a named config for simple access to `log-mse`:
 $ python -m padercontrib.pytorch.examples.dual_path_rnn.train with log_mse
 ```
 
-Available loss functions are: `log-mse`, `si-snr`.
+Available loss functions are: `log-mse`, `si-sdr`.
 
 The configuration that has the best performance in the paper (window size of 2) can be selected with the named config `with win2`.
 
