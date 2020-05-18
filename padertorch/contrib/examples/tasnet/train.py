@@ -7,51 +7,24 @@ python -m padertorch.contrib.neumann.dual_path_rnn.train print_config
 python -m padertorch.contrib.neumann.dual_path_rnn.train
 """
 import torch
-
-from functools import partial
+from paderbox.io import load_audio
 
 from sacred import Experiment
 import sacred.commands
-from sacred.utils import ConfigError
 
+# TODO remove dependencies to padercontrib
 from padercontrib.database.wsj0_mix import WSJ0_2Mix_8k
+
 import os
 from pathlib import Path
 import padertorch as pt
 import paderbox as pb
-from padercontrib.database.keys import *
 import numpy as np
 
 from sacred.observers.file_storage import FileStorageObserver
 
 from padertorch.contrib.neumann.chunking import RandomChunkSingle
 from padertorch.contrib.ldrude.utils import get_new_folder
-import padercontrib
-
-MAKEFILE_TEMPLATE = """
-SHELL := /bin/bash
-MODEL_PATH := $(shell pwd)
-
-export OMP_NUM_THREADS=1
-export MKL_NUM_THREADS=1
-
-train:
-\tpython -m {main_python_path} with config.json
-
-ccsalloc:
-\tccsalloc \\
-\t\t--notifyuser=awe \\
-\t\t--res=rset=1:ncpus=4:gtx1080=1:ompthreads=1 \\
-\t\t--time=100h \\
-\t\t--join \\
-\t\t--stdout=stdout \\
-\t\t--tracefile=%x.%reqid.trace \\
-\t\t-N train_{nickname} \\
-\t\tpython -m {main_python_path} with config.json
-
-evaluate:
-\tpython -m {eval_python_path} init with model_path=$(MODEL_PATH)
-"""
 
 nickname = "dprnn"
 ex = Experiment(nickname)
@@ -109,11 +82,11 @@ def config():
 @ex.named_config
 def win2():
     """
-    This is the configuration for the best performing model from the DPRNN paper. Training takes very long time
-    with this configuration.
+    This is the configuration for the best performing model from the DPRNN
+    paper. Training takes very long time with this configuration.
     """
-    # The model becomes very memory consuming with this small window size. You might have to reduce the chunk size as
-    # well.
+    # The model becomes very memory consuming with this small window size.
+    # You might have to reduce the chunk size as well.
     batch_size = 1
 
     trainer = {
@@ -145,10 +118,12 @@ def on_wsj0_2mix_max():
 @ex.capture
 def pre_batch_transform(inputs):
     return {
-        's': np.ascontiguousarray(
-            inputs['audio_data']['speech_source'], np.float32),
+        's': np.ascontiguousarray([
+            load_audio(p)
+            for p in inputs['audio_path']['speech_source']
+        ], np.float32),
         'y': np.ascontiguousarray(
-            inputs['audio_data']['observation'], np.float32),
+            load_audio(inputs['audio_path']['observation']), np.float32),
         'num_samples': inputs['num_samples'],
         'example_id': inputs['example_id'],
         'audio_path': inputs['audio_path'],
@@ -166,11 +141,6 @@ def prepare_iterable(
 
     if iterator_slice is not None:
         iterator = iterator[iterator_slice]
-
-    # Read audio data keys 'observation' and 'speech_source'
-    audio_reader = padercontrib.database.iterator.AudioReader(
-        audio_keys=[OBSERVATION, SPEECH_SOURCE], read_fn=db.read_fn)
-    iterator = iterator.map(audio_reader)
 
     iterator = (
         iterator
@@ -205,25 +175,63 @@ def prepare_iterable_captured(
     )
 
 
+@ex.capture
+def dump_config_and_makefile(_config):
+    """
+    Dumps the configuration into the experiment dir and creates a Makefile
+    next to it. If a Makefile already exists, it does not do anything.
+    """
+
+    MAKEFILE_TEMPLATE = """
+    SHELL := /bin/bash
+    MODEL_PATH := $(shell pwd)
+
+    export OMP_NUM_THREADS=1
+    export MKL_NUM_THREADS=1
+
+    train:
+    \tpython -m {main_python_path} with config.json
+
+    ccsalloc:
+    \tccsalloc \\
+    \t\t--notifyuser=awe \\
+    \t\t--res=rset=1:ncpus=4:gtx1080=1:ompthreads=1 \\
+    \t\t--time=100h \\
+    \t\t--join \\
+    \t\t--stdout=stdout \\
+    \t\t--tracefile=%x.%reqid.trace \\
+    \t\t-N train_{nickname} \\
+    \t\tpython -m {main_python_path} with config.json
+
+    evaluate:
+    \tpython -m {eval_python_path} init with model_path=$(MODEL_PATH)
+    """
+
+    experiment_dir = Path(_config['trainer']['storage_dir'])
+    makefile_path = Path(experiment_dir) / "Makefile"
+
+    if not makefile_path.exists():
+        config_path = experiment_dir / "config.json"
+
+        pb.io.dump_json(_config, config_path)
+
+        makefile_path.write_text(MAKEFILE_TEMPLATE.format(
+            main_python_path=pt.configurable.resolve_main_python_path(),
+            experiment_dir=experiment_dir,
+            nickname=nickname,
+            eval_python_path='.'.join(
+                pt.configurable.resolve_main_python_path().split('.')[:-1]
+            ) + '.evaluate',
+            model_path=Path(experiment_dir)
+        ))
+
+
 @ex.command
 def init(_config, _run):
     """Create a storage dir, write Makefile. Do not start any training."""
-    experiment_dir = Path(_config['trainer']['storage_dir'])
-    config_path = experiment_dir / "config.json"
-    pb.io.dump_json(_config, config_path)
-
-    makefile_path = Path(experiment_dir) / "Makefile"
-    makefile_path.write_text(MAKEFILE_TEMPLATE.format(
-        main_python_path=pt.configurable.resolve_main_python_path(),
-        experiment_dir=experiment_dir,
-        nickname=nickname,
-        eval_python_path='.'.join(
-            pt.configurable.resolve_main_python_path().split('.')[:-1]
-        ) + '.evaluate',
-        model_path=experiment_dir
-    ))
-
     sacred.commands.print_config(_run)
+    dump_config_and_makefile()
+
     print()
     print('Initialized storage dir. Now run these commands:')
     print(f"cd {_config['trainer']['storage_dir']}")
@@ -239,7 +247,6 @@ def init(_config, _run):
 def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
                       lr_scheduler_step, lr_scheduler_gamma,
                       load_model_from):
-    sacred.commands.print_config(_run)
     trainer = pt.Trainer.from_config(trainer)
     checkpoint_path = trainer.checkpoint_dir / 'ckpt_latest.pth'
 
@@ -284,21 +291,8 @@ def main(_config, _run):
     resuming from an initialized storage dir. This way, the `config.json` is
     always up to date. Historic configuration can be found in Sacred's folder.
     """
-    experiment_dir = Path(_config['trainer']['storage_dir'])
-    config_path = experiment_dir / "config.json"
-    pb.io.dump_json(_config, config_path)
-
-    makefile_path = Path(experiment_dir) / "Makefile"
-    makefile_path.write_text(MAKEFILE_TEMPLATE.format(
-        main_python_path=pt.configurable.resolve_main_python_path(),
-        experiment_dir=experiment_dir,
-        nickname=nickname,
-        eval_python_path='.'.join(
-            pt.configurable.resolve_main_python_path().split('.')[:-1]
-        ) + '.evaluate',
-        model_path=Path(experiment_dir)
-    ))
-
+    sacred.commands.print_config(_run)
+    dump_config_and_makefile()
     prepare_and_train()
 
 
