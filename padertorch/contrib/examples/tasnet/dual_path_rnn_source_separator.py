@@ -6,65 +6,13 @@ from einops import rearrange
 import padertorch as pt
 from torch.nn.utils.rnn import pad_sequence
 
-from ..modules.tas_coders import TasEncoder, TasDecoder
-from ..modules.dual_path_rnn import DPRNN, apply_examplewise
-from padertorch.ops.losses.time_domain_losses import si_sdr_loss, log_mse_loss
+from padertorch.modules.tas_coders import TasEncoder, TasDecoder
+from padertorch.modules.dual_path_rnn import DPRNN, apply_examplewise
+from padertorch.ops.losses.regression import si_sdr_loss, log_mse_loss
+from padertorch.ops.mappings import ACTIVATION_FN_MAP
 
 
-def get_nonlinearity(nonlinearity: str, speaker_dim: int = 0):
-    def identity(x):
-        return x
-
-    return {
-        'relu': torch.nn.ReLU(),
-        'sigmoid': torch.nn.Sigmoid(),
-        'softmax': torch.nn.Softmax(dim=speaker_dim),
-        None: identity,
-        'None': identity,
-        'identity': identity,
-    }[nonlinearity]
-
-
-class MaybeMask(pt.Module):
-    """
-    This module is not necessary but shows in the string representation of the
-    DPRNNSourceSeparator. This makes it easy to see if the model uses masking
-    or not.
-    """
-
-    def __init__(self, mask=True):
-        super().__init__()
-        self.mask = mask
-
-    def forward(self, estimation: torch.Tensor,
-                input_signal: torch.Tensor) -> torch.Tensor:
-        """
-
-        Args:
-            estimation (K, B, F, T):
-            input_signal (B, F, T):
-
-        Returns:
-
-        """
-        assert estimation.dim() == 4, estimation.shape
-        assert input_signal.dim() == 3, input_signal.shape
-
-        # The estimation can be a little longer than the input signal. Shorten
-        # the estimation to match the input signal
-        estimation = estimation[..., :input_signal.shape[-1]]
-
-        assert input_signal.shape == estimation.shape[1:], (
-            input_signal.shape, estimation.shape)
-
-        # Mask if set
-        if self.mask:
-            estimation = input_signal.unsqueeze(0) * estimation
-
-        return estimation
-
-
-class DPRNNSourceSeparator(pt.Model):
+class TasNet(pt.Model):
     def __init__(
             self,
             hidden_size: int = 64,
@@ -107,7 +55,7 @@ class DPRNNSourceSeparator(pt.Model):
         """
         super().__init__()
 
-        self.mask = MaybeMask(mask)
+        self.mask = mask
 
         assert additional_out_size == 0 or self.conv and self.split_in_conv, (
             'Additional out size can only be provided if convolutions before '
@@ -144,7 +92,7 @@ class DPRNNSourceSeparator(pt.Model):
             N=hidden_size
         )
 
-        self.output_nonlinearity = get_nonlinearity(output_nonlinearity)
+        self.output_nonlinearity = ACTIVATION_FN_MAP[output_nonlinearity]()
 
         self.num_speakers = num_speakers
 
@@ -161,26 +109,21 @@ class DPRNNSourceSeparator(pt.Model):
         if not torch.is_tensor(sequence_lengths):
             sequence_lengths = torch.tensor(sequence_lengths)
 
-        # Call encoder. Reshape to BxLxN for the DPRNN network
-        encoded, encoded_sequence_lengths = self.encoder(
+        # Call encoder
+        encoded_raw, encoded_sequence_lengths = self.encoder(
             sequence, sequence_lengths)
-        encoded_raw = encoded
-        encoded = rearrange(encoded, 'b n l -> b l n')
 
         # Apply layer norm to the encoded signal
         encoded = apply_examplewise(
-            self.encoded_input_norm, encoded, encoded_sequence_lengths)
+            self.encoded_input_norm, encoded_raw, encoded_sequence_lengths)
 
         # Apply convolutional layer if set
         if self.input_proj:
-            encoded = rearrange(
-                self.input_proj(rearrange(encoded, 'b l n -> b n l')),
-                'b n l -> b l n')
+            encoded = self.input_proj(encoded)
 
-        # Call DPRNN
+        # Call DPRNN. Needs shape BxLxN
+        encoded = rearrange(encoded, 'b n l -> b l n')
         processed = self.dprnn(encoded, encoded_sequence_lengths)
-
-        # Reshape to convolutional format for decoder and potential projection
         processed = rearrange(processed, 'b l n -> b n l')
 
         processed = self.output_proj(self.output_prelu(processed))
@@ -195,8 +138,17 @@ class DPRNNSourceSeparator(pt.Model):
         # Shape KxBxNxL
         processed = torch.stack(
             torch.chunk(processed, self.num_speakers, dim=1))
+        processed = self.output_nonlinearity(processed)
 
-        processed = self.mask(self.output_nonlinearity(processed), encoded_raw)
+        # The estimation can be a little longer than the input signal.
+        # Shorten the estimation to match the input signal
+        processed = processed[..., :encoded_raw.shape[-1]]
+        assert encoded_raw.shape == processed.shape[1:], (
+            processed.shape, encoded_raw.shape)
+
+        if self.mask:
+            # Mask if set
+            processed = encoded_raw.unsqueeze(0) * processed
 
         # Decode stream for each speaker
         decoded = rearrange(

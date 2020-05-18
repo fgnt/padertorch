@@ -1,4 +1,5 @@
 from . import loss
-from . import time_domain_losses
+from . import regression
 
 from .loss import *
+from .regression import *

@@ -24,7 +24,7 @@ import numpy as np
 
 from sacred.observers.file_storage import FileStorageObserver
 
-from .chunking import RandomChunkSingle
+from padertorch.contrib.neumann.chunking import RandomChunkSingle
 from padertorch.contrib.ldrude.utils import get_new_folder
 import padercontrib
 
@@ -143,10 +143,10 @@ def on_wsj0_2mix_max():
 
 
 @ex.capture
-def pre_batch_transform(inputs, target):
+def pre_batch_transform(inputs):
     return {
         's': np.ascontiguousarray(
-            inputs['audio_data'][target], np.float32),
+            inputs['audio_data']['speech_source'], np.float32),
         'y': np.ascontiguousarray(
             inputs['audio_data']['observation'], np.float32),
         'num_samples': inputs['num_samples'],

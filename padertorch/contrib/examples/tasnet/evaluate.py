@@ -102,6 +102,7 @@ def config():
     datasets = ["mix_2_spk_min_cv", "mix_2_spk_min_tt"]
     export_audio = False
     sample_rate = 8000
+    target = 'speech_source'
 
     locals()  # Fix highlighting
 

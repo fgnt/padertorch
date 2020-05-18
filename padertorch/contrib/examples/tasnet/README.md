@@ -1,7 +1,8 @@
-Dual-Path RNN
+TasNet (Currently DPRNN-TasNet only)
 =============
 
-This directory contains scripts to train and evaluate a Dual-Path RNN (DPRNN) model proposed in [1].
+This directory contains scripts to train and evaluate a Dual-Path RNN (DPRNN)-TasNet model proposed in [1].
+Currently, only the DPRNN-TasNet is provided, but the BLSTM-based TasNet [2] and Conv-TasNet [3] are planned.
 
 Results
 -------
@@ -65,3 +66,9 @@ References
         Long Sequence Modeling for Time-Domain Single-Channel Speech
         Separation.” ArXiv Preprint ArXiv:1910.06379, 2019.
         https://arxiv.org/pdf/1910.06379.pdf
+  
+  [2] Luo, Yi, and Nima Mesgarani. „TasNet: time-domain audio separation network for real-time, single-channel speech separation“, 1. November 2017. https://doi.org/10.1109/icassp.2018.8462116.
+  
+  [3] Luo, Yi, und Nima Mesgarani. „Conv-TasNet: Surpassing Ideal Time-Frequency Magnitude Masking for Speech Separation“, 20. September 2018. https://doi.org/10.1109/taslp.2019.2915167.
+
+

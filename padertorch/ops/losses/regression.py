@@ -121,6 +121,7 @@ def si_sdr_loss(estimates, targets, reduce='mean', offset_invariant=False,
     return sdr_loss(estimates, s_target, reduce=reduce)
 
 # TODO: Add log1p_mse loss from interspeech paper
+# TODO: remove _reduce
 
 
 time_domain_loss_functions = {
