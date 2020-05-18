@@ -114,15 +114,17 @@ class TasNet(pt.Model):
             sequence, sequence_lengths)
 
         # Apply layer norm to the encoded signal
+        encoded = rearrange(encoded_raw, 'b n l -> b l n')
         encoded = apply_examplewise(
-            self.encoded_input_norm, encoded_raw, encoded_sequence_lengths)
+            self.encoded_input_norm, encoded, encoded_sequence_lengths)
 
         # Apply convolutional layer if set
         if self.input_proj:
+            encoded = rearrange(encoded, 'b l n -> b n l')
             encoded = self.input_proj(encoded)
+            encoded = rearrange(encoded, 'b n l -> b l n')
 
         # Call DPRNN. Needs shape BxLxN
-        encoded = rearrange(encoded, 'b n l -> b l n')
         processed = self.dprnn(encoded, encoded_sequence_lengths)
         processed = rearrange(processed, 'b l n -> b n l')
 
