@@ -90,7 +90,7 @@ def config():
             "gradient_clipping": 1
         },
         "summary_trigger": (1000, "iteration"),
-        "stop_trigger": (600_000, "iteration"),
+        "stop_trigger": (100_000, "iteration"),
         "loss_weights": {
             "si-sdr": 1.0,
             "log-mse": 0.0,
