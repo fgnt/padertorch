@@ -22,7 +22,7 @@ A storage root must be set with `export STORAGE=/path/to/your/storage`.
 After installing `padertorch`, a training can be started with
 
 ```bash
-$ python -m padertorch.contrib.examples.tasnet.train
+$ python -m padertorch.contrib.examples.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}"
 ```
 
 This creates a `Makefile` for easy re-running and evaluation. You can call `...train init` to just create the `Makefile` without starting the training run.
@@ -34,13 +34,13 @@ Different Configurations
 Different loss functions can be selected by adjusting the loss weights with for example
 
 ```bash
-$ python -m padertorch.contrib.examples.tasnet.train with trainer.loss_weights.log-mse=1 trainer.loss_weights.si-sdr=0
+$ python -m padertorch.contrib.examples.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" trainer.loss_weights.log-mse=1 trainer.loss_weights.si-sdr=0
 ```
 
 There is a named config for simple access to `log-mse`:
 
 ```bash
-$ python -m padertorch.contrib.examples.tasnet.train with log_mse
+$ python -m padertorch.contrib.examples.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" log_mse
 ```
 
 Available loss functions are: `log-mse`, `si-sdr`.
