@@ -12,16 +12,17 @@ from paderbox.io import load_audio
 from sacred import Experiment
 import sacred.commands
 
-# TODO remove dependencies to padercontrib
-from padercontrib.database.wsj0_mix import WSJ0_2Mix_8k
-
 import os
 from pathlib import Path
+
+from sacred.utils import InvalidConfigError, MissingConfigError
+
 import padertorch as pt
 import paderbox as pb
 import numpy as np
 
 from sacred.observers.file_storage import FileStorageObserver
+from lazy_dataset.database import JsonDatabase
 
 from padertorch.contrib.neumann.chunking import RandomChunkSingle
 from padertorch.contrib.ldrude.utils import get_new_folder
@@ -44,13 +45,20 @@ def config():
     batch_size = 4  # Runs on 4GB GPU mem. Can safely be set to 12 on 12 GB (e.g., GTX1080)
     chunk_size = 32000  # 4s chunks @8kHz
 
-    database = 'wsj0-2mix'
     train_dataset = "mix_2_spk_min_tr"
     validate_dataset = "mix_2_spk_min_cv"
     target = 'speech_source'
     lr_scheduler_step = 2
     lr_scheduler_gamma = 0.98
     load_model_from = None
+    database_json = None
+
+    if database_json is None:
+        raise MissingConfigError(
+            'You have to set the path to the database JSON!', 'database_json')
+    if not Path(database_json).exists():
+        raise InvalidConfigError('The database JSON does not exist!',
+                                 'database_json')
 
     # Start with an empty dict to allow tracking by Sacred
     trainer = {
@@ -246,7 +254,7 @@ def init(_config, _run):
 @ex.capture
 def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
                       lr_scheduler_step, lr_scheduler_gamma,
-                      load_model_from):
+                      load_model_from, database_json):
     trainer = pt.Trainer.from_config(trainer)
     checkpoint_path = trainer.checkpoint_dir / 'ckpt_latest.pth'
 
@@ -255,7 +263,7 @@ def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
         checkpoint = torch.load(load_model_from)
         trainer.model.load_state_dict(checkpoint['model'])
 
-    db = WSJ0_2Mix_8k()
+    db = JsonDatabase(database_json)
 
     # Perform a test run to check if everything works
     trainer.test_run(
