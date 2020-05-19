@@ -1,89 +1,51 @@
 """
 Example call on NT infrastructure:
 
-export STORAGE=<your desired storage root>
+export STORAGE=<your/desired/storage/root>
+export WSJ0_2MIX=<path/to/wsj0_2mix/json>
 mkdir -p $STORAGE/pth_evaluate/evaluate
 mpiexec -np 8 python -m padertorch.contrib.examples.pit.evaluate with model_path=<model_path>
 
+For usage with a single cpu:
+export STORAGE=<your/desired/storage/root>
+export WSJ0_2MIX=<path/to/wsj0_2mix/json>
+mkdir -p $STORAGE/pth_evaluate/evaluate
+python -m padertorch.contrib.examples.pit.evaluate with model_path=<model_path> debug=True
 
-Example call on PC2 infrastructure:
+Example call on PC2 infrastructure (only neccessary in Paderborn University infrastructure):
 
-export STORAGE=<your desired storage root>
+export STORAGE=<your/desired/storage/root>
 mkdir -p $STORAGE/pth_evaluate/pit
 python -m padertorch.contrib.examples.pit.evaluate init with model_path=<model_path>
 
-TODO: Add link resolve to keep track of which step we evaluate
 
 TODO: Add input mir_sdr result to be able to calculate gains.
 TODO: Add pesq, stoi, invasive_sxr.
 TODO: mpi: For mpi I need to know the experiment dir before.
-TODO: Change to sacred IDs again, otherwise I can not apply `unique` to `_id`.
-TODO: Maybe a shuffle helps here, too, to more evenly distribute work with MPI.
 """
 import os
-import warnings
 from collections import defaultdict
 from pathlib import Path
 
 import einops
-import matplotlib as mpl
 import sacred.commands
 from sacred import Experiment
-from tqdm import tqdm
 import torch
 
 import paderbox as pb
 import padertorch as pt
-from padercontrib.database.merl_mixtures import MerlMixtures
+import pb_bss
 from paderbox.transform import istft
-from paderbox.utils.mpi import COMM
-from paderbox.utils.mpi import RANK
-from paderbox.utils.mpi import SIZE
-from paderbox.utils.mpi import IS_MASTER
-from paderbox.utils.mpi import MASTER
-from padertorch.contrib.ldrude.data import prepare_iterable
+from lazy_dataset.database import JsonDatabase
+from dlp_mpi import COMM, IS_MASTER, MASTER, split_managed
+from padertorch.contrib.examples.pit.data import prepare_iterable
+
 from padertorch.contrib.ldrude.utils import (
     decorator_append_file_storage_observer_with_lazy_basedir,
     get_new_folder
 )
+from . import MAKEFILE_TEMPLATE_EVAL as MAKEFILE_TEMPLATE
 
-
-MAKEFILE_TEMPLATE = """
-SHELL := /bin/bash
-
-evaluate:
-\tpython -m {main_python_path} with config.json
-
-ccsalloc:
-\tccsalloc \\
-\t\t--notifyuser=awe \\
-\t\t--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\
-\t\t--time=1h \\
-\t\t--join \\
-\t\t--stdout=stdout \\
-\t\t--tracefile=trace_%reqid.trace \\
-\t\t-N evaluate_{nickname} \\
-\t\tompi \\
-\t\t-x STORAGE \\
-\t\t-x NT_MERL_MIXTURES_DIR \\
-\t\t-x NT_DATABASE_JSONS_DIR \\
-\t\t-x KALDI_ROOT \\
-\t\t-x LD_PRELOAD \\
-\t\t-x CONDA_EXE \\
-\t\t-x CONDA_PREFIX \\
-\t\t-x CONDA_PYTHON_EXE \\
-\t\t-x CONDA_DEFAULT_ENV \\
-\t\t-x PATH \\
-\t\t-- \\
-\t\tpython -m {main_python_path} with config.json
-"""
-
-
-# Unfortunately need to disable this since conda scipy needs update
-warnings.simplefilter(action='ignore', category=FutureWarning)
-
-
-mpl.use("Agg")
 nickname = "pit"
 ex = Experiment(nickname)
 path_template = Path(os.environ["STORAGE"]) / "pth_evaluate" / nickname
@@ -92,6 +54,10 @@ path_template = Path(os.environ["STORAGE"]) / "pth_evaluate" / nickname
 @ex.config
 def config():
     debug = False
+    db_path = ''
+    if "WSJ0_2MIX" in os.environ:
+        db_path = os.environ.get("WSJ0_2MIX")
+    assert len(db_path) > 0, 'Set path to database Json on the command line or set environment variable WSJ0_2MIX'
     model_path = ''
     assert len(model_path) > 0, 'Set the model path on the command line.'
     checkpoint_name = 'ckpt_best_loss.pth'
@@ -120,7 +86,6 @@ def get_model(_run, model_path, checkpoint_name):
         consider_mpi=True  # Loads the weights only on master
     )
 
-    # TODO: Can this run info be stored more elegantly?
     checkpoint_path = model_path / 'checkpoints' / checkpoint_name
     _run.info['checkpoint_path'] = str(checkpoint_path.expanduser().resolve())
 
@@ -129,7 +94,7 @@ def get_model(_run, model_path, checkpoint_name):
 
 @ex.command
 def init(_config, _run):
-    """Create a storage dir, write Makefile. Do not start any evaluation."""
+    """Creates a storage dir, writes Makefile. Does not start any evaluation."""
     experiment_dir = Path(_config['experiment_dir'])
 
     config_path = Path(experiment_dir) / "config.json"
@@ -154,7 +119,7 @@ def init(_config, _run):
 
 
 @ex.main
-def main(_run, batch_size, datasets, debug, experiment_dir):
+def main(_run, batch_size, datasets, debug, experiment_dir, db_path):
     experiment_dir = Path(experiment_dir)
 
     if IS_MASTER:
@@ -162,7 +127,7 @@ def main(_run, batch_size, datasets, debug, experiment_dir):
 
     # TODO: Substantially faster to load the model once and distribute via MPI
     model = get_model()
-    db = MerlMixtures()
+    db = JsonDatabase(json_path=db_path)
 
     model.eval()
     with torch.no_grad():
@@ -172,10 +137,12 @@ def main(_run, batch_size, datasets, debug, experiment_dir):
                 db, dataset, batch_size,
                 return_keys=None,
                 prefetch=False,
-                iterator_slice=slice(RANK, 20 if debug else None, SIZE)
             )
-            iterable = tqdm(iterable, total=len(iterable), disable=not IS_MASTER)
-            for batch in iterable:
+
+            for batch in split_managed(iterable, is_indexable=False,
+                                       progress_bar=True,
+                                       allow_single_worker=debug
+                                       ):
                 entry = dict()
                 model_output = model(pt.data.example_to_device(batch))
 
@@ -193,7 +160,7 @@ def main(_run, batch_size, datasets, debug, experiment_dir):
                 s = s[:, :z.shape[1]]
                 z = z[:, :s.shape[1]]
                 entry['mir_eval'] \
-                    = pb.evaluation.mir_eval_sources(s, z, return_dict=True)
+                    = pb_bss.evaluation.mir_eval_sources(s, z, return_dict=True)
 
                 summary[dataset][example_id] = entry
 
@@ -216,3 +183,4 @@ def main(_run, batch_size, datasets, debug, experiment_dir):
 if __name__ == '__main__':
     with pb.utils.debug_utils.debug_on(Exception):
         ex.run_commandline()
+
