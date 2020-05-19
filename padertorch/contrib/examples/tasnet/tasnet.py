@@ -6,7 +6,7 @@ from einops import rearrange
 import padertorch as pt
 from torch.nn.utils.rnn import pad_sequence
 
-from padertorch.modules.tas_coders import TasEncoder, TasDecoder
+from .tas_coders import TasEncoder, TasDecoder
 from padertorch.modules.dual_path_rnn import DPRNN, apply_examplewise
 from padertorch.ops.losses.regression import si_sdr_loss, log_mse_loss
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
