@@ -31,7 +31,7 @@ from sacred.observers.file_storage import FileStorageObserver
 
 from padertorch.contrib.examples.pit.data import prepare_iterable
 from padertorch.contrib.ldrude.utils import get_new_folder
-from . import MAKEFILE_TEMPLATE_TRAIN as MAKEFILE_TEMPLATE
+from padertorch.contrib.examples.pit.templates import MAKEFILE_TEMPLATE_TRAIN as MAKEFILE_TEMPLATE
 
 nickname = "pit"
 ex = Experiment(nickname)
@@ -54,7 +54,7 @@ def config():
     # Configurable automatically inserts default values of not mentioned parameters to the config.json
     trainer = {
         "model": {
-            "factory": pt.contrib.examples.pit.PermutationInvariantTrainingModel,
+            "factory": pt.contrib.examples.pit.model.PermutationInvariantTrainingModel,
             "dropout_input": 0.,
             "dropout_hidden": 0.,
             "dropout_linear": 0.

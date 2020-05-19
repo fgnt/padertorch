@@ -18,7 +18,7 @@ def prepare_iterable(
         iterator
         .map(partial(read_audio, audio_keys=audio_keys))
         .map(partial(pre_batch_transform, return_keys=return_keys))
-        .shuffle()
+        .shuffle(reshuffle=True)
         .batch(batch_size)
         .map(lambda batch: sorted(      # sorts batch in increasing lengths, needed for torch PackedSequence
             batch,
@@ -53,7 +53,7 @@ def pre_batch_transform(inputs, return_keys=None):
     Y = stft(y, 512, 128)
     Y = einops.rearrange(Y, 't f -> t f')
     S = einops.rearrange(S, 'k t f -> t k f')
-    X = S  # Same for MERL database
+    X = S  # Same for WSJ0_2MIX database
     num_frames = Y.shape[0]
 
     return_dict = dict()
