@@ -154,7 +154,7 @@ def prepare_iterable(
         iterator
         .map(pre_batch_transform)
         .map(RandomChunkSingle(chunk_size, chunk_keys=('y', 's'), axis=-1))
-        .shuffle(reshuffle=False)
+        .shuffle(reshuffle=True)
         .batch(batch_size)
         .map(lambda batch: sorted(
             batch,
