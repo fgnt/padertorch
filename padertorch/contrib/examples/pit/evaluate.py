@@ -54,10 +54,10 @@ path_template = Path(os.environ["STORAGE"]) / "pth_evaluate" / nickname
 @ex.config
 def config():
     debug = False
-    db_path = ''
+    database_json = ''
     if "WSJ0_2MIX" in os.environ:
-        db_path = os.environ.get("WSJ0_2MIX")
-    assert len(db_path) > 0, 'Set path to database Json on the command line or set environment variable WSJ0_2MIX'
+        database_json = os.environ.get("WSJ0_2MIX")
+    assert len(database_json) > 0, 'Set path to database Json on the command line or set environment variable WSJ0_2MIX'
     model_path = ''
     assert len(model_path) > 0, 'Set the model path on the command line.'
     checkpoint_name = 'ckpt_best_loss.pth'
@@ -119,7 +119,7 @@ def init(_config, _run):
 
 
 @ex.main
-def main(_run, batch_size, datasets, debug, experiment_dir, db_path):
+def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
     experiment_dir = Path(experiment_dir)
 
     if IS_MASTER:
@@ -127,7 +127,7 @@ def main(_run, batch_size, datasets, debug, experiment_dir, db_path):
 
     # TODO: Substantially faster to load the model once and distribute via MPI
     model = get_model()
-    db = JsonDatabase(json_path=db_path)
+    db = JsonDatabase(json_path=database_json)
 
     model.eval()
     with torch.no_grad():
