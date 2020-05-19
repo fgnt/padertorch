@@ -3,7 +3,7 @@ from torch.distributions import kl_divergence as kld
 
 
 __all__ = [
-    'kl_divergence',
+    'gaussian_kl_divergence',
 ]
 
 
@@ -14,7 +14,7 @@ def _batch_diag(bmat):
     return bmat.reshape(bmat.shape[:-2] + (-1,))[..., ::bmat.size(-1) + 1]
 
 
-def kl_divergence(q, p):
+def gaussian_kl_divergence(q, p):
     """
     Args:
         q: Normal posterior distributions (B1, ..., BN, D)

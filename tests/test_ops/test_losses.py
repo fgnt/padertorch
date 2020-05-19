@@ -168,7 +168,7 @@ class TestKLLoss(unittest.TestCase):
         )
         q_ = Normal(loc=q.loc[:, 0], scale=pt.ops.losses._batch_diag(q.scale_tril[:, 0]))
 
-        actual_loss = pt.ops.kl_divergence(q_, p)
+        actual_loss = pt.ops.losses.gaussian_kl_divergence(q_, p)
         reference_loss = kl_divergence(q, p)
         np.testing.assert_allclose(actual_loss, reference_loss, rtol=1e-4)
 
