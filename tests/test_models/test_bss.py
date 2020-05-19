@@ -85,7 +85,7 @@ class TestPermutationInvariantTrainingModel(unittest.TestCase):
     # TODO: Test forward deterministic if not train
 
     def setUp(self):
-        self.model = pt.models.bss.PermutationInvariantTrainingModel(
+        self.model = pt.contrib.examples.pit.model.PermutationInvariantTrainingModel(
             dropout_input=0.5,
             dropout_hidden=0.5,
             dropout_linear=0.5

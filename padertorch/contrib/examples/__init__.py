@@ -8,3 +8,5 @@ except:
         "Trying to execute them anyway may take considerable "
         "effort on your behalf."
     )
+
+from . import pit
