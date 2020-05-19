@@ -220,9 +220,14 @@ class Model(Module, Configurable, abc.ABC):
 
         This method is primarily used by SummaryHook before dumping a summary.
         Summary contains accumulated values from multiple reviews (lists in
-        "scalars" and "histograms", snapshots in "audios" and "images").
+        "buffers", "scalars" and "histograms", snapshots in "snapshots",
+        "audios" and "images").
         This, e.g., allows to accurately compute and add metrics based on
         other scalars such as F-scores or Error Rates.
+        The intermediate formats "buffers" and "snapshots make no assumption
+        on the type of the data saved under this key. Therefore, they can be used
+        to agglomerate any data over multiple reviews.
+
 
         Args:
             summary:
@@ -237,8 +242,15 @@ class Model(Module, Configurable, abc.ABC):
            It can happen that the number of values is very low when
            summary_trigger and checkpoint_trigger have different units.
          - For validation the summary contains all values.
-
+         - The intermediate keys "buffers" and "snapshots" must not contain
+           any entries by the end of modify_summary.
         """
         for key, scalar in summary['scalars'].items():
             summary['scalars'][key] = np.mean(scalar)
+
+        assert len(
+            self.summary['buffers']) == 0, "intermediate format buffers has to be converted during modify_summary"
+        assert len(
+            self.summary['snapshots']) == 0, "intermediate format snapshots has to be converted during modify summary"
+
         return summary
