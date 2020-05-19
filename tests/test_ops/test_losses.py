@@ -131,7 +131,7 @@ class TestPermutationInvariantTrainingLoss(unittest.TestCase):
     def check_toy_example(self, estimate, target, reference_loss):
         estimate = torch.from_numpy(np.array(estimate, dtype=np.float32))
         target = torch.from_numpy(np.array(target, dtype=np.float32))
-        actual_loss = pt.ops.losses.loss.pit_loss(estimate, target, axis=-2)
+        actual_loss = pt.ops.losses.pit_loss(estimate, target, axis=-2)
         np.testing.assert_allclose(actual_loss, reference_loss, rtol=1e-4)
 
     def test_toy_example_1(self):
@@ -166,7 +166,7 @@ class TestKLLoss(unittest.TestCase):
                 np.broadcast_to(np.diag(np.random.rand(D)), (B, 1, D, D))
             )
         )
-        q_ = Normal(loc=q.loc[:, 0], scale=pt.ops.losses.loss._batch_diag(q.scale_tril[:, 0]))
+        q_ = Normal(loc=q.loc[:, 0], scale=pt.ops.losses._batch_diag(q.scale_tril[:, 0]))
 
         actual_loss = pt.ops.kl_divergence(q_, p)
         reference_loss = kl_divergence(q, p)
