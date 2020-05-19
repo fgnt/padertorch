@@ -10,6 +10,7 @@ __all__ = [
     'stft_to_image',
     'spectrogram_to_image',
     'review_dict',
+    'audio',
 ]
 
 
