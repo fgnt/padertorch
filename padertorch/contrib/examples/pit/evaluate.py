@@ -44,7 +44,7 @@ from padertorch.contrib.ldrude.utils import (
     decorator_append_file_storage_observer_with_lazy_basedir,
     get_new_folder
 )
-from . import MAKEFILE_TEMPLATE_EVAL as MAKEFILE_TEMPLATE
+from padertorch.contrib.examples.pit.templates import MAKEFILE_TEMPLATE_EVAL as MAKEFILE_TEMPLATE
 
 nickname = "pit"
 ex = Experiment(nickname)
@@ -158,8 +158,8 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
 
             s = s[:, :z.shape[1]]
             z = z[:, :s.shape[1]]
-            entry['mir_eval'] \
-                = pb_bss.evaluation.mir_eval_sources(s, z, return_dict=True)
+            entry['metrics'] \
+                = pb_bss.evaluation.OutputMetrics(speech_prediction=z, speech_source=s).as_dict()
 
         summary[dataset][example_id] = entry
 
