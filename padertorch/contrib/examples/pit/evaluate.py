@@ -54,10 +54,10 @@ path_template = Path(os.environ["STORAGE"]) / "pth_evaluate" / nickname
 @ex.config
 def config():
     debug = False
-    db_path = ''
+    database_json = ''
     if "WSJ0_2MIX" in os.environ:
-        db_path = os.environ.get("WSJ0_2MIX")
-    assert len(db_path) > 0, 'Set path to database Json on the command line or set environment variable WSJ0_2MIX'
+        database_json = os.environ.get("WSJ0_2MIX")
+    assert len(database_json) > 0, 'Set path to database Json on the command line or set environment variable WSJ0_2MIX'
     model_path = ''
     assert len(model_path) > 0, 'Set the model path on the command line.'
     checkpoint_name = 'ckpt_best_loss.pth'
@@ -119,7 +119,7 @@ def init(_config, _run):
 
 
 @ex.main
-def main(_run, batch_size, datasets, debug, experiment_dir, db_path):
+def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
     experiment_dir = Path(experiment_dir)
 
     if IS_MASTER:
@@ -127,42 +127,41 @@ def main(_run, batch_size, datasets, debug, experiment_dir, db_path):
 
     # TODO: Substantially faster to load the model once and distribute via MPI
     model = get_model()
-    db = JsonDatabase(json_path=db_path)
+    db = JsonDatabase(json_path=database_json)
 
     model.eval()
-    with torch.no_grad():
-        summary = defaultdict(dict)
-        for dataset in datasets:
-            iterable = prepare_iterable(
-                db, dataset, batch_size,
-                return_keys=None,
-                prefetch=False,
+    summary = defaultdict(dict)
+    for dataset in datasets:
+        iterable = prepare_iterable(
+            db, dataset, batch_size,
+            return_keys=None,
+            prefetch=False,
+        )
+
+        for batch in split_managed(iterable, is_indexable=False,
+                                   progress_bar=True,
+                                   allow_single_worker=debug
+                                   ):
+            entry = dict()
+            model_output = model(pt.data.example_to_device(batch))
+
+            example_id = batch['example_id'][0]
+            s = batch['s'][0]
+            Y = batch['Y'][0]
+            mask = model_output[0].numpy()
+
+            Z = mask * Y[:, None, :]
+            z = istft(
+                einops.rearrange(Z, "t k f -> k t f"),
+                size=512, shift=128
             )
 
-            for batch in split_managed(iterable, is_indexable=False,
-                                       progress_bar=True,
-                                       allow_single_worker=debug
-                                       ):
-                entry = dict()
-                model_output = model(pt.data.example_to_device(batch))
+            s = s[:, :z.shape[1]]
+            z = z[:, :s.shape[1]]
+            entry['mir_eval'] \
+                = pb_bss.evaluation.mir_eval_sources(s, z, return_dict=True)
 
-                example_id = batch['example_id'][0]
-                s = batch['s'][0]
-                Y = batch['Y'][0]
-                mask = model_output[0].numpy()
-
-                Z = mask * Y[:, None, :]
-                z = istft(
-                    einops.rearrange(Z, "t k f -> k t f"),
-                    size=512, shift=128
-                )
-
-                s = s[:, :z.shape[1]]
-                z = z[:, :s.shape[1]]
-                entry['mir_eval'] \
-                    = pb_bss.evaluation.mir_eval_sources(s, z, return_dict=True)
-
-                summary[dataset][example_id] = entry
+        summary[dataset][example_id] = entry
 
     summary_list = COMM.gather(summary, root=MASTER)
 
