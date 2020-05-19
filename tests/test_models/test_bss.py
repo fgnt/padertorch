@@ -3,6 +3,7 @@ import padertorch as pt
 import numpy as np
 import torch
 
+from padertorch.contrib.examples.pit.model import PermutationInvariantTrainingModel
 
 class TestDeepClusteringModel(unittest.TestCase):
     # TODO: Test forward deterministic if not train
@@ -85,7 +86,7 @@ class TestPermutationInvariantTrainingModel(unittest.TestCase):
     # TODO: Test forward deterministic if not train
 
     def setUp(self):
-        self.model = pt.contrib.examples.pit.model.PermutationInvariantTrainingModel(
+        self.model = PermutationInvariantTrainingModel(
             dropout_input=0.5,
             dropout_hidden=0.5,
             dropout_linear=0.5
