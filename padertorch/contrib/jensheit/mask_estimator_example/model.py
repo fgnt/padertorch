@@ -2,8 +2,8 @@ import numpy as np
 import padertorch as pt
 import torch
 import torch.nn.functional as F
-from padertorch.modules.mask_estimator import MaskEstimator
-from padertorch.modules.mask_estimator import MaskKeys as K
+from padertorch.contrib.jensheit.mask_estimator_example.modul import MaskEstimator
+from padertorch.contrib.jensheit.mask_estimator_example.modul import MaskKeys as K
 from padertorch.ops.mappings import TORCH_POOLING_FN_MAP
 
 from padertorch.summary import mask_to_image, stft_to_image
