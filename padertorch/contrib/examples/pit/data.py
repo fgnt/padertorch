@@ -16,7 +16,7 @@ def prepare_iterable(
 
     iterator = (
         iterator
-        .map(read_audio, audio_keys=audio_keys)
+        .map(partial(read_audio, audio_keys=audio_keys))
         .map(partial(pre_batch_transform, return_keys=return_keys))
         .shuffle()
         .batch(batch_size)
