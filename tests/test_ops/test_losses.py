@@ -120,7 +120,7 @@ class TestDeepClusteringLoss(unittest.TestCase):
         target_mask = np.random.choice([0, 1], size=(100, 3))
         loss_ref = self.numpy_reference_loss(embedding, target_mask)
 
-        loss = pt.ops.loss.deep_clustering_loss(
+        loss = pt.ops.losses.deep_clustering_loss(
             torch.Tensor(embedding.astype(np.float32)),
             torch.Tensor(target_mask.astype(np.float32)),
         )
@@ -166,7 +166,7 @@ class TestKLLoss(unittest.TestCase):
                 np.broadcast_to(np.diag(np.random.rand(D)), (B, 1, D, D))
             )
         )
-        q_ = Normal(loc=q.loc[:, 0], scale=pt.ops.losses._batch_diag(q.scale_tril[:, 0]))
+        q_ = Normal(loc=q.loc[:, 0], scale=pt.ops.losses.kl_divergence._batch_diag(q.scale_tril[:, 0]))
 
         actual_loss = pt.ops.losses.gaussian_kl_divergence(q_, p)
         reference_loss = kl_divergence(q, p)
@@ -196,8 +196,8 @@ class TestKLLoss(unittest.TestCase):
             scale=q.scale.view(-1, D)
         )
 
-        actual_loss = pt.ops.kl_divergence(q, p)
-        reference_loss = pt.ops.kl_divergence(q_, p_).view(
+        actual_loss = pt.ops.gaussian_kl_divergence(q, p)
+        reference_loss = pt.ops.gaussian_kl_divergence(q_, p_).view(
             B1, B2, K1, K2
         )
         np.testing.assert_allclose(actual_loss, reference_loss, rtol=1e-4)
