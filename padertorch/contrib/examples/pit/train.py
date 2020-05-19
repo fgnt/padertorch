@@ -43,10 +43,10 @@ path_template = Path(os.environ["STORAGE"]) / "pth_models" / nickname
 def config():
     debug = False
     batch_size = 6
-    db_path = ""  # Path to WSJ0_2mix .json
+    database_json = ""  # Path to WSJ0_2mix .json
     if "WSJ0_2MIX" in os.environ:
-        db_path = os.environ.get("WSJ0_2MIX")
-    assert len(db_path) > 0, 'Set path to database Json on the command line or set environment variable WSJ0_2MIX'
+        database_json = os.environ.get("WSJ0_2MIX")
+    assert len(database_json) > 0, 'Set path to database Json on the command line or set environment variable WSJ0_2MIX'
     train_dataset = "mix_2_spk_min_tr"
     validate_dataset = "mix_2_spk_min_cv"
 
@@ -118,14 +118,14 @@ def init(_config, _run):
 
 
 @ex.capture
-def prepare_and_train(_config, _run, train_dataset, validate_dataset, db_path):
+def prepare_and_train(_config, _run, train_dataset, validate_dataset, database_json):
     """ Prepares the train and validation dataset from the database object """
 
     sacred.commands.print_config(_run)
     trainer = pt.Trainer.from_config(_config["trainer"])
     checkpoint_path = trainer.checkpoint_dir / 'ckpt_latest.pth'
 
-    db = JsonDatabase(json_path=db_path)
+    db = JsonDatabase(json_path=database_json)
     print(repr(train_dataset), repr(validate_dataset))
 
     trainer.test_run(
