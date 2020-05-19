@@ -31,7 +31,7 @@ def deep_clustering_loss(x, t):
     ) / N ** 2
 
 
-def permutation_invariant_loss(
+def pit_loss(
         estimate: torch.Tensor,
         target: torch.Tensor,
         axis: int,
