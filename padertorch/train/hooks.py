@@ -186,8 +186,8 @@ class SummaryHook(TriggeredHook):
             'images',
             'texts',
             'figures',
-            'buffer',
-            'snapshot'
+            'buffers',
+            'snapshots'
         }
         redundant_keys = set(review.keys()) - allowed_keys
         assert len(redundant_keys) == 0, (redundant_keys, review.keys(), allowed_keys)
@@ -207,6 +207,8 @@ class SummaryHook(TriggeredHook):
                 self.summary['histograms'][key][-1000000:]
         for key, buffer in popped_review.pop('buffers', dict()).items():
             self.summary['buffers'][key].extend(self._detach(buffer))
+        for key, snapshot in popped_review.pop('snapshots', dict()).items():
+            self.summary['snapshots'][key] = snapshot  # snapshot
         for key, audio in popped_review.pop('audios', dict()).items():
             self.summary['audios'][key] = audio  # snapshot
         for key, image in popped_review.pop('images', dict()).items():
