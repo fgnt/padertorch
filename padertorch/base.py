@@ -249,8 +249,8 @@ class Model(Module, Configurable, abc.ABC):
             summary['scalars'][key] = np.mean(scalar)
 
         assert len(
-            self.summary['buffers']) == 0, "intermediate format buffers has to be converted during modify_summary"
+            summary['buffers']) == 0, "intermediate format buffers has to be converted during modify_summary"
         assert len(
-            self.summary['snapshots']) == 0, "intermediate format snapshots has to be converted during modify summary"
+            summary['snapshots']) == 0, "intermediate format snapshots has to be converted during modify summary"
 
         return summary
