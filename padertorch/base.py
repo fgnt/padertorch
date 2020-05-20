@@ -224,7 +224,7 @@ class Model(Module, Configurable, abc.ABC):
         "audios" and "images").
         This, e.g., allows to accurately compute and add metrics based on
         other scalars such as F-scores or Error Rates.
-        The intermediate formats "buffers" and "snapshots make no assumption
+        The intermediate formats "buffers" and "snapshots" make no assumption
         on the type of the data saved under this key. Therefore, they can be used
         to agglomerate any data over multiple reviews.
 
