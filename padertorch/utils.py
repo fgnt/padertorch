@@ -77,8 +77,23 @@ def to_list(x, length=None):
     return x
 
 
-def to_numpy(array, detach=False):
+def to_numpy(array, detach: bool = False, copy: bool = False) -> np.ndarray:
     """
+    Transforms `array` to a numpy array. `array` can be anything that
+    `np.asarray` can handle and torch tensors.
+
+    Args:
+        array: The array to transform to numpy
+        detach: If `True`, `array` gets detached if it is a `torch.Tensor`.
+            This has to be enabled explicitly to prevent unintentional
+            truncation of a backward graph.
+        copy: If `True`, the array gets copied. Otherwise, it becomes read-only
+            to prevent unintened changes on the input array or tensor by
+            altering the output.
+
+    Returns:
+        `array` as a numpy array.
+
     >>> t = torch.zeros(2)
     >>> t
     tensor([0., 0.])
@@ -98,7 +113,12 @@ def to_numpy(array, detach=False):
 
     try:
         # torch only supports np.asarray for cpu tensors
-        return np.asarray(array)
+        if copy:
+            return np.array(array)
+        else:
+            array = np.asarray(array)
+            array.setflags(write=False)
+            return array
     except RuntimeError as e:
         import sys
         raise type(e)(str(e) + (
