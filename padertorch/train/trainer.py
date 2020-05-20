@@ -209,8 +209,8 @@ class Trainer(Configurable):
                 Whether to resume a training or start a fresh one.
             device:
                 Defines the device which shall be used ('cpu', 0, 1, ...).
-                If None, the device of the model will not be changed and the
-                example to the model is moved to the cpu.
+                If None, it selects device 0 if CUDA is available and 'cpu'
+                if CUDA is not available.
         """
 
         if torch.cuda.is_available():
