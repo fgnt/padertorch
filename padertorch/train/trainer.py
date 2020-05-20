@@ -176,7 +176,7 @@ class Trainer(Configurable):
             *,
             progress_bar=True,
             resume=False,
-            device=0 if torch.cuda.is_available() else 'cpu'
+            device=None
     ):
         """
         A simplified training loop::
@@ -212,6 +212,27 @@ class Trainer(Configurable):
                 If None, the device of the model will not be changed and the
                 example to the model is moved to the cpu.
         """
+
+        if torch.cuda.is_available():
+            if device is None:
+                device = 0
+        else:
+            if device is None:
+                warnings.warn(
+                    'CUDA is not available in this environment! The training '
+                    'will run on the CPU! This might be caused by a damaged '
+                    'installation or a version mismatch between PyTorch and '
+                    'your CUDA installation.'
+                )
+                device = 'cpu'
+            elif device != 'cpu':
+                raise RuntimeError(
+                    'CUDA is not available in this environment, but you set '
+                    'device to use a GPU! This might be caused by a damaged '
+                    'installation or a version mismatch between PyTorch and '
+                    'your CUDA installation.'
+                )
+
         if resume:
             assert resume is True, resume
             self.load_checkpoint()
