@@ -5,8 +5,6 @@ from torch.nn.utils.rnn import PackedSequence
 import padertorch as pt
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 from padertorch.summary import mask_to_image, stft_to_image
-from paderbox.transform import istft
-
 
 
 class MultiChannelPermutationInvariantTraining(pt.Model):

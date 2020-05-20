@@ -1,15 +1,16 @@
 """
 Example call on NT infrastructure:
 
-export STORAGE=<your desired storage root>
+export STORAGE=<your/desired/storage/root>
+export WSJ0_2MIX=<path/to/wsj0_2mix/json>
 mkdir -p $STORAGE/pth_models/pit
 python -m padertorch.contrib.examples.pit.train print_config
 python -m padertorch.contrib.examples.pit.train
 
 
-Example call on PC2 infrastructure:
+Example call on PC2 infrastructure (only relevant for Paderborn University usage):
 
-export STORAGE=<your desired storage root>
+export STORAGE=<your/desired/storage/root>
 mkdir -p $STORAGE/pth_models/pit
 python -m padertorch.contrib.examples.pit.train init
 make ccsalloc
@@ -20,36 +21,17 @@ TODO: Change to sacred IDs again, otherwise I can not apply `unique` to `_id`.
 """
 from sacred import Experiment
 import sacred.commands
-from padercontrib.database.merl_mixtures import MerlMixtures
 import os
 from pathlib import Path
 import padertorch as pt
 import paderbox as pb
+from lazy_dataset.database import JsonDatabase
 
 from sacred.observers.file_storage import FileStorageObserver
 
-from padertorch.contrib.ldrude.data import prepare_iterable
+from padertorch.contrib.examples.pit.data import prepare_iterable
 from padertorch.contrib.ldrude.utils import get_new_folder
-
-
-MAKEFILE_TEMPLATE = """
-SHELL := /bin/bash
-
-train:
-\tpython -m {main_python_path} with config.json
-
-ccsalloc:
-\tccsalloc \\
-\t\t--notifyuser=awe \\
-\t\t--res=rset=1:ncpus=4:gtx1080=1:ompthreads=1 \\
-\t\t--time=100h \\
-\t\t--join \\
-\t\t--stdout=stdout \\
-\t\t--tracefile=%x.%reqid.trace \\
-\t\t-N train_{nickname} \\
-\t\tpython -m {main_python_path} with config.json
-"""
-
+from padertorch.contrib.examples.pit.templates import MAKEFILE_TEMPLATE_TRAIN as MAKEFILE_TEMPLATE
 
 nickname = "pit"
 ex = Experiment(nickname)
@@ -61,14 +43,18 @@ path_template = Path(os.environ["STORAGE"]) / "pth_models" / nickname
 def config():
     debug = False
     batch_size = 6
-
+    database_json = ""  # Path to WSJ0_2mix .json
+    if "WSJ0_2MIX" in os.environ:
+        database_json = os.environ.get("WSJ0_2MIX")
+    assert len(database_json) > 0, 'Set path to database Json on the command line or set environment variable WSJ0_2MIX'
     train_dataset = "mix_2_spk_min_tr"
     validate_dataset = "mix_2_spk_min_cv"
 
-    # Start with an empty dict to allow tracking by Sacred
+    # dict describing the model parameters, to allow changing the paramters from the command line.
+    # Configurable automatically inserts default values of not mentioned parameters to the config.json
     trainer = {
         "model": {
-            "factory": pt.models.bss.PermutationInvariantTrainingModel,
+            "factory": pt.contrib.examples.pit.model.PermutationInvariantTrainingModel,
             "dropout_input": 0.,
             "dropout_hidden": 0.,
             "dropout_linear": 0.
@@ -102,13 +88,12 @@ def prepare_iterable_captured(
     return prepare_iterable(
         database, dataset, batch_size, return_keys,
         prefetch=not debug,
-        iterator_slice=slice(0, 100, 1) if debug else None
     )
 
 
 @ex.command
 def init(_config, _run):
-    """Create a storage dir, write Makefile. Do not start any training."""
+    """ Creates a storage dir, writes Makefile. Does not start any training."""
     experiment_dir = Path(_config['trainer']['storage_dir'])
     config_path = experiment_dir / "config.json"
     pb.io.dump_json(_config, config_path)
@@ -133,12 +118,14 @@ def init(_config, _run):
 
 
 @ex.capture
-def prepare_and_train(_config, _run, train_dataset, validate_dataset):
+def prepare_and_train(_config, _run, train_dataset, validate_dataset, database_json):
+    """ Prepares the train and validation dataset from the database object """
+
     sacred.commands.print_config(_run)
     trainer = pt.Trainer.from_config(_config["trainer"])
     checkpoint_path = trainer.checkpoint_dir / 'ckpt_latest.pth'
 
-    db = MerlMixtures()
+    db = JsonDatabase(json_path=database_json)
     print(repr(train_dataset), repr(validate_dataset))
 
     trainer.test_run(
