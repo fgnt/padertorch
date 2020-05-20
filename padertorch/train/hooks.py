@@ -168,6 +168,8 @@ class SummaryHook(TriggeredHook):
             texts=dict(),
             figures=dict(),
             timings=dict(),
+            buffers=dict(),
+            snapshots=dict()
         ))
 
     def reset_summary(self):
@@ -184,34 +186,40 @@ class SummaryHook(TriggeredHook):
             'images',
             'texts',
             'figures',
+            'buffers',
+            'snapshots'
         }
         redundant_keys = set(review.keys()) - allowed_keys
         assert len(redundant_keys) == 0, (redundant_keys, review.keys(), allowed_keys)
 
-        poped_review = {**review}  # copy for "pop"
+        popped_review = {**review}  # copy for "pop"
 
         # note item is the pytorch function to get the value of a tensor
-        self.summary['scalars']['loss'].append(poped_review.pop('loss').item())
-        for key, loss in poped_review.pop('losses', dict()).items():
+        self.summary['scalars']['loss'].append(popped_review.pop('loss').item())
+        for key, loss in popped_review.pop('losses', dict()).items():
             self.summary['scalars'][key].append(loss.item())
-        for key, scalars in poped_review.pop('scalars', dict()).items():
+        for key, scalars in popped_review.pop('scalars', dict()).items():
             self.summary['scalars'][key].extend(self._to_list(scalars))
-        for key, histogram in poped_review.pop('histograms', dict()).items():
+        for key, histogram in popped_review.pop('histograms', dict()).items():
             self.summary['histograms'][key].extend(self._to_list(histogram))
             # do not hold more than 1M values in memory
             self.summary['histograms'][key] = \
                 self.summary['histograms'][key][-1000000:]
-        for key, audio in poped_review.pop('audios', dict()).items():
+        for key, buffer in popped_review.pop('buffers', dict()).items():
+            self.summary['buffers'][key].extend(self._detach(buffer))
+        for key, snapshot in popped_review.pop('snapshots', dict()).items():
+            self.summary['snapshots'][key] = snapshot  # snapshot
+        for key, audio in popped_review.pop('audios', dict()).items():
             self.summary['audios'][key] = audio  # snapshot
-        for key, image in poped_review.pop('images', dict()).items():
+        for key, image in popped_review.pop('images', dict()).items():
             self.summary['images'][key] = image  # snapshot
-        for key, figure in poped_review.pop('figures', dict()).items():
+        for key, figure in popped_review.pop('figures', dict()).items():
             self.summary['figures'][key] = figure  # snapshot
-        for key, text in poped_review.pop('texts', dict()).items():
+        for key, text in popped_review.pop('texts', dict()).items():
             assert isinstance(text, str), text
             self.summary['texts'][key] = text  # snapshot
 
-        assert len(poped_review) == 0, (poped_review, review)
+        assert len(popped_review) == 0, (popped_review, review)
 
     @staticmethod
     def _to_list(scalars):
@@ -223,6 +231,12 @@ class SummaryHook(TriggeredHook):
             assert np.isscalar(scalars)
             scalars = [scalars]
         return scalars
+
+    @staticmethod
+    def _detach(buffer):
+        if torch.is_tensor(buffer):
+            buffer = buffer.detach()
+        return buffer
 
     def compute_timings(self, timer: 'pt.trainer.ContextTimerDict'):
         timer_dict = timer.as_dict
@@ -293,10 +307,14 @@ class SummaryHook(TriggeredHook):
 
     def finalize_summary(self, trainer):
         assert len(self.summary['timings']) == 0, self.summary['timings']
+
         for key, timing in self.compute_timings(trainer.train_timer).items():
             self.summary['timings'][key] = timing
         self.maybe_add_lr_to_summary(trainer)
         self.summary = trainer.model.modify_summary(self.summary)
+        # Assert the intermediate types were converted in he modify summary
+        assert len(self.summary['buffers']) == 0, "intermediate format buffers has to be converted during modify_summary"
+        assert len(self.summary['snapshots']) == 0, "intermediate format snapshots has to be converted during modify summary"
 
     def dump_summary(self, trainer: 'pt.Trainer'):
         iteration = trainer.iteration
