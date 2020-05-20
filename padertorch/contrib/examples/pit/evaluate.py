@@ -44,7 +44,7 @@ from padertorch.contrib.ldrude.utils import (
     decorator_append_file_storage_observer_with_lazy_basedir,
     get_new_folder
 )
-from . import MAKEFILE_TEMPLATE_EVAL as MAKEFILE_TEMPLATE
+from padertorch.contrib.examples.pit.templates import MAKEFILE_TEMPLATE_EVAL as MAKEFILE_TEMPLATE
 
 nickname = "pit"
 ex = Experiment(nickname)
@@ -130,36 +130,37 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
     db = JsonDatabase(json_path=database_json)
 
     model.eval()
-    summary = defaultdict(dict)
-    for dataset in datasets:
-        iterable = prepare_iterable(
-            db, dataset, batch_size,
-            return_keys=None,
-            prefetch=False,
-        )
-
-        for batch in split_managed(iterable, is_indexable=False,
-                                   progress_bar=True,
-                                   allow_single_worker=debug
-                                   ):
-            entry = dict()
-            model_output = model(pt.data.example_to_device(batch))
-
-            example_id = batch['example_id'][0]
-            s = batch['s'][0]
-            Y = batch['Y'][0]
-            mask = model_output[0].numpy()
-
-            Z = mask * Y[:, None, :]
-            z = istft(
-                einops.rearrange(Z, "t k f -> k t f"),
-                size=512, shift=128
+    with torch.no_grad():
+        summary = defaultdict(dict)
+        for dataset in datasets:
+            iterable = prepare_iterable(
+                db, dataset, batch_size,
+                return_keys=None,
+                prefetch=False,
             )
 
-            s = s[:, :z.shape[1]]
-            z = z[:, :s.shape[1]]
-            entry['mir_eval'] \
-                = pb_bss.evaluation.mir_eval_sources(s, z, return_dict=True)
+            for batch in split_managed(iterable, is_indexable=False,
+                                       progress_bar=True,
+                                       allow_single_worker=debug
+                                       ):
+                entry = dict()
+                model_output = model(pt.data.example_to_device(batch))
+
+                example_id = batch['example_id'][0]
+                s = batch['s'][0]
+                Y = batch['Y'][0]
+                mask = model_output[0].numpy()
+
+                Z = mask * Y[:, None, :]
+                z = istft(
+                    einops.rearrange(Z, "t k f -> k t f"),
+                    size=512, shift=128
+                )
+
+                s = s[:, :z.shape[1]]
+                z = z[:, :s.shape[1]]
+                entry['metrics'] \
+                    = pb_bss.evaluation.OutputMetrics(speech_prediction=z, speech_source=s).as_dict()
 
         summary[dataset][example_id] = entry
 
