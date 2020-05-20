@@ -235,7 +235,7 @@ class SummaryHook(TriggeredHook):
     @staticmethod
     def _detach(buffer):
         if torch.is_tensor(buffer):
-            buffer.detach()
+            buffer = buffer.detach()
         return buffer
 
     def compute_timings(self, timer: 'pt.trainer.ContextTimerDict'):
