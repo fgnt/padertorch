@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from padertorch.contrib.je.modules.gmm import GMM
-from padertorch.ops.losses.loss import kl_divergence
+from padertorch.ops.losses import gaussian_kl_divergence
 from torch import nn
 
 from padertorch.contrib.je.modules.hmm_utils import batch_forward_backward, batch_viterbi, squeeze_sequence

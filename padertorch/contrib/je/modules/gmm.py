@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.distributions as D
 from padertorch.base import Module
-from padertorch.ops.losses.loss import kl_divergence
+from padertorch.ops.losses import gaussian_kl_divergence
 from sklearn import metrics
 from torch import nn
 
@@ -83,7 +83,7 @@ class GMM(Module):
             )
 
     def forward(self, qz):
-        log_rho = -kl_divergence(qz, self.gaussians)
+        log_rho = -gaussian_kl_divergence(qz, self.gaussians)
         log_class_posterior = torch.log_softmax(
             self.log_class_probs + log_rho,
             dim=-1
