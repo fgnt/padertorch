@@ -24,6 +24,18 @@ __all__ = [
 class Module(nn.Module, Configurable, abc.ABC):
     """Abstract base class for configurable Modules."""
 
+    # Indicate if the module is in training mode.
+    #
+    # Docstring part from torch.nn.Module.train:
+    #  This has any effect only on certain modules. See documentations of
+    #  particular modules for details of their behaviors in training/evaluation
+    #  mode, if they are affected, e.g. :class:`Dropout`, :class:`BatchNorm`,
+    #  etc.
+    #
+    # Pycharm has problems with autocomplete for this flag.
+    # hence add this type annotation
+    training: bool
+
     @abc.abstractmethod
     def forward(self, *args, **kwargs):  # pylint: disable=arguments-differ
         """Define the I/O behavior of Module()."""
