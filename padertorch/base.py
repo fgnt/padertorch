@@ -44,8 +44,8 @@ class Module(nn.Module, Configurable, abc.ABC):
     @classmethod
     def from_config_and_checkpoint(
             cls,
-            config_path: Path,
-            checkpoint_path: Path,
+            config_path: (Path, str),
+            checkpoint_path: (Path, str),
             in_config_path: str = 'trainer.model',
             in_checkpoint_path: str = 'model',
 
