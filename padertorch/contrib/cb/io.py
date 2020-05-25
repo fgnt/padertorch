@@ -28,11 +28,12 @@ def get_new_folder(
 
     """
     if consider_mpi:
-        if pb.utils.mpi.IS_MASTER:
+        import dlp_mpi
+        if dlp_mpi.IS_MASTER:
             pass
         else:
             new_folder = None
-            new_folder = pb.utils.mpi.COMM.bcast(new_folder)
+            new_folder = dlp_mpi.bcast(new_folder)
             return new_folder
 
     suggested_id = try_id
@@ -77,8 +78,9 @@ def get_new_folder(
                 raise ValueError(mkdir)
 
             if consider_mpi:
-                assert pb.utils.mpi.IS_MASTER, pb.utils.mpi.RANK
-                simu_dir = pb.utils.mpi.COMM.bcast(simu_dir)
+                import dlp_mpi
+                assert dlp_mpi.IS_MASTER, dlp_mpi.RANK
+                simu_dir = dlp_mpi.bcast(simu_dir)
 
             if chdir:
                 os.chdir(simu_dir)

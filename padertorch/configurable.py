@@ -419,11 +419,12 @@ class Configurable:
             return configurable_config
 
         if consider_mpi:
-            from paderbox.utils import mpi
-            configurable_config = mpi.call_on_master_and_broadcast(
-                load_config,
-                config_path=config_path,
-            )
+            import dlp_mpi
+            if dlp_mpi.IS_MASTER:
+                configurable_config = load_config(config_path=config_path)
+            else:
+                configurable_config = None
+            configurable_config = dlp_mpi.bcast(configurable_config)
         else:
             configurable_config = load_config(config_path=config_path)
         if config_path != '':

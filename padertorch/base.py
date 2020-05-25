@@ -24,6 +24,18 @@ __all__ = [
 class Module(nn.Module, Configurable, abc.ABC):
     """Abstract base class for configurable Modules."""
 
+    # Indicate if the module is in training mode.
+    #
+    # Docstring part from torch.nn.Module.train:
+    #  This has any effect only on certain modules. See documentations of
+    #  particular modules for details of their behaviors in training/evaluation
+    #  mode, if they are affected, e.g. :class:`Dropout`, :class:`BatchNorm`,
+    #  etc.
+    #
+    # Pycharm has problems with autocomplete for this flag.
+    # hence add this type annotation
+    training: bool
+
     @abc.abstractmethod
     def forward(self, *args, **kwargs):  # pylint: disable=arguments-differ
         """Define the I/O behavior of Module()."""
@@ -32,8 +44,8 @@ class Module(nn.Module, Configurable, abc.ABC):
     @classmethod
     def from_config_and_checkpoint(
             cls,
-            config_path: Path,
-            checkpoint_path: Path,
+            config_path: (Path, str),
+            checkpoint_path: (Path, str),
             in_config_path: str = 'trainer.model',
             in_checkpoint_path: str = 'model',
 
@@ -66,15 +78,18 @@ class Module(nn.Module, Configurable, abc.ABC):
         module = cls.from_file(
             config_path,
             in_config_path,
-            consider_mpi=False
+            consider_mpi=consider_mpi,
         )
 
         # Load weights
         if consider_mpi:
-            from paderbox.utils import mpi
-            checkpoint_path_content = mpi.call_on_master_and_broadcast(
-                Path(checkpoint_path).read_bytes,
-            )
+            import dlp_mpi
+            if dlp_mpi.IS_MASTER:
+                checkpoint_path_content = Path(checkpoint_path).read_bytes()
+            else:
+                checkpoint_path_content = None
+            checkpoint_path_content = dlp_mpi.bcast(checkpoint_path_content)
+
             checkpoint = torch.load(
                 io.BytesIO(checkpoint_path_content),
                 map_location=map_location,
