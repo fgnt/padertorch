@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import MagicMock
+import numpy as np
 
 from IPython.lib.pretty import pretty
 import pytest
@@ -11,6 +12,7 @@ import tensorboardX
 import torch
 
 import padertorch as pt
+import paderbox as pb
 
 
 class ProgresbarHookTest(unittest.TestCase):
@@ -210,3 +212,70 @@ e.g. you cannot report the `grad_norm` as scalar and histogram.
 A common workaround is to use `grad_norm` for the scalar and append an `_` for the histogram (i.e. `grad_norm_`)."""
 
     unittest.TestCase().assertMultiLineEqual(expect, str(excinfo.value))
+
+
+def test_loss_weight_annealing_hook():
+    class DummyTrainer:
+        epoch = 0
+        iteration = 0
+        loss_weights = {'loss': 0}
+
+    loss_weight_annealing_hook = pt.train.hooks.LossWeightAnnealingHook(
+        (1, 'iteration'), [(0, 0), (5, 1), (10, 0)], 'loss'
+    )
+    trainer = DummyTrainer()
+    values = []
+    for i in range(11):
+        trainer.iteration = i
+        loss_weight_annealing_hook.pre_step(trainer)
+        values.append(trainer.loss_weights['loss'])
+    expected_values = np.linspace(0, 1, 6).tolist() + np.linspace(0.8, 0, 5).tolist()
+    pb.testing.assert_almost_equal(values, expected_values)
+
+
+def test_model_attribute_annealing_hook():
+
+    class DummyModel:
+        attr = 0
+
+    class DummyTrainer:
+        epoch = 0
+        iteration = 0
+        model = DummyModel()
+
+    attr_annealing_hook = pt.train.hooks.ModelAttributeAnnealingHook(
+        (1, 'iteration'), [(0, 0), (5, 1), (10, 0)], 'attr'
+    )
+    trainer = DummyTrainer()
+    values = []
+    for i in range(11):
+        trainer.iteration = i
+        attr_annealing_hook.pre_step(trainer)
+        values.append(trainer.model.attr)
+    expected_values = np.linspace(0, 1, 6).tolist() + np.linspace(0.8, 0, 5).tolist()
+    pb.testing.assert_almost_equal(values, expected_values)
+
+
+def test_lr_annealing_hook():
+    class _DummyOptimizer:
+        param_groups = [{'lr': 0.}]
+
+    class DummyOptimizer:
+        optimizer = _DummyOptimizer()
+
+    class DummyTrainer:
+        epoch = 0
+        iteration = 0
+        optimizer = DummyOptimizer()
+
+    lr_annealing_hook = pt.train.hooks.LRAnnealingHook(
+        (1, 'iteration'), [(0, 0), (5, 1), (10, 0)]
+    )
+    trainer = DummyTrainer()
+    values = []
+    for i in range(11):
+        trainer.iteration = i
+        lr_annealing_hook.pre_step(trainer)
+        values.append(trainer.optimizer.optimizer.param_groups[0]['lr'])
+    expected_values = np.linspace(0, 1, 6).tolist() + np.linspace(0.8, 0, 5).tolist()
+    pb.testing.assert_almost_equal(values, expected_values)

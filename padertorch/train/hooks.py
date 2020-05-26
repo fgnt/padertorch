@@ -23,6 +23,7 @@ from tqdm import tqdm
 
 tqdm.monitor_interval = 0
 
+
 __all__ = [
     'SummaryHook',
     'CheckpointHook',
@@ -812,105 +813,115 @@ class StopTraining(Exception):
     pass
 
 
-class LossWeightAnnealingHook(TriggeredHook):
-    """
-    Anneals a loss weight within the los_weights dict of the trainer.
-    """
-    def __init__(self, name, factor, trigger, max_value=None, min_value=None):
+class AnnealingHook(TriggeredHook):
+    def __init__(self, trigger, breakpoints, name):
         """
+        Base class for piece-wise linear annealing. The piece-wise linear
+        function is parameterized by its breakpoints. Can also be used for
+        arbitrary annealing functions by stating breakpoints with an interval
+        similar to the trigger interval.
 
         Args:
-            name: key of the loss_weight
-            factor: factor by which to anneal the loss weight.
-                factor > 1. results in an increase while factor < 1. results
-                in a decrease
             trigger:
-            max_value: upper bound of the weight
-            min_value: lower bound of the weight
-                (hint: can also be used to activate a loss weight after a
-                certain number of iterations/epochs)
-        """
-        super().__init__(trigger)
-        self.name = name
-        self.factor = factor
-        self.max_value = max_value
-        self.min_value = min_value
-
-    @property
-    def uid(self):
-        return super().uid + f"({self.name})"
-
-    def pre_step(self, trainer):
-        if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch) \
-                and trainer.iteration != 0:
-            weight = self.factor * trainer.loss_weights[self.name]
-            if self.max_value is not None:
-                weight = min(weight, self.max_value)
-            if self.min_value is not None:
-                weight = max(weight, self.min_value)
-            trainer.loss_weights[self.name] = weight
-
-
-class ModelAttributeAnnealingHook(TriggeredHook):
-    """
-    Anneals an attribute of the trainers model.
-    """
-    def __init__(
-            self, name, trigger, factor=None, slope=None, max_value=None, min_value=None
-    ):
-        """
-
-        Args:
+            breakpoints: list of (iteration, value) coordinates of the piecewise linear funtion.
             name: name of the attribute. You can use "attr1.attr11" to
                 anneal a sub attribute
-            factor: factor by which to anneal the attribute.
-                factor > 1. results in an increase while factor < 1. results
-                in a decrease
-            trigger:
-            max_value: upper bound of the weight
-            min_value: lower bound of the weight
-                (hint: can also be used to activate a loss weight after a
-                certain number of iterations/epochs)
         """
         super().__init__(trigger)
-        self.name = name.split('.')
-        assert (factor is None) ^ (slope is None), (factor, slope)
-        self.factor = factor
-        self.slope = slope
-        self.max_value = max_value
-        self.min_value = min_value
-        self.onset_value = None
+        self.breakpoints = sorted(breakpoints, key=lambda x: x[0])
+        self.name = name
+        self.last_break = None
 
     @property
     def uid(self):
         return super().uid + f"({'.'.join(self.name)})"
 
+    def get_value(self, trainer):
+        raise NotImplementedError
+
+    def set_value(self, trainer, value):
+        raise NotImplementedError
+
+    def pre_step(self, trainer):
+        if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
+            if self.last_break is None:
+                self.last_break = (0, self.get_value(trainer))
+            while len(self.breakpoints) > 0 and self.breakpoints[0][0] <= trainer.iteration:
+                self.last_break = self.breakpoints.pop(0)
+            if len(self.breakpoints) > 0:
+                slope = (self.breakpoints[0][1]-self.last_break[1])/(self.breakpoints[0][0]-self.last_break[0])
+                value = self.last_break[1] + slope * (trainer.iteration - self.last_break[0])
+            else:
+                value = self.last_break[1]
+            self.set_value(trainer, value)
+
+
+class LossWeightAnnealingHook(AnnealingHook):
+    """
+    Anneals a loss weight within the loss_weights dict of the trainer.
+    """
+    def get_value(self, trainer):
+        return trainer.loss_weights[self.name]
+
+    def set_value(self, trainer, value):
+        trainer.loss_weights[self.name] = value
+
+
+class ModelAttributeAnnealingHook(AnnealingHook):
+    """
+    Anneals an (sub)attribute of the trainers model.
+    """
+
     def get_module(self, trainer: 'pt.Trainer'):
         module = trainer.model
-        for attr_name in self.name[:-1]:
+        name = self.name.split('.')[:-1]
+        for attr_name in name:
             module = getattr(module, attr_name)
         return module
 
-    def pre_step(self, trainer):
-        if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch) \
-                and trainer.iteration != 0:
-            module = self.get_module(trainer)
-            value = getattr(module, self.name[-1])
-            if self.onset_value is None:
-                self.onset_value = value
-            if self.factor is not None:
-                value *= self.factor
-            if self.slope is not None:
-                value = self.onset_value + self.slope * trainer.iteration
-            if self.max_value is not None:
-                value = min(value, self.max_value)
-            if self.min_value is not None:
-                value = max(value, self.min_value)
-            setattr(module, self.name[-1], value)
+    def get_value(self, trainer):
+        module = self.get_module(trainer)
+        attr_name = self.name.split('.')[-1]
+        return getattr(module, attr_name)
 
-    def close(self, trainer):
-        if self.onset_value is not None:
-            module = self.get_module(trainer)
-            setattr(module, self.name[-1], self.onset_value)
+    def set_value(self, trainer, value):
+        module = self.get_module(trainer)
+        attr_name = self.name.split('.')[-1]
+        setattr(module, attr_name, value)
 
 
+class LRAnnealingHook(AnnealingHook):
+    """
+    Anneals an optimizer learning rate.
+    """
+    def __init__(self, trigger, breakpoints, name=None):
+        """
+
+        Args:
+            trigger:
+            breakpoints:
+            name: states the key of the target optimizer when optimizer is a dict
+        """
+        super().__init__(trigger, breakpoints, name)
+
+    @property
+    def uid(self):
+        if self.name is None:
+            return super(AnnealingHook, self).uid
+        else:
+            return super().uid
+
+    def get_optimizer(self, trainer):
+        optimizer = trainer.optimizer
+        if self.name is not None:
+            assert isinstance(optimizer, dict)
+            optimizer = optimizer[self.name]
+        return optimizer.optimizer
+
+    def get_value(self, trainer):
+        return self.get_optimizer(trainer).param_groups[0]['lr']
+
+    def set_value(self, trainer, value):
+        optimizer = self.get_optimizer(trainer)
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = value
