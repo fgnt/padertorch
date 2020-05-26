@@ -823,6 +823,9 @@ class AnnealingHook(TriggeredHook):
         function is parameterized by its breakpoints. Can also be used for
         arbitrary annealing functions by stating breakpoints with an interval
         similar to the trigger interval.
+        Before the first breakpoint there is a linear ramp between the initial
+        value and the first breakpoint. After the last breakpoint the function
+        stays constant at the value of the last breakpoint.
 
         Args:
             trigger:
@@ -837,7 +840,7 @@ class AnnealingHook(TriggeredHook):
 
     @property
     def uid(self):
-        return super().uid + f"({'.'.join(self.name)})"
+        return super().uid + f"({self.name})"
 
     def get_value(self, trainer):
         raise NotImplementedError
@@ -852,8 +855,14 @@ class AnnealingHook(TriggeredHook):
             while len(self.breakpoints) > 0 and self.breakpoints[0][0] <= trainer.iteration:
                 self.last_break = self.breakpoints.pop(0)
             if len(self.breakpoints) > 0:
-                slope = (self.breakpoints[0][1]-self.last_break[1])/(self.breakpoints[0][0]-self.last_break[0])
-                value = self.last_break[1] + slope * (trainer.iteration - self.last_break[0])
+                slope = (
+                        (self.breakpoints[0][1]-self.last_break[1])
+                        / (self.breakpoints[0][0]-self.last_break[0])
+                )  # a = (y1 - y0) / (x1 - x0)
+                value = (
+                        self.last_break[1]
+                        + slope * (trainer.iteration - self.last_break[0])
+                )  # y = y0 + a * (x - x0)
             else:
                 value = self.last_break[1]
             self.set_value(trainer, value)
@@ -910,9 +919,9 @@ class LRAnnealingHook(AnnealingHook):
     @property
     def uid(self):
         if self.name is None:
-            return super(AnnealingHook, self).uid
+            return super(AnnealingHook, self).uid  # uid from TriggeredHook
         else:
-            return super().uid
+            return super().uid  # uid from AnnealingHook
 
     def get_optimizer(self, trainer):
         optimizer = trainer.optimizer
