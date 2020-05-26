@@ -32,6 +32,9 @@ __all__ = [
     'ProgressBarHook',
     'StopTrainingHook',
     'StopTraining',
+    'LossWeightAnnealingHook',
+    'ModelAttributeAnnealingHook',
+    'LRAnnealingHook',
 ]
 
 
