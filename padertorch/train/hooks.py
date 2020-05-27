@@ -820,7 +820,7 @@ class AnnealingHook(TriggeredHook):
     def __init__(self, trigger, breakpoints, name):
         """
         Base class for piece-wise linear annealing. The piece-wise linear
-        function is parameterized by its breakpoints. Can also be used for
+        function is parameterized by its breakpoints. It can also be used for
         arbitrary annealing functions by stating breakpoints with an interval
         similar to the trigger interval.
         Before the first breakpoint there is a linear ramp between the initial
@@ -829,7 +829,10 @@ class AnnealingHook(TriggeredHook):
 
         Args:
             trigger:
-            breakpoints: list of (iteration, value) coordinates of the piecewise linear funtion.
+            breakpoints: list of (iteration, value) coordinates of the
+                piecewise linear funtion. Note that absolute (not relative)
+                values are expected. This, e.g., allows a linear ramp up from
+                0 to some value.
             name: name of the attribute. You can use "attr1.attr11" to
                 anneal a sub attribute
         """
