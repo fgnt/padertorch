@@ -218,7 +218,7 @@ def test_loss_weight_annealing_hook():
     class DummyTrainer:
         epoch = 0
         iteration = 0
-        loss_weights = {'loss': 0}
+        loss_weights = {'loss': .1}
 
     loss_weight_annealing_hook = pt.train.hooks.LossWeightAnnealingHook(
         (1, 'iteration'), [(0, 0), (5, 1), (10, 0)], 'loss'
@@ -229,14 +229,14 @@ def test_loss_weight_annealing_hook():
         trainer.iteration = i
         loss_weight_annealing_hook.pre_step(trainer)
         values.append(trainer.loss_weights['loss'])
-    expected_values = np.linspace(0, 1, 6).tolist() + np.linspace(0.8, 0, 5).tolist()
+    expected_values = np.linspace(0, .1, 6).tolist() + np.linspace(.08, 0, 5).tolist()
     pb.testing.assert_almost_equal(values, expected_values)
 
 
 def test_model_attribute_annealing_hook():
 
     class DummyModel:
-        attr = 0
+        attr = .1
 
     class DummyTrainer:
         epoch = 0
@@ -252,13 +252,13 @@ def test_model_attribute_annealing_hook():
         trainer.iteration = i
         attr_annealing_hook.pre_step(trainer)
         values.append(trainer.model.attr)
-    expected_values = np.linspace(0, 1, 6).tolist() + np.linspace(0.8, 0, 5).tolist()
+    expected_values = np.linspace(0, .1, 6).tolist() + np.linspace(.08, 0, 5).tolist()
     pb.testing.assert_almost_equal(values, expected_values)
 
 
 def test_lr_annealing_hook():
     class _DummyOptimizer:
-        param_groups = [{'lr': 0.}]
+        param_groups = [{'lr': 0.1}]
 
     class DummyOptimizer:
         optimizer = _DummyOptimizer()
@@ -277,5 +277,5 @@ def test_lr_annealing_hook():
         trainer.iteration = i
         lr_annealing_hook.pre_step(trainer)
         values.append(trainer.optimizer.optimizer.param_groups[0]['lr'])
-    expected_values = np.linspace(0, 1, 6).tolist() + np.linspace(0.8, 0, 5).tolist()
+    expected_values = np.linspace(0, .1, 6).tolist() + np.linspace(.08, 0, 5).tolist()
     pb.testing.assert_almost_equal(values, expected_values)

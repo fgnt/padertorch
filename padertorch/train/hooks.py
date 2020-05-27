@@ -821,24 +821,31 @@ class AnnealingHook(TriggeredHook):
         """
         Base class for piece-wise linear annealing. The piece-wise linear
         function is parameterized by its breakpoints. It can also be used for
-        arbitrary annealing functions by stating breakpoints with an interval
+        arbitrary annealing functions when stating breakpoints with an interval
         similar to the trigger interval.
-        Before the first breakpoint there is a linear ramp between the initial
-        value and the first breakpoint. After the last breakpoint the function
-        stays constant at the value of the last breakpoint.
+        The annealing function is interpreted relative to the initial value,
+        i.e., a breakpoint (i, 1) corresponds to an absolute value equal to the
+        initial value of the parameter to be annealed.
+        Before the first breakpoint there is a linear connection between
+        (0, 1), which corresponds to the initial value, and the first breakpoint.
+        After the last breakpoint the function stays constant at the value of
+        the last breakpoint.
+        Note that you can still start with values differing from the initial
+        value by adding a breakpoint (0, y0).
 
         Args:
             trigger:
             breakpoints: list of (iteration, value) coordinates of the
-                piecewise linear funtion. Note that absolute (not relative)
-                values are expected. This, e.g., allows a linear ramp up from
-                0 to some value.
+                piecewise linear function. Note that breakpoint values are
+                interpreted relative to the initial value of the parameter
+                to be annealed.
             name: name of the attribute. You can use "attr1.attr11" to
                 anneal a sub attribute
         """
         super().__init__(trigger)
         self.breakpoints = sorted(breakpoints, key=lambda x: x[0])
         self.name = name
+        self.scale = None
         self.last_break = None
 
     @property
@@ -854,20 +861,22 @@ class AnnealingHook(TriggeredHook):
     def pre_step(self, trainer):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
             if self.last_break is None:
-                self.last_break = (0, self.get_value(trainer))
+                self.scale = self.get_value(trainer)
+                self.last_break = (0, 1)
             while len(self.breakpoints) > 0 and self.breakpoints[0][0] <= trainer.iteration:
                 self.last_break = self.breakpoints.pop(0)
             if len(self.breakpoints) > 0:
                 slope = (
-                        (self.breakpoints[0][1]-self.last_break[1])
-                        / (self.breakpoints[0][0]-self.last_break[0])
+                    (self.breakpoints[0][1]-self.last_break[1])
+                    / (self.breakpoints[0][0]-self.last_break[0])
                 )  # a = (y1 - y0) / (x1 - x0)
                 value = (
-                        self.last_break[1]
-                        + slope * (trainer.iteration - self.last_break[0])
+                    self.last_break[1]
+                    + slope * (trainer.iteration - self.last_break[0])
                 )  # y = y0 + a * (x - x0)
+                value *= self.scale  # relative to absolute
             else:
-                value = self.last_break[1]
+                value = self.last_break[1] * self.scale
             self.set_value(trainer, value)
 
 
