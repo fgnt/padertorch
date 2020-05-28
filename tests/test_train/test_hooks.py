@@ -235,12 +235,12 @@ def test_loss_weight_annealing_hook():
 
 def test_model_attribute_annealing_hook():
 
-    class DummyModel:
-        attr = .1
-
     class DummyTrainer:
         epoch = 0
         iteration = 0
+
+        class DummyModel:
+            attr = .1
         model = DummyModel()
 
     attr_annealing_hook = pt.train.hooks.ModelAttributeAnnealingHook(
@@ -257,16 +257,16 @@ def test_model_attribute_annealing_hook():
 
 
 def test_lr_annealing_hook():
-    class _DummyOptimizer:
-        param_groups = [{'lr': 0.1}]
-
-    class DummyOptimizer:
-        optimizer = _DummyOptimizer()
 
     class DummyTrainer:
         epoch = 0
         iteration = 0
-        optimizer = DummyOptimizer()
+
+        class PaderOptimizer:
+            class PytorchOptimizer:
+                param_groups = [{'lr': .1}]
+            optimizer = PytorchOptimizer()
+        optimizer = PaderOptimizer()
 
     lr_annealing_hook = pt.train.hooks.LRAnnealingHook(
         (1, 'iteration'), [(0, 0), (5, 1), (10, 0)], 'iteration'

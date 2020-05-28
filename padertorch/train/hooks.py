@@ -946,8 +946,13 @@ class LRAnnealingHook(AnnealingHook):
     def get_optimizer(self, trainer):
         optimizer = trainer.optimizer
         if self.name is not None:
-            assert isinstance(optimizer, dict)
+            assert isinstance(optimizer, dict), type(optimizer)
             optimizer = optimizer[self.name]
+        else:
+            assert (
+                hasattr(optimizer, 'optimizer')
+                and hasattr(optimizer.optimizer, 'param_groups')
+            ), type(optimizer)
         return optimizer.optimizer
 
     def get_value(self, trainer):
