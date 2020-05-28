@@ -221,7 +221,7 @@ def test_loss_weight_annealing_hook():
         loss_weights = {'loss': .1}
 
     loss_weight_annealing_hook = pt.train.hooks.LossWeightAnnealingHook(
-        (1, 'iteration'), [(0, 0), (5, 1), (10, 0)], 'loss'
+        (1, 'iteration'), [(0, 0), (5, 1), (10, 0)], 'iteration', 'loss'
     )
     trainer = DummyTrainer()
     values = []
@@ -244,7 +244,7 @@ def test_model_attribute_annealing_hook():
         model = DummyModel()
 
     attr_annealing_hook = pt.train.hooks.ModelAttributeAnnealingHook(
-        (1, 'iteration'), [(0, 0), (5, 1), (10, 0)], 'attr'
+        (1, 'iteration'), [(0, 0), (5, 1), (10, 0)], 'iteration', 'attr'
     )
     trainer = DummyTrainer()
     values = []
@@ -269,7 +269,7 @@ def test_lr_annealing_hook():
         optimizer = DummyOptimizer()
 
     lr_annealing_hook = pt.train.hooks.LRAnnealingHook(
-        (1, 'iteration'), [(0, 0), (5, 1), (10, 0)]
+        (1, 'iteration'), [(0, 0), (5, 1), (10, 0)], 'iteration'
     )
     trainer = DummyTrainer()
     values = []

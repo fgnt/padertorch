@@ -817,7 +817,7 @@ class StopTraining(Exception):
 
 
 class AnnealingHook(TriggeredHook):
-    def __init__(self, trigger, breakpoints, name):
+    def __init__(self, trigger, breakpoints, unit, name):
         """
         Base class for piece-wise linear annealing. The piece-wise linear
         function is parameterized by its breakpoints. It can also be used for
@@ -835,15 +835,17 @@ class AnnealingHook(TriggeredHook):
 
         Args:
             trigger:
-            breakpoints: list of (iteration, value) coordinates of the
-                piecewise linear function. Note that breakpoint values are
-                interpreted relative to the initial value of the parameter
-                to be annealed.
-            name: name of the attribute. You can use "attr1.attr11" to
+            breakpoints: list of (x, y) coordinates of the piecewise linear
+                function. x is either iteration or epoch (see unit argument).
+                y values are interpreted relative to the initial value of the
+                parameter to be annealed.
+            unit: states the unit of the breakpoints: "iteration" or "epoch"
+            name: name of the attribute. You may use "attr1.attr11" to
                 anneal a sub attribute
         """
         super().__init__(trigger)
         self.breakpoints = sorted(breakpoints, key=lambda x: x[0])
+        self.unit = unit
         self.name = name
         self.scale = None
         self.last_break = None
@@ -863,7 +865,13 @@ class AnnealingHook(TriggeredHook):
             if self.last_break is None:
                 self.scale = self.get_value(trainer)
                 self.last_break = (0, 1)
-            while len(self.breakpoints) > 0 and self.breakpoints[0][0] <= trainer.iteration:
+            if self.unit == "iteration":
+                x = trainer.iteration
+            elif self.unit == "epoch":
+                x = trainer.epoch
+            else:
+                raise ValueError(f'{self.unit} is not a valid unit.')
+            while len(self.breakpoints) > 0 and self.breakpoints[0][0] <= x:
                 self.last_break = self.breakpoints.pop(0)
             if len(self.breakpoints) > 0:
                 slope = (
@@ -872,7 +880,7 @@ class AnnealingHook(TriggeredHook):
                 )  # a = (y1 - y0) / (x1 - x0)
                 value = (
                     self.last_break[1]
-                    + slope * (trainer.iteration - self.last_break[0])
+                    + slope * (x - self.last_break[0])
                 )  # y = y0 + a * (x - x0)
                 value *= self.scale  # relative to absolute
             else:
@@ -918,15 +926,15 @@ class LRAnnealingHook(AnnealingHook):
     """
     Anneals an optimizer learning rate.
     """
-    def __init__(self, trigger, breakpoints, name=None):
-        """
+    def __init__(self, trigger, breakpoints, unit, name=None):
+        """See docstring of AnnealingHook.
 
         Args:
             trigger:
             breakpoints:
             name: states the key of the target optimizer when optimizer is a dict
         """
-        super().__init__(trigger, breakpoints, name)
+        super().__init__(trigger, breakpoints, unit, name)
 
     @property
     def uid(self):
