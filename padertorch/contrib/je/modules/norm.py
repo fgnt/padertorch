@@ -7,14 +7,11 @@ from padertorch.contrib.je.modules.global_pooling import compute_mask
 
 
 class PrintGrad(Function):
-    # Note that both forward and backward are @staticmethods
     @staticmethod
-    # bias is an optional argument
     def forward(ctx, input, i=0):
         ctx.i = i
         return input
 
-    # This function has only a single output, so it gets only one gradient
     @staticmethod
     def backward(ctx, grad_output):
         print(ctx.i, grad_output.max().item())
@@ -26,40 +23,7 @@ class Norm(Module):
     """
     >>> norm = Norm(data_format='bct', shape=(None, 10, None), statistics_axis='bt', momentum=0.5, interpolation_factor=1.)
     >>> x, seq_len = 2*torch.ones((3,10,4)), [1, 2, 3]
-    >>> mask = norm.compute_mask(x, seq_len=seq_len)
-    >>> mask
-    tensor([[[1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.]],
-    <BLANKLINE>
-            [[1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.]],
-    <BLANKLINE>
-            [[1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.]]])
+    >>> mask = compute_mask(x, seq_len, 0, 2)
     >>> norm.compute_stats(x, mask)
     (tensor([[[2.],
              [2.],
@@ -144,6 +108,7 @@ class Norm(Module):
             independent_axis='c',
             batch_axis='b',
             sequence_axis='t',
+            center=True,
             scale=True,
             eps: float = 1e-3,
             momentum=0.95,
@@ -156,6 +121,7 @@ class Norm(Module):
         self.statistics_axis = tuple(
             [data_format.index(ax.lower()) for ax in statistics_axis]
         )
+        self.center = center
         self.scale = scale
         self.eps = eps
         self.track_running_stats = batch_axis in statistics_axis
@@ -167,7 +133,10 @@ class Norm(Module):
             self.register_buffer(
                 'num_tracked_values', torch.zeros(reduced_shape)
             )
-            self.register_buffer('running_mean', torch.zeros(reduced_shape))
+            if center:
+                self.register_buffer('running_mean', torch.zeros(reduced_shape))
+            else:
+                self.register_parameter('running_mean', None)
             if scale:
                 self.register_buffer('running_power', torch.ones(reduced_shape))
             else:
@@ -196,17 +165,21 @@ class Norm(Module):
             self.learnable_shift = None
 
     @property
-    def running_var(self):
+    def running_scale(self):
         n = torch.max(self.num_tracked_values, 2. * torch.ones_like(self.num_tracked_values))
-        running_var = n / (n-1) * (self.running_power - self.running_mean ** 2) + self.eps
-        assert (running_var >= 0).all(), running_var.min()
-        return running_var
+        running_power = self.running_power
+        if self.center:
+            running_power = n / (n-1) * (running_power - self.running_mean ** 2)
+        running_power = running_power + self.eps
+        assert (running_power >= 0).all(), running_power.min()
+        return torch.sqrt(running_power)
 
     def reset_running_stats(self):
         if self.track_running_stats:
-            self.running_mean.zero_()
             self.num_tracked_values.zero_()
-            if self.scale is not None:
+            if self.center:
+                self.running_mean.zero_()
+            if self.scale:
                 self.running_power.fill_(1)
 
     def reset_parameters(self):
@@ -226,26 +199,33 @@ class Norm(Module):
                     momentum = 1 - n_values / self.num_tracked_values.data
                 else:
                     momentum = self.momentum
-                self.running_mean *= momentum
-                self.running_mean += (1 - momentum) * mean.data
+                if self.center:
+                    self.running_mean *= momentum
+                    self.running_mean += (1 - momentum) * mean.data
                 if self.scale:
                     self.running_power *= momentum
                     self.running_power += (1 - momentum) * power.data
                 if self.interpolation_factor > 0.:
                     # perform straight through backpropagation
                     # https://arxiv.org/pdf/1611.01144.pdf
-                    mean = mean + self.interpolation_factor * (self.running_mean.data - mean).detach()
-                    power = power + self.interpolation_factor * (self.running_power.data - power).detach()
-            x = x - mean
+                    if self.center:
+                        mean = mean + self.interpolation_factor * (self.running_mean.data - mean).detach()
+                    if self.scale:
+                        power = power + self.interpolation_factor * (self.running_power.data - power).detach()
+            if self.center:
+                x = x - mean
             if self.scale:
                 n = torch.max(n_values, 2. * torch.ones_like(n_values))
-                var = n / (n - 1.) * (power - mean ** 2) + self.eps
-                assert (var > 0).all(), var.min()
-                x = x / torch.sqrt(var)
+                if self.center:
+                    power = n / (n - 1.) * (power - mean ** 2)
+                power = power + self.eps
+                assert (power > 0).all(), power.min()
+                x = x / torch.sqrt(power)
         else:
-            x = x - self.running_mean.data
+            if self.center:
+                x = x - self.running_mean.data
             if self.scale:
-                x = x / (torch.sqrt(self.running_var.data))
+                x = x / self.running_scale.data
 
         if self.learnable_scale is not None:
             x = self.learnable_scale(x)
@@ -272,7 +252,7 @@ class Norm(Module):
     def inverse(self, x):
         if not self.track_running_stats:
             raise NotImplementedError
-        return torch.sqrt(self.running_var) * x + self.running_mean
+        return self.running_scale * x + self.running_mean
 
 
 class Shift(nn.Module):
