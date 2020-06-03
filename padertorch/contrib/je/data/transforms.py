@@ -36,7 +36,8 @@ class AudioReader:
         x, sr = soundfile.read(
             filepath, start=start_sample, stop=stop_sample, always_2d=True
         )
-        assert sr == self.source_sample_rate
+        if self.source_sample_rate is not None:
+            assert sr == self.source_sample_rate, (self.source_sample_rate, sr)
         if self.target_sample_rate != sr:
             x = samplerate.resample(
                 x, self.target_sample_rate / sr, "sinc_fastest"
@@ -226,7 +227,8 @@ class MultiHotLabelEncoder(LabelEncoder):
     def __call__(self, example):
         labels = super().__call__(example)[self.label_key]
         nhot_encoding = np.zeros(len(self.label_mapping)).astype(np.float32)
-        nhot_encoding[labels] = 1
+        if len(labels) > 0:
+            nhot_encoding[labels] = 1
         example[self.label_key] = nhot_encoding
         return example
 
@@ -291,9 +293,8 @@ class Collate:
         return batch
 
 
-def fragment_parallel_signals(
-        signals, axis, step, max_length, min_length=1, *,
-        random_start=False
+def fragment_signal(
+        *signals, axis, step, max_length, min_length=1, random_start=False
 ):
     """
 
@@ -309,7 +310,7 @@ def fragment_parallel_signals(
 
     >>> signals = [np.arange(20).reshape((2, 10)), np.arange(10).reshape((2, 5))]
     >>> from pprint import pprint
-    >>> pprint(fragment_parallel_signals(signals, axis=1, step=[4, 2], max_length=[4, 2]))
+    >>> pprint(fragment_signal(signals, axis=1, step=[4, 2], max_length=[4, 2]))
     [[array([[ 0,  1,  2,  3],
            [10, 11, 12, 13]]),
       array([[ 4,  5,  6,  7],
@@ -322,7 +323,7 @@ def fragment_parallel_signals(
            [7, 8]]),
       array([[4],
            [9]])]]
-    >>> pprint(fragment_parallel_signals(\
+    >>> pprint(fragment_signal(\
         signals, axis=1, step=[4, 2], max_length=[4, 2], min_length=[4, 2]\
     ))
     [[array([[ 0,  1,  2,  3],
@@ -384,5 +385,9 @@ def fragment_parallel_signals(
             )
         ]
         fragmented_signals.append(fragments)
-    assert len(set([len(sig) for sig in fragmented_signals])) == 1, ([sig.shape for sig in signals], [len(sig) for sig in fragmented_signals])
-    return fragmented_signals
+    if len(signals) == 1:
+        return signals[0]
+    assert len(set([len(sig) for sig in fragmented_signals])) == 1, (
+        [sig.shape for sig in signals], [len(sig) for sig in fragmented_signals]
+    )
+    return (*fragmented_signals, )
