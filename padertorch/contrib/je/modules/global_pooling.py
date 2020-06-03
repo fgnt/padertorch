@@ -3,6 +3,54 @@ from torch import nn
 
 
 def compute_mask(x, seq_len, batch_axis=0, seq_axis=1):
+    """
+    >>> x, seq_len = 2*torch.ones((3,10,4)), [1, 2, 3]
+    >>> mask = compute_mask(x, seq_len=seq_len, batch_axis=0, seq_axis=2)
+    >>> mask
+    tensor([[[1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.]],
+    <BLANKLINE>
+            [[1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.]],
+    <BLANKLINE>
+            [[1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.]]])
+
+    Args:
+        x:
+        seq_len:
+        batch_axis:
+        seq_axis:
+
+    Returns:
+
+    """
+    if seq_len is None:
+        return torch.ones_like(x)
     if batch_axis < 0:
         batch_axis = x.dim() + batch_axis
     if seq_axis < 0:
@@ -91,4 +139,3 @@ class AutoPool(nn.Module):
             x_ = x_ * mask + torch.log(mask)
         weights = nn.Softmax(dim=-1)(x_)
         return (weights*x).sum(dim=-1)
-
