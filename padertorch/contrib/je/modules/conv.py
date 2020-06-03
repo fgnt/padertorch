@@ -6,10 +6,12 @@ import torch.nn.functional as F
 from padertorch.base import Module
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 from padertorch.utils import to_list
-from padertorch.contrib.je.modules.norm import Norm, MulticlassNorm
+from padertorch.contrib.je.modules.norm import Norm, MulticlassNorm, Scale, Shift
 from torch import nn
 from copy import copy
 from collections import defaultdict
+from einops import rearrange
+from padertorch.contrib.je.modules.global_pooling import compute_mask
 
 
 def to_pair(x):
@@ -824,3 +826,128 @@ class CNN2d(_CNN):
 
 class CNNTranspose2d(_CNN):
     conv_cls = ConvTranspose2d
+
+
+class WindowNorm(nn.Module):
+    """
+    >>> x = torch.zeros((2, 3, 7, 5))
+    >>> x[:, :, 3, 2] = 1
+    >>> x = WindowNorm(3, 'bctf', x.shape, slide_axis='tf', statistics_axis='f', center=False, independent_axis=None)(x)
+    >>> x[:, 0]
+    >>> x.shape
+    >>> x = torch.ones((2, 3, 7, 5))
+    >>> x = WindowNorm(3, 'bctf', x.shape, slide_axis='tf', statistics_axis='f', center=False, independent_axis=None)(x, seq_len=[7,5])
+    >>> x[:, 0]
+    >>> x.shape
+    """
+    def __init__(
+            self,
+            window_size,
+            data_format='bcft',
+            shape=None,
+            *,
+            sequence_axis='t',
+            slide_axis='t',
+            statistics_axis='',
+            independent_axis='c',
+            batch_axis='b',
+            center=True,
+            scale=True,
+            eps=1e-3
+    ):
+        super().__init__()
+        self.window_size = window_size
+        self.data_format = data_format
+        self.slide_axis = slide_axis
+        self.ndim = len(self.slide_axis)
+        if self.ndim == 1:
+            self.pool_fn = nn.AvgPool1d(kernel_size=self.window_size, stride=1)
+        elif self.ndim == 2:
+            self.pool_fn = nn.AvgPool2d(kernel_size=self.window_size, stride=1)
+        else:
+            raise NotImplementedError
+        slide_axis = list(slide_axis)
+        self.tmp_format = " ".join(
+            [ax for ax in data_format if ax not in slide_axis] + slide_axis
+        )
+        self.batch_axis = data_format.index(batch_axis.lower())
+        self.sequence_axis = data_format.index(sequence_axis.lower())
+        self.statistics_axis = tuple(
+            [data_format.index(ax.lower()) for ax in statistics_axis]
+        )
+        self.center = center
+        self.scale = scale
+        self.eps = eps
+
+        if independent_axis is not None:
+            self.learnable_scale = Scale(
+                shape,
+                data_format=data_format,
+                independent_axis=independent_axis
+            )
+            self.learnable_shift = Shift(
+                shape,
+                data_format=data_format,
+                independent_axis=independent_axis
+            )
+        else:
+            self.learnable_scale = None
+            self.learnable_shift = None
+
+    def forward(self, x, seq_len=None):
+        mask = self.compute_mask(x, seq_len)
+        data_format = " ".join(list(self.data_format))
+        x_tmp = rearrange(
+            x*mask, f'{data_format} -> {self.tmp_format}'
+        )
+        mask_tmp = rearrange(
+            mask, f'{data_format} -> {self.tmp_format}'
+        )
+        tmp_shape = x_tmp.shape
+        x_tmp = x_tmp.reshape(
+            (int(np.prod(tmp_shape[:-self.ndim])), *tmp_shape[-self.ndim:])
+        ).unsqueeze(1)
+        mask_tmp = mask_tmp.reshape(
+            (int(np.prod(tmp_shape[:-self.ndim])), *tmp_shape[-self.ndim:])
+        ).unsqueeze(1)
+        x_tmp = Pad(side='both', mode='constant')(
+            x_tmp, size=np.array(self.window_size) - 1
+        )
+        mask_tmp = Pad(side='both', mode='constant')(
+            mask_tmp, size=np.array(self.window_size) - 1
+        )
+        signal_fraction = self.pool_fn(mask_tmp)
+        if self.center:
+            mean = self.pool_fn(x_tmp) / (signal_fraction + 1e-6)
+            mean = mean.reshape(tmp_shape)
+            mean = rearrange(
+                mean, f'{self.tmp_format} -> {data_format}'
+            )
+            if self.statistics_axis:
+                mean = mean.mean(self.statistics_axis, keepdim=True)
+            x = x - mean
+        if self.scale:
+            power = self.pool_fn(x_tmp**2) / (signal_fraction + 1e-6)
+            power = power.reshape(tmp_shape)
+            power = rearrange(
+                power, f'{self.tmp_format} -> {data_format}'
+            )
+            if self.statistics_axis:
+                power = power.mean(self.statistics_axis, keepdim=True)
+            if self.center:
+                power = (power - mean ** 2)
+            # print(power.min(), power.max())
+            x = x / torch.sqrt(power + self.eps)
+
+        if self.learnable_scale is not None:
+            x = self.learnable_scale(x)
+        if self.learnable_shift is not None:
+            x = self.learnable_shift(x)
+        return x * mask
+
+    def compute_mask(self, x, seq_len=None):
+        if seq_len is not None:
+            mask = compute_mask(x, seq_len, self.batch_axis, self.sequence_axis)
+        else:
+            mask = torch.ones_like(x)
+        return mask
