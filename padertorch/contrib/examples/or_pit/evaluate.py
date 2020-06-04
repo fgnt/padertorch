@@ -205,7 +205,9 @@ def main(_run, datasets, debug, experiment_dir, export_audio,
                     parents=True, exist_ok=True)
 
             for batch in tqdm(
-                    iterable, total=len(iterable), disable=not mpi.IS_MASTER):
+                iterable, total=len(iterable), disable=not mpi.IS_MASTER,
+                desc=dataset,
+            ):
                 example_id = batch['example_id'][0]
                 summary[dataset][example_id] = entry = dict()
 
