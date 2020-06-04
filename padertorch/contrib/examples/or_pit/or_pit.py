@@ -281,9 +281,11 @@ class OneAndRestPIT(pt.Model):
                 f'Unknown unroll type: {self.unroll_type}')
 
         if len(estimates) == 0:
-            estimates = torch.zeros((0, *outs[0]['estimate'].shape))
+            # Shape BxKxT
+            estimates = torch.zeros((B, 0, *outs[0]['estimate'].shape[1:]))
         else:
-            estimates = torch.stack(estimates)
+            # Stack to shape BxKxT
+            estimates = torch.stack(estimates, dim=1)
 
         return {
             'out': estimates,
