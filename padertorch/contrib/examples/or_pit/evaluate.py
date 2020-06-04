@@ -53,7 +53,8 @@ def config():
     sample_rate = 8000
     target = 'speech_source'
     database_json = None
-    oracle_num_spk = False
+    oracle_num_spk = False  # If true, the model is forced to perform the correct (oracle) number of iterations
+    max_iterations = 4  # The number of iterations is limited to this number
 
     if database_json is None:
         raise MissingConfigError(
@@ -177,7 +178,7 @@ def init(_config, _run):
 
 @ex.main
 def main(_run, datasets, debug, experiment_dir, export_audio,
-         sample_rate, _log, database_json, oracle_num_spk):
+         sample_rate, _log, database_json, oracle_num_spk, max_iterations):
     experiment_dir = Path(experiment_dir)
 
     if mpi.IS_MASTER:
@@ -205,22 +206,26 @@ def main(_run, datasets, debug, experiment_dir, export_audio,
                     parents=True, exist_ok=True)
 
             for batch in tqdm(
-                iterable, total=len(iterable), disable=not mpi.IS_MASTER,
-                desc=dataset,
+                    iterable, total=len(iterable), disable=not mpi.IS_MASTER,
+                    desc=dataset,
             ):
                 example_id = batch['example_id'][0]
                 summary[dataset][example_id] = entry = dict()
+                oracle_speaker_count = \
+                    entry['oracle_speaker_count'] = batch['s'][0].shape[0]
 
                 try:
                     model_output = model.decode(
-                        pt.data.example_to_device(batch))
+                        pt.data.example_to_device(batch),
+                        max_iterations=max_iterations,
+                        oracle_num_speakers=oracle_speaker_count if
+                        oracle_num_spk else None
+                    )
 
                     # Bring to numpy float64 for evaluation metrics computation
                     s = batch['s'][0].astype(np.float64)
                     z = model_output['out'][0].cpu().numpy().astype(np.float64)
 
-                    oracle_speaker_count = \
-                        entry['oracle_speaker_count'] = s.shape[0]
                     estimated_speaker_count = \
                         entry['estimated_speaker_count'] = z.shape[0]
                     entry['source_counting_accuracy'] = \
