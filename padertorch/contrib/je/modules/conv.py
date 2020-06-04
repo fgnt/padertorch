@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from padertorch.base import Module
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 from padertorch.utils import to_list
-from padertorch.contrib.je.modules.norm import Norm, MulticlassNorm, Scale, Shift
+from padertorch.contrib.je.modules.norm import Norm
 from torch import nn
 from copy import copy
 from collections import defaultdict
@@ -105,7 +105,6 @@ class _Conv(Module):
             stride=1,
             bias=True,
             norm=None,
-            n_norm_classes=None,
             norm_kwargs={},
             activation_fn='relu',
             pre_activation=False,
@@ -174,11 +173,7 @@ class _Conv(Module):
                 norm_kwargs["statistics_axis"] = 't'
             else:
                 raise ValueError(f'{norm} normalization not known.')
-            if n_norm_classes is None:
-                self.norm = Norm(**norm_kwargs)
-            else:
-                norm_kwargs["n_classes"] = n_norm_classes
-                self.norm = MulticlassNorm(**norm_kwargs)
+            self.norm = Norm(**norm_kwargs)
 
         if self.gated:
             self.gate_conv = self.conv_cls(
@@ -191,7 +186,7 @@ class _Conv(Module):
 
     def forward(
             self, x, seq_len=None, out_shape=None, out_lengths=None,
-            **norm_kwargs
+            norm_kwargs={}
     ):
         if self.training and self.dropout > 0.:
             x = F.dropout(x, self.dropout)
@@ -223,6 +218,7 @@ class _Conv(Module):
         return y, seq_len
 
     def pad_or_trim(self, x):
+        assert not self.is_transpose()
         pad_dims = [side is not None for side in to_list(self.pad_side)]
         if any(pad_dims):
             size = (
@@ -252,6 +248,9 @@ class _Conv(Module):
             if any(size < 0):
                 y = Pad(side=pad_side, mode='constant')(y, size=-size)
         elif any([side is not None for side in to_list(self.pad_side)]):
+            # # trim the minimal padding that could have occurred
+            # trim_size = np.array(self.dilation) * (np.array(self.kernel_size) - 1) - (np.array(self.stride)-1)
+            # y = Trim(side=self.pad_side)(y, size=trim_size)
             raise NotImplementedError
         return y
 
@@ -465,7 +464,6 @@ class _CNN(Module):
             dilation=1,
             stride=1,
             norm=None,
-            n_norm_classes=None,
             norm_kwargs={},
             activation_fn='relu',
             pre_activation=False,
@@ -498,12 +496,25 @@ class _CNN(Module):
         self.pool_types = to_list(pool_type, num_layers)
         self.pool_sizes = to_list(pool_size, num_layers)
         self.return_pool_indices = return_pool_indices
+        self.activation_fn = to_list(activation_fn, num_layers)
+        self.norm = to_list(norm, num_layers)
+        self.gated = to_list(gated, num_layers)
+
+        if input_layer:
+            self.gated[0] = False
+            if pre_activation:
+                self.activation_fn[0] = 'identity'
+                self.norm[0] = None
+        if output_layer:
+            self.gated[-1] = False
+            if not pre_activation:
+                self.activation_fn[-1] = 'identity'
+                self.norm[-1] = None
 
         convs = list()
-        i = 0
         residual_channels = [in_channels] + copy(out_channels)
         layer_in_channels = copy(residual_channels)
-        if input_layer:
+        for i in range(num_layers):
             if self.dense_connections[i] is not None:
                 for dst_idx in self.dense_connections[i]:
                     assert dst_idx > i, (i, dst_idx)
@@ -520,65 +531,11 @@ class _CNN(Module):
                 dilation=self.dilations[i],
                 stride=self.strides[i],
                 pad_side=self.pad_sides[i],
-                norm=None if pre_activation else norm,
-                n_norm_classes=n_norm_classes,
+                norm=self.norm[i],
                 norm_kwargs=norm_kwargs,
-                activation_fn='identity' if pre_activation else activation_fn,
+                activation_fn=self.activation_fn[i],
                 pre_activation=pre_activation,
-                gated=False,
-            ))
-            i += 1
-        while i < (num_layers - output_layer):
-            if self.dense_connections[i] is not None:
-                for dst_idx in self.dense_connections[i]:
-                    assert dst_idx > i, (i, dst_idx)
-                    if self.is_transpose():
-                        layer_in_channels[i] -= self.out_channels[dst_idx - 1]
-                    else:
-                        residual_channels[dst_idx] += residual_channels[i]
-                        layer_in_channels[dst_idx] += residual_channels[i]
-            convs.append(self.conv_cls(
-                in_channels=layer_in_channels[i],
-                out_channels=self.out_channels[i],
-                kernel_size=self.kernel_sizes[i],
-                dropout=dropout,
-                dilation=self.dilations[i],
-                stride=self.strides[i],
-                pad_side=self.pad_sides[i],
-                norm=norm,
-                n_norm_classes=n_norm_classes,
-                norm_kwargs=norm_kwargs,
-                activation_fn=activation_fn,
-                pre_activation=pre_activation,
-                gated=gated,
-            ))
-            i += 1
-        if i < num_layers:
-            assert i == (num_layers - 1), (i, num_layers)
-            if self.dense_connections[i] is not None:
-                for dst_idx in self.dense_connections[i]:
-                    assert dst_idx > i, (i, dst_idx)
-                for dst_idx in self.dense_connections[i]:
-                    assert dst_idx > i, (i, dst_idx)
-                    if self.is_transpose():
-                        layer_in_channels[i] -= self.out_channels[dst_idx - 1]
-                    else:
-                        residual_channels[dst_idx] += residual_channels[i]
-                        layer_in_channels[dst_idx] += residual_channels[i]
-            convs.append(self.conv_cls(
-                in_channels=layer_in_channels[i],
-                out_channels=self.out_channels[i],
-                kernel_size=self.kernel_sizes[i],
-                dropout=dropout,
-                dilation=self.dilations[i],
-                stride=self.strides[i],
-                pad_side=self.pad_sides[i],
-                norm=norm if pre_activation else None,
-                n_norm_classes=n_norm_classes,
-                norm_kwargs=norm_kwargs,
-                activation_fn=activation_fn if pre_activation else 'identity',
-                pre_activation=pre_activation,
-                gated=False,
+                gated=self.gated[i],
             ))
         self.convs = nn.ModuleList(convs)
 
@@ -611,7 +568,7 @@ class _CNN(Module):
 
     def forward(
             self, x, seq_len=None, shapes=None, seq_lens=None, pool_indices=None,
-            **norm_kwargs
+            norm_kwargs={}
     ):
         assert x.dim() == (3 + self.is_2d()), (x.shape, self.is_2d())
         if not self.is_transpose():
@@ -651,7 +608,7 @@ class _CNN(Module):
             x, seq_len = conv(
                 x,
                 seq_len=seq_len, out_shape=out_shapes[i], out_lengths=out_lengths[i],
-                **norm_kwargs
+                norm_kwargs=norm_kwargs
             )
             for src_idx, x_ in dense_skip_signals[i + 1]:
                 x_ = F.interpolate(x_, size=x.shape[2:])
@@ -832,11 +789,11 @@ class WindowNorm(nn.Module):
     """
     >>> x = torch.zeros((2, 3, 7, 5))
     >>> x[:, :, 3, 2] = 1
-    >>> x = WindowNorm(3, 'bctf', x.shape, slide_axis='tf', statistics_axis='f', center=False, independent_axis=None)(x)
+    >>> x = WindowNorm(3, 'bctf', x.shape, slide_axis='tf', statistics_axis='f', shift=False, independent_axis=None)(x)
     >>> x[:, 0]
     >>> x.shape
     >>> x = torch.ones((2, 3, 7, 5))
-    >>> x = WindowNorm(3, 'bctf', x.shape, slide_axis='tf', statistics_axis='f', center=False, independent_axis=None)(x, seq_len=[7,5])
+    >>> x = WindowNorm(3, 'bctf', x.shape, slide_axis='tf', statistics_axis='f', shift=False, independent_axis=None)(x, seq_len=[7,5])
     >>> x[:, 0]
     >>> x.shape
     """
@@ -851,7 +808,7 @@ class WindowNorm(nn.Module):
             statistics_axis='',
             independent_axis='c',
             batch_axis='b',
-            center=True,
+            shift=True,
             scale=True,
             eps=1e-3
     ):
@@ -870,32 +827,39 @@ class WindowNorm(nn.Module):
         self.tmp_format = " ".join(
             [ax for ax in data_format if ax not in slide_axis] + slide_axis
         )
-        self.batch_axis = data_format.index(batch_axis.lower())
-        self.sequence_axis = data_format.index(sequence_axis.lower())
+        self.batch_axis = None if batch_axis is None else data_format.index(batch_axis.lower())
+        self.sequence_axis = None if sequence_axis is None else data_format.index(sequence_axis.lower())
         self.statistics_axis = tuple(
             [data_format.index(ax.lower()) for ax in statistics_axis]
         )
-        self.center = center
+        self.shift = shift
         self.scale = scale
         self.eps = eps
 
         if independent_axis is not None:
-            self.learnable_scale = Scale(
-                shape,
-                data_format=data_format,
-                independent_axis=independent_axis
-            )
-            self.learnable_shift = Shift(
-                shape,
-                data_format=data_format,
-                independent_axis=independent_axis
-            )
+            reduced_shape = len(data_format) * [1]
+            for ax in independent_axis:
+                ax = data_format.index(ax.lower())
+                assert shape[ax] is not None, shape[ax]
+                reduced_shape[ax] = shape[ax]
+            if scale:
+                self.gamma = nn.Parameter(
+                    torch.ones(reduced_shape), requires_grad=True
+                )
+            else:
+                self.gamma = None
+            if self.shift:
+                self.beta = nn.Parameter(
+                    torch.zeros(reduced_shape), requires_grad=True
+                )
+            else:
+                self.beta = None
         else:
-            self.learnable_scale = None
-            self.learnable_shift = None
+            self.gamma = None
+            self.beta = None
 
     def forward(self, x, seq_len=None):
-        mask = self.compute_mask(x, seq_len)
+        mask = compute_mask(x, seq_len, self.batch_axis, self.sequence_axis)
         data_format = " ".join(list(self.data_format))
         x_tmp = rearrange(
             x*mask, f'{data_format} -> {self.tmp_format}'
@@ -917,7 +881,7 @@ class WindowNorm(nn.Module):
             mask_tmp, size=np.array(self.window_size) - 1
         )
         signal_fraction = self.pool_fn(mask_tmp)
-        if self.center:
+        if self.shift:
             mean = self.pool_fn(x_tmp) / (signal_fraction + 1e-6)
             mean = mean.reshape(tmp_shape)
             mean = rearrange(
@@ -934,20 +898,13 @@ class WindowNorm(nn.Module):
             )
             if self.statistics_axis:
                 power = power.mean(self.statistics_axis, keepdim=True)
-            if self.center:
+            if self.shift:
                 power = (power - mean ** 2)
             # print(power.min(), power.max())
             x = x / torch.sqrt(power + self.eps)
 
-        if self.learnable_scale is not None:
-            x = self.learnable_scale(x)
-        if self.learnable_shift is not None:
-            x = self.learnable_shift(x)
+        if self.gamma is not None:
+            x = x * self.gamma
+        if self.beta is not None:
+            x = x + self.beta
         return x * mask
-
-    def compute_mask(self, x, seq_len=None):
-        if seq_len is not None:
-            mask = compute_mask(x, seq_len, self.batch_axis, self.sequence_axis)
-        else:
-            mask = torch.ones_like(x)
-        return mask

@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 from padertorch.base import Module
 from torch import nn
@@ -6,53 +5,10 @@ from torch.autograd import Function
 from padertorch.contrib.je.modules.global_pooling import compute_mask
 
 
-class PrintGrad(Function):
-    @staticmethod
-    def forward(ctx, input, i=0):
-        ctx.i = i
-        return input
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        print(ctx.i, grad_output.max().item())
-        assert not torch.isnan(grad_output).any()
-        return grad_output, None
-
-
 class Norm(Module):
     """
     >>> norm = Norm(data_format='bct', shape=(None, 10, None), statistics_axis='bt', momentum=0.5, interpolation_factor=1.)
     >>> x, seq_len = 2*torch.ones((3,10,4)), [1, 2, 3]
-    >>> mask = compute_mask(x, seq_len, 0, 2)
-    >>> norm.compute_stats(x, mask)
-    (tensor([[[2.],
-             [2.],
-             [2.],
-             [2.],
-             [2.],
-             [2.],
-             [2.],
-             [2.],
-             [2.],
-             [2.]]]), tensor([[[4.],
-             [4.],
-             [4.],
-             [4.],
-             [4.],
-             [4.],
-             [4.],
-             [4.],
-             [4.],
-             [4.]]]), tensor([[[6.],
-             [6.],
-             [6.],
-             [6.],
-             [6.],
-             [6.],
-             [6.],
-             [6.],
-             [6.],
-             [6.]]]))
     >>> norm.running_mean
     tensor([[[0.],
              [0.],
@@ -108,7 +64,7 @@ class Norm(Module):
             independent_axis='c',
             batch_axis='b',
             sequence_axis='t',
-            center=True,
+            shift=True,
             scale=True,
             eps: float = 1e-3,
             momentum=0.95,
@@ -116,12 +72,14 @@ class Norm(Module):
     ):
         super().__init__()
         self.data_format = data_format.lower()
-        self.batch_axis = data_format.index(batch_axis.lower())
-        self.sequence_axis = data_format.index(sequence_axis.lower())
+        self.batch_axis = None if batch_axis is None \
+            else data_format.index(batch_axis.lower())
+        self.sequence_axis = None if sequence_axis is None \
+            else data_format.index(sequence_axis.lower())
         self.statistics_axis = tuple(
             [data_format.index(ax.lower()) for ax in statistics_axis]
         )
-        self.center = center
+        self.shift = shift
         self.scale = scale
         self.eps = eps
         self.track_running_stats = batch_axis in statistics_axis
@@ -133,7 +91,7 @@ class Norm(Module):
             self.register_buffer(
                 'num_tracked_values', torch.zeros(reduced_shape)
             )
-            if center:
+            if shift:
                 self.register_buffer('running_mean', torch.zeros(reduced_shape))
             else:
                 self.register_parameter('running_mean', None)
@@ -150,223 +108,248 @@ class Norm(Module):
         self.interpolation_factor = interpolation_factor
 
         if independent_axis is not None:
-            self.learnable_scale = Scale(
-                shape,
-                data_format=data_format,
-                independent_axis=independent_axis
-            )
-            self.learnable_shift = Shift(
-                shape,
-                data_format=data_format,
-                independent_axis=independent_axis
-            )
+            reduced_shape = len(data_format) * [1]
+            for ax in independent_axis:
+                ax = data_format.index(ax.lower())
+                assert shape[ax] is not None, shape[ax]
+                reduced_shape[ax] = shape[ax]
+            if scale:
+                self.gamma = nn.Parameter(
+                    torch.ones(reduced_shape), requires_grad=True
+                )
+            else:
+                self.gamma = None
+            if self.shift:
+                self.beta = nn.Parameter(
+                    torch.zeros(reduced_shape), requires_grad=True
+                )
+            else:
+                self.beta = None
         else:
-            self.learnable_scale = None
-            self.learnable_shift = None
+            self.gamma = None
+            self.beta = None
 
     @property
-    def running_scale(self):
+    def runnning_var(self):
         n = torch.max(self.num_tracked_values, 2. * torch.ones_like(self.num_tracked_values))
-        running_power = self.running_power
-        if self.center:
-            running_power = n / (n-1) * (running_power - self.running_mean ** 2)
-        running_power = running_power + self.eps
-        assert (running_power >= 0).all(), running_power.min()
-        return torch.sqrt(running_power)
+        running_var = self.running_power
+        if self.shift:
+            running_var = n / (n-1) * (running_var - self.running_mean ** 2)
+        running_var = running_var + self.eps
+        assert (running_var >= 0).all(), running_var.min()
+        return running_var
 
     def reset_running_stats(self):
         if self.track_running_stats:
             self.num_tracked_values.zero_()
-            if self.center:
+            if self.shift:
                 self.running_mean.zero_()
             if self.scale:
                 self.running_power.fill_(1)
 
     def reset_parameters(self):
         self.reset_running_stats()
-        if self.learnable_scale is not None:
-            nn.init.ones_(self.learnable_scale.scale)
-        if self.learnable_shift is not None:
-            nn.init.zeros_(self.learnable_shift.shift)
+        if self.gamma is not None:
+            nn.init.ones_(self.gamma.scale)
+        if self.beta is not None:
+            nn.init.zeros_(self.beta.shift)
 
     def forward(self, x, seq_len=None):
-        mask = self.compute_mask(x, seq_len)
         if self.training or not self.track_running_stats:
-            mean, power, n_values = self.compute_stats(x, mask)
+            y, mean, power, n_values = normalize(
+                x, gamma=self.gamma, beta=self.beta,
+                statistics_axis=self.statistics_axis,
+                batch_axis=self.batch_axis, sequence_axis=self.sequence_axis,
+                seq_len=seq_len, shift=self.shift, scale=self.scale,
+                eps=self.eps
+            )
             if self.track_running_stats:
                 self.num_tracked_values += n_values.data
                 if self.momentum is None:
                     momentum = 1 - n_values / self.num_tracked_values.data
                 else:
                     momentum = self.momentum
-                if self.center:
+                if self.shift:
                     self.running_mean *= momentum
                     self.running_mean += (1 - momentum) * mean.data
+                    power = power.data + mean.data ** 2
                 if self.scale:
                     self.running_power *= momentum
                     self.running_power += (1 - momentum) * power.data
                 if self.interpolation_factor > 0.:
                     # perform straight through backpropagation
                     # https://arxiv.org/pdf/1611.01144.pdf
-                    if self.center:
-                        mean = mean + self.interpolation_factor * (self.running_mean.data - mean).detach()
+                    y_ = x
+                    if self.shift:
+                        y_ = y_ - self.running_mean
                     if self.scale:
-                        power = power + self.interpolation_factor * (self.running_power.data - power).detach()
-            if self.center:
-                x = x - mean
-            if self.scale:
-                n = torch.max(n_values, 2. * torch.ones_like(n_values))
-                if self.center:
-                    power = n / (n - 1.) * (power - mean ** 2)
-                power = power + self.eps
-                assert (power > 0).all(), power.min()
-                x = x / torch.sqrt(power)
+                        y_ = y_ / torch.sqrt(self.runnning_var)
+                    y = y + self.interpolation_factor * (y_ - y).detach()
+                    y = y * compute_mask(x, seq_len, self.batch_axis, self.sequence_axis)
         else:
-            if self.center:
-                x = x - self.running_mean.data
+            y = x
+            if self.shift:
+                y = y - self.running_mean.data
             if self.scale:
-                x = x / self.running_scale.data
-
-        if self.learnable_scale is not None:
-            x = self.learnable_scale(x)
-        if self.learnable_shift is not None:
-            x = self.learnable_shift(x)
-        return x * mask
-
-    def compute_mask(self, x, seq_len=None):
-        if seq_len is not None:
-            mask = compute_mask(x, seq_len, self.batch_axis, self.sequence_axis)
-        else:
-            mask = torch.ones_like(x)
-        return mask
-
-    def compute_stats(self, x, mask):
-        n_values = mask.sum(dim=self.statistics_axis, keepdim=True)
-        x = x * mask
-        mean = x.sum(dim=self.statistics_axis, keepdim=True) / torch.max(n_values, torch.ones_like(n_values))
-        if not self.scale:
-            return mean, None, n_values
-        power = (x ** 2).sum(dim=self.statistics_axis, keepdim=True) / torch.max(n_values, torch.ones_like(n_values))
-        return mean, power, n_values
+                y = y / torch.sqrt(self.runnning_var)
+            if self.gamma is not None:
+                y = y * self.gamma
+            if self.beta is not None:
+                y = y + self.beta
+            y = y * compute_mask(x, seq_len, self.batch_axis, self.sequence_axis)
+        return y
 
     def inverse(self, x):
         if not self.track_running_stats:
             raise NotImplementedError
-        return self.running_scale * x + self.running_mean
-
-
-class Shift(nn.Module):
-    def __init__(self, shape, data_format='bft', independent_axis='f'):
-        super().__init__()
-        reduced_shape = len(data_format) * [1]
-        for ax in independent_axis:
-            ax = data_format.index(ax.lower())
-            assert shape[ax] is not None, shape[ax]
-            reduced_shape[ax] = shape[ax]
-        self.shift = nn.Parameter(
-            torch.zeros(reduced_shape), requires_grad=True
-        )
-
-    def forward(self, x):
-        return x - self.shift
-
-
-class Scale(nn.Module):
-    def __init__(self, shape, data_format='bft', independent_axis='f'):
-        super().__init__()
-        reduced_shape = len(data_format) * [1]
-        for ax in independent_axis:
-            ax = data_format.index(ax.lower())
-            assert shape[ax] is not None, shape[ax]
-            reduced_shape[ax] = shape[ax]
-        self.scale = nn.Parameter(
-            torch.ones(reduced_shape), requires_grad=True
-        )
-
-    def forward(self, x):
-        return x * self.scale
-
-
-class MulticlassNorm(Module):
-    """
-    >>> norm = MulticlassNorm(data_format='bct', n_classes=3, shape=(None, 10, None), statistics_axis='bt', momentum=0.5)
-    >>> x, seq_len, class_idx = 2*torch.ones((3,10,4)), [1, 2, 3], [0, 1, 0]
-    >>> norm(x, 0, seq_len).shape
-    torch.Size([3, 10, 4])
-    >>> norm(x, class_idx, seq_len).shape
-    torch.Size([3, 10, 4])
-    """
-    def __init__(
-            self, n_classes, data_format='bcft', shape=None, *,
-            independent_axis='c', **kwargs
-    ):
-        super().__init__()
-        self.n_classes = n_classes
-        self.norms = nn.ModuleList([
-            Norm(
-                data_format,
-                shape,
-                independent_axis=None,
-                **kwargs
-            )
-            for _ in range(n_classes)
-        ])
-        assert self.norms[0].batch_axis == 0, self.norms[0].batch_axis
-
-        if independent_axis is not None:
-            self.learnable_scale = Scale(
-                shape,
-                data_format=data_format,
-                independent_axis=independent_axis
-            )
-            self.learnable_shift = Shift(
-                shape,
-                data_format=data_format,
-                independent_axis=independent_axis
-            )
-        else:
-            self.learnable_scale = None
-            self.learnable_shift = None
-
-    def forward(self, x, class_idx, seq_len=None):
-        class_idx = np.array(class_idx)
-        assert class_idx.ndim <= 1, class_idx.shape
-        if class_idx.ndim == 0:
-            class_idx = class_idx[None]
-        classes_contained = sorted(set(class_idx.tolist()))
-        if len(classes_contained) == 1:
-            class_idx = classes_contained[0]
-            x = self.norms[class_idx](x, seq_len=seq_len)
-        else:
-            idx = np.arange(x.shape[0]).astype(np.int)
-            sort_idx = np.argsort(class_idx).flatten()
-            reverse_idx = np.zeros_like(idx)
-            reverse_idx[sort_idx] = idx
-            x = x[sort_idx]
-            if seq_len is not None:
-                seq_len = np.array(seq_len)[sort_idx]
-            class_idx = np.array(class_idx)[sort_idx]
-            classes_contained = sorted(set(class_idx.tolist()))
-            idx_arrays = [
-                np.argwhere(class_idx == c).flatten()
-                for c in classes_contained
-            ]
-            x = torch.cat(
-                tuple([
-                    self.norms[c](
-                        x[idx_array],
-                        seq_len=None if seq_len is None else seq_len[idx_array]
-                    )
-                    for c, idx_array in zip(classes_contained, idx_arrays)
-                ]),
-                dim=0
-            )
-            x = x[reverse_idx]
-
-        if self.learnable_scale is not None:
-            x = self.learnable_scale(x)
-        if self.learnable_shift is not None:
-            x = self.learnable_shift(x)
-            mask = self.norms[0].compute_mask(x, seq_len)
-            x = x * mask  # only necessary if shifted because already masked in individual norms
+        if self.beta is not None:
+            x = x - self.beta
+        if self.gamma is not None:
+            x = x / self.gamma
+        if self.scale:
+            x = torch.sqrt(self.running_var) * x
+        if self.shift:
+            x = x + self.running_mean
         return x
+
+
+class Normalize(Function):
+    @staticmethod
+    def forward(ctx, x, gamma, beta, statistics_axis, batch_axis, sequence_axis, seq_len, shift, scale, eps):
+        ctx.statistics_axis = statistics_axis
+        ctx.batch_axis = batch_axis
+        ctx.sequence_axis = sequence_axis
+        ctx.seq_len = seq_len
+        ctx.shift = shift
+        ctx.scale = scale
+        ctx.eps = eps
+
+        # compute mask
+        if seq_len is not None:
+            mask = compute_mask(x, seq_len, batch_axis, sequence_axis)
+        else:
+            mask = torch.ones_like(x)
+
+        # compute statistics
+        n_values = mask.sum(dim=statistics_axis, keepdim=True)
+        x = x * mask
+        mean = x.sum(dim=statistics_axis, keepdim=True) / torch.max(n_values, torch.ones_like(n_values))
+        power = (x ** 2).sum(dim=statistics_axis, keepdim=True) / torch.max(n_values, torch.ones_like(n_values))
+        y = x
+        if shift:
+            y = y - mean
+            power = power - mean**2
+        if scale:
+            y = y / torch.sqrt(power + eps)
+        ctx.save_for_backward(x, gamma, beta, mean, power)
+
+        if gamma is not None:
+            assert gamma.dim() == x.dim(), gamma.shape
+            y = y * gamma
+        if beta is not None:
+            assert beta.dim() == x.dim(), beta.shape
+            y = y + beta
+        return y*mask, mean, power, n_values
+
+    @staticmethod
+    def backward(ctx, grad_y, grad_mean, grad_power, _):
+        if (grad_mean != 0).any() or (grad_power != 0).any():
+            raise NotImplementedError
+        x, gamma, beta, mean, power = ctx.saved_tensors
+        # compute mask
+        if ctx.seq_len is not None:
+            mask = compute_mask(x, ctx.seq_len, ctx.batch_axis, ctx.sequence_axis)
+        else:
+            mask = torch.ones_like(x)
+        n_values = mask.sum(dim=ctx.statistics_axis, keepdim=True)
+
+        grad_y = grad_y * mask
+        x_hat = x
+        scale = torch.sqrt(power + ctx.eps)
+        if ctx.scale:
+            x_hat = x_hat - mean
+        if ctx.scale:
+            x_hat = x_hat / scale
+        if beta is None:
+            grad_beta = None
+        else:
+            reduce_axis = [i for i in range(beta.dim()) if beta.shape[i] == 1]
+            grad_beta = grad_y.sum(reduce_axis, keepdim=True)
+        if gamma is None:
+            grad_gamma = None
+            grad_x_hat = grad_y
+        else:
+            reduce_axis = [i for i in range(gamma.dim()) if gamma.shape[i] == 1]
+            grad_gamma = (grad_y * x_hat).sum(reduce_axis, keepdim=True)
+            grad_x_hat = grad_y * gamma
+        if ctx.shift:
+            x = (x - mean) * mask
+            grad_mean_ = -grad_x_hat.sum(ctx.statistics_axis, keepdim=True)
+        if ctx.scale:
+            grad_power_ = (grad_x_hat * x).sum(ctx.statistics_axis, keepdim=True) * (-1 / 2) * (power + ctx.eps) ** (-3 / 2)
+            if ctx.shift:
+                grad_mean_ = (
+                    grad_mean_ / scale
+                    - 2 * grad_power_ * x.sum(ctx.statistics_axis, keepdim=True) / n_values
+                )
+
+        grad_x = grad_x_hat
+        if ctx.scale:
+            grad_x = grad_x / scale + grad_power_ * 2 * x / n_values
+        if ctx.shift:
+            grad_x = grad_x + grad_mean_ / n_values
+        return grad_x * mask, grad_gamma, grad_beta, None, None, None, None, None, None, None
+
+
+def normalize(x, gamma, beta, statistics_axis, batch_axis, sequence_axis, seq_len, shift, scale, eps):
+    """
+    >>> x, seq_len = 2*torch.ones((3,10,4)), [1, 2, 3]
+    >>> x, m, p, n = normalize(x, None, None, [0, 2], 0, 2, seq_len, True, True, 1e-3)
+    >>> m
+    tensor([[[2.],
+             [2.],
+             [2.],
+             [2.],
+             [2.],
+             [2.],
+             [2.],
+             [2.],
+             [2.],
+             [2.]]])
+    >>> p
+    tensor([[[0.],
+             [0.],
+             [0.],
+             [0.],
+             [0.],
+             [0.],
+             [0.],
+             [0.],
+             [0.],
+             [0.]]])
+    >>> n
+    tensor([[[6.],
+             [6.],
+             [6.],
+             [6.],
+             [6.],
+             [6.],
+             [6.],
+             [6.],
+             [6.],
+             [6.]]])
+    """
+    return Normalize.apply(x, gamma, beta, statistics_axis, batch_axis, sequence_axis, seq_len, shift, scale, eps)
+
+
+class PrintGrad(Function):
+    @staticmethod
+    def forward(ctx, input, i=0):
+        ctx.i = i
+        return input
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        print(ctx.i, grad_output.max().item())
+        assert not torch.isnan(grad_output).any()
+        return grad_output, None

@@ -44,7 +44,7 @@ class NormalizedLogMelExtractor(nn.Module):
                 slide_axis='t',
                 statistics_axis='f',
                 independent_axis=None,
-                center=False,
+                shift=False,
                 scale=True,
                 eps=stft_norm_eps,
             )
