@@ -220,6 +220,12 @@ class OneAndRestPIT(pt.Model):
 
         outs = []
         residual_signal = pt.pad_sequence(example['y'], batch_first=True)
+        B = residual_signal.shape[0]
+        assert B == 1 or oracle_num_speakers is not None, (
+            f'Counting (when oracle_num_speakers=None) is only supported for '
+            f'a batch-size of 1. Otherwise handling of different numbers of '
+            f'speakers in the same batch does not work!'
+        )
 
         def _stop_oracle(out, k):
             if self.unroll_type == 'res-single':
