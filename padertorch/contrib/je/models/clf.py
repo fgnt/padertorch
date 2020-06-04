@@ -1,53 +1,29 @@
 import numpy as np
 import torch
-from einops import rearrange
 from padertorch.base import Model
 from padertorch.contrib.je.modules.conv import CNN1d
-from padertorch.contrib.je.modules.features import MelTransform
+from padertorch.contrib.je.modules.features import NormalizedLogMelExtractor
 from padertorch.contrib.je.modules.global_pooling import Mean
-from padertorch.contrib.je.modules.norm import Norm
 from torchvision.utils import make_grid
+from einops import rearrange
 
 
 class Classifier(Model):
     def __init__(
-            self, net: CNN1d, target_key, sample_rate, fft_length, n_mels, fmin=50, fmax=None,
+            self, net: CNN1d, target_key, feature_extractor=None
     ):
         super().__init__()
         self.net = net
         self.target_key = target_key
-        self.mel_transform = MelTransform(
-            n_mels=n_mels, sample_rate=sample_rate, fft_length=fft_length,
-            fmin=fmin, fmax=fmax,
-        )
-        self.in_norm = Norm(
-            data_format='bcft',
-            shape=(None, 1, n_mels, None),
-            statistics_axis='bt',
-            scale=True,
-            independent_axis=None,
-            momentum=None,
-            interpolation_factor=1.
-        )
-
-    def feature_extraction(self, x, seq_len=None):
-        x = self.mel_transform(torch.sum(x**2, dim=(-1,))).transpose(-2, -1)
-        x = self.in_norm(x, seq_len=seq_len)
-        x = rearrange(x, 'b c f t -> b (c f) t')
-        return x
-
-    def inverse_feature_extraction(self, x):
-        return self.mel_transform.inverse(
-            (
-                torch.sqrt(self.in_norm.running_var) * x
-                + self.in_norm.running_mean
-            ).transpose(-2, -1)
-        )
+        self.feature_extractor = feature_extractor
 
     def forward(self, inputs):
         x = inputs['stft']
         seq_len = inputs['seq_len']
-        x = self.feature_extraction(x, seq_len)
+        if self.feature_extractor is not None:
+            x = self.feature_extractor(x, seq_len)
+            if x.dim() == 4 and isinstance(self.net, CNN1d):
+                x = rearrange(x, 'b c f t -> b (c f) t')
         return x, self.net(x, seq_len)
 
     def review(self, inputs, outputs):
@@ -94,7 +70,11 @@ class Classifier(Model):
     @classmethod
     def finalize_dogmatic_config(cls, config):
         config['net']['factory'] = CNN1d
+        config['feature_extractor'] = {
+            'factory': NormalizedLogMelExtractor,
+        }
         if config['net']['factory'] == CNN1d:
-            config['net']['in_channels'] = config['n_mels']
+            if config['feature_extractor']['factory'] == NormalizedLogMelExtractor:
+                config['net']['in_channels'] = config['feature_extractor']['n_mels']
         else:
             raise ValueError(f'Factory {config["encoder"]["factory"]} not allowed.')
