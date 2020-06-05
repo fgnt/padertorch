@@ -557,6 +557,9 @@ class ValidationHook(SummaryHook):
 
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
         if trainer.iteration == self.last_validation:
+            # As CheckpointHook.pre_step is called after ValidationHook.pre_step
+            # (which is necessary to save ValidationHook state),
+            # a symlink to the latest checkpoint can not be set during ValidationHook.pre_step
             ckpt_dir = trainer.checkpoint_dir
             ckpt_path: Path = trainer.default_checkpoint_path()
             if not ckpt_path.exists():
