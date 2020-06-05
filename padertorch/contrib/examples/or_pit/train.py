@@ -7,6 +7,8 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 python -m padertorch.contrib.examples.or_pit.train with database_jsons=${paths to your JSONs}
 """
+import copy
+
 import lazy_dataset
 import torch
 from paderbox.io import load_audio
@@ -229,7 +231,7 @@ def dump_config_and_makefile(_config):
             f"\tpython -m {main_python_path} with config.json\n"
             f"\n"
             f"finetune:\n"
-            f"\tpython -m {main_python_path} init with config.json trainer.model.finetune=True\n"
+            f"\tpython -m {main_python_path} init_with_new_storage_dir with config.json trainer.model.finetune=True load_model_from=$(MODEL_PATH)/checkpoints/ckpt_latest.pth batch_size=1\n"
             f"\n"
             f"ccsalloc:\n"
             f"\tccsalloc \\\n"
@@ -246,11 +248,12 @@ def dump_config_and_makefile(_config):
             f"\tpython -m {eval_python_path} init with model_path=$(MODEL_PATH)\n"
         )
 
+
 @ex.command
 def init(_config, _run):
     """Create a storage dir, write Makefile. Do not start any training."""
     sacred.commands.print_config(_run)
-    dump_config_and_makefile()
+    dump_config_and_makefile(_config)
 
     print()
     print('Initialized storage dir. Now run these commands:')
@@ -261,6 +264,15 @@ def init(_config, _run):
     print()
     print(f"cd {_config['trainer']['storage_dir']}")
     print('make ccsalloc')
+
+
+@ex.command
+def init_with_new_storage_dir(_config, _run):
+    # Create a mutable copy of the config and overwrite the storage dir
+    _config = copy.deepcopy(_config)
+    _config['trainer']['storage_dir'] = get_storage_dir()
+    _run.config = _config
+    init(_config)
 
 
 @ex.capture
