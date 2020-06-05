@@ -557,6 +557,9 @@ class ValidationHook(SummaryHook):
 
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
         if trainer.iteration == self.last_validation:
+            # As CheckpointHook.pre_step is called after ValidationHook.pre_step
+            # (which is necessary to save ValidationHook state),
+            # a symlink to the latest checkpoint can not be set during ValidationHook.pre_step
             ckpt_dir = trainer.checkpoint_dir
             ckpt_path: Path = trainer.default_checkpoint_path()
             if not ckpt_path.exists():
@@ -567,12 +570,16 @@ class ValidationHook(SummaryHook):
                     f'Found only:\n'
                     f'{[str(file) for file in ckpt_dir.iterdir()]}'
                 )
-            best_ckpt_path = ckpt_dir / self._best_ckpt_name
-            if best_ckpt_path.is_symlink():
-                best_ckpt_path.unlink()
-            best_ckpt_path.symlink_to(self.ckpt_ranking[0][0])
+            self.set_best_symlink(ckpt_dir)
+
+    def set_best_symlink(self, ckpt_dir):
+        best_ckpt_path = ckpt_dir / self._best_ckpt_name
+        if best_ckpt_path.is_symlink():
+            best_ckpt_path.unlink()
+        best_ckpt_path.symlink_to(self.ckpt_ranking[0][0])
 
     def close(self, trainer: 'pt.Trainer'):
+        self.set_best_symlink(trainer.checkpoint_dir)
         ckpt_name = trainer.default_checkpoint_path().name
         if ckpt_name not in [ckpt[0] for ckpt in self.ckpt_ranking]:
             # add to ranking to make sure it is deleted after resume
