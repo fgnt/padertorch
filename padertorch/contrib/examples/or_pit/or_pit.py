@@ -83,11 +83,14 @@ def one_and_rest_permutation_invariant_loss(
         # Compute the loss for all possible targets
         losses = list()
         for i in range(K):
-            targets_ = torch.stack([
-                targets[i],
-                torch.sum(targets[[j for j in range(K) if i != j]], dim=0)
-            ])
-            losses.append((loss_fn(inputs, targets_), i))
+            # [1], eq. 3
+            losses.append(
+                loss_fn(inputs[0], targets[i]) +
+                (1/(K-1)) * loss_fn(
+                    inputs[1],
+                    torch.sum(targets[[j for j in range(K) if i != j]], dim=0)
+                )
+            )
 
         # Find the minimum
         loss, perm = min(losses, key=lambda x: x[0])
