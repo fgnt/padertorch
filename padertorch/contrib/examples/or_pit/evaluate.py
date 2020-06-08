@@ -124,6 +124,18 @@ def dump_config_and_makefile(_config):
     experiment_dir = Path(_config['experiment_dir'])
     makefile_path = Path(experiment_dir) / "Makefile"
 
+    model_path = Path(_config['model_path'])
+
+    # Create symlinks between model and evaluation
+    eval_symlink = model_path / 'eval' / experiment_dir.name
+    if not eval_symlink.is_symlink():
+        eval_symlink.parent.mkdir(exist_ok=True)
+        eval_symlink.symlink_to(experiment_dir, target_is_directory=True)
+
+    model_symlink = experiment_dir / 'model'
+    if not model_symlink.is_symlink():
+        model_symlink.symlink_to(model_path, target_is_directory=True)
+
     if not makefile_path.exists():
         config_path = experiment_dir / "config.json"
 
