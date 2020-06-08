@@ -126,6 +126,11 @@ def dump_config_and_makefile(_config):
 
     model_path = Path(_config['model_path'])
 
+    assert (model_path / 'checkpoints' / _config[
+        'checkpoint_name']).exists(), (
+        f'No model checkpoint found in "{model_path}"!'
+    )
+
     # Create symlinks between model and evaluation
     eval_symlink = model_path / 'eval' / experiment_dir.name
     if not eval_symlink.is_symlink():
