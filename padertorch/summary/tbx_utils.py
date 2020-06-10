@@ -139,7 +139,9 @@ def audio(signal, sampling_rate: int = 16000, batch_first=False,
 
     # Normalize so that there is no clipping
     if normalize:
-        signal = signal / np.max(np.abs(signal))
+        denominator = np.max(np.abs(signal))
+        if denominator > 0:
+            signal = signal / denominator
         signal *= 0.95
 
     return signal, sampling_rate
