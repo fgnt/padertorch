@@ -423,7 +423,8 @@ class Trainer(Configurable):
 
             for key, value in losses.items():
                 weight = loss_weights[key] if loss_weights is not None else 1.
-                loss = loss + (weight * value)
+                if weight != 0:
+                    loss = loss + (weight * value)
                 if 'scalars' not in review:
                     review['scalars'] = {}
                 review['scalars'][f'{key}_loss_weight'] = weight
