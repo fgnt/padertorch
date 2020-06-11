@@ -172,7 +172,7 @@ class SummaryHook(TriggeredHook):
             texts=dict(),
             figures=dict(),
             timings=dict(),
-            buffers=dict(),
+            buffers=defaultdict(list),
             snapshots=dict()
         ))
 
