@@ -120,6 +120,46 @@ def si_sdr_loss(estimates, targets, reduce='mean', offset_invariant=False,
     # SI-SNR ([1] eq. 15)
     return sdr_loss(estimates, s_target, reduce=reduce)
 
+
+def log1p_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
+                   reduce: str = 'sum'):
+    """
+    Computes the log1p-mse loss between `x` and `y` as defined in [1], eq. 4.
+    The `reduction` only affects the speaker dimension; the time dimension is
+    always reduced by a mean operation as in [1]. It has the advantage of not
+    going to negative infinity in case of perfect reconstruction while keeping
+    the logarithmic nature.
+
+    The log1p-mse loss is defined as [1]:
+
+    .. math::
+
+        L^{\\text{T-L1PMSE}} = \\log_10 (1 + \sum_t |x(t) - y(t)|^2)
+
+
+    Args:
+        estimate (... x T): The estimated signal
+        target (... x T, same as estimate): The target signal
+        reduce:
+
+    Returns:
+        The log1p-mse error between `estimate` and `target`
+
+
+    References:
+        [1] Thilo von Neumann, Christoph Boeddeker, Lukas Drude, Keisuke
+            Kinoshita, Marc Delcroix, Tomohiro Nakatani, and Reinhold
+            Haeb-Umbach. „Multi-talker ASR for an unknown number of sources:
+            Joint training of source counting, separation and ASR“.
+            http://arxiv.org/abs/2006.02786.
+    """
+    # Use the PyTorch implementation for MSE, should be the fastest
+    return _reduce(
+        torch.log10(
+            1 + F.mse_loss(estimate, target, reduce='none').mean(dim=-1)),
+        reduce=reduce
+    )
+
 # TODO: Add log1p_mse loss from interspeech paper
 # TODO: remove _reduce
 
