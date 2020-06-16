@@ -226,7 +226,8 @@ def dump_config_and_makefile(_config):
             f"\tpython -m {eval_python_path} init with model_path=$(MODEL_PATH)\n"
         )
 
-@ex.command
+
+@ex.command(unobserved=True)
 def init(_config, _run):
     """Create a storage dir, write Makefile. Do not start any training."""
     sacred.commands.print_config(_run)
@@ -264,18 +265,27 @@ def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
     )
 
     # Register hooks and start the actual training
-    trainer.register_validation_hook(
-        prepare_iterable_captured(db, validate_dataset)
-    )
 
     # Learning rate scheduler
-    trainer.register_hook(pt.train.hooks.LRSchedulerHook(
-        torch.optim.lr_scheduler.StepLR(
-            trainer.optimizer.optimizer,
-            step_size=lr_scheduler_step,
-            gamma=lr_scheduler_gamma,
+    if lr_scheduler_step:
+        trainer.register_hook(pt.train.hooks.LRSchedulerHook(
+            torch.optim.lr_scheduler.StepLR(
+                trainer.optimizer.optimizer,
+                step_size=lr_scheduler_step,
+                gamma=lr_scheduler_gamma,
+            )
+        ))
+
+        # Don't use LR back-off
+        trainer.register_validation_hook(
+            prepare_iterable_captured(db, validate_dataset),
         )
-    ))
+    else:
+        # Use LR back-off
+        trainer.register_validation_hook(
+            prepare_iterable_captured(db, validate_dataset),
+            n_back_off=5, back_off_patience=3
+        )
 
     trainer.train(
         prepare_iterable_captured(db, train_dataset),
