@@ -197,8 +197,8 @@ class TasNet(pt.Model):
             for k, loss_fn in loss_functions.items():
                 losses[k].append(
                     pt.ops.losses.pit_loss(
-                        estimated[:seq_len],
-                        target[:seq_len],
+                        estimated[..., :seq_len],
+                        target[..., :seq_len],
                         axis=0, loss_fn=loss_fn,
                     )
                 )
