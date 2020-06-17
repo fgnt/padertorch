@@ -196,12 +196,10 @@ class SummaryHook(TriggeredHook):
         redundant_keys = set(review.keys()) - allowed_keys
         assert len(redundant_keys) == 0, (redundant_keys, review.keys(), allowed_keys)
 
+        assert len(review) >= 1, review
         popped_review = {**review}  # copy for "pop"
 
         # note item is the pytorch function to get the value of a tensor
-        self.summary['scalars']['loss'].append(popped_review.pop('loss').item())
-        for key, loss in popped_review.pop('losses', dict()).items():
-            self.summary['scalars'][key].append(loss.item())
         for key, scalars in popped_review.pop('scalars', dict()).items():
             self.summary['scalars'][key].extend(self._to_list(scalars))
         for key, histogram in popped_review.pop('histograms', dict()).items():
@@ -526,7 +524,7 @@ class ValidationHook(SummaryHook):
         assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
         print('Starting Validation')
         at_least_one_value = False
-        for model_out, review in trainer.validate(self.iterator):
+        for example, model_out, review in trainer.validate(self.iterator):
             at_least_one_value = True
             self.update_summary(review)
         if not at_least_one_value:
