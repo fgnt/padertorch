@@ -152,7 +152,7 @@ def test_single_model():
             for k, v in list(hook.__dict__.items()):
                 if isinstance(v, pt.train.trigger.Trigger):
                     hook.__dict__[k] = TriggerMock(v, log_list)
-        t.train(train_iterator=tr_dataset, resume=False)
+        t.train(train_dataset=tr_dataset, resume=False)
 
         hook_calls = ('\n'.join(log_list))
 
@@ -252,7 +252,15 @@ def test_single_model():
                     'validation_timings/validation_time': 3,
                 }
                 pprint(c)
-                assert c == expect, c
+                if c != expect:
+                    import difflib
+
+                    raise AssertionError(
+                        '\n' + ('\n'.join(difflib.ndiff(
+                            [f'{k!r}: {v!r}'for k, v in sorted(expect.items())],
+                            [f'{k!r}: {v!r}'for k, v in sorted(c.items())],
+                        )))
+                    )
                 assert len(events) == 55, (len(events), events)
 
                 assert len(time_rel_data_loading) > 0, (time_rel_data_loading, time_rel_train_step)
@@ -331,7 +339,7 @@ def test_single_model():
             for k, v in list(hook.__dict__.items()):
                 if isinstance(v, pt.train.trigger.Trigger):
                     hook.__dict__[k] = TriggerMock(v, log_list)
-        t.train(train_iterator=tr_dataset, resume=True)
+        t.train(train_dataset=tr_dataset, resume=True)
 
         hook_calls = ('\n'.join(log_list))
 
@@ -435,9 +443,23 @@ def test_single_model():
                 raise ValueError(file)
 
 
-def test_virtual_minibatch():
+def test_virtual_minibatch_few__examples():
+    test_virtual_minibatch(3, 1)
+    test_virtual_minibatch(4, 1)
+
+
+def test_virtual_minibatch(
+        no_of_examples=7,
+        expected_iterations_per_epoch=2,
+):
     """
     Test idea:
+
+    Create an example with 7 entries and use a virtual_minibatch_size of 4.
+    The trainer will then need two iterations (first 4 examples, second
+    3 examples) for one epoch.
+
+    Further it will also be tested, if the model changed.
 
     virtual_minibatch_size is choosen such, that the first train call only
     accumulates the gradients, but do not apply them.
@@ -446,8 +468,8 @@ def test_virtual_minibatch():
     """
 
     it_tr, it_dt = get_dataset()
-    it_tr = it_tr[:2]
-    it_dt = it_dt[:2]
+    it_tr = it_tr[:no_of_examples]
+    it_dt = it_dt[:no_of_examples]
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_dir = Path(tmp_dir)
@@ -469,46 +491,31 @@ def test_virtual_minibatch():
         )
         pre_state_dict = copy.deepcopy(t.state_dict())
 
-        t.train(train_iterator=it_tr, resume=False)
-        intermediate_state_dict = copy.deepcopy(t.state_dict())
-
-        # Increase train end from 1 epoch to 2 epochs.
-        # The first time that virtual_minibatch_size triggers is at the end of
-        # epoch 2.
-        config['stop_trigger'] = (2, 'epoch')
-
-        t = pt.Trainer.from_config(config)
-        t.register_validation_hook(
-            validation_iterator=it_dt, max_checkpoints=None
-        )
-        t.train(train_iterator=it_tr, resume=True)
+        t.train(train_dataset=it_tr, resume=False)
         post_state_dict = copy.deepcopy(t.state_dict())
 
         pre_state_dict = pb.utils.nested.nested_op(
             pt.utils.to_numpy, pre_state_dict)
-        intermediate_state_dict = pb.utils.nested.nested_op(
-            pt.utils.to_numpy, intermediate_state_dict)
+
         post_state_dict = pb.utils.nested.nested_op(
             pt.utils.to_numpy, post_state_dict)
 
         assert pre_state_dict['iteration'] == np.array(-1)
         del pre_state_dict['iteration']
-        assert intermediate_state_dict['iteration'] == 2
-        del intermediate_state_dict['iteration']
-        assert post_state_dict['iteration'] == 4
+
+        # 7 examples / 4 virtual_minibatch_size = 2 iterations
+        assert post_state_dict['iteration'] == expected_iterations_per_epoch
+
         del post_state_dict['iteration']
 
         assert pre_state_dict['epoch'] == np.array(-1)
         del pre_state_dict['epoch']
         del pre_state_dict['hooks']
-        assert intermediate_state_dict['epoch'] == 1
-        del intermediate_state_dict['epoch']
-        del intermediate_state_dict['hooks']
-        assert post_state_dict['epoch'] == 2
+
+        assert post_state_dict['epoch'] == 1
         del post_state_dict['epoch']
         del post_state_dict['hooks']
 
-        np.testing.assert_equal(pre_state_dict, intermediate_state_dict)
         with pytest.raises(AssertionError):
             np.testing.assert_equal(pre_state_dict, post_state_dict)
 
@@ -595,15 +602,16 @@ def test_released_tensors():
                 if any([t is p for p in parameters])
             ]
 
+            import textwrap
             assert len(all_tensors) == len(parameters) + len(optimizer_tensors), (
                 f'pre_step\n'
                 f'{summary}\n'
                 f'all_tensors: {len(all_tensors)}\n'
-                f'{all_tensors}\n'
+                + textwrap.indent("\n".join(map(str, all_tensors)), " "*8) + f'\n'
                 f'parameters: {len(parameters)}\n'
-                f'{parameters}'
+                + textwrap.indent("\n".join(map(str, parameters)), " "*8) + f'\n'
                 f'optimizer_tensors: {len(optimizer_tensors)}\n'
-                f'{optimizer_tensors}\n'
+                + textwrap.indent("\n".join(map(str, optimizer_tensors)), " "*8) + f'\n'
             )
 
         def post_step(

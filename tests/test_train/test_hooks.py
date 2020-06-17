@@ -93,8 +93,11 @@ def test_summary_hook():
         hook = pt.train.hooks.SummaryHook(
             (1, 'iteration'),
         )
-        with pytest.raises(KeyError, match=r"'loss'") as excinfo:
-            hook.update_summary({})
+
+        # Missing key 'loss' is now allowed, because the optimizer reports now
+        # the summary directly to the hooks, instead of appending the review.
+        # with pytest.raises(KeyError, match=r"'loss'") as excinfo:
+        #     hook.update_summary({})
 
         hook.update_summary({
             'loss': torch.tensor(1)
