@@ -1319,6 +1319,12 @@ class _DogmaticConfig:
 
         return value
 
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
     def to_dict(self):
         """Export the Configurable object to a dict."""
         result_dict = {}

@@ -10,27 +10,28 @@ from pathlib import Path
 import numpy as np
 from padercontrib.database.librispeech import LibriSpeech
 from paderbox.utils.timer import timeStamped
-from padertorch import modules, models
+from padertorch import modules
+from padertorch.contrib.examples.wavenet.wavenet import WaveNet
 from padertorch.contrib.je.data.transforms import AudioReader, STFT, \
-    MelTransform, Normalizer, fragment_parallel_signals, Collate
+    fragment_signal, Collate
 from padertorch.contrib.je.data.utils import split_dataset
 from padertorch.train.optimizer import Adam
 from padertorch.train.trainer import Trainer
 
 
-def get_datasets(storage_dir, max_length=1., batch_size=3):
+def get_datasets(max_length=1., batch_size=3):
     db = LibriSpeech()
     train_clean_100 = db.get_dataset('train_clean_100')
 
     train_set, validate_set = split_dataset(train_clean_100, fold=0)
     test_set = db.get_dataset('test_clean')
-    training_data = prepare_dataset(train_set, storage_dir, max_length=max_length, batch_size=batch_size, training=True)
-    validation_data = prepare_dataset(validate_set, storage_dir, max_length=max_length, batch_size=batch_size, training=False)
-    test_data = prepare_dataset(test_set, storage_dir, max_length=max_length, batch_size=batch_size, training=False)
+    training_data = prepare_dataset(train_set, max_length=max_length, batch_size=batch_size, training=True)
+    validation_data = prepare_dataset(validate_set, max_length=max_length, batch_size=batch_size, training=False)
+    test_data = prepare_dataset(test_set, max_length=max_length, batch_size=batch_size, training=False)
     return training_data, validation_data, test_data
 
 
-def prepare_dataset(dataset, storage_dir, max_length=1., batch_size=3, training=False):
+def prepare_dataset(dataset, max_length=1., batch_size=3, training=False):
     dataset = dataset.filter(lambda ex: ex['num_samples'] > 16000, lazy=False)
     stft_shift = 160
     window_length = 480
@@ -53,22 +54,9 @@ def prepare_dataset(dataset, storage_dir, max_length=1., batch_size=3, training=
         pad=True
     )
     dataset = dataset.map(stft)
-    mel_transform = MelTransform(
-        sample_rate=target_sample_rate, fft_length=512, n_mels=64, fmin=50
-    )
-    dataset = dataset.map(mel_transform)
-    normalizer = Normalizer(
-        key='mel_transform', center_axis=(1,), scale_axis=(1, 2),
-        storage_dir=storage_dir
-    )
-    normalizer.initialize_moments(
-        dataset.shuffle()[:10000].prefetch(num_workers=8, buffer_size=16),
-        verbose=True
-    )
-    dataset = dataset.map(normalizer)
 
     def fragment(example):
-        audio, features = example['audio_data'], example['mel_transform']
+        audio, features = example['audio_data'], example['stft']
         pad_width = window_length - stft_shift
         assert pad_width > 0, pad_width
         audio = np.pad(
@@ -76,20 +64,21 @@ def prepare_dataset(dataset, storage_dir, max_length=1., batch_size=3, training=
             mode='constant')
         fragment_step = int(max_length*target_sample_rate)
         fragment_length = fragment_step + 2*pad_width
-        mel_fragment_step = fragment_step / stft_shift
-        mel_fragment_length = stft.samples_to_frames(fragment_step)
+        stft_fragment_step = fragment_step / stft_shift
+        stft_fragment_length = stft.samples_to_frames(fragment_step)
         fragments = []
-        for audio, features in zip(*fragment_parallel_signals(
-            signals=[audio, features], axis=1,
-            step=[fragment_step, mel_fragment_step],
-            max_length=[fragment_length, mel_fragment_length],
-            min_length=[fragment_length, mel_fragment_length],
+        for audio, features in zip(*fragment_signal(
+            audio, features, axis=1,
+            step=[fragment_step, stft_fragment_step],
+            max_length=[fragment_length, stft_fragment_length],
+            min_length=[fragment_length, stft_fragment_length],
             random_start=training
         )):
             fragments.append({
                 'example_id': example['example_id'],
-                'audio_data': audio[..., pad_width:-pad_width].squeeze(0).astype(np.float32),
-                'features': np.moveaxis(features.squeeze(0), 0, 1).astype(np.float32)
+                'audio_data': audio[..., pad_width:-pad_width].astype(np.float32),
+                'stft': features.astype(np.float32),
+                'seq_len': features.shape[1],
             })
         return fragments
 
@@ -108,15 +97,14 @@ def get_model():
     wavenet = modules.wavenet.WaveNet(
         n_cond_channels=64, upsamp_window=400, upsamp_stride=160, fading='full'
     )
-    model = models.wavenet.WaveNet(
-        wavenet=wavenet, audio_key='audio_data', feature_key='features',
-        sample_rate=16000
+    model = WaveNet(
+        wavenet=wavenet, sample_rate=16000, fft_length=512, n_mels=64, fmin=50
     )
     return model
 
 
 def train(model, storage_dir):
-    train_set, validate_set, _ = get_datasets(storage_dir)
+    train_set, validate_set, _ = get_datasets()
 
     trainer = Trainer(
         model=model,

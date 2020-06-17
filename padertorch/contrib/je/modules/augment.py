@@ -2,14 +2,18 @@ import numpy as np
 import torch
 from scipy.stats import truncnorm, truncexpon
 from torch import nn
-from torch.distributions import Beta
 from torch.nn.functional import interpolate
-from padertorch.contrib.je.modules.features import hz2mel, mel2hz
+from paderbox.transform.module_fbank import hz2mel, mel2hz
 from einops import rearrange
 from padertorch.utils import to_list
+from typing import Tuple, List
+
+import torch.nn.functional as F
+from padertorch.contrib.je.modules.conv import Pad
+from einops import rearrange
 
 
-def linear_warping(f, n, alpha_sampling_fn, fhi_sampling_fn):
+def hz_warping(f, n, alpha_sampling_fn, fhi_sampling_fn):
     """
     >>> from functools import partial
     >>> np.random.seed(0)
@@ -31,18 +35,18 @@ def linear_warping(f, n, alpha_sampling_fn, fhi_sampling_fn):
     array([   0.        ,  180.21928115,  406.83711843,  691.7991039 ,
            1050.12629534, 1500.70701371, 2067.29249375, 2779.74887082,
            3675.63149949, 4802.16459006, 6218.73051459, 8000.        ])
-    >>> linear_warping(f, (), **kwargs)
+    >>> hz_warping(f, (), **kwargs)
     array([   0.        ,  183.45581459,  414.14345066,  704.2230295 ,
            1068.98537001, 1527.65800595, 2104.41871721, 2829.67000102,
            3741.64166342, 4888.40600786, 6305.18977698, 8000.        ])
-    >>> linear_warping(f, 2, **kwargs)
+    >>> hz_warping(f, 2, **kwargs)
     array([[   0.        ,  187.10057293,  422.37133266,  718.21398838,
             1090.22314517, 1558.00833455, 2146.22768187, 2885.88769767,
             3815.97770824, 4985.52508038, 6350.49184281, 8000.        ],
            [   0.        ,  183.19308056,  413.5503401 ,  703.21448495,
             1067.45443547, 1525.47018891, 2101.40489926, 2825.61752316,
             3736.28311632, 4881.40513599, 6293.32469307, 8000.        ]])
-    >>> linear_warping(f, [2, 3], **kwargs).shape
+    >>> hz_warping(f, [2, 3], **kwargs).shape
     (2, 3, 12)
     """
     fmin = f[0]
@@ -74,20 +78,20 @@ def linear_warping(f, n, alpha_sampling_fn, fhi_sampling_fn):
 
 def mel_warping(f, n, alpha_sampling_fn, fhi_sampling_fn):
     f = hz2mel(f)
-    f = linear_warping(f, n, alpha_sampling_fn, fhi_sampling_fn)
+    f = hz_warping(f, n, alpha_sampling_fn, fhi_sampling_fn)
     return mel2hz(f)
 
 
-class LinearWarping:
+class HzWarping:
     def __init__(self, alpha_sampling_fn, fhi_sampling_fn):
         self.alpha_sampling_fn = alpha_sampling_fn
         self.fhi_sampling_fn = fhi_sampling_fn
 
     def __call__(self, f, n):
-        return linear_warping(f, n, self.alpha_sampling_fn, self.fhi_sampling_fn)
+        return hz_warping(f, n, self.alpha_sampling_fn, self.fhi_sampling_fn)
 
 
-class MelWarping(LinearWarping):
+class MelWarping(HzWarping):
     def __call__(self, f, n):
         return mel_warping(f, n, self.alpha_sampling_fn, self.fhi_sampling_fn)
 
@@ -373,3 +377,162 @@ class Noise(nn.Module):
             scale = torch.rand(B) * self.max_scale
             x = x + scale[(...,) + (x.dim()-1)*(None,)] * torch.randn_like(x)
         return x
+
+
+class GaussianBlur2d(nn.Module):
+    r"""Copied (and slightly adapted) from
+    https://github.com/kornia/kornia/blob/master/kornia/filters
+
+    Creates an operator that blurs a tensor using a Gaussian filter.
+    The operator smooths the given tensor with a gaussian kernel by convolving
+    it to each channel. It suports batched operation.
+    Arguments:
+        kernel_size: the size of the kernel.
+        sigma_sampling_fn: the standard deviation of the kernel.
+        pad_mode (str): the padding mode to be applied before convolving.
+          The expected modes are: ``'constant'``, ``'reflect'``,
+          ``'replicate'`` or ``'circular'``. Default: ``'reflect'``.
+    Returns:
+        Tensor: the blurred tensor.
+    Shape:
+        - Input: :math:`(B, C, H, W)`
+        - Output: :math:`(B, C, H, W)`
+    Examples::
+        >>> x = torch.zeros(2, 1, 5, 5)
+        >>> x[:,:, 2, 2] = 1
+        >>> blur = GaussianBlur2d(3, lambda n: [1., 2.])
+        >>> output = blur(x)
+        >>> output.shape
+        torch.Size([2, 1, 5, 5])
+        >>> output
+        tensor([[[[0.0000, 0.0000, 0.0000, 0.0000, 0.0000],
+                  [0.0000, 0.0751, 0.1238, 0.0751, 0.0000],
+                  [0.0000, 0.1238, 0.2042, 0.1238, 0.0000],
+                  [0.0000, 0.0751, 0.1238, 0.0751, 0.0000],
+                  [0.0000, 0.0000, 0.0000, 0.0000, 0.0000]]],
+        <BLANKLINE>
+        <BLANKLINE>
+                [[[0.0000, 0.0000, 0.0000, 0.0000, 0.0000],
+                  [0.0000, 0.1019, 0.1154, 0.1019, 0.0000],
+                  [0.0000, 0.1154, 0.1308, 0.1154, 0.0000],
+                  [0.0000, 0.1019, 0.1154, 0.1019, 0.0000],
+                  [0.0000, 0.0000, 0.0000, 0.0000, 0.0000]]]])
+    """
+
+    def __init__(
+            self, kernel_size, sigma_sampling_fn, pad_mode: str = 'reflect'
+    ):
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.sigma_sampling_fn = sigma_sampling_fn
+        assert pad_mode in ["constant", "reflect", "replicate", "circular"]
+        self.pad_mode = pad_mode
+
+    def __repr__(self) -> str:
+        return self.__class__.__name__ +\
+            '(kernel_size=' + str(self.kernel_size) + ', ' +\
+            'sigma=' + str(self.sigma) + ', ' +\
+            'border_type=' + self.pad_mode + ')'
+
+    def forward(self, x):
+
+        if not x.dim() == 4:
+            raise ValueError(
+                f"Invalid input shape, we expect BxCxHxW. Got: {x.shape}")
+        if not self.training:
+            return x
+
+        # pad the input tensor
+        x = Pad(mode=self.pad_mode, side='both')(x, size=self.kernel_size-1)
+        b, c, hp, wp = x.shape
+        # convolve the tensor with the kernel. Pick the fastest alg
+        sigma = self.sigma_sampling_fn(b)
+        kernel = get_gaussian_kernel2d(self.kernel_size, sigma).unsqueeze(1)
+        return F.conv2d(
+            x.transpose(0, 1), kernel, groups=b, padding=0, stride=1
+        ).transpose(0, 1)
+
+
+def get_gaussian_kernel2d(kernel_size, sigma, force_even: bool = False):
+    r"""Copied (and slightly adapted) from
+    https://github.com/kornia/kornia/blob/master/kornia/filters
+
+    Function that returns Gaussian filter matrix coefficients.
+    Args:
+        kernel_size: filter sizes in the x and y direction.
+         Sizes should be odd and positive.
+        sigma: gaussian standard deviation in the x and y
+         direction.
+        force_even (bool): overrides requirement for odd kernel size.
+    Returns:
+        Tensor: 2D tensor with gaussian filter matrix coefficients.
+    Shape:
+        - Output: :math:`(\text{kernel_size}_x, \text{kernel_size}_y)`
+    Examples::
+        >>> get_gaussian_kernel2d(3, 1.5)
+        tensor([[0.0947, 0.1183, 0.0947],
+                [0.1183, 0.1478, 0.1183],
+                [0.0947, 0.1183, 0.0947]])
+        >>> get_gaussian_kernel2d(3, [1.5, .000001])
+        tensor([[0.0947, 0.1183, 0.0947],
+                [0.1183, 0.1478, 0.1183],
+                [0.0947, 0.1183, 0.0947]])
+    """
+    kernel_1d: torch.Tensor = get_gaussian_kernel1d(
+        kernel_size, sigma, force_even
+    )
+    kernel_2d: torch.Tensor = kernel_1d.unsqueeze(-1) @ kernel_1d.unsqueeze(-2)
+    return kernel_2d
+
+
+def get_gaussian_kernel1d(
+        kernel_size: int, sigma: float, force_even: bool = False
+) -> torch.Tensor:
+    r"""Copied (and slightly adapted) from
+    https://github.com/kornia/kornia/blob/master/kornia/filters
+
+    Function that returns Gaussian filter coefficients.
+    Args:
+        kernel_size (int): filter size. It should be odd and positive.
+        sigma (float): gaussian standard deviation.
+        force_even (bool): overrides requirement for odd kernel size.
+    Returns:
+        Tensor: 1D tensor with gaussian filter coefficients.
+    Shape:
+        - Output: :math:`(\text{kernel_size})`
+    Examples::
+        >>> get_gaussian_kernel1d(3, 2.5)
+        tensor([0.3243, 0.3513, 0.3243])
+        >>> get_gaussian_kernel1d(5, 1.5)
+        tensor([0.1201, 0.2339, 0.2921, 0.2339, 0.1201])
+    """
+    if (not isinstance(kernel_size, int) or (
+            (kernel_size % 2 == 0) and not force_even) or (
+            kernel_size <= 0)):
+        raise TypeError(
+            "kernel_size must be an odd positive integer. "
+            f"Got {kernel_size}"
+        )
+    window_1d: torch.Tensor = gaussian(kernel_size, sigma)
+    return window_1d
+
+
+def gaussian(window_size, sigma):
+    """Copied (and slightly adapted) from
+    https://github.com/kornia/kornia/blob/master/kornia/filters
+
+    Args:
+        window_size:
+        sigma:
+
+    Returns:
+
+    """
+    sigma = np.array(sigma)
+    x = torch.arange(window_size).float() - window_size // 2
+    if sigma.ndim > 0:
+        sigma = sigma[..., None]
+    if window_size % 2 == 0:
+        x = x + 0.5
+    gauss = torch.exp((-x.pow(2.0) / (2 * sigma ** 2))).float()
+    return gauss / gauss.sum(-1, keepdim=True)

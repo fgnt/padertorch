@@ -1,8 +1,57 @@
+import numpy as np
 import torch
 from torch import nn
 
 
 def compute_mask(x, seq_len, batch_axis=0, seq_axis=1):
+    """
+    >>> x, seq_len = 2*torch.ones((3,10,4)), [1, 2, 3]
+    >>> mask = compute_mask(x, seq_len=seq_len, batch_axis=0, seq_axis=2)
+    >>> mask
+    tensor([[[1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.],
+             [1., 0., 0., 0.]],
+    <BLANKLINE>
+            [[1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.],
+             [1., 1., 0., 0.]],
+    <BLANKLINE>
+            [[1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.],
+             [1., 1., 1., 0.]]])
+
+    Args:
+        x:
+        seq_len:
+        batch_axis:
+        seq_axis:
+
+    Returns:
+
+    """
+    if seq_len is None:
+        return torch.ones_like(x)
     if batch_axis < 0:
         batch_axis = x.dim() + batch_axis
     if seq_axis < 0:
@@ -17,16 +66,31 @@ def compute_mask(x, seq_len, batch_axis=0, seq_axis=1):
     return mask
 
 
-class Mean(nn.Module):
+class Sum(nn.Module):
     """
     >>> seq_axis = 1
     >>> x = torch.cumsum(torch.ones((3,7,4)), dim=seq_axis)
-    >>> x = Mean(axis=seq_axis)(x, seq_len=[4,5,6])
+    >>> x = Sum(axis=seq_axis)(x, seq_len=[4,5,6])
     """
     def __init__(self, axis=-1):
         self.axis = axis
         super().__init__()
 
+    def __call__(self, x, seq_len=None):
+        if seq_len is None:
+            x = x.sum(self.axis)
+        else:
+            mask = compute_mask(x, seq_len, 0, self.axis)
+            x = (x * mask).sum(dim=self.axis)
+        return x
+
+
+class Mean(Sum):
+    """
+    >>> seq_axis = 1
+    >>> x = torch.cumsum(torch.ones((3,7,4)), dim=seq_axis)
+    >>> x = Mean(axis=seq_axis)(x, seq_len=[4,5,6])
+    """
     def __call__(self, x, seq_len=None):
         if seq_len is None:
             x = x.mean(self.axis)
@@ -55,17 +119,27 @@ class Max(nn.Module):
 
 
 class TakeLast(nn.Module):
+    """
+    >>> x = torch.Tensor([[[1,2,3]],[[4,5,6]]])
+    >>> TakeLast()(x, [2, 3])
+    tensor([[2.],
+            [6.]])
+    """
     def __init__(self, axis=-1):
         self.axis = axis
         super().__init__()
 
     def __call__(self, x, seq_len=None):
-        if self.axis != -1:
-            raise NotImplementedError
+        axis = self.axis
+        if axis < 0:
+            axis = x.dim() + axis
+        if axis != 1:
+            assert axis > 1, axis
+            x = x.unsqueeze(1).transpose(1, axis+1).squeeze(axis + 1)
         if seq_len is None:
             x = x[:, -1]
         else:
-            x = x[torch.arange(x.shape[0]), seq_len - 1]
+            x = x[torch.arange(x.shape[0]), np.array(seq_len) - 1]
         return x
 
 
@@ -91,4 +165,3 @@ class AutoPool(nn.Module):
             x_ = x_ * mask + torch.log(mask)
         weights = nn.Softmax(dim=-1)(x_)
         return (weights*x).sum(dim=-1)
-
