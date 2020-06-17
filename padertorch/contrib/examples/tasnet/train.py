@@ -12,6 +12,8 @@ from paderbox.io import load_audio
 from sacred import Experiment
 import sacred.commands
 
+# sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False
+
 import os
 from pathlib import Path
 
