@@ -212,7 +212,7 @@ class SummaryHook(TriggeredHook):
         for key, buffer in popped_review.pop('buffers', dict()).items():
             self.summary['buffers'][key].extend(self._detach(buffer))
         for key, snapshot in popped_review.pop('snapshots', dict()).items():
-            self.summary['snapshots'][key] = snapshot  # snapshot
+            self.summary['snapshots'][key] = self._detach(snapshot)  # snapshot
         for key, audio in popped_review.pop('audios', dict()).items():
             self.summary['audios'][key] = audio  # snapshot
         for key, image in popped_review.pop('images', dict()).items():
