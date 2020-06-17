@@ -490,7 +490,17 @@ class ValidationHook(SummaryHook):
         for key, timing in self.compute_timings(trainer.validate_timer).items():
             self.summary['timings'][key] = timing
         self.maybe_add_lr_to_summary(trainer)
-        self.summary = trainer.model.modify_summary(self.summary)
+        try:
+            self.summary = trainer.model.modify_summary(self.summary)
+        except Exception as e:
+            log_path_pattern = trainer.log_error_state({
+                'summary': dict(self.summary),
+                'model': trainer.model,
+            })
+            raise RuntimeError(
+                'modify_summary failed. See above error msg and check the '
+                f'files {log_path_pattern}.'
+            ) from e
 
     def pre_step(self, trainer: 'pt.Trainer'):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
