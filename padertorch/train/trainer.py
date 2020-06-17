@@ -14,6 +14,7 @@ import collections
 import numpy as np
 import torch
 import torch.nn
+from torch.nn.parallel import gather, parallel_apply, replicate
 import tensorboardX
 import warnings
 
@@ -39,7 +40,7 @@ class Trainer(Configurable):
 
     def __init__(
             self,
-            model,
+            model: 'pt.Model',
             storage_dir,
             optimizer,
             loss_weights=None,
@@ -172,11 +173,11 @@ class Trainer(Configurable):
 
     def train(
             self,
-            train_iterator,
+            train_dataset,
             *,
             progress_bar=True,
             resume=False,
-            device=None
+            device=None,
     ):
         """
         A simplified training loop::
@@ -248,7 +249,16 @@ class Trainer(Configurable):
         # Change model to train mode (e.g. activate dropout)
         self.model.train()
 
-        self.to(device)
+        if isinstance(device, (tuple, list)) \
+                and all([isinstance(d, int) for d in device]):
+            # multiple devises e.g. [0, 1], [0, 1, 2, 3], ...
+            # torch.nn.parallel.DataParallel moves everything to the first gpu.
+            # We do then the same thing.
+            self.to(device[0])
+            device = list(device)
+        else:
+            self.to(device)
+            device = [device]
 
         # Reset all gradients
         self.optimizer_zero_grad()
@@ -257,7 +267,7 @@ class Trainer(Configurable):
         hooks = [*self.hooks]
         if progress_bar:
             try:
-                max_it_len = len(train_iterator)
+                max_it_len = len(train_dataset)
             except TypeError:
                 # TypeError: object of type '...' has no len()
                 max_it_len = None
@@ -266,48 +276,111 @@ class Trainer(Configurable):
 
         # ================ MAIN TRAINING LOOP! ===================
         try:
-            # Count epochs up to infinity if not any stop condition is met. A
-            # typical stop condition is a firing `StopTrainingHook`.
-            for self.epoch in itertools.count(start=self.epoch):
-                epoch_start = True
-                for hook in hooks:
-                    hook.pre_step(self)
+            train_iterable = None
+            while True:
+                new_epoch = False
+                if train_iterable is None:
+                    new_epoch = True
 
-                for self.iteration, example in self.train_timer(
-                    key='time_per_data_loading',
-                    iterable=enumerate(
-                        train_iterator,
-                        start=self.iteration,
-                    )
-                ):
-                    if epoch_start:
-                        epoch_start = False
-                    else:
+                    # Call pre_step between the epochs.
+                    # We call it here, so it is done, before the iteration
+                    # over the train_dataset starts.
+                    for hook in hooks:
+                        hook.pre_step(self)
+
+                    train_iterable = iter(train_dataset)
+
+                optimize = True
+                for minibatch_index in range(self.virtual_minibatch_size // len(device)):
+                    with self.train_timer['time_per_data_loading']:
+                        example = list(itertools.islice(train_iterable, len(device)))
+                        if len(example) == 0:
+                            train_iterable = None
+                            self.epoch += 1
+                            if minibatch_index == 0:
+                                optimize = False
+                            break  # end minibatch loop
+
+                    if new_epoch:
+                        new_epoch = False
+                    elif minibatch_index == 0:
+                        # Call pre_step after getting the next example,
+                        # to correctly detect the next epoch
                         for hook in hooks:
                             hook.pre_step(self)
-                    with self.train_timer['time_per_step']:
-                        model_output, review = self.train_step(
-                            example,
-                            optimize=(self.iteration+1) % self.virtual_minibatch_size == 0,
-                        )
 
+                    if len(device) == 1:
+                        with self.train_timer['time_per_step']:
+                            example, = example
+                            loss, example, model_output, review = \
+                                self.train_step(self.model, example, device[0])
+
+                        for hook in hooks:
+                            hook.post_step(self, example, model_output, review)
+
+                        # Release pytorch object to reduce memory footprint
+                        del example
+                        del model_output
+                        del review
+                            
+                        with self.train_timer['time_per_backward']:
+                            loss.backward(retain_graph=False)
+                        del loss
+
+                    else:
+                        with self.train_timer['time_per_step']:
+                            # The data parallel idea here follows the idea from
+                            # torch.nn.parallel.DataParallel.
+                            # We also use the same functions
+                            # (i.e. replicate, parallel_apply and gather).
+                            #
+                            # The difference is, that we need no scatter,
+                            # because we simply use multiple examples and
+                            # the gather must only be applied on the loss.
+
+                            # Move copies of the model to each GPU
+                            replicas = replicate(self.model, device[:len(example)])
+
+                            # Use threads to call train_step. Each thread
+                            # processes one example on one GPU.
+                            outputs = parallel_apply(
+                                [self.train_step] * len(example),
+                                list(zip(
+                                    replicas,
+                                    example,
+                                    device[:len(example)],
+                                )),
+                                [{}] * len(example)
+                            )
+                            del replicas
+
+                            # Take the sum of all losses. Since they are on
+                            # different GPUs, use gather.
+                            loss = gather(
+                                [loss.view(1) for loss, _, _, _ in outputs],
+                                device[0]).sum()
+
+
+                        for _, example, model_output, review in outputs:
+                            for hook in hooks:
+                                hook.post_step(self, example, model_output, review)
+                        # Release pytorch object to reduce memory footprint
+                        del example
+                        del model_output
+                        del review
+
+                        with self.train_timer['time_per_backward']:
+                            loss.backward(retain_graph=False)
+                        del loss
+        
+                # Only the summary hook will use optimizer_review
+                if optimize:
+                    optimizer_review = self.optimizer_step()
                     for hook in hooks:
-                        hook.post_step(self, example, model_output, review)
-
-                    # Release pytorch object to reduce memory footprint
-                    del example  # likely to be numpy
-                    del model_output
-                    del review
-
-                if self.iteration == 0 and epoch_start:
-                    # epoch_start is used to prevent raising an error,
-                    # when train_iterator has only one element
-                    raise Exception(
-                        f'Got an empty train iterator: {train_iterator}'
-                    )
-
-                # Fix for next loop
-                self.iteration += 1
+                        hook.post_step(self, None, None, optimizer_review)
+                    del optimizer_review
+    
+                    self.iteration += 1
 
         except StopTraining:
             pass
@@ -348,7 +421,7 @@ class Trainer(Configurable):
                     iterable=enumerate(validation_iterator)
                 ):
                     with self.validate_timer['time_per_step']:
-                        yield self.validation_step(example)
+                        yield self.validation_step(self.model, example, self.device)
                     del example
             finally:
                 self.model.train()
@@ -362,41 +435,54 @@ class Trainer(Configurable):
             self.optimizer.zero_grad()
 
     def optimizer_step(self):
+        summary = self.clip_grad({})
+
         if isinstance(self.optimizer, dict):
             for opti in self.optimizer.values():
                 opti.step()
         else:
             self.optimizer.step()
 
-    def train_step(self, example, optimize=True):
+        self.optimizer_zero_grad()
+        return summary
 
-        model_out, review = self.step(example, self.train_timer)
+    def train_step(self, model, example, device):
+        return self.step(model, example, self.train_timer, device)
 
-        with self.train_timer['time_per_backward']:
-            self.backward(review)
-            if optimize:
-                review = self.clip_grad(review)
-                self.optimizer_step()
-                self.optimizer_zero_grad()
+    def validation_step(self, model, example, device):
+        # [1:] -> ignore the loss. Is already in scalars.
+        return self.step(model, example, self.validate_timer, device)[1:]
 
-        return model_out, review
-
-    def validation_step(self, example):
-        return self.step(example, self.validate_timer)
-
-    def step(self, example, timer):
+    def step(self, model, example, timer, device):
         # TODO: Backup OutOfMemory
         with timer['time_per_to_device']:
             example = pt.data.example_to_device(
-                example, self.device
+                example, device
             )
         with timer['time_per_forward']:
-            model_out = self.model(example)
+            model_out = model(example)
         with timer['time_per_review']:
-            review = self.model.review(example, model_out)
-            return model_out, self._maybe_add_loss_to_review(review)
+            review = model.review(example, model_out)
+            loss, summary = self._review_to_loss_and_summary(review)
+            return loss, example, model_out, summary
 
-    def _maybe_add_loss_to_review(self, review):
+    def _review_to_loss_and_summary(self, review):
+        """
+
+        Splits the review to the loss and the summary.
+        The review contains a "loss" key or a "losses" key.
+        The loss key contains the loss itself, while the losses is a dictionary
+        and it is combined with the loss_weights,
+        i.e. sum(loss_weights[k] * losses[k] for k in losses)
+
+        The losses are added to the scalars to be logged.
+        The loss is always logged as loss in the scalars.
+
+        """
+
+        if 'scalars' not in review:
+            review['scalars'] = {}
+
         if 'losses' in review:
             assert 'loss' not in review, review
             losses = review['losses']
@@ -425,19 +511,58 @@ class Trainer(Configurable):
                 weight = loss_weights[key] if loss_weights is not None else 1.
                 if weight != 0:
                     loss = loss + (weight * value)
-                if 'scalars' not in review:
-                    review['scalars'] = {}
+                review['scalars'][key] = value.item()
                 review['scalars'][f'{key}_loss_weight'] = weight
-            review['loss'] = loss
+            del review['losses']
+            # review['loss'] = loss
         else:
             assert 'loss' in review, review
+            loss = review.pop('loss')
 
-        assert review['loss'].dim() == 0, review['loss']
-        assert torch.isfinite(review['loss']), review
-        return review
+        review['scalars']['loss'] = loss.item()
 
-    def backward(self, review, retain_graph=False):
-        review['loss'].backward(retain_graph=retain_graph)
+        assert loss.dim() == 0, loss
+
+        if not torch.isfinite(loss):
+            # Write each interesting object to an individual file, because
+            # not each object is serializable with `torch.save`.
+            log_path_pattern = self.log_error_state({
+                'model': self.model,
+                'example': None,
+                'model_out': None,
+                'review': review,
+            })
+            raise RuntimeError(
+                f"The loss ({review['loss']}) is not finite.\n"
+                f"See error states (model, example, model_out and review) in "
+                f"{log_path_pattern}."
+            )
+
+        return loss, review
+
+    def log_error_state(self, data_dict):
+        """
+
+        Args:
+            data_dict:
+
+        Returns:
+            log_path_pattern that describes the successfully written files.
+
+        """
+        written = []
+        for k, v in data_dict.items():
+            p = self.storage_dir / 'log' / f'error_state_{k}.pth'
+            p.parent.mkdir(exist_ok=True)
+            try:
+                # Not every object can be serialized.
+                torch.save(v, str(p))
+                written.append(k)
+            except Exception as e:
+                print(f'Cannot save {k}. {e}')
+
+        written = ','.join(written)
+        return str(self.storage_dir / 'log' / f'error_state_{{{written}}}.pth')
 
     def register_hook(self, hook):
         if isinstance(hook, (tuple, list)):
@@ -494,9 +619,26 @@ class Trainer(Configurable):
         summary.setdefault('scalars', {})
         summary.setdefault('histograms', {})
 
+        def check(grad_norm):
+            if not np.all(np.isfinite(pt.utils.to_numpy(grad_norm, detach=True))):
+                # Write each interesting object to an individual file, because
+                # not each object is serializable with `torch.save`.
+                log_path_pattern = self.log_error_state({
+                    'model': self.model,
+                    # 'example': example,
+                    # 'model_out': model_out,
+                    'review': summary,
+                })
+                raise RuntimeError(
+                    f"The grad_norm ({grad_norm}) is not finite.\n"
+                    f"See error states (model, example, model_out and review) in "
+                    f"{log_path_pattern}."
+                )
+
         if isinstance(self.optimizer, dict):
             for key, opti in self.optimizer.items():
                 grad_norm = opti.clip_grad()
+                check(grad_norm)
 
                 summary['scalars'][f'{key}_grad_norm'] = grad_norm
                 # underscore was necessary to obtain unique keys to prevent
@@ -505,6 +647,7 @@ class Trainer(Configurable):
                     f'{key}_grad_norm_'] = torch.Tensor([grad_norm])
         else:
             grad_norm = self.optimizer.clip_grad()
+            check(grad_norm)
             summary['scalars'][f'grad_norm'] = grad_norm
             summary['histograms'][f'grad_norm_'] = \
                 torch.Tensor([grad_norm])
@@ -604,7 +747,16 @@ class Trainer(Configurable):
             # Do nothing
             return
 
-        assert device == 'cpu' or isinstance(device, int), device
+        if device == 'cpu' or isinstance(device, int):
+            # single device: e.g. 'cpu', 0, 1, ...
+            pass
+        else:
+            raise ValueError(device)
+
+        device = torch.device(device)
+
+        print(f'Move trainer, model and optimizer to {device}.')
+        
         self.model.to(device)
         if isinstance(self.optimizer, dict):
             for key in self.optimizer.keys():
@@ -634,13 +786,13 @@ class MultiDeviceTrainer(Trainer):
           to the device.
     """
 
-    def _maybe_add_loss_to_review(self, review):
+    def _review_to_loss_and_summary(self, review):
         if 'losses' in review:
             review['losses'] = {
                 k: v.cpu()
                 for k, v in review['losses'].items()
             }
-        return super()._maybe_add_loss_to_review(review)
+        return super()._review_to_loss_and_summary(review)
 
     def to(self, device):
         pass
