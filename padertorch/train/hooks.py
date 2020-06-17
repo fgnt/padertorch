@@ -771,8 +771,11 @@ class ProgressBarHook(TriggeredHook):
             raise ValueError(f'unit {unit} is unknown,'
                              f' choose iteration or epoch')
         self.loss = None
-        self.pbar = tqdm(initial=1, total=max_iteration)
-
+        self.pbar = tqdm(initial=1, total=max_iteration, smoothing=1)
+        # smoothing:
+        #     Use "current/instantaneous speed", otherwise it is confusing when
+        #     you resume an experiment (start value is one and the first step
+        #     is to the value of the iteration counter).
 
     @property
     def priority(self):
