@@ -579,7 +579,10 @@ class ValidationHook(SummaryHook):
         best_ckpt_path.symlink_to(self.ckpt_ranking[0][0])
 
     def close(self, trainer: 'pt.Trainer'):
-        self.set_best_symlink(trainer.checkpoint_dir)
+        if trainer.checkpoint_dir.exists():
+            # When checkpoint_dir does not exist, your training failed, before
+            # the first validation started
+            self.set_best_symlink(trainer.checkpoint_dir)
         ckpt_name = trainer.default_checkpoint_path().name
         if ckpt_name not in [ckpt[0] for ckpt in self.ckpt_ranking]:
             # add to ranking to make sure it is deleted after resume
