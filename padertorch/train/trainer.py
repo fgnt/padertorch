@@ -528,8 +528,6 @@ class Trainer(Configurable):
             # not each object is serializable with `torch.save`.
             log_path_pattern = self.log_error_state({
                 'model': self.model,
-                'example': None,
-                'model_out': None,
                 'review': review,
             })
             raise RuntimeError(
@@ -625,8 +623,6 @@ class Trainer(Configurable):
                 # not each object is serializable with `torch.save`.
                 log_path_pattern = self.log_error_state({
                     'model': self.model,
-                    # 'example': example,
-                    # 'model_out': model_out,
                     'review': summary,
                 })
                 raise RuntimeError(
