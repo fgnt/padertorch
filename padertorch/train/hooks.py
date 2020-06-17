@@ -731,7 +731,10 @@ class LRSchedulerHook(TriggeredHook):
     # https://github.com/pytorch/pytorch/pull/20203
     PYTORCH_ge_1_1 = LooseVersion(torch.__version__) >= '1.1.0'
 
-    def __init__(self, lr_scheduler, trigger=(1, 'epoch')):
+    def __init__(
+            self,
+            lr_scheduler: torch.optim.lr_scheduler._LRScheduler,
+            trigger=(1, 'epoch')):
         super().__init__(trigger)
         self.lr_scheduler = lr_scheduler
 
