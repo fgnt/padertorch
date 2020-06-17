@@ -3,9 +3,13 @@ Example call on NT infrastructure:
 
 export STORAGE=<your desired storage root>
 mkdir -p $STORAGE/pth_models/dprnn
-python -m padertorch.contrib.neumann.dual_path_rnn.train print_config
-python -m padertorch.contrib.neumann.dual_path_rnn.train
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+python -m padertorch.contrib.examples.or_pit.train with database_jsons=${paths to your JSONs}
 """
+import copy
+
+import lazy_dataset
 import torch
 from paderbox.io import load_audio
 
@@ -16,18 +20,19 @@ import os
 from pathlib import Path
 
 from sacred.utils import InvalidConfigError, MissingConfigError
+from typing import List
 
 import padertorch as pt
 import paderbox as pb
 import numpy as np
 
 from sacred.observers.file_storage import FileStorageObserver
-from lazy_dataset.database import JsonDatabase
+from lazy_dataset.database import JsonDatabase, DictDatabase
 
 from padertorch.contrib.neumann.chunking import RandomChunkSingle
 from padertorch.contrib.ldrude.utils import get_new_folder
 
-nickname = "dprnn"
+nickname = "or-pit"
 ex = Experiment(nickname)
 
 
@@ -45,25 +50,25 @@ def config():
     batch_size = 4  # Runs on 4GB GPU mem. Can safely be set to 12 on 12 GB (e.g., GTX1080)
     chunk_size = 32000  # 4s chunks @8kHz
 
-    train_dataset = "mix_2_spk_min_tr"
-    validate_dataset = "mix_2_spk_min_cv"
+    train_datasets = ["mix_2_spk_min_tr", "mix_3_spk_min_tr"]
+    validate_datasets = ["mix_2_spk_min_cv", "mix_3_spk_min_cv"]
     target = 'speech_source'
     lr_scheduler_step = 2
     lr_scheduler_gamma = 0.98
     load_model_from = None
-    database_json = None
+    database_jsons = []
 
-    if database_json is None:
-        raise MissingConfigError(
-            'You have to set the path to the database JSON!', 'database_json')
-    if not Path(database_json).exists():
-        raise InvalidConfigError('The database JSON does not exist!',
-                                 'database_json')
+    # if not database_jsons:
+    #     raise MissingConfigError(
+    #         'You have to set the path to the database JSON!', 'database_jsons')
 
     # Start with an empty dict to allow tracking by Sacred
     trainer = {
         "model": {
-            "factory": 'padertorch.contrib.examples.tasnet.tasnet.TasNet',
+            "factory": 'padertorch.contrib.examples.or_pit.or_pit.OneAndRestPIT',
+            "separator": {
+                "factory": 'padertorch.contrib.examples.tasnet.tasnet.TasNet'
+            }
         },
         "storage_dir": None,
         "optimizer": {
@@ -73,8 +78,8 @@ def config():
         "summary_trigger": (1000, "iteration"),
         "stop_trigger": (100_000, "iteration"),
         "loss_weights": {
-            "si-sdr": 1.0,
-            "log-mse": 0.0,
+            "si-sdr": 0.0,
+            "log-mse": 1.0,
             "si-sdr-grad-stop": 0.0,
         }
     }
@@ -135,26 +140,37 @@ def pre_batch_transform(inputs):
         'num_samples': inputs['num_samples'],
         'example_id': inputs['example_id'],
         'audio_path': inputs['audio_path'],
+        'num_speakers': len(inputs['speaker_id']),
     }
 
 
 def prepare_iterable(
-        db, dataset: str, batch_size, chunk_size, prefetch=True,
-        iterator_slice=None
+        db, datasets: List[str], batch_size, chunk_size, prefetch=True,
+        iterator_slice=None, shuffle=True
 ):
     """
     This is re-used in the evaluate script
     """
-    iterator = db.get_dataset(dataset)
+    # Create an iterator from the datasets (a simple concatenation of the
+    # single datasets) and determine the number of speakers in each example
+    if isinstance(datasets, str):
+        datasets = datasets.split(',')
 
+    iterator = db.get_dataset(datasets).map(
+        lambda x: (x.update(num_speakers=len(x['speaker_id'])), x)[1])
+
+    # TODO: this does not make too much sense when we have multiple datasets
     if iterator_slice is not None:
         iterator = iterator[iterator_slice]
 
-    iterator = (
+    # This
+    iterators = list(iterator.groupby(lambda x: x['num_speakers']).values())
+
+    iterators = [
         iterator
         .map(pre_batch_transform)
         .map(RandomChunkSingle(chunk_size, chunk_keys=('y', 's'), axis=-1))
-        .shuffle(reshuffle=True)
+        .shuffle(reshuffle=shuffle)
         .batch(batch_size)
         .map(lambda batch: sorted(
             batch,
@@ -162,7 +178,10 @@ def prepare_iterable(
             reverse=True,
         ))
         .map(pt.data.utils.collate_fn)
-    )
+        for iterator in iterators
+    ]
+
+    iterator = lazy_dataset.concatenate(*iterators).shuffle(reshuffle=shuffle)
 
     if prefetch:
         iterator = iterator.prefetch(8, 16, catch_filter_exception=True)
@@ -211,6 +230,9 @@ def dump_config_and_makefile(_config):
             f"train:\n"
             f"\tpython -m {main_python_path} with config.json\n"
             f"\n"
+            f"finetune:\n"
+            f"\tpython -m {main_python_path} init_with_new_storage_dir with config.json trainer.model.finetune=True load_model_from=$(MODEL_PATH)/checkpoints/ckpt_latest.pth batch_size=1\n"
+            f"\n"
             f"ccsalloc:\n"
             f"\tccsalloc \\\n"
             f"\t\t--notifyuser=awe \\\n"
@@ -227,11 +249,11 @@ def dump_config_and_makefile(_config):
         )
 
 
-@ex.command(unobserved=True)
+@ex.command
 def init(_config, _run):
     """Create a storage dir, write Makefile. Do not start any training."""
     sacred.commands.print_config(_run)
-    dump_config_and_makefile()
+    dump_config_and_makefile(_config)
 
     print()
     print('Initialized storage dir. Now run these commands:')
@@ -244,10 +266,19 @@ def init(_config, _run):
     print('make ccsalloc')
 
 
+@ex.command
+def init_with_new_storage_dir(_config, _run):
+    # Create a mutable copy of the config and overwrite the storage dir
+    _config = copy.deepcopy(_config)
+    _config['trainer']['storage_dir'] = get_storage_dir()
+    _run.config = _config
+    init(_config)
+
+
 @ex.capture
-def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
+def prepare_and_train(_run, _log, trainer, train_datasets, validate_datasets,
                       lr_scheduler_step, lr_scheduler_gamma,
-                      load_model_from, database_json):
+                      load_model_from, database_jsons):
     trainer = pt.Trainer.from_config(trainer)
     checkpoint_path = trainer.checkpoint_dir / 'ckpt_latest.pth'
 
@@ -256,39 +287,35 @@ def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
         checkpoint = torch.load(load_model_from)
         trainer.model.load_state_dict(checkpoint['model'])
 
-    db = JsonDatabase(database_json)
+    if isinstance(database_jsons, str):
+        database_jsons = database_jsons.split(',')
+
+    db = DictDatabase(pb.utils.nested.nested_merge(
+        {}, *(pb.io.load(td) for td in database_jsons)
+    ))
 
     # Perform a test run to check if everything works
     trainer.test_run(
-        prepare_iterable_captured(db, train_dataset),
-        prepare_iterable_captured(db, validate_dataset),
+        prepare_iterable_captured(db, train_datasets),
+        prepare_iterable_captured(db, validate_datasets),
     )
 
     # Register hooks and start the actual training
+    trainer.register_validation_hook(
+        prepare_iterable_captured(db, validate_datasets)
+    )
 
     # Learning rate scheduler
-    if lr_scheduler_step:
-        trainer.register_hook(pt.train.hooks.LRSchedulerHook(
-            torch.optim.lr_scheduler.StepLR(
-                trainer.optimizer.optimizer,
-                step_size=lr_scheduler_step,
-                gamma=lr_scheduler_gamma,
-            )
-        ))
-
-        # Don't use LR back-off
-        trainer.register_validation_hook(
-            prepare_iterable_captured(db, validate_dataset),
+    trainer.register_hook(pt.train.hooks.LRSchedulerHook(
+        torch.optim.lr_scheduler.StepLR(
+            trainer.optimizer.optimizer,
+            step_size=lr_scheduler_step,
+            gamma=lr_scheduler_gamma,
         )
-    else:
-        # Use LR back-off
-        trainer.register_validation_hook(
-            prepare_iterable_captured(db, validate_dataset),
-            n_back_off=5, back_off_patience=3
-        )
+    ))
 
     trainer.train(
-        prepare_iterable_captured(db, train_dataset),
+        prepare_iterable_captured(db, train_datasets),
         resume=checkpoint_path.is_file()
     )
 
