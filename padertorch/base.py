@@ -14,6 +14,7 @@ from torch import nn
 
 from paderbox.utils.nested import deflatten
 from padertorch.configurable import Configurable
+from padertorch.data import example_to_device
 
 __all__ = [
     'Module',
@@ -269,3 +270,24 @@ class Model(Module, Configurable, abc.ABC):
             summary['snapshots']) == 0, "intermediate format snapshots has to be converted during modify summary"
 
         return summary
+
+    def example_to_device(self, example, device=None):
+        """
+        Transfers `example` to `device` as required by the model. By default,
+        the whole example is transferred to `device`, but subclasses can
+        override this method to only transfer the required parts of the
+        example.
+
+        An example for data that is not required on GPU during training are
+        time-domain target signals for an STFT-based model. These are not
+        required for loss computation, but are nice to have reported to
+        tensorboard.
+
+        Args:
+            example: The example to transfer to `device`
+            device: The device to transfer `example` to.
+
+        Returns:
+            The `example`, either fully or partially transferred to the device.
+        """
+        return example_to_device(example, device)
