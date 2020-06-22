@@ -20,6 +20,7 @@ from pathlib import Path
 from sacred.utils import InvalidConfigError, MissingConfigError
 
 import padertorch as pt
+import padertorch.contrib.examples.tasnet.tasnet
 import paderbox as pb
 import numpy as np
 
@@ -65,7 +66,7 @@ def config():
     # Start with an empty dict to allow tracking by Sacred
     trainer = {
         "model": {
-            "factory": 'padertorch.contrib.examples.tasnet.tasnet.TasNet',
+            "factory": pt.contrib.examples.tasnet.tasnet.TasNet,
         },
         "storage_dir": None,
         "optimizer": {
