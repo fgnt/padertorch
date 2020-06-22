@@ -2,7 +2,13 @@
 A basic example to demonstrate, how DataParallel can be used in padertorch.
 We recommend to use the build in support for data parallel, because it uses the
 virtual mini batch instead of the real mini batch to distribute the work on
-multiple GPUs.
+multiple GPUs. Since it uses the code from torch.nn.DataParallel we expect,
+that when torch.nn.DataParallel works for you, the build in should also work.
+
+We observed some difficulties with torch.nn.DataParallel
+  https://github.com/pytorch/pytorch/issues/33552 RNNs do not have gradients while using DataParallel in 1.4.0
+At the moment we do not know with pytorch versions work without problems.
+
 
 The code is inspired from the examples in
 https://pytorch.org/tutorials/beginner/blitz/data_parallel_tutorial.html
@@ -12,7 +18,7 @@ Use the following command:
 
     python train.py with storage_root=/path/to/dir
 
-to start the experiment an take a look at the
+to start the experiment and take a look at the
 
     forward shape: torch.Size([11, 28])
     forward shape: torch.Size([12, 28])
