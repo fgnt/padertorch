@@ -14,7 +14,7 @@ from padercontrib.database.iterator import AudioReader
 from padercontrib.database.keys import *
 from padertorch.contrib.jensheit import Parameterized, dict_func
 from padertorch.contrib.jensheit.batch import Padder
-from padertorch.modules.mask_estimator import MaskKeys as M_K
+from padertorch.contrib.jensheit.mask_estimator_example.modul import MaskKeys as M_K
 from pb_bss.extraction.mask_module import biased_binary_mask
 from scipy import signal
 
@@ -83,14 +83,13 @@ class SequenceProvider(Parameterized):
             padding_keys=None
         ))
         audio_keys: List = field(default_factory=lambda: [OBSERVATION])
+        segment_channels: bool = False
         shuffle: bool = True
         batch_size: int = 1
         batch_size_eval: int = 5
         num_workers: int = 4
         buffer_size: int = 20
 
-        multichannel: bool = True
-        num_channels: int = 6
         backend: str = 't'
         drop_last: bool = False
         time_segments: int = None
@@ -179,18 +178,18 @@ class SequenceProvider(Parameterized):
             exclude_keys = [exclude_keys]
         from copy import deepcopy
         out_list = list()
+        num_channels = example[0][OBSERVATION].shape[0]
         for ex in example:
             audio_keys = [key for key, value in ex.items()
                           if isinstance(value, np.ndarray)
                           if key not in exclude_keys]
-            for idx in range(self.opts.num_channels):
+            for idx in range(num_channels):
                 new_example = deepcopy(ex)
                 for key in audio_keys:
                     signal = new_example[key]
-                    if signal.shape[0] < self.opts.num_channels:
+                    if signal.shape[0] < num_channels:
                         signal = signal.swapaxes(0, 1)
-                    assert signal.shape[
-                               0] == self.opts.num_channels, signal.shape
+                    assert signal.shape[0] == num_channels, signal.shape
                     new_example[key] = signal[idx, None]
                 out_list.append(new_example)
         shuffle(out_list)
@@ -238,7 +237,8 @@ class SequenceProvider(Parameterized):
             iterator = iterator.map(
                 partial(self.segment, exclude_keys=exclude_keys))
             unbatch = True
-        if not self.opts.multichannel:
+
+        if self.opts.segment_channels:
             segment_channels = partial(self.segment_channels,
                                        exclude_keys=exclude_keys)
         else:
