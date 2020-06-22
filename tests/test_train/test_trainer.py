@@ -7,7 +7,7 @@ import collections
 import copy
 import itertools
 
-from IPython.lib.pretty import pprint
+from IPython.lib.pretty import pprint, pretty
 import pytest
 
 import numpy as np
@@ -205,16 +205,27 @@ def test_single_model():
                 events = list(load_events_as_dict(file))
 
                 tags = []
-                time_rel_data_loading = []
-                time_rel_train_step = []
+                # time_rel_data_loading = []
+                # time_rel_train_step = []
+                time_per_iteration = []
+
+                relative_timings = collections.defaultdict(list)
+                relative_timing_keys = {
+                    'training_timings/time_rel_data_loading',
+                    'training_timings/time_rel_to_device',
+                    'training_timings/time_rel_forward',
+                    'training_timings/time_rel_review',
+                    'training_timings/time_rel_backward',
+                    'training_timings/time_rel_optimize',
+                }
                 for event in events:
                     if 'summary' in event.keys():
                         value, = event['summary']['value']
                         tags.append(value['tag'])
-                        if value['tag'] == 'training_timings/time_rel_data_loading':
-                            time_rel_data_loading.append(value['simple_value'])
-                        elif value['tag'] == 'training_timings/time_rel_step':
-                            time_rel_train_step.append(value['simple_value'])
+                        if value['tag'] in relative_timing_keys:
+                            relative_timings[value['tag']].append(value['simple_value'])
+                        elif value['tag'] == 'training_timings/time_per_iteration':
+                            time_per_iteration.append(value['simple_value'])
 
                 c = dict(collections.Counter(tags))
                 # Training summary is written two times (at iteration 3 when
@@ -234,17 +245,16 @@ def test_single_model():
                     'training_timings/time_rel_forward': 2,
                     'training_timings/time_rel_review': 2,
                     'training_timings/time_rel_backward': 2,
+                    'training_timings/time_rel_optimize': 2,
                     'training_timings/time_rel_data_loading': 2,
-                    'training_timings/time_rel_step': 2,
+                    # 'training_timings/time_rel_step': 2,
                     'validation/loss': 3,
-                    'validation/lr/param_group_0': 3,
                     'validation_timings/time_per_iteration': 3,
                     'validation_timings/time_rel_to_device': 3,
                     'validation_timings/time_rel_forward': 3,
                     'validation_timings/time_rel_review': 3,
-                    'validation_timings/time_rel_backward': 3,
                     'validation_timings/time_rel_data_loading': 3,
-                    'validation_timings/time_rel_step': 3,
+                    # 'validation_timings/time_rel_step': 3,
                     # non validation time can only be measured between
                     # validations:
                     #  => # of non_val_time - 1 == # of val_time
@@ -261,15 +271,24 @@ def test_single_model():
                             [f'{k!r}: {v!r}'for k, v in sorted(c.items())],
                         )))
                     )
-                assert len(events) == 55, (len(events), events)
+                assert len(events) == 46, (len(events), events)
 
-                assert len(time_rel_data_loading) > 0, (time_rel_data_loading, time_rel_train_step)
-                assert len(time_rel_train_step) > 0, (time_rel_data_loading, time_rel_train_step)
-                np.testing.assert_allclose(
-                    np.add(time_rel_data_loading, time_rel_train_step),
-                    1,
-                    err_msg=f'{time_rel_data_loading}, {time_rel_train_step})'
-                )
+                assert relative_timing_keys == set(relative_timings.keys()), (relative_timing_keys, relative_timings)
+
+                for k, v in relative_timings.items():
+                    assert len(v) > 0, (k, v, relative_timings)
+
+                # The relative timings should sum up to one,
+                # but this model is really cheap.
+                # e.g. 0.00108 and 0.000604 per iteration.
+                # This may cause the mismatch.
+                # Allow a calculation error of 15%.
+                # ToDo: Get this work with less than 1% error.
+                relative_times = np.array(list(relative_timings.values())).sum(axis=0)
+                if not np.all(relative_times > 0.85):
+                    raise AssertionError(pretty((relative_times, time_per_iteration, dict(relative_timings))))
+                if not np.all(relative_times <= 1):
+                    raise AssertionError(pretty((relative_times, time_per_iteration, dict(relative_timings))))
 
             elif file.name == 'checkpoints':
                 checkpoints_files = tuple(file.glob('*'))
@@ -395,7 +414,7 @@ def test_single_model():
                         tags.append(value['tag'])
 
                 c = dict(collections.Counter(tags))
-                assert len(events) == 44, (len(events), events)
+                assert len(events) == 38, (len(events), events)
                 expect = {
                     'training/grad_norm': 2,
                     'training/grad_norm_': 2,
@@ -406,24 +425,32 @@ def test_single_model():
                     'training_timings/time_rel_forward': 2,
                     'training_timings/time_rel_review': 2,
                     'training_timings/time_rel_backward': 2,
+                    'training_timings/time_rel_optimize': 2,
                     'training_timings/time_rel_data_loading': 2,
-                    'training_timings/time_rel_step': 2,
+                    # 'training_timings/time_rel_step': 2,
                     'validation/loss': 2,
-                    'validation/lr/param_group_0': 2,
+                    # 'validation/lr/param_group_0': 2,
                     'validation_timings/time_per_iteration': 2,
                     'validation_timings/time_rel_to_device': 2,
                     'validation_timings/time_rel_forward': 2,
                     'validation_timings/time_rel_review': 2,
-                    'validation_timings/time_rel_backward': 2,
                     'validation_timings/time_rel_data_loading': 2,
-                    'validation_timings/time_rel_step': 2,
+                    # 'validation_timings/time_rel_step': 2,
                     # non validation time can only be measured between
                     # validations:
                     #  => # of non_val_time - 1 == # of val_time
                     'validation_timings/non_validation_time': 1,
                     'validation_timings/validation_time': 2,
                 }
-                assert c == expect, c
+                if c != expect:
+                    import difflib
+
+                    raise AssertionError(
+                        '\n' + ('\n'.join(difflib.ndiff(
+                            [f'{k!r}: {v!r}'for k, v in sorted(expect.items())],
+                            [f'{k!r}: {v!r}'for k, v in sorted(c.items())],
+                        )))
+                    )
             elif file.name == 'checkpoints':
                 checkpoints_files = tuple(file.glob('*'))
                 assert len(checkpoints_files) == 7, checkpoints_files
