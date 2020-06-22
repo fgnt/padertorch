@@ -11,6 +11,7 @@ __all__ = [
 
 ACTIVATION_FN_MAP = Dispatcher(
     relu=torch.nn.ReLU,
+    prelu=torch.nn.PReLU,
     leaky_relu=torch.nn.LeakyReLU,
     elu=torch.nn.ELU,
     tanh=torch.nn.Tanh,

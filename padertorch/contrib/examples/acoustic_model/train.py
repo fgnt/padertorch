@@ -31,6 +31,9 @@ from padertorch.contrib.examples.acoustic_model.model import AcousticExperiment
 ex = sacred.Experiment('AM')
 
 
+# pylint: disable=no-value-for-parameter,unused-variable
+
+
 def get_basedir():
     if 'STORAGE_ROOT' not in os.environ:
         raise EnvironmentError(
@@ -75,7 +78,7 @@ def config():
 
     if trainer['storage_dir'] is None:
         trainer['storage_dir'] = get_new_folder(get_basedir(), mkdir=False)
-    
+
     ex.observers.append(sacred.observers.FileStorageObserver.create(
         Path(trainer['storage_dir']) / 'sacred'
     ))

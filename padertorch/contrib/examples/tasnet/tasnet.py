@@ -56,12 +56,6 @@ class TasNet(pt.Model):
         super().__init__()
 
         self.mask = mask
-
-        assert additional_out_size == 0 or self.conv and self.split_in_conv, (
-            'Additional out size can only be provided if convolutions before '
-            'and after the DPRNN are enabled and if speaker signals are '
-            'split in the convolutional output layer (split_in_conv).'
-        )
         self.additional_out_size = additional_out_size
 
         self.input_proj = torch.nn.Conv1d(hidden_size, hidden_size, 1)
@@ -134,7 +128,7 @@ class TasNet(pt.Model):
         if self.additional_out_size > 0:
             processed, additional_out = (
                 processed[..., self.additional_out_size:, :],
-                processed[..., :self.additional_out_size, :][0]
+                processed[..., :self.additional_out_size, :]
             )
 
         # Shape KxBxNxL
@@ -197,8 +191,8 @@ class TasNet(pt.Model):
             for k, loss_fn in loss_functions.items():
                 losses[k].append(
                     pt.ops.losses.pit_loss(
-                        estimated[:seq_len],
-                        target[:seq_len],
+                        estimated[..., :seq_len],
+                        target[..., :seq_len],
                         axis=0, loss_fn=loss_fn,
                     )
                 )

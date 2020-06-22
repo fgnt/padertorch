@@ -115,19 +115,20 @@ def change_example_structure(example):
     return net_input
 
 
-def get_train_iterator(database: JsonAudioDatabase):
+def get_train_ds(database: JsonAudioDatabase):
     # AudioReader is a specialized function to read audio organized
     # in a json as described in pb.database.database
     audio_reader = AudioReader(audio_keys=[
         K.OBSERVATION, K.NOISE_IMAGE, K.SPEECH_IMAGE
     ])
-    train_iterator = database.get_dataset_train()
-    return train_iterator.map(audio_reader)\
-        .map(change_example_structure)\
-        .prefetch(num_workers=4, buffer_size=4)
+    train_ds = database.get_dataset_train()
+    return (train_ds
+            .map(audio_reader)
+            .map(change_example_structure)
+            .prefetch(num_workers=4, buffer_size=4))
 
 
-def get_validation_iterator(database: JsonAudioDatabase):
+def get_validation_ds(database: JsonAudioDatabase):
     # AudioReader is a specialized function to read audio organized
     # in a json as described in pb.database.database
     audio_reader = AudioReader(audio_keys=[
@@ -143,14 +144,14 @@ def train():
     model = SimpleMaskEstimator(513)
     print(f'Simple training for the following model: {model}')
     database = Chime3()
-    train_iterator = get_train_iterator(database)
-    validation_iterator = get_validation_iterator(database)
+    train_ds = get_train_ds(database)
+    validation_ds = get_validation_ds(database)
     trainer = pt.Trainer(model, STORAGE_ROOT / 'simple_mask_estimator',
                          optimizer=pt.train.optimizer.Adam(),
                          stop_trigger=(int(1e5), 'iteration'))
-    trainer.test_run(train_iterator, validation_iterator)
-    trainer.register_validation_hook(validation_iterator)
-    trainer.train(train_iterator)
+    trainer.test_run(train_ds, validation_ds)
+    trainer.register_validation_hook(validation_ds)
+    trainer.train(train_ds)
 
 
 if __name__ == '__main__':
