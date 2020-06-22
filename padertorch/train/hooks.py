@@ -252,43 +252,22 @@ class SummaryHook(TriggeredHook):
         #       called between dataloading and train step. So the loading can
         #       be part of the previous summary, while the train step is in the
         #       next summary.
-        time_per_data_loading = timer_dict.pop('time_per_data_loading', [0])
-        time_per_step = timer_dict.pop('time_per_step', [0])
-        time_per_to_device = timer_dict.pop('time_per_to_device', [0])
-        time_per_forward = timer_dict.pop('time_per_forward', [0])
-        time_per_review = timer_dict.pop('time_per_review', [0])
-        time_per_backward = timer_dict.pop('time_per_backward', [0])
 
         summary_timings = {}
-        time_per_iteration = (
-                np.mean(time_per_data_loading) + np.mean(time_per_step)
-        )
-        if time_per_iteration > 0:
-            summary_timings['time_per_iteration'] = time_per_iteration
 
-            sum_time_per_step = np.sum(time_per_step)
-            sum_time_per_data_loading = np.sum(time_per_data_loading)
-            sum_time_per_train_step_to_device = np.sum(time_per_to_device)
-            sum_time_per_train_step_forward = np.sum(time_per_forward)
-            sum_time_per_train_step_review = np.sum(time_per_review)
-            sum_time_per_backward = np.sum(time_per_backward)
+        sum_time_per_iteration = np.sum(timer_dict.get('time_per_iteration', [0]))
+        if sum_time_per_iteration > 0:
+            for k in [
+                    'time_per_to_device',
+                    'time_per_forward',
+                    'time_per_review',
+                    'time_per_backward',
+                    'time_per_optimize',
+            ]:
+                if k in timer_dict:
+                    summary_timings['time_rel_data_loading'] = \
+                        np.sum(timer_dict.pop(k)) / sum_time_per_iteration
 
-            sum_time_per_iteration = (
-                    sum_time_per_data_loading + sum_time_per_step
-            )
-            summary_timings['time_rel_data_loading'] = \
-                sum_time_per_data_loading / sum_time_per_iteration
-            summary_timings['time_rel_step'] = \
-                sum_time_per_step / sum_time_per_iteration
-            if sum_time_per_step > 0:
-                summary_timings['time_rel_to_device'] = \
-                    sum_time_per_train_step_to_device / sum_time_per_step
-                summary_timings['time_rel_forward'] = \
-                    sum_time_per_train_step_forward / sum_time_per_step
-                summary_timings['time_rel_review'] = \
-                    sum_time_per_train_step_review / sum_time_per_step
-                summary_timings['time_rel_backward'] = \
-                    sum_time_per_backward / sum_time_per_step
         summary_timings.update({
             key: timing.mean() for key, timing in timer_dict.items()
         })

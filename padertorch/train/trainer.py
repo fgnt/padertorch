@@ -306,44 +306,45 @@ class Trainer(Configurable):
                     train_iterable = iter(train_dataset)
 
                 optimize = True
-                for minibatch_index in range(self.virtual_minibatch_size // len(device)):
-                    with self.train_timer['time_per_data_loading']:
-                        example = list(itertools.islice(train_iterable, len(device)))
-                        if len(example) == 0:
-                            train_iterable = None
-                            self.epoch += 1
-                            if minibatch_index == 0:
-                                optimize = False
-                            break  # end minibatch loop
+                with self.train_timer['time_per_iteration'] as timer:
+                    for minibatch_index in range(self.virtual_minibatch_size // len(device)):
+                        with self.train_timer['time_per_data_loading']:
+                            example = list(itertools.islice(train_iterable, len(device)))
+                            if len(example) == 0:
+                                train_iterable = None
+                                self.epoch += 1
+                                if minibatch_index == 0:
+                                    optimize = False
+                                break  # end minibatch loop
 
-                    if new_epoch:
-                        new_epoch = False
-                    elif minibatch_index == 0:
-                        # Call pre_step after getting the next example,
-                        # to correctly detect the next epoch
-                        for hook in hooks:
-                            hook.pre_step(self)
+                        if new_epoch:
+                            new_epoch = False
+                        elif minibatch_index == 0:
+                            # Call pre_step after getting the next example,
+                            # to correctly detect the next epoch
+                            with timer.pause():
+                                for hook in hooks:
+                                    hook.pre_step(self)
 
-                    if len(device) == 1:
-                        with self.train_timer['time_per_step']:
+                        if len(device) == 1:
                             example, = example
                             loss, example, model_output, review = \
                                 self.train_step(self.model, example, device[0])
 
-                        for hook in hooks:
-                            hook.post_step(self, example, model_output, review)
+                            with timer.pause():
+                                for hook in hooks:
+                                    hook.post_step(self, example, model_output, review)
 
-                        # Release pytorch object to reduce memory footprint
-                        del example
-                        del model_output
-                        del review
-                            
-                        with self.train_timer['time_per_backward']:
-                            loss.backward(retain_graph=False)
-                        del loss
+                            # Release pytorch object to reduce memory footprint
+                            del example
+                            del model_output
+                            del review
 
-                    else:
-                        with self.train_timer['time_per_step']:
+                            with self.train_timer['time_per_backward']:
+                                loss.backward(retain_graph=False)
+                            del loss
+
+                        else:
                             # The data parallel idea here follows the idea from
                             # torch.nn.parallel.DataParallel.
                             # We also use the same functions
@@ -365,7 +366,6 @@ class Trainer(Configurable):
                                     example,
                                     device[:len(example)],
                                 )),
-                                [{}] * len(example)
                             )
                             del replicas
 
@@ -375,27 +375,29 @@ class Trainer(Configurable):
                                 [loss.view(1) for loss, _, _, _ in outputs],
                                 device[0]).sum()
 
+                            with timer.pause():
+                                for _, example, model_output, review in outputs:
+                                    for hook in hooks:
+                                        hook.post_step(self, example, model_output, review)
 
-                        for _, example, model_output, review in outputs:
+                            # Release pytorch object to reduce memory footprint
+                            del example
+                            del model_output
+                            del review
+
+                            with self.train_timer['time_per_backward']:
+                                loss.backward(retain_graph=False)
+                            del loss
+
+                    # Only the summary hook will use optimizer_review
+                    if optimize:
+                        with self.train_timer['time_per_optimize']:
+                            optimizer_review = self.optimizer_step()
                             for hook in hooks:
-                                hook.post_step(self, example, model_output, review)
-                        # Release pytorch object to reduce memory footprint
-                        del example
-                        del model_output
-                        del review
+                                hook.post_step(self, None, None, optimizer_review)
+                            del optimizer_review
 
-                        with self.train_timer['time_per_backward']:
-                            loss.backward(retain_graph=False)
-                        del loss
-        
-                # Only the summary hook will use optimizer_review
-                if optimize:
-                    optimizer_review = self.optimizer_step()
-                    for hook in hooks:
-                        hook.post_step(self, None, None, optimizer_review)
-                    del optimizer_review
-    
-                    self.iteration += 1
+                        self.iteration += 1
 
         except StopTraining:
             pass
@@ -431,13 +433,19 @@ class Trainer(Configurable):
             # Change model to eval mode (e.g. deactivate dropout).
             self.model.eval()
             try:
-                for i, example in self.validate_timer(
-                    key='time_per_data_loading',
-                    iterable=enumerate(validation_iterator)
-                ):
-                    with self.validate_timer['time_per_step']:
-                        yield self.validation_step(self.model, example, self.device)
-                    del example
+                validation_iter = iter(validation_iterator)
+                while True:
+                    with self.validate_timer['time_per_iteration']:
+                        try:
+                            with self.validate_timer['time_per_data_loading']:
+                                example = next(validation_iter)
+                        except StopIteration:
+                            break
+                        step_output = self.validation_step(
+                            self.model, example, self.device)
+                    yield step_output
+                    del example, step_output
+
             finally:
                 self.model.train()
                 self._non_validation_start_time = self.validate_timer.timestamp()
@@ -470,6 +478,7 @@ class Trainer(Configurable):
 
     def step(self, model, example, timer, device):
         # TODO: Backup OutOfMemory
+        # with self.train_timer['time_per_step']:
         with timer['time_per_to_device']:
             example = pt.data.example_to_device(
                 example, device
@@ -688,10 +697,11 @@ class Trainer(Configurable):
                 hooks=dict(),
         )
         for hook in self.hooks:
-            hook_state = hook.state_dict()
-            if hook_state is not None:
-                assert hook.uid not in state_dict['hooks'], (hook.uid, state_dict['hooks'].keys())
-                state_dict['hooks'][hook.uid] = hook_state
+            if hook is not self.model:
+                hook_state = hook.state_dict()
+                if hook_state is not None:
+                    assert hook.uid not in state_dict['hooks'], (hook.uid, state_dict['hooks'].keys())
+                    state_dict['hooks'][hook.uid] = hook_state
         return state_dict
 
     def save_checkpoint(self, checkpoint_path=None):
@@ -838,6 +848,16 @@ class ContextTimerDict:
     test: ['0.10', '0.10']
     test_2: ['0.10']
     test_3: ['0.00', '0.00', '0.00']
+
+
+    >>> timer = ContextTimerDict()
+    >>> with timer['test'] as t:
+    ...     time.sleep(0.1)
+    ...     with t.exclude():
+    ...         time.sleep(0.1)
+    ...     time.sleep(0.1)
+    >>> timer
+    ContextTimerDict: {'test': array([0.2])}
 """
     def __init__(self):
         self.timestamp = time.perf_counter  # time.process_time
@@ -847,13 +867,27 @@ class ContextTimerDict:
     def clear(self):
         self.timings.clear()
 
+    class Excluder:
+        def __init__(self, timestamp):
+            self.duration = []
+            self.timestamp = timestamp
+
+        @contextlib.contextmanager
+        def pause(self):
+            start = self.timestamp()
+            yield
+            end = self.timestamp()
+            self.duration.append(end -start)
+
+
     @contextlib.contextmanager
     def __getitem__(self, item):
         assert isinstance(item, str), item
         start = self.timestamp()
-        yield
+        excluder = self.Excluder(self.timestamp)
+        yield excluder
         end = self.timestamp()
-        self.timings[item].append(end - start)
+        self.timings[item].append(end - start - sum(excluder.duration))
 
     @property
     def as_dict(self):
