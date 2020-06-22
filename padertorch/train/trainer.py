@@ -355,25 +355,28 @@ class Trainer(Configurable):
                             # the gather must only be applied on the loss.
 
                             # Move copies of the model to each GPU
-                            replicas = replicate(self.model, device[:len(example)])
+                            with self.train_timer['time_per_replicate']:
+                                replicas = replicate(self.model, device[:len(example)])
 
                             # Use threads to call train_step. Each thread
                             # processes one example on one GPU.
-                            outputs = parallel_apply(
-                                [self.train_step] * len(example),
-                                list(zip(
-                                    replicas,
-                                    example,
-                                    device[:len(example)],
-                                )),
-                            )
+                            with self.train_timer['time_per_parallel_apply']:
+                                outputs = parallel_apply(
+                                    [self.train_step] * len(example),
+                                    list(zip(
+                                        replicas,
+                                        example,
+                                        device[:len(example)],
+                                    )),
+                                )
                             del replicas
 
                             # Take the sum of all losses. Since they are on
                             # different GPUs, use gather.
-                            loss = gather(
-                                [loss.view(1) for loss, _, _, _ in outputs],
-                                device[0]).sum()
+                            with self.train_timer['time_per_gather']:
+                                loss = gather(
+                                    [loss.view(1) for loss, _, _, _ in outputs],
+                                    device[0]).sum()
 
                             with timer.pause():
                                 for _, example, model_output, review in outputs:

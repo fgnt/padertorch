@@ -258,14 +258,18 @@ class SummaryHook(TriggeredHook):
         sum_time_per_iteration = np.sum(timer_dict.get('time_per_iteration', [0]))
         if sum_time_per_iteration > 0:
             for k in [
+                    'time_per_data_loading',
                     'time_per_to_device',
                     'time_per_forward',
                     'time_per_review',
                     'time_per_backward',
                     'time_per_optimize',
+                    'time_per_replicate',
+                    'time_per_parallel_apply',
+                    'time_per_gather',
             ]:
                 if k in timer_dict:
-                    summary_timings['time_rel_data_loading'] = \
+                    summary_timings[k.replace('_per_', '_rel_')] = \
                         np.sum(timer_dict.pop(k)) / sum_time_per_iteration
 
         summary_timings.update({
