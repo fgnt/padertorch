@@ -294,6 +294,9 @@ class Trainer(Configurable):
                 )
             )
 
+        assert self.virtual_minibatch_size % len(device) == 0, (self.virtual_minibatch_size, device)
+        assert len(device) > 0, (self.virtual_minibatch_size, device)
+
         # ================ MAIN TRAINING LOOP! ===================
         try:
             train_iterable = None
