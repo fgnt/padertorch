@@ -274,24 +274,11 @@ class SummaryHook(TriggeredHook):
         timer.clear()
         return summary_timings
 
-    def maybe_add_lr_to_summary(self, trainer):
-        if 'loss' not in self.summary['scalars']:
-            return self.summary
-        if isinstance(trainer.optimizer, dict):
-            for key, optim in trainer.optimizer.items():
-                for i, param_group in enumerate(optim.optimizer.param_groups):
-                    self.summary['scalars'][f'lr/{key}/param_group_{i}'] = param_group['lr']
-        else:
-            for i, param_group in enumerate(trainer.optimizer.optimizer.param_groups):
-                self.summary['scalars'][f'lr/param_group_{i}'] = param_group['lr']
-        return self.summary
-
     def finalize_summary(self, trainer):
         assert len(self.summary['timings']) == 0, self.summary['timings']
 
         for key, timing in self.compute_timings(trainer.train_timer).items():
             self.summary['timings'][key] = timing
-        self.maybe_add_lr_to_summary(trainer)
         self.summary = trainer.model.modify_summary(self.summary)
         # Assert the intermediate types were converted in he modify summary
         assert len(self.summary['buffers']) == 0, "intermediate format buffers has to be converted during modify_summary"
@@ -466,7 +453,6 @@ class ValidationHook(SummaryHook):
         assert len(self.summary['timings']) == 0, self.summary['timings']
         for key, timing in self.compute_timings(trainer.validate_timer).items():
             self.summary['timings'][key] = timing
-        self.maybe_add_lr_to_summary(trainer)
         try:
             self.summary = trainer.model.modify_summary(self.summary)
         except Exception as e:

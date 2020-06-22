@@ -460,6 +460,16 @@ class Trainer(Configurable):
     def optimizer_step(self):
         summary = self.clip_grad({})
 
+        # Add learning rate to the summary
+        if isinstance(self.optimizer, dict):
+            for key, optim in self.optimizer.items():
+                for i, param_group in enumerate(optim.optimizer.param_groups):
+                    summary['scalars'][f'lr/{key}/param_group_{i}'] = param_group['lr']
+        else:
+            for i, param_group in enumerate(self.optimizer.optimizer.param_groups):
+                summary['scalars'][f'lr/param_group_{i}'] = param_group['lr']
+
+        # Do the actual optimization
         if isinstance(self.optimizer, dict):
             for opti in self.optimizer.values():
                 opti.step()
