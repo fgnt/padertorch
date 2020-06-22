@@ -177,12 +177,17 @@ def prepare_iterable(
 
 @ex.capture
 def prepare_iterable_captured(
-        database_obj, dataset, batch_size, debug, chunk_size
+        database_obj, dataset, batch_size, debug, chunk_size,
+        iterator_slice=None,
 ):
+    if iterator_slice is None:
+        if debug:
+            iterator_slice = slice(0, 100, 1)
+
     return prepare_iterable(
         database_obj, dataset, batch_size, chunk_size,
         prefetch=not debug,
-        iterator_slice=slice(0, 100, 1) if debug else None
+        iterator_slice=iterator_slice,
     )
 
 
