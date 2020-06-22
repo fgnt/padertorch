@@ -275,18 +275,23 @@ class Trainer(Configurable):
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
 
         if len(device) >= 2:
+            import textwrap
             print(
                 'WARNING: You called padertorch.Trainer.train with multiple\n'
-                'devices. With this the trainer will use data parallel to\n'
-                'utilize the multiple GPUs to speedup your training.\n'
-                'We observed some problems with some versions of pytorch.\n'
-                'In 1.4 the performance on a NN was quite bad and accoring to\n'
-                'https://github.com/pytorch/pytorch/issues/33552\n'
-                'this was because the RNNs get no gradients.\n'
-                'In 1.5 the training got stuck, the reason is unclear in the'
-                'moment.\n'
-                'With Pytorch <= 1.3 we have not tested the code.\n'
-                f'Your pytorch version is: {torch.__version__}'
+                +
+                textwrap.indent(
+                    'devices. With this the trainer will use data parallel to\n'
+                    'utilize the multiple GPUs to speedup your training.\n'
+                    'We observed some problems with some versions of pytorch.\n'
+                    'In 1.4 the performance on a NN was quite bad and accoring to\n'
+                    'https://github.com/pytorch/pytorch/issues/33552\n'
+                    'this was because the RNNs get no gradients.\n'
+                    'In 1.5 the training got stuck, the reason is unclear in the'
+                    'moment.\n'
+                    'With Pytorch <= 1.3 we have not tested the code.\n'
+                    f'Your pytorch version is: {torch.__version__}',
+                    ' ' * len('WARNING: ')
+                )
             )
 
         # ================ MAIN TRAINING LOOP! ===================
