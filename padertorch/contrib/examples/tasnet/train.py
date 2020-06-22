@@ -3,8 +3,8 @@ Example call on NT infrastructure:
 
 export STORAGE=<your desired storage root>
 mkdir -p $STORAGE/pth_models/dprnn
-python -m padertorch.contrib.neumann.dual_path_rnn.train print_config
-python -m padertorch.contrib.neumann.dual_path_rnn.train
+python -m padertorch.contrib.examples.tasnet.train print_config
+python -m padertorch.contrib.examples.tasnet.train
 """
 import torch
 from paderbox.io import load_audio
