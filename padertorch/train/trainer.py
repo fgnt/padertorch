@@ -866,7 +866,7 @@ class ContextTimerDict:
     >>> timer = ContextTimerDict()
     >>> with timer['test'] as t:
     ...     time.sleep(0.1)
-    ...     with t.exclude():
+    ...     with t.pause():
     ...         time.sleep(0.1)
     ...     time.sleep(0.1)
     >>> timer
