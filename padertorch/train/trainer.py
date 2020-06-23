@@ -336,12 +336,14 @@ class Trainer(Configurable):
 
                         if len(device) == 1:
                             assert len(example) == 1, (len(example), example)
+                            example = example[0]
+
                             loss, example, model_output, review = \
-                                self.train_step(self.model, example[0], device[0])
+                                self.train_step(self.model, example, device[0])
 
                             with timer.pause():
                                 for hook in hooks:
-                                    hook.post_step(self, example[0], model_output, review)
+                                    hook.post_step(self, example, model_output, review)
 
                             # Release pytorch object to reduce memory footprint
                             del example
