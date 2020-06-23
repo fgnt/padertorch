@@ -499,11 +499,8 @@ class Trainer(Configurable):
 
     def step(self, model, example, timer, device):
         # TODO: Backup OutOfMemory
-        # with self.train_timer['time_per_step']:
         with timer['time_per_to_device']:
-            example = self.model.example_to_device(
-                example, device
-            )
+            example = model.example_to_device(example, device)
         with timer['time_per_forward']:
             model_out = model(example)
         with timer['time_per_review']:
