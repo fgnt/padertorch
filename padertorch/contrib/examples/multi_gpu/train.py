@@ -1,5 +1,12 @@
 """
-A basic example to demonstrate, how DataParallel can be used in padertorch.
+A basic example to demonstrate, how data parallel can be used in padertorch.
+There are two options:
+ - Use a thin wrapper around torch.nn.DataParallel and convert you model
+   to a data parallel model
+ - Use the build-in support for data parallel of the Trainer
+   i.e. set the device=list(range(torch.cuda.device_count()))
+   e.g. device=[0, 1]
+
 We recommend to use the built-in-support for data parallel, because it uses the
 virtual mini batch instead of the real mini batch to distribute the work on
 multiple GPUs. Since it uses the code from torch.nn.DataParallel we expect,
@@ -7,7 +14,7 @@ that when torch.nn.DataParallel works for you, the build in should also work.
 
 We observed some difficulties with torch.nn.DataParallel
   https://github.com/pytorch/pytorch/issues/33552 RNNs do not have gradients while using DataParallel in 1.4.0
-At the moment we do not know with pytorch versions work without problems.
+We tested pytorch 1.5.
 
 
 The code is inspired by the examples in
@@ -16,7 +23,13 @@ Authors: Sung Kim and Jenny Kang
 
 Use the following command:
 
-    python train.py with storage_root=/path/to/dir
+    python train.py with storage_root=/path/to/dir use_torch_data_parallel=False
+
+to start an experiment that uses build-in support.
+
+to use torch.nn.DataParallel call:
+
+    python train.py with storage_root=/path/to/dir use_torch_data_parallel=True
 
 to start the experiment and take a look at the
 
@@ -25,7 +38,7 @@ to start the experiment and take a look at the
     review shape: torch.Size([23, 28])
 
 in the output. You should see, that the shape in the forward is different
-from the shape in the review. Also the forward is more offten called than the
+from the shape in the review. Also the forward is more often called than the
 review.
 """
 from pathlib import Path
@@ -90,6 +103,7 @@ def config():
         'checkpoint_trigger': (1, 'epoch'),
         'stop_trigger': (2, 'epoch'),
         'storage_dir': str(get_new_folder(storage_root, mkdir=False)),
+        'virtual_minibatch_size': 2,
     })
     pt.Trainer.get_config(trainer)
 
@@ -138,7 +152,7 @@ class DataParallel(torch.nn.DataParallel):
 
 
 @experiment.automain
-def main(_run, _config, features, classes):
+def main(_run, _config, features, classes, use_torch_data_parallel=False):
     # Get Datasets
     train_ds = get_random_dataset(10, features=features, classes=classes)
     dev_ds = get_random_dataset(1, features=features, classes=classes)
@@ -152,13 +166,20 @@ def main(_run, _config, features, classes):
     if torch.cuda.device_count() > 1:
         print("Let's use", torch.cuda.device_count(), "GPUs!")
         # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-        trainer.model = DataParallel(trainer.model)
+        if use_torch_data_parallel:
+            trainer.model = DataParallel(trainer.model)
+            device = 0
+        else:
+            device = list(range(torch.cuda.device_count()))
     else:
+        assert torch.cuda.device_count() >= 1, torch.cuda.device_count()
         print('#' * 79)
         print('WARNING: Could not find multiple GPUs !!!')
         print('#' * 79)
+        device = 0
+
     print('torch.cuda.device_count()', torch.cuda.device_count())
     print('torch.cuda.is_available()', torch.cuda.is_available())
 
     trainer.register_validation_hook(validation_iterator=dev_ds)
-    trainer.train(train_ds)
+    trainer.train(train_ds, device=device)
