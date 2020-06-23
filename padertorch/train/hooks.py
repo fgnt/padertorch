@@ -369,7 +369,10 @@ class SummaryHook(TriggeredHook):
         self.update_summary(review)
 
     def post_optimize(self, trainer : 'pt.Trainer', summary):
-        self.update_summary(summary)
+        self.post_step(trainer, None, None, summary)
+        # self.update_summary(summary)
+        # Call post_step, so subclasses (e.g. ValidationHook) only need to
+        # overwrite the post step.
 
     def close(self, trainer: 'pt.Trainer'):
         self.finalize_summary(trainer)
@@ -551,6 +554,7 @@ class ValidationHook(SummaryHook):
             self.n_degradations = 0
 
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
+        # Ignore super.
         if trainer.iteration == self.last_validation:
             # As CheckpointHook.pre_step is called after ValidationHook.pre_step
             # (which is necessary to save ValidationHook state),
