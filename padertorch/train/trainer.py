@@ -2,27 +2,27 @@
     This module contains the Trainer class which can be used to train
     configurable padertorch models.
 """
-import contextlib
-import itertools
-import time
-from collections import defaultdict
-from datetime import datetime
-from pathlib import Path
-import functools
 import collections
-
-import numpy as np
-import torch
-import torch.nn
-import tensorboardX
+from collections import defaultdict
+import contextlib
+from datetime import datetime
+import functools
+import itertools
+from pathlib import Path
+import time
 import warnings
 
+import numpy as np
+import tensorboardX
+import torch
+import torch.nn
+
 from paderbox.utils.nested import deflatten
-import padertorch as pt
+
 from padertorch.configurable import Configurable
+from padertorch.train.hooks import *
 from padertorch.train.optimizer import Optimizer, Adam
 from padertorch.train.runtime_tests import test_run
-from padertorch.train.hooks import *
 
 __all__ = [
     'Trainer',
@@ -264,6 +264,7 @@ class Trainer(Configurable):
             hooks.append(ProgressBarHook(self._stop_trigger, max_it_len))
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
 
+        # pylint: disable=too-many-nested-blocks
         # ================ MAIN TRAINING LOOP! ===================
         try:
             # Count epochs up to infinity if not any stop condition is met. A
@@ -274,11 +275,11 @@ class Trainer(Configurable):
                     hook.pre_step(self)
 
                 for self.iteration, example in self.train_timer(
-                    key='time_per_data_loading',
-                    iterable=enumerate(
-                        train_iterator,
-                        start=self.iteration,
-                    )
+                        key='time_per_data_loading',
+                        iterable=enumerate(
+                            train_iterator,
+                            start=self.iteration,
+                        )
                 ):
                     if epoch_start:
                         epoch_start = False
@@ -343,9 +344,9 @@ class Trainer(Configurable):
             # Change model to eval mode (e.g. deactivate dropout).
             self.model.eval()
             try:
-                for i, example in self.validate_timer(
-                    key='time_per_data_loading',
-                    iterable=enumerate(validation_iterator)
+                for _, example in self.validate_timer(
+                        key='time_per_data_loading',
+                        iterable=enumerate(validation_iterator)
                 ):
                     with self.validate_timer['time_per_step']:
                         yield self.validation_step(example)
@@ -407,7 +408,7 @@ class Trainer(Configurable):
                         'You can not have multiple losses without specifying '
                         f'loss_weights. losses: {losses}'
                     )
-                elif set(loss_weights.keys()) != set(losses.keys()):
+                if set(loss_weights.keys()) != set(losses.keys()):
                     import textwrap
                     from IPython.lib.pretty import pretty
                     raise Exception(
@@ -525,11 +526,11 @@ class Trainer(Configurable):
         else:
             optimizer_state_dict = self.optimizer.state_dict()
         state_dict = dict(
-                model=self.model.state_dict(),
-                iteration=self.iteration,
-                epoch=self.epoch,
-                optimizer=optimizer_state_dict,
-                hooks=dict(),
+            model=self.model.state_dict(),
+            iteration=self.iteration,
+            epoch=self.epoch,
+            optimizer=optimizer_state_dict,
+            hooks=dict(),
         )
         for hook in self.hooks:
             hook_state = hook.state_dict()
@@ -664,8 +665,10 @@ class ContextTimerDict:
     >>> with contextlib.suppress(Exception), timer['test_2']:
     ...     raise Exception
 
-    >>> timer  # doctest: +SKIP
-    ContextTimerDict: {'test': array([0.1, 0.1]), 'test_2': array([0.1]), 'test_3': array([1.96e-06, 4.80e-06, 3.87e-06])}
+    >>> timer  # doctest: +SKIP +NORMALIZE_WHITESPACE
+    ContextTimerDict: {'test': array([0.1, 0.1]),
+                       'test_2': array([0.1]),
+                       'test_3': array([1.96e-06, 4.80e-06, 3.87e-06])}
     >>> d = timer.as_dict
     >>> for k, v in d.items():
     ...     v = [f'{e:.2f}' for e in v]
