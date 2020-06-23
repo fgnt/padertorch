@@ -335,7 +335,7 @@ class Trainer(Configurable):
                                     hook.pre_step(self)
 
                         if len(device) == 1:
-                            assert len(example) == 0, example
+                            assert len(example) == 1, (len(example), example)
                             loss, example, model_output, review = \
                                 self.train_step(self.model, example[0], device[0])
 
