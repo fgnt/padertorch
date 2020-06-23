@@ -1,6 +1,6 @@
 """
 A basic example to demonstrate, how DataParallel can be used in padertorch.
-We recommend to use the build in support for data parallel, because it uses the
+We recommend to use the built-in-support for data parallel, because it uses the
 virtual mini batch instead of the real mini batch to distribute the work on
 multiple GPUs. Since it uses the code from torch.nn.DataParallel we expect,
 that when torch.nn.DataParallel works for you, the build in should also work.
@@ -10,7 +10,7 @@ We observed some difficulties with torch.nn.DataParallel
 At the moment we do not know with pytorch versions work without problems.
 
 
-The code is inspired from the examples in
+The code is inspired by the examples in
 https://pytorch.org/tutorials/beginner/blitz/data_parallel_tutorial.html
 Authors: Sung Kim and Jenny Kang
 
