@@ -109,6 +109,21 @@ class Hook:
         """
         pass
 
+    def post_optimize(self, trainer: 'pt.Trainer', summary):
+        """
+        function is called after each optimize
+
+        Args:
+            trainer:
+            summary:
+                Contains things that are reported from the optimizer.
+                e.g. gradient norm and learning rate
+
+        Returns:
+
+        """
+        pass
+
     def close(self, trainer: 'pt.Trainer'):
         pass
 
@@ -182,8 +197,8 @@ class SummaryHook(TriggeredHook):
 
     def update_summary(self, review):
         allowed_keys = {
-            'loss',
-            'losses',
+            # 'loss',  # The trainer moves the loss and losses to scalars
+            # 'losses',
             'scalars',
             'histograms',
             'audios',
@@ -352,6 +367,9 @@ class SummaryHook(TriggeredHook):
 
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
         self.update_summary(review)
+
+    def post_optimize(self, trainer : 'pt.Trainer', summary):
+        self.update_summary(summary)
 
     def close(self, trainer: 'pt.Trainer'):
         self.finalize_summary(trainer)

@@ -403,10 +403,10 @@ class Trainer(Configurable):
                     # Only the summary hook will use optimizer_review
                     if optimize:
                         with self.train_timer['time_per_optimize']:
-                            optimizer_review = self.optimizer_step()
+                            optimizer_summary = self.optimizer_step()
                             for hook in hooks:
-                                hook.post_step(self, None, None, optimizer_review)
-                            del optimizer_review
+                                hook.post_optimize(self, optimizer_summary)
+                            del optimizer_summary
 
                         self.iteration += 1
 
