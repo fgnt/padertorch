@@ -109,6 +109,21 @@ class Hook:
         """
         pass
 
+    def post_optimize(self, trainer: 'pt.Trainer', summary):
+        """
+        function is called after each optimize
+
+        Args:
+            trainer:
+            summary:
+                Contains things that are reported from the optimizer.
+                e.g. gradient norm and learning rate
+
+        Returns:
+
+        """
+        pass
+
     def close(self, trainer: 'pt.Trainer'):
         pass
 
@@ -182,8 +197,8 @@ class SummaryHook(TriggeredHook):
 
     def update_summary(self, review):
         allowed_keys = {
-            'loss',
-            'losses',
+            # 'loss',  # The trainer moves the loss and losses to scalars
+            # 'losses',
             'scalars',
             'histograms',
             'audios',
@@ -196,12 +211,10 @@ class SummaryHook(TriggeredHook):
         redundant_keys = set(review.keys()) - allowed_keys
         assert len(redundant_keys) == 0, (redundant_keys, review.keys(), allowed_keys)
 
+        assert len(review) >= 1, review
         popped_review = {**review}  # copy for "pop"
 
         # note item is the pytorch function to get the value of a tensor
-        self.summary['scalars']['loss'].append(popped_review.pop('loss').item())
-        for key, loss in popped_review.pop('losses', dict()).items():
-            self.summary['scalars'][key].append(loss.item())
         for key, scalars in popped_review.pop('scalars', dict()).items():
             self.summary['scalars'][key].extend(self._to_list(scalars))
         for key, histogram in popped_review.pop('histograms', dict()).items():
@@ -254,67 +267,37 @@ class SummaryHook(TriggeredHook):
         #       called between dataloading and train step. So the loading can
         #       be part of the previous summary, while the train step is in the
         #       next summary.
-        time_per_data_loading = timer_dict.pop('time_per_data_loading', [0])
-        time_per_step = timer_dict.pop('time_per_step', [0])
-        time_per_to_device = timer_dict.pop('time_per_to_device', [0])
-        time_per_forward = timer_dict.pop('time_per_forward', [0])
-        time_per_review = timer_dict.pop('time_per_review', [0])
-        time_per_backward = timer_dict.pop('time_per_backward', [0])
 
         summary_timings = {}
-        time_per_iteration = (
-                np.mean(time_per_data_loading) + np.mean(time_per_step)
-        )
-        if time_per_iteration > 0:
-            summary_timings['time_per_iteration'] = time_per_iteration
 
-            sum_time_per_step = np.sum(time_per_step)
-            sum_time_per_data_loading = np.sum(time_per_data_loading)
-            sum_time_per_train_step_to_device = np.sum(time_per_to_device)
-            sum_time_per_train_step_forward = np.sum(time_per_forward)
-            sum_time_per_train_step_review = np.sum(time_per_review)
-            sum_time_per_backward = np.sum(time_per_backward)
+        sum_time_per_iteration = np.sum(timer_dict.get('time_per_iteration', [0]))
+        if sum_time_per_iteration > 0:
+            for k in [
+                    'time_per_data_loading',
+                    'time_per_to_device',
+                    'time_per_forward',
+                    'time_per_review',
+                    'time_per_backward',
+                    'time_per_optimize',
+                    'time_per_replicate',
+                    'time_per_parallel_apply',
+                    'time_per_gather',
+            ]:
+                if k in timer_dict:
+                    summary_timings[k.replace('_per_', '_rel_')] = \
+                        np.sum(timer_dict.pop(k)) / sum_time_per_iteration
 
-            sum_time_per_iteration = (
-                    sum_time_per_data_loading + sum_time_per_step
-            )
-            summary_timings['time_rel_data_loading'] = \
-                sum_time_per_data_loading / sum_time_per_iteration
-            summary_timings['time_rel_step'] = \
-                sum_time_per_step / sum_time_per_iteration
-            if sum_time_per_step > 0:
-                summary_timings['time_rel_to_device'] = \
-                    sum_time_per_train_step_to_device / sum_time_per_step
-                summary_timings['time_rel_forward'] = \
-                    sum_time_per_train_step_forward / sum_time_per_step
-                summary_timings['time_rel_review'] = \
-                    sum_time_per_train_step_review / sum_time_per_step
-                summary_timings['time_rel_backward'] = \
-                    sum_time_per_backward / sum_time_per_step
         summary_timings.update({
             key: timing.mean() for key, timing in timer_dict.items()
         })
         timer.clear()
         return summary_timings
 
-    def maybe_add_lr_to_summary(self, trainer):
-        if 'loss' not in self.summary['scalars']:
-            return self.summary
-        if isinstance(trainer.optimizer, dict):
-            for key, optim in trainer.optimizer.items():
-                for i, param_group in enumerate(optim.optimizer.param_groups):
-                    self.summary['scalars'][f'lr/{key}/param_group_{i}'] = param_group['lr']
-        else:
-            for i, param_group in enumerate(trainer.optimizer.optimizer.param_groups):
-                self.summary['scalars'][f'lr/param_group_{i}'] = param_group['lr']
-        return self.summary
-
     def finalize_summary(self, trainer):
         assert len(self.summary['timings']) == 0, self.summary['timings']
 
         for key, timing in self.compute_timings(trainer.train_timer).items():
             self.summary['timings'][key] = timing
-        self.maybe_add_lr_to_summary(trainer)
         self.summary = trainer.model.modify_summary(self.summary)
         # Assert the intermediate types were converted in he modify summary
         assert len(self.summary['buffers']) == 0, "intermediate format buffers has to be converted during modify_summary"
@@ -384,6 +367,12 @@ class SummaryHook(TriggeredHook):
 
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
         self.update_summary(review)
+
+    def post_optimize(self, trainer : 'pt.Trainer', summary):
+        self.post_step(trainer, None, None, summary)
+        # self.update_summary(summary)
+        # Call post_step, so subclasses (e.g. ValidationHook) only need to
+        # overwrite the post step.
 
     def close(self, trainer: 'pt.Trainer'):
         self.finalize_summary(trainer)
@@ -489,8 +478,17 @@ class ValidationHook(SummaryHook):
         assert len(self.summary['timings']) == 0, self.summary['timings']
         for key, timing in self.compute_timings(trainer.validate_timer).items():
             self.summary['timings'][key] = timing
-        self.maybe_add_lr_to_summary(trainer)
-        self.summary = trainer.model.modify_summary(self.summary)
+        try:
+            self.summary = trainer.model.modify_summary(self.summary)
+        except Exception as e:
+            log_path_pattern = trainer.log_error_state({
+                'summary': dict(self.summary),
+                'model': trainer.model,
+            })
+            raise RuntimeError(
+                'modify_summary failed. See above error msg and check the '
+                f'files {log_path_pattern}.'
+            ) from e
 
     def pre_step(self, trainer: 'pt.Trainer'):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
@@ -516,7 +514,7 @@ class ValidationHook(SummaryHook):
         assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
         print('Starting Validation')
         at_least_one_value = False
-        for model_out, review in trainer.validate(self.iterator):
+        for example, model_out, review in trainer.validate(self.iterator):
             at_least_one_value = True
             self.update_summary(review)
         if not at_least_one_value:
@@ -556,6 +554,7 @@ class ValidationHook(SummaryHook):
             self.n_degradations = 0
 
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
+        # Ignore super.
         if trainer.iteration == self.last_validation:
             # As CheckpointHook.pre_step is called after ValidationHook.pre_step
             # (which is necessary to save ValidationHook state),
@@ -579,7 +578,10 @@ class ValidationHook(SummaryHook):
         best_ckpt_path.symlink_to(self.ckpt_ranking[0][0])
 
     def close(self, trainer: 'pt.Trainer'):
-        self.set_best_symlink(trainer.checkpoint_dir)
+        if trainer.checkpoint_dir.exists():
+            # When checkpoint_dir does not exist, your training failed, before
+            # the first validation started
+            self.set_best_symlink(trainer.checkpoint_dir)
         ckpt_name = trainer.default_checkpoint_path().name
         if ckpt_name not in [ckpt[0] for ckpt in self.ckpt_ranking]:
             # add to ranking to make sure it is deleted after resume
@@ -718,7 +720,10 @@ class LRSchedulerHook(TriggeredHook):
     # https://github.com/pytorch/pytorch/pull/20203
     PYTORCH_ge_1_1 = LooseVersion(torch.__version__) >= '1.1.0'
 
-    def __init__(self, lr_scheduler, trigger=(1, 'epoch')):
+    def __init__(
+            self,
+            lr_scheduler: torch.optim.lr_scheduler._LRScheduler,
+            trigger=(1, 'epoch')):
         super().__init__(trigger)
         self.lr_scheduler = lr_scheduler
 
@@ -771,8 +776,11 @@ class ProgressBarHook(TriggeredHook):
             raise ValueError(f'unit {unit} is unknown,'
                              f' choose iteration or epoch')
         self.loss = None
-        self.pbar = tqdm(initial=1, total=max_iteration)
-
+        self.pbar = tqdm(initial=1, total=max_iteration, smoothing=1)
+        # smoothing:
+        #     Use "current/instantaneous speed", otherwise it is confusing when
+        #     you resume an experiment (start value is one and the first step
+        #     is to the value of the iteration counter).
 
     @property
     def priority(self):

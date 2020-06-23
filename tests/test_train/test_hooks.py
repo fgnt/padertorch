@@ -93,15 +93,18 @@ def test_summary_hook():
         hook = pt.train.hooks.SummaryHook(
             (1, 'iteration'),
         )
-        with pytest.raises(KeyError, match=r"'loss'") as excinfo:
-            hook.update_summary({})
+
+        # Missing key 'loss' is now allowed, because the optimizer reports now
+        # the summary directly to the hooks, instead of appending the review.
+        # with pytest.raises(KeyError, match=r"'loss'") as excinfo:
+        #     hook.update_summary({})
+
+        # hook.update_summary({
+        #     'loss': torch.tensor(1)
+        # })
 
         hook.update_summary({
-            'loss': torch.tensor(1)
-        })
-
-        hook.update_summary({
-            'loss': torch.tensor(1),
+            # 'loss': torch.tensor(1),
             'scalars': {
                 'a': 2,
                 'b': torch.tensor(3),
@@ -109,7 +112,7 @@ def test_summary_hook():
         })
 
         hook.update_summary({
-            'loss': torch.tensor(1),
+            # 'loss': torch.tensor(1),
             'texts': {
                 'c': 'abc',
             }
@@ -157,18 +160,11 @@ def test_summary_hook():
         expect = [
             {},
             {'step': 10, 'summary': {'value': [
-                {'tag': 'training/loss', 'simple_value': 1.0}
-            ]}},
-            {'step': 10, 'summary': {'value': [
                 {'tag': 'training/a', 'simple_value': 2.0}
             ]}},
             {'step': 10, 'summary': {'value': [
                 {'tag': 'training/b', 'simple_value': 3.0}
             ]}},
-            {'step': 10,
-             'summary': {'value': [
-                 {'tag': 'training/lr/param_group_0', 'simple_value': 1.0}
-             ]}},
             {'step': 10, 'summary': {'value': [
                 {'tag': 'training/c/text_summary',
                  'tensor': {
@@ -188,7 +184,7 @@ def test_summary_hook_fail_duplicate_key():
     hook = pt.train.hooks.SummaryHook((1, 'iteration'))
 
     hook.update_summary({
-        'loss': torch.tensor(1),
+        # 'loss': torch.tensor(1),
         'scalars': {
             'a': 2,
             'b': torch.tensor(3),

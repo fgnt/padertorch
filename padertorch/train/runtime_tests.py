@@ -253,12 +253,13 @@ def test_run(
         assert trainer_step_mock.call_count == (4 * virtual_minibatch_size + 8), (trainer_step_mock.call_count, virtual_minibatch_size)
 
         def trainer_step_mock_to_inputs_output_review(review_mock):
-            sig = inspect.signature(review_mock._mock_wraps)
-            for call, (output, review) in zip(
+            # sig = inspect.signature(review_mock._mock_wraps)
+            for call, (loss, inputs, output, review) in zip(
                     review_mock.call_args_list, review_mock.spyed_return_values):
-                args, kwargs = tuple(call)
-                inputs, timer = sig.bind(*args, **kwargs).arguments.values()
-                yield dict(inputs=inputs, output=output, review=review)
+                # args, kwargs = tuple(call)
+                # model, example, timer, device
+                # _, inputs, timer, _ = sig.bind(*args, **kwargs).arguments.values()
+                yield dict(inputs=inputs, output=output, review=review, loss=loss)
 
 
         # trainer_step_mock_to_inputs_output_review
@@ -291,15 +292,15 @@ def test_run(
         # nested_test_assert_allclose(dt4['review'], dt8['review'])
 
         # Expect that the initial loss is equal for two runs
-        nested_test_assert_allclose(dt1['review']['loss'], dt5['review']['loss'], rtol=1e-6, atol=1e-6)
-        nested_test_assert_allclose(dt2['review']['loss'], dt6['review']['loss'], rtol=1e-6, atol=1e-6)
+        nested_test_assert_allclose(dt1['loss'], dt5['loss'], rtol=1e-6, atol=1e-6)
+        nested_test_assert_allclose(dt2['loss'], dt6['loss'], rtol=1e-6, atol=1e-6)
         try:
             with np.testing.assert_raises(AssertionError):
                 # Expect that the loss changes after training.
-                nested_test_assert_allclose(dt1['review']['loss'], dt3['review']['loss'], rtol=1e-6, atol=1e-6)
-                nested_test_assert_allclose(dt2['review']['loss'], dt4['review']['loss'], rtol=1e-6, atol=1e-6)
-                nested_test_assert_allclose(dt5['review']['loss'], dt7['review']['loss'], rtol=1e-6, atol=1e-6)
-                nested_test_assert_allclose(dt6['review']['loss'], dt8['review']['loss'], rtol=1e-6, atol=1e-6)
+                nested_test_assert_allclose(dt1['loss'], dt3['loss'], rtol=1e-6, atol=1e-6)
+                nested_test_assert_allclose(dt2['loss'], dt4['loss'], rtol=1e-6, atol=1e-6)
+                nested_test_assert_allclose(dt5['loss'], dt7['loss'], rtol=1e-6, atol=1e-6)
+                nested_test_assert_allclose(dt6['loss'], dt8['loss'], rtol=1e-6, atol=1e-6)
         except AssertionError:
             raise AssertionError(
                 'The loss of the model did not change between two validations.'
@@ -307,8 +308,6 @@ def test_run(
                 'This is usually caused from a zero gradient or the loss is'
                 'independent of the parameters'
             )
-
-        assert 'loss' in dt1['review'], dt1['review']
 
         allowed_summary_keys = (
             {'loss', 'losses'} | set(
@@ -343,7 +342,8 @@ def test_run(
                     'ckpt_latest.pth',
                     'ckpt_best_loss.pth',
                     f'ckpt_0.pth',
-                    f'ckpt_{2*virtual_minibatch_size}.pth',
+                    # f'ckpt_{2*virtual_minibatch_size}.pth',
+                    f'ckpt_2.pth',
                 }
                 if checkpoint_names != expect:
                     os.system(f'ls -lha {file}')
@@ -356,7 +356,7 @@ def test_run(
                 # that the training improves the loss on the validation data
                 # assert ckpt_best == 'ckpt_2.pth', ckpt_best
 
-                expected_ckpt_last = f'ckpt_{2 * virtual_minibatch_size}.pth'
+                expected_ckpt_last = f'ckpt_2.pth'
                 assert ckpt_last == expected_ckpt_last, (ckpt_last, expected_ckpt_last)
 
                 # ckpt_state = pb.io.load_json(file / 'ckpt_state.json')

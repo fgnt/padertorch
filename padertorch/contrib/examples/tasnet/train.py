@@ -3,8 +3,8 @@ Example call on NT infrastructure:
 
 export STORAGE=<your desired storage root>
 mkdir -p $STORAGE/pth_models/dprnn
-python -m padertorch.contrib.neumann.dual_path_rnn.train print_config
-python -m padertorch.contrib.neumann.dual_path_rnn.train
+python -m padertorch.contrib.examples.tasnet.train print_config
+python -m padertorch.contrib.examples.tasnet.train
 """
 import torch
 from paderbox.io import load_audio
@@ -12,12 +12,15 @@ from paderbox.io import load_audio
 from sacred import Experiment
 import sacred.commands
 
+# sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False
+
 import os
 from pathlib import Path
 
 from sacred.utils import InvalidConfigError, MissingConfigError
 
 import padertorch as pt
+import padertorch.contrib.examples.tasnet.tasnet
 import paderbox as pb
 import numpy as np
 
@@ -63,7 +66,7 @@ def config():
     # Start with an empty dict to allow tracking by Sacred
     trainer = {
         "model": {
-            "factory": 'padertorch.contrib.examples.tasnet.tasnet.TasNet',
+            "factory": pt.contrib.examples.tasnet.tasnet.TasNet,
         },
         "storage_dir": None,
         "optimizer": {
@@ -174,12 +177,17 @@ def prepare_iterable(
 
 @ex.capture
 def prepare_iterable_captured(
-        database_obj, dataset, batch_size, debug, chunk_size
+        database_obj, dataset, batch_size, debug, chunk_size,
+        iterator_slice=None,
 ):
+    if iterator_slice is None:
+        if debug:
+            iterator_slice = slice(0, 100, 1)
+
     return prepare_iterable(
         database_obj, dataset, batch_size, chunk_size,
         prefetch=not debug,
-        iterator_slice=slice(0, 100, 1) if debug else None
+        iterator_slice=iterator_slice,
     )
 
 

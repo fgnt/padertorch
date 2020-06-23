@@ -7,7 +7,7 @@ import collections
 import copy
 import itertools
 
-from IPython.lib.pretty import pprint
+from IPython.lib.pretty import pprint, pretty
 import pytest
 
 import numpy as np
@@ -152,7 +152,7 @@ def test_single_model():
             for k, v in list(hook.__dict__.items()):
                 if isinstance(v, pt.train.trigger.Trigger):
                     hook.__dict__[k] = TriggerMock(v, log_list)
-        t.train(train_iterator=tr_dataset, resume=False)
+        t.train(train_dataset=tr_dataset, resume=False)
 
         hook_calls = ('\n'.join(log_list))
 
@@ -205,16 +205,27 @@ def test_single_model():
                 events = list(load_events_as_dict(file))
 
                 tags = []
-                time_rel_data_loading = []
-                time_rel_train_step = []
+                # time_rel_data_loading = []
+                # time_rel_train_step = []
+                time_per_iteration = []
+
+                relative_timings = collections.defaultdict(list)
+                relative_timing_keys = {
+                    'training_timings/time_rel_data_loading',
+                    'training_timings/time_rel_to_device',
+                    'training_timings/time_rel_forward',
+                    'training_timings/time_rel_review',
+                    'training_timings/time_rel_backward',
+                    'training_timings/time_rel_optimize',
+                }
                 for event in events:
                     if 'summary' in event.keys():
                         value, = event['summary']['value']
                         tags.append(value['tag'])
-                        if value['tag'] == 'training_timings/time_rel_data_loading':
-                            time_rel_data_loading.append(value['simple_value'])
-                        elif value['tag'] == 'training_timings/time_rel_step':
-                            time_rel_train_step.append(value['simple_value'])
+                        if value['tag'] in relative_timing_keys:
+                            relative_timings[value['tag']].append(value['simple_value'])
+                        elif value['tag'] == 'training_timings/time_per_iteration':
+                            time_per_iteration.append(value['simple_value'])
 
                 c = dict(collections.Counter(tags))
                 # Training summary is written two times (at iteration 3 when
@@ -234,17 +245,16 @@ def test_single_model():
                     'training_timings/time_rel_forward': 2,
                     'training_timings/time_rel_review': 2,
                     'training_timings/time_rel_backward': 2,
+                    'training_timings/time_rel_optimize': 2,
                     'training_timings/time_rel_data_loading': 2,
-                    'training_timings/time_rel_step': 2,
+                    # 'training_timings/time_rel_step': 2,
                     'validation/loss': 3,
-                    'validation/lr/param_group_0': 3,
                     'validation_timings/time_per_iteration': 3,
                     'validation_timings/time_rel_to_device': 3,
                     'validation_timings/time_rel_forward': 3,
                     'validation_timings/time_rel_review': 3,
-                    'validation_timings/time_rel_backward': 3,
                     'validation_timings/time_rel_data_loading': 3,
-                    'validation_timings/time_rel_step': 3,
+                    # 'validation_timings/time_rel_step': 3,
                     # non validation time can only be measured between
                     # validations:
                     #  => # of non_val_time - 1 == # of val_time
@@ -252,16 +262,33 @@ def test_single_model():
                     'validation_timings/validation_time': 3,
                 }
                 pprint(c)
-                assert c == expect, c
-                assert len(events) == 55, (len(events), events)
+                if c != expect:
+                    import difflib
 
-                assert len(time_rel_data_loading) > 0, (time_rel_data_loading, time_rel_train_step)
-                assert len(time_rel_train_step) > 0, (time_rel_data_loading, time_rel_train_step)
-                np.testing.assert_allclose(
-                    np.add(time_rel_data_loading, time_rel_train_step),
-                    1,
-                    err_msg=f'{time_rel_data_loading}, {time_rel_train_step})'
-                )
+                    raise AssertionError(
+                        '\n' + ('\n'.join(difflib.ndiff(
+                            [f'{k!r}: {v!r}'for k, v in sorted(expect.items())],
+                            [f'{k!r}: {v!r}'for k, v in sorted(c.items())],
+                        )))
+                    )
+                assert len(events) == 46, (len(events), events)
+
+                assert relative_timing_keys == set(relative_timings.keys()), (relative_timing_keys, relative_timings)
+
+                for k, v in relative_timings.items():
+                    assert len(v) > 0, (k, v, relative_timings)
+
+                # The relative timings should sum up to one,
+                # but this model is really cheap.
+                # e.g. 0.00108 and 0.000604 per iteration.
+                # This may cause the mismatch.
+                # Allow a calculation error of 15%.
+                # ToDo: Get this work with less than 1% error.
+                relative_times = np.array(list(relative_timings.values())).sum(axis=0)
+                if not np.all(relative_times > 0.85):
+                    raise AssertionError(pretty((relative_times, time_per_iteration, dict(relative_timings))))
+                if not np.all(relative_times <= 1):
+                    raise AssertionError(pretty((relative_times, time_per_iteration, dict(relative_timings))))
 
             elif file.name == 'checkpoints':
                 checkpoints_files = tuple(file.glob('*'))
@@ -331,7 +358,7 @@ def test_single_model():
             for k, v in list(hook.__dict__.items()):
                 if isinstance(v, pt.train.trigger.Trigger):
                     hook.__dict__[k] = TriggerMock(v, log_list)
-        t.train(train_iterator=tr_dataset, resume=True)
+        t.train(train_dataset=tr_dataset, resume=True)
 
         hook_calls = ('\n'.join(log_list))
 
@@ -387,7 +414,7 @@ def test_single_model():
                         tags.append(value['tag'])
 
                 c = dict(collections.Counter(tags))
-                assert len(events) == 44, (len(events), events)
+                assert len(events) == 38, (len(events), events)
                 expect = {
                     'training/grad_norm': 2,
                     'training/grad_norm_': 2,
@@ -398,24 +425,32 @@ def test_single_model():
                     'training_timings/time_rel_forward': 2,
                     'training_timings/time_rel_review': 2,
                     'training_timings/time_rel_backward': 2,
+                    'training_timings/time_rel_optimize': 2,
                     'training_timings/time_rel_data_loading': 2,
-                    'training_timings/time_rel_step': 2,
+                    # 'training_timings/time_rel_step': 2,
                     'validation/loss': 2,
-                    'validation/lr/param_group_0': 2,
+                    # 'validation/lr/param_group_0': 2,
                     'validation_timings/time_per_iteration': 2,
                     'validation_timings/time_rel_to_device': 2,
                     'validation_timings/time_rel_forward': 2,
                     'validation_timings/time_rel_review': 2,
-                    'validation_timings/time_rel_backward': 2,
                     'validation_timings/time_rel_data_loading': 2,
-                    'validation_timings/time_rel_step': 2,
+                    # 'validation_timings/time_rel_step': 2,
                     # non validation time can only be measured between
                     # validations:
                     #  => # of non_val_time - 1 == # of val_time
                     'validation_timings/non_validation_time': 1,
                     'validation_timings/validation_time': 2,
                 }
-                assert c == expect, c
+                if c != expect:
+                    import difflib
+
+                    raise AssertionError(
+                        '\n' + ('\n'.join(difflib.ndiff(
+                            [f'{k!r}: {v!r}'for k, v in sorted(expect.items())],
+                            [f'{k!r}: {v!r}'for k, v in sorted(c.items())],
+                        )))
+                    )
             elif file.name == 'checkpoints':
                 checkpoints_files = tuple(file.glob('*'))
                 assert len(checkpoints_files) == 7, checkpoints_files
@@ -435,9 +470,23 @@ def test_single_model():
                 raise ValueError(file)
 
 
-def test_virtual_minibatch():
+def test_virtual_minibatch_few__examples():
+    test_virtual_minibatch(3, 1)
+    test_virtual_minibatch(4, 1)
+
+
+def test_virtual_minibatch(
+        no_of_examples=7,
+        expected_iterations_per_epoch=2,
+):
     """
     Test idea:
+
+    Create an example with 7 entries and use a virtual_minibatch_size of 4.
+    The trainer will then need two iterations (first 4 examples, second
+    3 examples) for one epoch.
+
+    Further it will also be tested, if the model changed.
 
     virtual_minibatch_size is choosen such, that the first train call only
     accumulates the gradients, but do not apply them.
@@ -446,8 +495,8 @@ def test_virtual_minibatch():
     """
 
     it_tr, it_dt = get_dataset()
-    it_tr = it_tr[:2]
-    it_dt = it_dt[:2]
+    it_tr = it_tr[:no_of_examples]
+    it_dt = it_dt[:no_of_examples]
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_dir = Path(tmp_dir)
@@ -469,46 +518,31 @@ def test_virtual_minibatch():
         )
         pre_state_dict = copy.deepcopy(t.state_dict())
 
-        t.train(train_iterator=it_tr, resume=False)
-        intermediate_state_dict = copy.deepcopy(t.state_dict())
-
-        # Increase train end from 1 epoch to 2 epochs.
-        # The first time that virtual_minibatch_size triggers is at the end of
-        # epoch 2.
-        config['stop_trigger'] = (2, 'epoch')
-
-        t = pt.Trainer.from_config(config)
-        t.register_validation_hook(
-            validation_iterator=it_dt, max_checkpoints=None
-        )
-        t.train(train_iterator=it_tr, resume=True)
+        t.train(train_dataset=it_tr, resume=False)
         post_state_dict = copy.deepcopy(t.state_dict())
 
         pre_state_dict = pb.utils.nested.nested_op(
             pt.utils.to_numpy, pre_state_dict)
-        intermediate_state_dict = pb.utils.nested.nested_op(
-            pt.utils.to_numpy, intermediate_state_dict)
+
         post_state_dict = pb.utils.nested.nested_op(
             pt.utils.to_numpy, post_state_dict)
 
         assert pre_state_dict['iteration'] == np.array(-1)
         del pre_state_dict['iteration']
-        assert intermediate_state_dict['iteration'] == 2
-        del intermediate_state_dict['iteration']
-        assert post_state_dict['iteration'] == 4
+
+        # 7 examples / 4 virtual_minibatch_size = 2 iterations
+        assert post_state_dict['iteration'] == expected_iterations_per_epoch
+
         del post_state_dict['iteration']
 
         assert pre_state_dict['epoch'] == np.array(-1)
         del pre_state_dict['epoch']
         del pre_state_dict['hooks']
-        assert intermediate_state_dict['epoch'] == 1
-        del intermediate_state_dict['epoch']
-        del intermediate_state_dict['hooks']
-        assert post_state_dict['epoch'] == 2
+
+        assert post_state_dict['epoch'] == 1
         del post_state_dict['epoch']
         del post_state_dict['hooks']
 
-        np.testing.assert_equal(pre_state_dict, intermediate_state_dict)
         with pytest.raises(AssertionError):
             np.testing.assert_equal(pre_state_dict, post_state_dict)
 
@@ -595,15 +629,16 @@ def test_released_tensors():
                 if any([t is p for p in parameters])
             ]
 
+            import textwrap
             assert len(all_tensors) == len(parameters) + len(optimizer_tensors), (
                 f'pre_step\n'
                 f'{summary}\n'
                 f'all_tensors: {len(all_tensors)}\n'
-                f'{all_tensors}\n'
+                + textwrap.indent("\n".join(map(str, all_tensors)), " "*8) + f'\n'
                 f'parameters: {len(parameters)}\n'
-                f'{parameters}'
+                + textwrap.indent("\n".join(map(str, parameters)), " "*8) + f'\n'
                 f'optimizer_tensors: {len(optimizer_tensors)}\n'
-                f'{optimizer_tensors}\n'
+                + textwrap.indent("\n".join(map(str, optimizer_tensors)), " "*8) + f'\n'
             )
 
         def post_step(
