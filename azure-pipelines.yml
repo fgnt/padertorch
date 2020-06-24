@@ -18,6 +18,9 @@ strategy:
     Python37:
       IMAGE_NAME: 'ubuntu-18.04'
       python.version: '3.7'
+    Python38:
+      IMAGE_NAME: 'ubuntu-18.04'
+      python.version: '3.8'
 pool:
   vmImage: $(IMAGE_NAME)
 
