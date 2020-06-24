@@ -5,9 +5,9 @@ from torch import nn
 
 def compute_mask(x, seq_len, batch_axis=0, seq_axis=1):
     """
-    >>> x, seq_len = 2*torch.ones((3,10,4)), [1, 2, 3]
-    >>> mask = compute_mask(x, seq_len=seq_len, batch_axis=0, seq_axis=2)
-    >>> mask
+    >>> x, seq_len = 2*torch.ones((3,1,10,4)), [1, 2, 3]
+    >>> mask = compute_mask(x, seq_len=seq_len, batch_axis=0, seq_axis=-1)
+    >>> mask[:,0]
     tensor([[[1., 0., 0., 0.],
              [1., 0., 0., 0.],
              [1., 0., 0., 0.],

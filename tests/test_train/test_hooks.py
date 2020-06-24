@@ -269,9 +269,9 @@ def test_lr_annealing_hook():
     )
     trainer = DummyTrainer()
     values = []
-    for i in range(11):
+    for i in range(12):
         trainer.iteration = i
         lr_annealing_hook.pre_step(trainer)
         values.append(trainer.optimizer.optimizer.param_groups[0]['lr'])
-    expected_values = np.linspace(0, .1, 6).tolist() + np.linspace(.08, 0, 5).tolist()
+    expected_values = np.linspace(0, .1, 6).tolist() + np.linspace(.08, 0, 5).tolist() + [0]
     pb.testing.assert_almost_equal(values, expected_values)

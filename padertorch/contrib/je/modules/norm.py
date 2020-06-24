@@ -3,6 +3,7 @@ from padertorch.base import Module
 from torch import nn
 from torch.autograd import Function
 from padertorch.contrib.je.modules.global_pooling import compute_mask
+import numpy as np
 
 
 class Norm(Module):
@@ -66,7 +67,7 @@ class Norm(Module):
             sequence_axis='t',
             shift=True,
             scale=True,
-            eps: float = 1e-3,
+            eps: float = 1e-5,
             momentum=0.95,
             interpolation_factor=0.,
     ):
@@ -181,17 +182,17 @@ class Norm(Module):
                     # https://arxiv.org/pdf/1611.01144.pdf
                     y_ = x
                     if self.shift:
-                        y_ = y_ - self.running_mean
+                        y_ = y_ - self.running_mean.data
                     if self.scale:
-                        y_ = y_ / torch.sqrt(self.runnning_var)
+                        y_ = y_ / torch.sqrt(self.runnning_var.data)
                     y = y + self.interpolation_factor * (y_ - y).detach()
-                    y = y * compute_mask(x, seq_len, self.batch_axis, self.sequence_axis)
+                    y = y * compute_mask(y, seq_len, self.batch_axis, self.sequence_axis)
         else:
             y = x
             if self.shift:
                 y = y - self.running_mean.data
             if self.scale:
-                y = y / torch.sqrt(self.runnning_var)
+                y = y / torch.sqrt(self.runnning_var.data)
             if self.gamma is not None:
                 y = y * self.gamma
             if self.beta is not None:
@@ -225,10 +226,7 @@ class Normalize(Function):
         ctx.eps = eps
 
         # compute mask
-        if seq_len is not None:
-            mask = compute_mask(x, seq_len, batch_axis, sequence_axis)
-        else:
-            mask = torch.ones_like(x)
+        mask = compute_mask(x, seq_len, batch_axis, sequence_axis)
 
         # compute statistics
         n_values = mask.sum(dim=statistics_axis, keepdim=True)
@@ -253,14 +251,12 @@ class Normalize(Function):
 
     @staticmethod
     def backward(ctx, grad_y, grad_mean, grad_power, _):
+        # equations from https://arxiv.org/abs/1502.03167
         if (grad_mean != 0).any() or (grad_power != 0).any():
             raise NotImplementedError
         x, gamma, beta, mean, power = ctx.saved_tensors
         # compute mask
-        if ctx.seq_len is not None:
-            mask = compute_mask(x, ctx.seq_len, ctx.batch_axis, ctx.sequence_axis)
-        else:
-            mask = torch.ones_like(x)
+        mask = compute_mask(x, ctx.seq_len, ctx.batch_axis, ctx.sequence_axis)
         n_values = mask.sum(dim=ctx.statistics_axis, keepdim=True)
 
         grad_y = grad_y * mask
