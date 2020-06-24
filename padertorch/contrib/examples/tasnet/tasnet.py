@@ -27,6 +27,7 @@ class TasNet(pt.Model):
             intra_chunk_type: str = 'blstm',
             num_speakers: int = 2,
             additional_out_size: int = 0,
+            sample_rate=self.sample_rate,
     ):
         """
         Args:
@@ -89,6 +90,7 @@ class TasNet(pt.Model):
         self.output_nonlinearity = ACTIVATION_FN_MAP[output_nonlinearity]()
 
         self.num_speakers = num_speakers
+        self.sample_rate = sample_rate
 
     def forward(self, batch: dict) -> dict:
         """
@@ -203,18 +205,18 @@ class TasNet(pt.Model):
         # Report audios
         audios = {
             'observation': pt.summary.audio(
-                signal=inputs['y'][0], sampling_rate=8000
+                signal=inputs['y'][0], sampling_rate=self.sample_rate
             ),
         }
 
         for i, e in enumerate(outputs['out'][0]):
             audios[f'estimate/{i}'] = pt.summary.audio(
-                signal=e, sampling_rate=8000
+                signal=e, sampling_rate=self.sample_rate
             )
 
         for i, y in enumerate(inputs['s'][0]):
             audios[f'target/{i}'] = pt.summary.audio(
-                signal=y, sampling_rate=8000
+                signal=y, sampling_rate=self.sample_rate
             )
 
         return pt.summary.review_dict(
