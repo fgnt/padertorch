@@ -10,7 +10,7 @@ from paderbox.transform.module_stft import STFT as BaseSTFT
 from paderbox.utils.nested import nested_op
 from padertorch.utils import to_list
 from tqdm import tqdm
-
+from lazy_dataset import FilterException
 
 class AudioReader:
     def __init__(self, source_sample_rate=16000, target_sample_rate=16000):
@@ -224,12 +224,44 @@ class LabelEncoder:
 
 
 class MultiHotLabelEncoder(LabelEncoder):
+    def __init__(self, label_key, storage_dir=None):
+        super().__init__(label_key=label_key, storage_dir=storage_dir, to_array=False)
+
     def __call__(self, example):
         labels = super().__call__(example)[self.label_key]
         nhot_encoding = np.zeros(len(self.label_mapping)).astype(np.float32)
         if len(labels) > 0:
             nhot_encoding[labels] = 1
         example[self.label_key] = nhot_encoding
+        return example
+
+
+class MultiHotAlignmentEncoder(LabelEncoder):
+    def __init__(self, label_key, sample_rate, stft: STFT, storage_dir=None):
+        super().__init__(label_key=label_key, storage_dir=storage_dir, to_array=False)
+        self.sample_rate = sample_rate
+        self.stft = stft
+
+    def __call__(self, example):
+        labels = super().__call__(example)[self.label_key]
+        nhot_encoding = np.zeros(len(self.label_mapping)).astype(np.float32)
+        if len(labels) > 0:
+            nhot_encoding[labels] = 1
+        example[self.label_key] = nhot_encoding
+        if f'{self.label_key}_start_times' not in example:
+            raise FilterException
+        n_samples = example['audio_data'].shape[-1]
+        n_frames = self.stft.samples_to_frames(n_samples)
+        ali = np.zeros((n_frames, len(self.label_mapping))).astype(np.float32)
+        for label, onset, offset in zip(
+                labels,
+                example[f'{self.label_key}_start_times'],
+                example[f'{self.label_key}_stop_times']
+        ):
+            onset = self.stft.sample_index_to_frame_index(int(self.sample_rate*onset))
+            offset = self.stft.sample_index_to_frame_index(int(self.sample_rate*offset))
+            ali[onset:offset+1, label] = 1
+        example[f'{self.label_key}_ali'] = ali
         return example
 
 
