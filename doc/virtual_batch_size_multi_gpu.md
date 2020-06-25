@@ -1,14 +1,14 @@
 # Virual minibatch size and multiple GPUs
 
-Note: The code examples here should be interpreted as pseudo code, i.e. they should show what the code does. The actual implementation is more complicated, because it does more things.
+Note: The code examples here should be interpreted as pseudo code, i.e. they should demonstrate what the code does. The actual implementation is more complicated, but a general understanding of the operating principle should be enough for most use cases.
 
 ## What is (Virual) minibatch size?
 
 In `padertorch` you have two options to use a minibatch size for your model.
 
-The first way is to incude it in your train dataset (i.e. batch multiple examples together inside of your datapreprocessing).
-Then you model has to work on multiple examples.
-The `padertorch.Trainer` will not recognice this kind of minibatch size, because the trainer simpley forwards the examples from your dataset to the model:
+The first possibility is to incude the batching in your train dataset (i.e. batch multiple examples together inside of your data preprocessing).
+In this case your model has to work on multiple examples and might have to deal with padding.
+The `padertorch.Trainer` will not recognice this kind of minibatch size, because the trainer simply forwards the examples from your dataset to the model:
 
 ```python
 dataset = do_batching(dataset)                      # <-----
@@ -25,7 +25,7 @@ for batch in dataset:                             # <-----
 As an example how the batching can be done on the fly with `lazy_dataset` see `padertorch/contrib/examples/tasnet/train.py`.
 
 The second option is the `virtual_minibatch_size` argument of `padertorch.Trainer`.
-With this option you can increase the minibatch size without changing your dataset or your model. Only the trainer will handle the batch size:
+With this option you can increase the minibatch size without changing your dataset or your model. In this case, only the trainer is handling the batch size:
 
 ```python
 i = 0                                               # <-----
@@ -43,7 +43,7 @@ for example in dataset:
 ```
 
 Both options for the minibatch size can be combined.
-The effective minibatch size for the optimizer will the the dataset minibatch size times the `virtual_minibatch_size`. For operations like batch normalization (i.e. operations that work in the minibatch axis) the batch size will be the minibatch that is used to produce the dataset, NOT the virtual batch size.
+The effective minibatch size for the optimizer will be the dataset minibatch size times the `virtual_minibatch_size`. For operations like batch normalization (i.e. operations that work in the minibatch axis) the batch size will be the minibatch that is used to produce the dataset, NOT the virtual batch size.
 
 ## Why use (Virtual) minibatch size?
 There are multiple arguments why using a minibatch and theoretical arguments.
@@ -53,7 +53,7 @@ When you increase the minibatch size in your dataset in many cases you will obse
 So, you process more examples in the same time and your training finishes earlier (The converence properties will also change, but this is not a point to discuss here).
 
 The `virtual_minibatch_size` has no speedup effect (The optimizer has no relevant runtime).
-So why may you want to use the `virtual_minibatch_size` anyway?
+So why do we use the `virtual_minibatch_size` anyway?
 When you increase the minibatch size in your dataset, this will also increase the memory consumption of your model.
 So the memory capacity of your GPU limits the maximum minibatch size in your dataset.
 If your model has better convergence properties with a larger minibatch size the `virtual_minibatch_size` can be used.
