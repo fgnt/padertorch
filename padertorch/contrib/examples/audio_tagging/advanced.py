@@ -40,7 +40,7 @@ def config():
         'pad': False,
     }
 
-    batch_size = 16
+    batch_size = 24
     num_workers = 8
     prefetch_buffer = 10 * batch_size
     max_total_size = None
@@ -54,10 +54,6 @@ def config():
             'feature_extractor': {
                 'sample_rate': audio_reader['target_sample_rate'],
                 'fft_length': stft['size'],
-                # 'stft_scale_window': 100,
-                # 'stft_scale_eps': .1,
-                'scale_sigma': .8,
-                'mixup_prob': .5,
                 'n_mels': 128,
                 'warping_fn': {
                     'factory': MelWarping,
@@ -71,11 +67,6 @@ def config():
                         'scale': .5,
                         'truncation': 5.,
                     },
-                    # 'fhi_sampling_fn': {
-                    #     'factory': UniformSampler,
-                    #     'scale': (1. + fhi_excess_rate),
-                    #     'center': (1. + fhi_excess_rate) / 2,
-                    # },
                 },
                 'max_resample_rate': 1.,
                 'n_time_masks': 1,
@@ -93,44 +84,52 @@ def config():
                 'output_layer': False,
                 'kernel_size': 3,
                 'norm': 'batch',
-                # 'norm_kwargs': {
-                #     'interpolation_factor': 1.,
-                # },
                 'activation_fn': 'relu',
                 # 'pre_activation': True,
                 'dropout': .0,
             },
             'cnn_1d': {
-                'out_channels': 3*[256],
+                'out_channels': 3*[512],
                 # 'residual_connections': [None, 3, None],
                 'input_layer': False,
                 'output_layer': False,
                 'kernel_size': 3,
                 'norm': 'batch',
-                # 'norm_kwargs': {
-                #     'interpolation_factor': 1.,
-                # },
                 'activation_fn': 'relu',
                 # 'pre_activation': True,
                 'dropout': .0,
             },
             'rnn_fwd': {
-                'hidden_size': 256,
+                'hidden_size': 512,
                 'num_layers': 2,
                 'dropout': .0,
             },
-            'fcn_fwd': {
-                'hidden_size': 256,
-                'output_size': 527,
-                'activation': 'relu',
+            'clf_fwd': {
+                'out_channels': [512, 527],
+                'input_layer': False,
+                'kernel_size': 1,
+                'norm': 'batch',
+                'activation_fn': 'relu',
+                'dropout': .0,
+            },
+            'rnn_bwd': {
+                'hidden_size': 512,
+                'num_layers': 2,
+                'dropout': .0,
+            },
+            'clf_bwd': {
+                'out_channels': [512, 527],
+                'input_layer': False,
+                'kernel_size': 1,
+                'norm': 'batch',
+                'activation_fn': 'relu',
                 'dropout': .0,
             },
         },
         'optimizer': {
             'factory': Adam,
-            'lr': 5e-4,
-            'gradient_clipping': 10.,
-            'weight_decay': 1e-6,
+            'lr': 3e-4,
+            'gradient_clipping': 20.,
         },
         'storage_dir': storage_dir,
         'summary_trigger': (100, 'iteration'),
@@ -161,7 +160,7 @@ def train(
     trainer.test_run(train_iter, validation_iter)
 
     trainer.register_validation_hook(
-        validation_iter, metric='fscore', maximize=True
+        validation_iter, metric='macro_fscore', maximize=True
     )
 
     trainer.train(train_iter, resume=resume)

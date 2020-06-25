@@ -6,11 +6,12 @@ from padertorch.contrib.je.modules.augment import MelWarping, \
     LogTruncNormalSampler, TruncExponentialSampler
 from padertorch.contrib.je.modules.conv import CNN2d, CNN1d
 from padertorch.contrib.je.modules.features import NormalizedLogMelExtractor
-from padertorch.contrib.je.modules.global_pooling import Mean
+from padertorch.contrib.je.modules.global_pooling import Mean, TakeLast
 from padertorch.contrib.je.modules.rnn import GRU, reverse_sequence
-from padertorch.modules.fully_connected import fully_connected_stack
 from torch import nn
 from torchvision.utils import make_grid
+from padertorch.contrib.je.data.transforms import Collate
+from padercontrib.evaluation.event_detection import fscore, get_candidate_thresholds
 
 
 class WALNet(Model):
@@ -19,7 +20,7 @@ class WALNet(Model):
     >>> tagger = WALNet(sample_rate=44100, fft_length=2048, output_size=10)
     >>> inputs = {'stft': torch.zeros(4,1,128,1025,2), 'events': torch.zeros((4, 10)), 'seq_len': 4*[128]}
     >>> outputs = tagger(inputs)
-    >>> outputs[1].shape
+    >>> outputs[0][0].shape
     torch.Size([4, 10, 1])
     >>> review = tagger.review(inputs, outputs)
     """
@@ -29,8 +30,6 @@ class WALNet(Model):
         self.feature_extractor = NormalizedLogMelExtractor(
             n_mels=128, sample_rate=sample_rate, fft_length=fft_length,
             # augmentation
-            scale_sigma=.8,
-            mixup_prob=.5,
             warping_fn=MelWarping(
                 alpha_sampling_fn=LogTruncNormalSampler(
                     scale=0.07, truncation=np.log(1.3)
@@ -58,72 +57,59 @@ class WALNet(Model):
         x, seq_len = inputs['stft'], inputs['seq_len']
         x, *_ = self.feature_extractor(x, seq_len=seq_len)
         y, seq_len = self.cnn(x, seq_len=seq_len)
-        return x, nn.Sigmoid()(y.squeeze(2)), seq_len
-
-    @property
-    def decision_thresholds(self):
-        step = .1
-        return np.arange(step, 1., step).tolist()
+        return (nn.Sigmoid()(y.squeeze(2)), seq_len), x
 
     def review(self, inputs, outputs):
         # compute loss
-        y = inputs['events']
-        x, frame_probs, seq_len = outputs
+        targets = inputs['events']
+        (y, seq_len), x = outputs
 
-        seq_len = torch.Tensor(seq_len)[:, None, None].to(frame_probs.device)
-        idx = torch.arange(frame_probs.shape[-1]).to(x.device)
-        mask = (idx < seq_len.long()).float()
-        y_hat = (frame_probs * mask).sum(dim=-1) / seq_len.squeeze(-1)
-        bce = nn.BCELoss(reduction='none')(y_hat, y).sum(-1)
+        y = Mean(axis=-1)(y, seq_len)
+        bce = nn.BCELoss(reduction='none')(y, targets).sum(-1).mean()
 
         # create review including metrics and visualizations
         review = dict(
-            loss=bce.mean(),
+            loss=bce,
             scalars=dict(),
-            histograms=dict(
-                sequence_probs=y_hat.flatten()
-            ),
+            histograms=dict(),
             images=dict(
-                input=x[:3].flip(1).view((-1, x.shape[-1]))[None]
-            )
+                features=x[:3],
+            ),
+            buffers=dict(predictions=y.data.cpu().numpy(), targets=targets.data.cpu().numpy()),
         )
-
-        with torch.no_grad():
-            for threshold in self.decision_thresholds:
-                decision = (y_hat.detach() > threshold).float()
-                review['scalars'][f'tp_{threshold}'] = (decision * y).sum().cpu().data.numpy()
-                review['scalars'][f'fp_{threshold}'] = (decision * (1.-y)).sum().cpu().data.numpy()
-                review['scalars'][f'fn_{threshold}'] = ((1.-decision) * y).sum().cpu().data.numpy()
         return review
 
     def modify_summary(self, summary):
         # compute precision, recall and fscore
-        if 'tp_0.5' in summary['scalars']:
-            precisions = []
-            recalls = []
-            fscores = []
-            for threshold in self.decision_thresholds:
-                tp = np.sum(summary['scalars'].pop(f'tp_{threshold}'))
-                fp = np.sum(summary['scalars'].pop(f'fp_{threshold}'))
-                fn = np.sum(summary['scalars'].pop(f'fn_{threshold}'))
-                p = tp/max(tp+fp, 1)
-                r = tp/max(tp+fn, 1)
-                precisions.append(p)
-                recalls.append(r)
-                fscores.append(2*(p*r)/max(p+r, 1e-6))
-            best_idx = int(np.argmax(fscores))
-            summary['scalars']['precision'] = precisions[best_idx]
-            summary['scalars']['recall'] = recalls[best_idx]
-            summary['scalars']['fscore'] = fscores[best_idx]
-            summary['scalars']['threshold'] = self.decision_thresholds[best_idx]
+        if f'predictions' in summary['buffers']:
+            k = self.cnn.out_channels[-1]
+            predictions = np.array(summary['buffers'].pop('predictions')).reshape((-1, k))
+            targets = np.array(summary['buffers'].pop('targets')).reshape((-1, k))
+            candidate_thresholds = Collate()([
+                np.array(th)[np.linspace(0,len(th)-1,100).astype(np.int)]
+                for th in get_candidate_thresholds(targets, predictions)
+            ])
+            decisions = predictions > candidate_thresholds.T[:, None]
+            f, p, r = fscore(targets, decisions, event_wise=True)
+            best_idx = np.argmax(f, axis=0)
+            best_f = f[best_idx, np.arange(k)]
+            best_thresholds = candidate_thresholds[np.arange(k), best_idx]
+            summary['scalars'][f'macro_fscore'] = best_f.mean()
+            summary['scalars'][f'micro_fscore'] = fscore(
+                targets, predictions > best_thresholds
+            )[0]
 
         for key, scalar in summary['scalars'].items():
             summary['scalars'][key] = np.mean(scalar)
 
-        # normalize images
-        for image in summary['images'].values():
-            image -= image.min()
-            image /= image.max()
+        for key, image in summary['images'].items():
+            if image.dim() == 4 and image.shape[1] > 1:
+                image = image[:, 0]
+            if image.dim() == 3:
+                image = image.unsqueeze(1)
+            summary['images'][key] = make_grid(
+                image.flip(2),  normalize=True, scale_each=False, nrow=1
+            )
         return summary
 
 
@@ -133,7 +119,7 @@ class CRNN(Model):
             'cnn_2d': {'out_channels':[32,32,32], 'kernel_size': 3},\
             'cnn_1d': {'out_channels':[32,32], 'kernel_size': 3},\
             'rnn_fwd': {'hidden_size': 64},\
-            'fcn_fwd': {'hidden_size': 64, 'output_size': 10},\
+            'clf_fwd': {'out_channels':[32,10], 'kernel_size': 1},\
             'feature_extractor': {\
                 'sample_rate': 16000,\
                 'fft_length': 512,\
@@ -141,30 +127,30 @@ class CRNN(Model):
             },\
         })
     >>> crnn = CRNN.from_config(config)
-    >>> inputs = {'stft': torch.zeros((4, 1, 100, 257, 2)), 'seq_len': [70, 80, 90, 100], 'events': torch.zeros((4,10)), 'dataset':[0,1,1,0]}
+    >>> inputs = {'stft': torch.zeros((4, 1, 100, 257, 2)), 'seq_len': [100, 90, 80, 70], 'events': torch.zeros((4,10)), 'dataset':[0,1,1,0]}
     >>> outputs = crnn(inputs)
-    >>> outputs[0].shape
-    torch.Size([4, 100, 10])
+    >>> outputs[0][0].shape
+    torch.Size([4, 10, 100])
     >>> review = crnn.review(inputs, outputs)
     """
     def __init__(
             self, feature_extractor, cnn_2d, cnn_1d,
-            rnn_fwd, fcn_fwd, rnn_bwd, fcn_bwd,
+            rnn_fwd, clf_fwd, rnn_bwd, clf_bwd,
     ):
         super().__init__()
         self.feature_extractor = feature_extractor
         self._cnn_2d = cnn_2d
         self._cnn_1d = cnn_1d
         self._rnn_fwd = rnn_fwd
-        self._fcn_fwd = fcn_fwd
+        self._clf_fwd = clf_fwd
         self._rnn_bwd = rnn_bwd
-        self._fcn_bwd = fcn_bwd
+        self._clf_bwd = clf_bwd
 
     def cnn_2d(self, x, seq_len=None):
         if self._cnn_2d is not None:
             x, seq_len = self._cnn_2d(x, seq_len)
         if x.dim() != 3:
-            assert x.dim() == 4
+            assert x.dim() == 4, x.shape
             x = rearrange(x, 'b c f t -> b (c f) t')
         return x, seq_len
 
@@ -174,84 +160,100 @@ class CRNN(Model):
         return x, seq_len
 
     def fwd_classification(self, x, seq_len=None):
+        x = rearrange(x, 'b f t -> b t f')
         x = self._rnn_fwd(x, seq_len)
-        y = self._fcn_fwd(x)
-        return nn.Sigmoid()(y)
+        x = rearrange(x, 'b t f -> b f t')
+        y, seq_len_y = self._clf_fwd(x, seq_len)
+        return nn.Sigmoid()(y), seq_len_y
 
     def bwd_classification(self, x, seq_len=None):
+        x = rearrange(x, 'b f t -> b t f')
         x = reverse_sequence(
-            self._rnn_bwd(reverse_sequence(x, seq_len), seq_len),
-            seq_len
+            self._rnn_bwd(reverse_sequence(x, seq_len), seq_len), seq_len
         )
-        y = self._fcn_bwd(x)
-        return nn.Sigmoid()(y)
+        x = rearrange(x, 'b t f -> b f t')
+        y, seq_len_y = self._clf_bwd(x, seq_len)
+        return nn.Sigmoid()(y), seq_len_y
+
+    def predict(self, x, seq_len=None):
+        x, seq_len = self.feature_extractor(x, seq_len=seq_len)
+        h, seq_len = self.cnn_2d(x, seq_len)
+        h, seq_len = self.cnn_1d(h, seq_len)
+        y_fwd, seq_len_y = self.fwd_classification(h, seq_len=seq_len)
+        if self._rnn_bwd is not None:
+            y_bwd, _ = self.bwd_classification(h, seq_len=seq_len)
+        else:
+            y_bwd = None
+        return (y_fwd, y_bwd, seq_len_y), x
+
+    def prediction_pooling(self, y_fwd, y_bwd, seq_len):
+        if y_bwd is None:
+            y = TakeLast(axis=-1)(y_fwd, seq_len=seq_len)
+            seq_len = None
+        elif self.training:
+            y = torch.max(y_fwd, y_bwd)
+        else:
+            y = (TakeLast(axis=-1)(y_fwd, seq_len=seq_len) + y_bwd[:, ..., 0]) / 2
+            seq_len = None
+        return y, seq_len
 
     def forward(self, inputs):
         x = inputs['stft']
-        y = inputs['events']
-        seq_len = inputs['seq_len']
-        x, y, seq_len = self.feature_extractor(x, y, seq_len=seq_len)
-        h, seq_len = self.cnn_2d(x, seq_len)
-        h, seq_len = self.cnn_1d(h, seq_len)
-        h = rearrange(h, 'b f t -> b t f')
-        y_hat_fwd = self.fwd_classification(h, seq_len=seq_len)
-        y_hat_bwd = self.bwd_classification(h, seq_len=seq_len)
-        y_hat = torch.max(y_hat_fwd, y_hat_bwd)
-        return y_hat, y, x
+        seq_len = np.array(inputs['seq_len'])
 
-    @property
-    def decision_thresholds(self):
-        step = .1
-        return np.arange(step, 1., step).tolist()
+        (y_fwd, y_bwd, seq_len_y), x = self.predict(x, seq_len)
+
+        return (y_fwd, y_bwd, seq_len_y), x
 
     def review(self, inputs, outputs):
         # compute loss
-        y_hat, y, x = outputs
-        if y.dim() == 2:   # (B, K)
-            y = y.unsqueeze(1).expand(y_hat.shape)
-        assert y_hat.dim() == y.dim() == 3, (y_hat.shape, y.shape)
-        bce = nn.BCELoss(reduction='none')(y_hat, y).sum(-1)
-        bce = Mean(axis=-1)(bce, inputs['seq_len'])
+        (y_fwd, y_bwd, seq_len_y), x = outputs
+
+        y, seq_len_y = self.prediction_pooling(y_fwd, y_bwd, seq_len_y)
+        targets = inputs['events']
+
+        if y.dim() == 3 and targets.dim() == 2:   # (B, K)
+            targets = targets.unsqueeze(-1).expand(y.shape)
+        assert targets.dim() == y.dim(), (targets.shape, y.shape)
+        bce = nn.BCELoss(reduction='none')(y, targets).sum(1)
+        if bce.dim() > 1:
+            assert bce.dim() == 2, bce.shape
+            bce = Mean(axis=-1)(bce, seq_len_y)
+        bce = bce.mean()
+
+        if y.dim() == 3:
+            y = (TakeLast(axis=-1)(y_fwd, seq_len=seq_len_y) + y_bwd[:, ..., 0]) / 2
+            targets = targets.max(-1)[0]
         review = dict(
-            loss=bce.mean(),
-            scalars=dict(
-                mixup_prob=0. if self.feature_extractor.mixup is None
-                else self.feature_extractor.mixup.p
-            ),
+            loss=bce,
+            scalars=dict(),
             histograms=dict(),
             images=dict(
                 features=x[:3],
-            )
+            ),
+            buffers=dict(predictions=y.data.cpu().numpy(), targets=targets.data.cpu().numpy()),
         )
-
-        with torch.no_grad():
-            for threshold in self.decision_thresholds:
-                decision = (y_hat.detach() > threshold).float()
-                review['scalars'][f'tp_{threshold}'] = (decision * y).sum().cpu().data.numpy()
-                review['scalars'][f'fp_{threshold}'] = (decision * (1.-y)).sum().cpu().data.numpy()
-                review['scalars'][f'fn_{threshold}'] = ((1.-decision) * y).sum().cpu().data.numpy()
         return review
 
     def modify_summary(self, summary):
         # compute precision, recall and fscore
-        if 'tp_0.5' in summary['scalars']:
-            precisions = []
-            recalls = []
-            fscores = []
-            for threshold in self.decision_thresholds:
-                tp = np.sum(summary['scalars'].pop(f'tp_{threshold}'))
-                fp = np.sum(summary['scalars'].pop(f'fp_{threshold}'))
-                fn = np.sum(summary['scalars'].pop(f'fn_{threshold}'))
-                p = tp/max(tp+fp, 1)
-                r = tp/max(tp+fn, 1)
-                precisions.append(p)
-                recalls.append(r)
-                fscores.append(2*(p*r)/max(p+r, 1e-6))
-            best_idx = int(np.argmax(fscores))
-            summary['scalars']['precision'] = precisions[best_idx]
-            summary['scalars']['recall'] = recalls[best_idx]
-            summary['scalars']['fscore'] = fscores[best_idx]
-            summary['scalars']['threshold'] = self.decision_thresholds[best_idx]
+        if f'predictions' in summary['buffers']:
+            k = self._clf_fwd.out_channels[-1]
+            predictions = np.array(summary['buffers'].pop('predictions')).reshape((-1, k))
+            targets = np.array(summary['buffers'].pop('targets')).reshape((-1, k))
+            candidate_thresholds = Collate()([
+                np.array(th)[np.linspace(0,len(th)-1,100).astype(np.int)]
+                for th in get_candidate_thresholds(targets, predictions)
+            ])
+            decisions = predictions > candidate_thresholds.T[:, None]
+            f, p, r = fscore(targets, decisions, event_wise=True)
+            best_idx = np.argmax(f, axis=0)
+            best_f = f[best_idx, np.arange(k)]
+            best_thresholds = candidate_thresholds[np.arange(k), best_idx]
+            summary['scalars'][f'macro_fscore'] = best_f.mean()
+            summary['scalars'][f'micro_fscore'] = fscore(
+                targets, predictions > best_thresholds
+            )[0]
 
         for key, scalar in summary['scalars'].items():
             summary['scalars'][key] = np.mean(scalar)
@@ -272,7 +274,9 @@ class CRNN(Model):
         config['cnn_2d'] = {'factory': CNN2d}
         config['cnn_1d'] = {'factory': CNN1d}
         config['rnn_fwd'] = {'factory': GRU}
-        config['fcn_fwd'] = {'factory': fully_connected_stack}
+        config['clf_fwd'] = {'factory': CNN1d}
+        config['rnn_bwd'] = {'factory': GRU}
+        config['clf_bwd'] = {'factory': CNN1d}
         input_size = config['feature_extractor']['n_mels']
         if config['cnn_2d'] is not None and input_size is not None:
             config['cnn_2d']['in_channels'] = 1
@@ -297,10 +301,31 @@ class CRNN(Model):
 
             if input_size is not None:
                 config['rnn_fwd']['input_size'] = input_size
+
+        if config['rnn_bwd'] is not None:
+            if config['rnn_fwd'] is not None and config['rnn_bwd']['factory'] == config['rnn_fwd']['factory']:
+                config['rnn_bwd'].update(config['rnn_fwd'].to_dict())
+            elif config['rnn_bwd']['factory'] == GRU:
+                config['rnn_bwd'].update({
+                    'num_layers': 1,
+                    'bias': True,
+                    'dropout': 0.,
+                    'bidirectional': False
+                })
+
+            if input_size is not None:
+                config['rnn_bwd']['input_size'] = input_size
+
+        if config['rnn_fwd'] is not None:
             input_size = config['rnn_fwd']['hidden_size']
+        elif config['rnn_bwd'] is not None:
+            input_size = config['rnn_bwd']['hidden_size']
 
-        if config['fcn_fwd'] is not None:
-            config['fcn_fwd']['input_size'] = input_size
+        if config['clf_fwd'] is not None and config['clf_fwd']['factory'] == CNN1d:
+            config['clf_fwd']['in_channels'] = input_size
 
-        config['rnn_bwd'] = config['rnn_fwd']
-        config['fcn_bwd'] = config['fcn_fwd']
+        if config['clf_bwd'] is not None:
+            if config['clf_fwd'] is not None and config['clf_bwd']['factory'] == config['clf_fwd']['factory']:
+                config['clf_bwd'].update(config['clf_fwd'].to_dict())
+            elif config['clf_bwd']['factory'] == CNN1d:
+                config['clf_bwd']['in_channels'] = input_size

@@ -25,7 +25,7 @@ def main():
         optimizer=optimizer.Adam(lr=3e-4, gradient_clipping=60.),
         storage_dir=storage_dir,
         summary_trigger=(100, 'iteration'),
-        stop_trigger=(20000, 'iteration'),
+        stop_trigger=(50000, 'iteration'),
         checkpoint_trigger=(1000, 'iteration')
     )
     training_data, validation_data = get_datasets(
@@ -34,7 +34,9 @@ def main():
         num_workers=8, batch_size=24, max_padding_rate=.1,
         storage_dir=storage_dir
     )
-    trainer.register_validation_hook(validation_data)
+    trainer.register_validation_hook(
+        validation_data, metric='macro_fscore', maximize=True
+    )
 
     trainer.test_run(training_data, validation_data)
     trainer.train(training_data)

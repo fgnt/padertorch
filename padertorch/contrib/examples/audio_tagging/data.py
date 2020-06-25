@@ -3,6 +3,8 @@ from padercontrib.database.audio_set import AudioSet
 from padertorch.contrib.je.data.transforms import (
     AudioReader, STFT, MultiHotLabelEncoder, Collate
 )
+from padertorch.contrib.je.data.mixup import MixUpDataset, SuperposeEvents
+from padertorch.contrib.je.modules.augment import LogTruncNormalSampler
 
 
 def get_datasets(
@@ -15,53 +17,67 @@ def get_datasets(
     training_set = db.get_dataset('balanced_train')
 
     event_encoder = MultiHotLabelEncoder(
-        label_key='events', storage_dir=storage_dir, to_array=True,
+        label_key='events', storage_dir=storage_dir,
     )
     event_encoder.initialize_labels(dataset=training_set, verbose=True)
-    training_set = training_set.map(event_encoder)
 
-    validation_set = db.get_dataset('validate').map(event_encoder)
     kwargs = dict(
-        audio_reader=audio_reader, stft=stft,
+        audio_reader=audio_reader, stft=stft, event_encoder=event_encoder,
         num_workers=num_workers, batch_size=batch_size,
         max_padding_rate=max_padding_rate,
     )
 
     return (
         prepare_dataset(training_set, training=True, **kwargs),
-        prepare_dataset(validation_set, **kwargs),
+        prepare_dataset(db.get_dataset('validate'), **kwargs),
     )
 
 
 def prepare_dataset(
         dataset,
-        audio_reader, stft,
+        audio_reader, stft, event_encoder,
         num_workers, batch_size, max_padding_rate,
         training=False,
 ):
 
     dataset = dataset.filter(lambda ex: 10.1 > ex['audio_length'] > 1.3, lazy=False)
 
-    if training:
-        dataset = dataset.shuffle(reshuffle=True)
     audio_reader = AudioReader(**audio_reader)
+
+    def normalize(example):
+        example['audio_data'] -= example['audio_data'].mean(-1, keepdims=True)
+        example['audio_data'] = example['audio_data'].mean(0, keepdims=True)
+        example['audio_data'] /= np.abs(example['audio_data']).max() + 1e-3
+        return example
+    dataset = dataset.map(audio_reader).map(normalize)
+
+    if training:
+        def random_scale(example):
+            c = example['audio_data'].shape[0]
+            scales = LogTruncNormalSampler(scale=1., truncation=3.)(c)[:, None]
+            example['audio_data'] *= scales
+            return example
+        dataset = dataset.map(random_scale)
+        dataset = MixUpDataset(dataset, dataset, p=[1/2, 1/2]).map(
+            SuperposeEvents(
+                audio_reader.target_sample_rate, min_overlap=.8, max_length=12.
+            )
+        )
+        dataset = dataset.shuffle(reshuffle=True)
+
     stft = STFT(**stft)
-    dataset = dataset.map(audio_reader).map(stft)
+    dataset = dataset.map(stft).map(event_encoder)
 
     def finalize(example):
-        return [
-            {
-                'example_id': example['example_id'],
-                'stft': features[None].astype(np.float32),
-                'seq_len': features.shape[0],
-                'events': example['events'].astype(np.float32),
-            }
-            for features in example['stft']
-        ]
+        return {
+            'example_id': example['example_id'],
+            'stft': example['stft'].astype(np.float32),
+            'seq_len': example['stft'].shape[1],
+            'events': example['events'].astype(np.float32),
+        }
 
     dataset = dataset.map(finalize)\
-        .prefetch(num_workers, 10*batch_size, catch_filter_exception=True)\
-        .unbatch()
+        .prefetch(num_workers, 10*batch_size, catch_filter_exception=True)
 
     if training:
         dataset = dataset.shuffle(
