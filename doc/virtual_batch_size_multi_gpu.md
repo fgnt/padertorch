@@ -14,7 +14,7 @@ The `padertorch.Trainer` will not recognice this kind of minibatch size, because
 dataset = do_batching(dataset)                      # <-----
 for batch in dataset:                             # <-----
     batch = model.example_to_device(batch)
-    review = model.review(example, model(batch))  # <-----
+    review = model.review(batch, model(batch))  # <-----
     loss = loss_from_review(review)
     report_to_tensorboard(review)
     loss.backward()
