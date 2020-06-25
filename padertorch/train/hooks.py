@@ -223,7 +223,7 @@ class SummaryHook(TriggeredHook):
             self.summary['histograms'][key] = \
                 self.summary['histograms'][key][-1000000:]
         for key, buffer in popped_review.pop('buffers', dict()).items():
-            self.summary['buffers'][key].extend(self._detach(buffer))
+            self.summary['buffers'][key].extend(self._to_list(self._detach(buffer)))
         for key, snapshot in popped_review.pop('snapshots', dict()).items():
             self.summary['snapshots'][key] = self._detach(snapshot)  # snapshot
         for key, audio in popped_review.pop('audios', dict()).items():
@@ -673,13 +673,13 @@ class BackOffValidationHook(ValidationHook):
         latest_symlink_path.symlink_to(best_ckpt)
 
         best_iter = int(best_ckpt[len('ckpt_'): -len('.pth')])
-        for j in range(1, len(self.ckpt_ranking)):
-            ckpt = self.ckpt_ranking[-j][0]
+        for j in range(len(self.ckpt_ranking)-1, 0):
+            ckpt = self.ckpt_ranking[j][0]
             if int(ckpt[len('ckpt_'): -len('.pth')]) > best_iter:
                 ckpt_path = ckpt_dir / ckpt
                 if ckpt_path.exists():  # latest checkpoint does not exist because it is written after validation
                     ckpt_path.unlink()
-                    self.ckpt_ranking.pop(-j)
+                    self.ckpt_ranking.pop(j)
 
         remaining_back_offs = self.remaining_back_offs
         trainer.load_checkpoint()
@@ -863,7 +863,6 @@ class AnnealingHook(TriggeredHook):
         self.unit = unit
         self.name = name
         self.scale = None
-        self.last_break = None
 
     @property
     def uid(self):
@@ -877,29 +876,31 @@ class AnnealingHook(TriggeredHook):
 
     def pre_step(self, trainer):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
-            if self.last_break is None:
+            if self.scale is None:
                 self.scale = self.get_value(trainer)
-                self.last_break = (0, 1)
             if self.unit == "iteration":
                 x = trainer.iteration
             elif self.unit == "epoch":
                 x = trainer.epoch
             else:
                 raise ValueError(f'{self.unit} is not a valid unit.')
-            while len(self.breakpoints) > 0 and self.breakpoints[0][0] <= x:
-                self.last_break = self.breakpoints.pop(0)
-            if len(self.breakpoints) > 0:
+            last_break = (0, 1.)
+            i = 0
+            while len(self.breakpoints) > i and self.breakpoints[i][0] <= x:
+                last_break = self.breakpoints[i]
+                i += 1
+            if len(self.breakpoints) > i:
                 slope = (
-                    (self.breakpoints[0][1]-self.last_break[1])
-                    / (self.breakpoints[0][0]-self.last_break[0])
+                    (self.breakpoints[i][1] - last_break[1])
+                    / (self.breakpoints[i][0] - last_break[0])
                 )  # a = (y1 - y0) / (x1 - x0)
                 value = (
-                    self.last_break[1]
-                    + slope * (x - self.last_break[0])
+                    last_break[1] + slope * (x - last_break[0])
                 )  # y = y0 + a * (x - x0)
                 value *= self.scale  # relative to absolute
+                self.set_value(trainer, value)
             else:
-                value = self.last_break[1] * self.scale
+                value = self.breakpoints[-1][1] * self.scale
             self.set_value(trainer, value)
 
 
