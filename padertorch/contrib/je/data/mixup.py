@@ -1,11 +1,10 @@
 from lazy_dataset import Dataset, FilterException
 import numpy as np
 import numbers
-from paderbox.transform.module_stft import STFT
 
 
 class MixUpDataset(Dataset):
-    def __init__(self, input_dataset, mixin_dataset, p, mixin_keys=None, mixup_fn=None):
+    def __init__(self, input_dataset, mixin_dataset, p, mixin_keys=None):
         """
         Combines examples from input_dataset and mixin_dataset into tuples.
 
@@ -25,7 +24,6 @@ class MixUpDataset(Dataset):
             self.mixin_keys = {
                 key: sorted(keys) for key, keys in mixin_keys.items()
             }
-        self.mixup_fn = mixup_fn
 
     def __len__(self):
         return len(self.input_dataset)
@@ -43,7 +41,6 @@ class MixUpDataset(Dataset):
             mixin_dataset=self.mixin_dataset.copy(freeze=freeze),
             p=self.p,
             mixin_keys=self.mixin_keys,
-            mixup_fn=self.mixup_fn,
         )
 
     @property
@@ -68,25 +65,17 @@ class MixUpDataset(Dataset):
         else:
             mixin_idx = []
         components = [self.input_dataset[item]] + [self.mixin_dataset[mixin_keys[i]] for i in mixin_idx]
-        if self.mixup_fn is not None:
-            return self.mixup_fn(components)
         return components
 
 
-class EventMixup:
-    def __init__(self, sample_rate, min_overlap=1, max_length=None, stft: STFT=None):
+class SuperposeEvents:
+    def __init__(self, sample_rate, min_overlap=1, max_length=None):
         self.sample_rate = sample_rate
         self.min_overlap = min_overlap
         self.max_length = max_length
-        self.stft = stft
 
     def __call__(self, components):
         assert len(components) > 0
-        if len(components) == 1:
-            return components[0]
-
-        events = components[0]['events']
-
         start_indices = [0]
         stop_indices = [components[0]['audio_data'].shape[-1]]
         for comp in components[1:]:
@@ -113,21 +102,26 @@ class EventMixup:
         mixed_audio = np.zeros((*components[0]['audio_data'].shape[:-1], stop_indices.max()))
         for comp, start, stop in zip(components, start_indices, stop_indices):
             mixed_audio[..., start:stop] += comp['audio_data']
-            events += comp['events']
         mix = {
-            'example_id': components[0]['example_id'],
-            'dataset': components[0]['dataset'],
-            'labeled': all([comp['labeled'] for comp in components]),
+            'example_id': '+'.join([comp['example_id'] for comp in components]),
             'audio_data': mixed_audio,
             'audio_length': mixed_audio.shape[-1] / self.sample_rate,
-            'events': (events > 0.5).astype(np.float32),
+            'events': [event for comp in components for event in comp['events']],
+            'dataset': '+'.join([comp['dataset'] for comp in components])
         }
-        if 'events_ali' in components[0]:
-            n_frames = self.stft.samples_to_frames(mixed_audio.shape[-1])
-            events_ali = np.zeros((n_frames, components[0]['events_ali'].shape[-1])).astype(np.float32)
-            for comp, start, stop in zip(components, start_indices, stop_indices):
-                start = int(start/self.stft.shift)
-                stop = start + len(comp['events_ali'])
-                events_ali[start:stop] += comp['events_ali']
-            mix['events_ali'] = (events_ali > .5).astype(np.float32)
+        if "events_start_times" in components[0]:
+            mix["events_start_times"] = [
+                mixin_start_sample/self.sample_rate + event_start_time
+                for mixin_start_sample, comp in zip(start_indices, components)
+                for event_start_time in comp['events_start_times']
+            ]
+        if "events_stop_times" in components[0]:
+            mix["events_stop_times"] = [
+                mixin_start_sample/self.sample_rate + event_stop_time
+                for mixin_start_sample, comp in zip(start_indices, components)
+                for event_stop_time in comp['events_stop_times']
+            ]
+        for key in components[0].keys():
+            if key not in mix:
+                mix[key] = [comp[key] for comp in components]
         return mix
