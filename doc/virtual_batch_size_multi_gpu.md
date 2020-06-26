@@ -7,13 +7,13 @@ Note: The code examples here should be interpreted as pseudo code, i.e. they sho
 In `padertorch` you have two options to use a minibatch size for your model.
 
 The first possibility is to include the batching in your train dataset (i.e., batch multiple examples together inside of your data preprocessing).
-In this case, batching is only handled in the data preprocessing and the `padertorch.Trainer` will not know about the batch size or that the batching even takes place.
+In this case, batching is only handled in the data preprocessing and the `padertorch.Trainer` will not know about the minibatch size or that the batching even takes place.
 It simply fetches examples from the dataset and forwards them to the model.
 The model has know how to work on a batch of multiple examples and potentially perform padding.
 
 ```python
-dataset = do_batching(dataset)                      # <-----
-for batch in dataset:                             # <-----
+dataset = do_batching(dataset)                  # <-----
+for batch in dataset:                           # <-----
     batch = model.example_to_device(batch)
     review = model.review(batch, model(batch))  # <-----
     loss = loss_from_review(review)
@@ -29,7 +29,7 @@ The second option is the `virtual_minibatch_size` argument of `padertorch.Traine
 This option increases the (physical) minibatch size without changing your dataset or your model.
 In this case, the trainer sequentially passes multiple examples or batches to the model before performing the optimizer step.
 Each example/batch in the virtual minibatch size is handled independently by the model.
-This option is similar to `accum_grad` from ESPnet when using a single GPU.
+This option is similar to `accum_grad` from [ESPnet](https://github.com/espnet/espnet/blob/4073e00143e16a6e268b7b5da024cf1db3cf81a1/espnet2/train/trainer.py#L56) when using a single GPU.
 
 ```python
 i = 0                                               # <-----
@@ -51,7 +51,7 @@ The effective minibatch size for the optimizer will be the dataset minibatch siz
 Since the virtual minibatch size handles each fetched example from the iterator independently, the batch size will be the minibatch that is used to produce the dataset for operations that work over the minibatch axis (e.g., batch normalization) , *NOT* the virtual batch size.
 
 ## Why use (Virtual) minibatch size?
-There are multiple practicyl and theoretical reasons for using a (virtual) minibatch.
+There are multiple practically and theoretical reasons for using a (virtual) minibatch.
 Here, we will limit us to practical aspects and argue why you may want to use the minibatch size in your dataset or in the trainer.
 
 When you increase the minibatch size in your dataset in many cases you will observe that the runtime on a GPU only slightly increases.
@@ -73,7 +73,7 @@ With this, you can use the same model (i.e., without wrapping in `torch.nn.DataP
 
 Note: The implementation of multiple GPUs is based on `torch.nn.DataPatallel`, i.e., we use the functions that are used in that class, but in a slightly different way.
 
-Here is some peudo code how we use multiple GPUs:
+Here is some peudo code how we use multiple (here two) GPUs:
 
 ```python
 def parallel_task(model, example, devive):              # <-----
@@ -119,4 +119,4 @@ We use the functions that are also used in `torch.nn.DataParallel`. However, ins
 First, we do not need to use `scatter` to split the example. We simply take two consecutive examples from the dataset.
 In contrast to `torch.nn.DataParallel`, which moves all data to a single GPU before scattering (two data transfers between devices), this allows us to directly transfer the data to the GPU that requires it (only one data transfer between devices).
 The calls to `replicate` and `parallel_apply` are the same for both.
-For the `gather` operation, we only need to gather the loss and report the remaining stuff directly to tensorboardX. In `torch.nn.DataParallel` erverything has to be gathered (again, a little less overhead for copying data between devices).
+For the `gather` operation, we only need to gather the loss and report the remaining stuff directly to tensorboardX. In `torch.nn.DataParallel` everything has to be gathered (again, a little less overhead for copying data between devices).
