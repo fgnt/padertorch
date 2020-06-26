@@ -374,7 +374,7 @@ class Noise(nn.Module):
     def forward(self, x):
         if self.training:
             B = x.shape[0]
-            scale = torch.rand(B) * self.max_scale
+            scale = torch.rand(B).to(x.device) * self.max_scale
             x = x + scale[(...,) + (x.dim()-1)*(None,)] * torch.randn_like(x)
         return x
 
@@ -398,14 +398,21 @@ class GaussianBlur2d(nn.Module):
         - Input: :math:`(B, C, H, W)`
         - Output: :math:`(B, C, H, W)`
     Examples::
-        >>> x = torch.zeros(2, 1, 5, 5)
+        >>> x = torch.zeros(3, 1, 5, 5)
         >>> x[:,:, 2, 2] = 1
-        >>> blur = GaussianBlur2d(3, lambda n: [1., 2.])
+        >>> blur = GaussianBlur2d(5, lambda n: [.5, 1., 2.])
         >>> output = blur(x)
         >>> output.shape
-        torch.Size([2, 1, 5, 5])
+        torch.Size([3, 1, 5, 5])
         >>> output
         tensor([[[[0.0000, 0.0000, 0.0000, 0.0000, 0.0000],
+                  [0.0000, 0.0113, 0.0838, 0.0113, 0.0000],
+                  [0.0000, 0.0838, 0.6193, 0.0838, 0.0000],
+                  [0.0000, 0.0113, 0.0838, 0.0113, 0.0000],
+                  [0.0000, 0.0000, 0.0000, 0.0000, 0.0000]]],
+        <BLANKLINE>
+        <BLANKLINE>
+                [[[0.0000, 0.0000, 0.0000, 0.0000, 0.0000],
                   [0.0000, 0.0751, 0.1238, 0.0751, 0.0000],
                   [0.0000, 0.1238, 0.2042, 0.1238, 0.0000],
                   [0.0000, 0.0751, 0.1238, 0.0751, 0.0000],
@@ -431,7 +438,7 @@ class GaussianBlur2d(nn.Module):
     def __repr__(self) -> str:
         return self.__class__.__name__ +\
             '(kernel_size=' + str(self.kernel_size) + ', ' +\
-            'sigma=' + str(self.sigma) + ', ' +\
+            'sigma_sampling_fn=' + repr(self.sigma_sampling_fn) + ', ' +\
             'border_type=' + self.pad_mode + ')'
 
     def forward(self, x):
@@ -445,9 +452,9 @@ class GaussianBlur2d(nn.Module):
         # pad the input tensor
         x = Pad(mode=self.pad_mode, side='both')(x, size=self.kernel_size-1)
         b, c, hp, wp = x.shape
-        # convolve the tensor with the kernel. Pick the fastest alg
-        sigma = self.sigma_sampling_fn(b)
-        kernel = get_gaussian_kernel2d(self.kernel_size, sigma).unsqueeze(1)
+        # convolve the tensor with the kernel.
+        sigma = torch.from_numpy(np.array(self.sigma_sampling_fn(b))).float()
+        kernel = get_gaussian_kernel2d(self.kernel_size, sigma).unsqueeze(1).to(x.device)
         return F.conv2d(
             x.transpose(0, 1), kernel, groups=b, padding=0, stride=1
         ).transpose(0, 1)
@@ -528,9 +535,8 @@ def gaussian(window_size, sigma):
     Returns:
 
     """
-    sigma = np.array(sigma)
     x = torch.arange(window_size).float() - window_size // 2
-    if sigma.ndim > 0:
+    if torch.is_tensor(sigma) and sigma.dim() > 0:
         sigma = sigma[..., None]
     if window_size % 2 == 0:
         x = x + 0.5

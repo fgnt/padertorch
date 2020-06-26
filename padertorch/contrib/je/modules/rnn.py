@@ -1,7 +1,6 @@
 from torch import nn
 import torch
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-import numpy as np
 from padertorch.contrib.je.modules.global_pooling import compute_mask
 
 
@@ -25,16 +24,12 @@ class RNN(nn.Module):
 
     def forward(self, x, seq_len=None):
         if seq_len is not None:
-            sort_idx = np.argsort(seq_len)[::-1].tolist()
-            reverse_sort_idx = np.zeros_like(sort_idx)
-            reverse_sort_idx[sort_idx] = np.arange(len(sort_idx)).astype(np.int)
             x = pack_padded_sequence(
-                x[sort_idx], seq_len[sort_idx], batch_first=self._rnn.batch_first
+                x, seq_len, batch_first=self._rnn.batch_first
             )
         x, _ = self._rnn(x)
         if seq_len is not None:
             x = pad_packed_sequence(x, batch_first=self._rnn.batch_first)[0]
-            x = x[reverse_sort_idx.tolist()]
         return x
 
 
