@@ -223,7 +223,7 @@ class SummaryHook(TriggeredHook):
             self.summary['histograms'][key] = \
                 self.summary['histograms'][key][-1000000:]
         for key, buffer in popped_review.pop('buffers', dict()).items():
-            self.summary['buffers'][key].extend(self._to_list(self._detach(buffer)))
+            self.summary['buffers'][key].append(self._detach(buffer))
         for key, snapshot in popped_review.pop('snapshots', dict()).items():
             self.summary['snapshots'][key] = self._detach(snapshot)  # snapshot
         for key, audio in popped_review.pop('audios', dict()).items():
@@ -673,7 +673,7 @@ class BackOffValidationHook(ValidationHook):
         latest_symlink_path.symlink_to(best_ckpt)
 
         best_iter = int(best_ckpt[len('ckpt_'): -len('.pth')])
-        for j in range(len(self.ckpt_ranking)-1, 0):
+        for j in reversed(range(len(self.ckpt_ranking))):
             ckpt = self.ckpt_ranking[j][0]
             if int(ckpt[len('ckpt_'): -len('.pth')]) > best_iter:
                 ckpt_path = ckpt_dir / ckpt
