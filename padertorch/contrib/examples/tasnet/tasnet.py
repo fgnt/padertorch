@@ -27,7 +27,7 @@ class TasNet(pt.Model):
             intra_chunk_type: str = 'blstm',
             num_speakers: int = 2,
             additional_out_size: int = 0,
-            sample_rate=self.sample_rate,
+            sample_rate=8000,
     ):
         """
         Args:
