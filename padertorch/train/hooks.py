@@ -729,7 +729,7 @@ class LRSchedulerHook(TriggeredHook):
 
     def pre_step(self, trainer: 'pt.Trainer'):
         if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
-            if trainer.epoch > 0 or not self.PYTORCH_ge_1_1:
+            if trainer.iteration > 0 or not self.PYTORCH_ge_1_1:
                 self.lr_scheduler.step()
 
     def set_last(self, iteration, epoch):
