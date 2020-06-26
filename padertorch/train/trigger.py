@@ -141,6 +141,51 @@ class EndTrigger(IntervalTrigger):
             raise ValueError(self.unit, 'Expect epoch or iteration')
 
 
+class NotTrigger(Trigger):
+    """
+        >>> trigger = NotTrigger(EndTrigger(2, 'epoch'))
+        >>> for i in range(10):
+        ...     epoch = i // 3
+        ...     print(i, epoch, trigger(i, epoch))
+        0 0 True
+        1 0 True
+        2 0 True
+        3 1 True
+        4 1 True
+        5 1 True
+        6 2 False
+        7 2 False
+        8 2 False
+        9 3 False
+        >>> trigger = NotTrigger(EndTrigger(5, 'iteration'))
+        >>> for i in range(10):
+        ...     epoch = i // 3
+        ...     print(i, epoch, trigger(i, epoch))
+        0 0 True
+        1 0 True
+        2 0 True
+        3 1 True
+        4 1 True
+        5 1 False
+        6 2 False
+        7 2 False
+        8 2 False
+        9 3 False
+    """
+
+    def __init__(self, trigger):
+        self.trigger = IntervalTrigger.new(trigger)
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}({self.trigger})'
+
+    def __call__(self, iteration, epoch):
+        return not self.trigger(iteration, epoch)
+
+    def set_last(self, iteration, epoch):
+        self.trigger.set_last(iteration=iteration, epoch=epoch)
+
+
 class AnyTrigger(Trigger):
     """Used to combine triggers. Triggers, when any trigger triggers.
 

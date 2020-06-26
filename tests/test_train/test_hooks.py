@@ -210,6 +210,69 @@ A common workaround is to use `grad_norm` for the scalar and append an `_` for t
     unittest.TestCase().assertMultiLineEqual(expect, str(excinfo.value))
 
 
+class DummyModel(pt.Model):
+    def __init__(self, validation_losses, exp_dir, optimizer):
+        super().__init__()
+        self.lin = torch.nn.Linear(10, 10)
+
+        self.validation_losses = validation_losses
+        self.n = -1
+        self.exp_dir = Path(exp_dir) / 'checkpoints'
+        self.ckpt_log = []
+        self.optimizer = optimizer
+        self.lr_log = []
+
+    def forward(self, inputs):
+        return inputs
+
+    def review(self, inputs, outputs):
+        if self.training:
+            l = torch.Tensor([0])
+            l.requires_grad = True
+            return {
+                'loss': l.sum()
+            }
+        else:
+            self.ckpt_log.append(
+                [ckpt.name for ckpt in sorted(self.exp_dir.glob('*.pth'))]
+            )
+            self.lr_log.append(self.optimizer.optimizer.param_groups[0]['lr'])
+            self.n += 1
+            l = torch.Tensor([self.validation_losses[self.n]])
+            l.requires_grad = True
+            return {
+                'loss': l.sum()
+            }
+
+
+def test_backoff():
+    ds = [0]
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        optimizer = pt.optimizer.Adam()
+        model = DummyModel([3, 2, 1, 0, 1, 1, 1, 1, 1, 1], tmp_dir, optimizer)
+        trainer = pt.Trainer(
+            model, tmp_dir, optimizer, stop_trigger=(10, 'epoch')
+        )
+        trainer.register_validation_hook(
+            ds, max_checkpoints=None,
+            n_back_off=1, back_off_patience=2, early_stopping_patience=2
+        )
+        trainer.train(ds)
+    assert model.ckpt_log == [
+        [],
+        ['ckpt_0.pth', 'ckpt_best_loss.pth', 'ckpt_latest.pth'],
+        ['ckpt_0.pth', 'ckpt_1.pth', 'ckpt_best_loss.pth', 'ckpt_latest.pth'],
+        ['ckpt_0.pth', 'ckpt_1.pth', 'ckpt_2.pth', 'ckpt_best_loss.pth', 'ckpt_latest.pth'],
+        ['ckpt_0.pth', 'ckpt_1.pth', 'ckpt_2.pth', 'ckpt_3.pth', 'ckpt_best_loss.pth', 'ckpt_latest.pth'],
+        ['ckpt_0.pth', 'ckpt_1.pth', 'ckpt_2.pth', 'ckpt_3.pth', 'ckpt_4.pth', 'ckpt_best_loss.pth', 'ckpt_latest.pth'],
+        ['ckpt_0.pth', 'ckpt_1.pth', 'ckpt_2.pth', 'ckpt_3.pth', 'ckpt_4.pth', 'ckpt_5.pth', 'ckpt_best_loss.pth', 'ckpt_latest.pth'],
+        ['ckpt_0.pth', 'ckpt_1.pth', 'ckpt_2.pth', 'ckpt_3.pth', 'ckpt_best_loss.pth', 'ckpt_latest.pth'],
+        ['ckpt_0.pth', 'ckpt_1.pth', 'ckpt_2.pth', 'ckpt_3.pth', 'ckpt_4.pth', 'ckpt_best_loss.pth', 'ckpt_latest.pth'],
+        ['ckpt_0.pth', 'ckpt_1.pth', 'ckpt_2.pth', 'ckpt_3.pth', 'ckpt_4.pth', 'ckpt_5.pth', 'ckpt_best_loss.pth', 'ckpt_latest.pth'],
+    ]
+    assert model.lr_log == 7*[0.001]+3*[0.0001]
+
+
 def test_loss_weight_annealing_hook():
     class DummyTrainer:
         epoch = 0
