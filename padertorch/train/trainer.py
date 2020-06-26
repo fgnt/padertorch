@@ -575,7 +575,7 @@ class Trainer(Configurable):
                 'review': review,
             })
             raise RuntimeError(
-                f"The loss ({review['loss']}) is not finite.\n"
+                f"The loss ({loss}) is not finite.\n"
                 f"See error states (model, example, model_out and review) in "
                 f"{log_path_pattern}."
             )
