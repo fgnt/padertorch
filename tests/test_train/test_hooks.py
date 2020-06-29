@@ -338,3 +338,61 @@ def test_lr_annealing_hook():
         values.append(trainer.optimizer.optimizer.param_groups[0]['lr'])
     expected_values = np.linspace(0, .1, 6).tolist() + np.linspace(.08, 0, 5).tolist() + [0]
     pb.testing.assert_almost_equal(values, expected_values)
+
+
+def test_LRSchedulerHook():
+    class DummyLRScheduler:
+        def __init__(self):
+            self.calls_iteration = []
+            self.calls_epoch = []
+        def step(self):
+            self.calls_iteration.append(trainer.iteration)
+            self.calls_epoch.append(trainer.epoch)
+
+    class DummyTrainer:
+        epoch = 0
+        iteration = 0
+
+    lr_scheduler = DummyLRScheduler()
+    hook = pt.train.hooks.LRSchedulerHook(lr_scheduler, (1, 'epoch'))
+    trainer = DummyTrainer()
+    hook.PYTORCH_ge_1_1 = True
+    for i in range(12):
+        trainer.iteration = i
+        trainer.epoch = i // 3
+        hook.pre_step(trainer)
+    assert lr_scheduler.calls_iteration == [3, 6, 9]
+    assert lr_scheduler.calls_epoch == [1, 2, 3]
+
+    lr_scheduler = DummyLRScheduler()
+    hook = pt.train.hooks.LRSchedulerHook(lr_scheduler, (1, 'epoch'))
+    trainer = DummyTrainer()
+    hook.PYTORCH_ge_1_1 = False
+    for i in range(12):
+        trainer.iteration = i
+        trainer.epoch = i // 3
+        hook.pre_step(trainer)
+    assert lr_scheduler.calls_iteration == [0, 3, 6, 9]
+    assert lr_scheduler.calls_epoch == [0, 1, 2, 3]
+
+    lr_scheduler = DummyLRScheduler()
+    hook = pt.train.hooks.LRSchedulerHook(lr_scheduler, (2, 'iteration'))
+    trainer = DummyTrainer()
+    hook.PYTORCH_ge_1_1 = True
+    for i in range(12):
+        trainer.iteration = i
+        trainer.epoch = i // 3
+        hook.pre_step(trainer)
+    assert lr_scheduler.calls_iteration == [2, 4, 6, 8, 10]
+    assert lr_scheduler.calls_epoch == [0, 1, 2, 2, 3]
+
+    lr_scheduler = DummyLRScheduler()
+    hook = pt.train.hooks.LRSchedulerHook(lr_scheduler, (2, 'iteration'))
+    trainer = DummyTrainer()
+    hook.PYTORCH_ge_1_1 = False
+    for i in range(12):
+        trainer.iteration = i
+        trainer.epoch = i // 3
+        hook.pre_step(trainer)
+    assert lr_scheduler.calls_iteration == [0, 2, 4, 6, 8, 10]
+    assert lr_scheduler.calls_epoch == [0, 0, 1, 2, 2, 3]
