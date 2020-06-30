@@ -16,8 +16,7 @@ class TestSTFTMethods(unittest.TestCase):
     window = 'blackman'
     fading = 'full'
 
-    @classmethod
-    def setUpClass(self):
+    def setUp(self):
         path = get_file_path("sample.wav")
 
         self.time_signal = load_audio(path)
