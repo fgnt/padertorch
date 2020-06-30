@@ -186,7 +186,7 @@ class STFT:
                               complex_representation='concat')
         >>> torch_signal = torch_stft.inverse(stft_signal)
         >>> torch_signal.shape
-        torch.Size([2, 4, 220])
+        torch.Size([2, 4, 180])
         >>> from paderbox.transform import istft
         >>> signal_np = stft_signal.numpy()
         >>> complex_signal = signal_np[..., :257] + 1j* signal_np[..., 257:]
