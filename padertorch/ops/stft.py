@@ -61,17 +61,23 @@ class STFT:
             complex_representation: str = 'complex'
     ):
         """
-
+        This is a torch stft implementation which mirrors the behavior of
+        the numpy implementation in paderbox.transform.stft.
+        For additional informations about the parameters please refer to
+        the numpy implementation.
         Args:
-            size:
-            shift:
-            window:
+
+            size: Scalar FFT-size.
+            shift: Scalar FFT-shift. Typically shift is a fraction of size.
+            window: Window function handle.
             window_length:
             fading:
             pad:
             symmetric_window:
-            complex_representation: str, either complex, concat or stacked
-                complex is not supported at the moment
+            complex_representation: str, defines how to handle the real and
+                imaginary part of the complex stft signal:
+                                either complex, concat or stacked
+                                complex is not supported at the moment
         """
         possible_out_types = ['complex', 'concat', 'stacked']
         assert complex_representation in possible_out_types, (
