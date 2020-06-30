@@ -6,7 +6,7 @@ import torch
 from paderbox.io import load_audio
 from paderbox.testing.testfile_fetcher import get_file_path
 from paderbox.transform import stft, istft
-from padertorch.ops.stft import STFT
+from padertorch.ops import STFT
 
 
 class TestSTFTMethods(unittest.TestCase):
