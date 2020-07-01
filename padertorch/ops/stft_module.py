@@ -87,7 +87,9 @@ class STFT:
         assert complex_representation in self.possible_out_types, (
             f'Please choose one of the predefined output_types'
             f' {self.possible_out_types}, not {complex_representation}'
+        )
         self.complex_representation = complex_representation
+        assert size % 2 == 0, 'At the moment we only support even FFT sizes'
         self.size = size
         self.shift = shift
         self.window_length = window_length if window_length is not None \
