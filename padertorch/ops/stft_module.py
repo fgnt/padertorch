@@ -74,20 +74,19 @@ class STFT:
             fading:
             pad:
             symmetric_window:
-            complex_representation: str, defines how to handle the real and
+            complex_representation: defines how to handle the real and
                 imaginary part of the complex stft signal:
                                 either complex, concat or stacked
                                 complex is not supported at the moment
         """
-        possible_out_types = ['complex', 'concat', 'stacked']
-        assert complex_representation in possible_out_types, (
-            f'Please choose one of the predefined output_types'
-            f' {possible_out_types}'
-        )
         if complex_representation == 'complex':
             raise NotImplementedError('Complex tensors are not yet implemented'
                                       'in torch. This is just a placeholder'
                                       'for later implementations')
+        self.possible_out_types = ['concat', 'stacked']
+        assert complex_representation in self.possible_out_types, (
+            f'Please choose one of the predefined output_types'
+            f' {self.possible_out_types}, not {complex_representation}'
         self.complex_representation = complex_representation
         self.size = size
         self.shift = shift
@@ -163,8 +162,10 @@ class STFT:
         elif self.complex_representation == 'concat':
             encoded = torch.cat(encoded, dim=-1)
         else:
-            raise NotImplementedError
-
+            raise ValueError(
+                f'Please choose one of the predefined output_types'
+                f'{self.possible_out_types} not {self.complex_representation}'
+            )
         return encoded
 
     def inverse(self, stft_signal):
@@ -203,8 +204,10 @@ class STFT:
         elif self.complex_representation == 'concat':
             signal_real, signal_imag = torch.chunk(x, 2, dim=-2)
         else:
-            raise NotImplementedError
-
+            raise ValueError(
+                f'Please choose one of the predefined output_types'
+                f'{self.possible_out_types} not {self.complex_representation}'
+            )
         signal_real = torch.cat(
             [signal_real, signal_real[:, 1:-1].flip(1)], dim=1)
         signal_imag = torch.cat(
