@@ -2,6 +2,8 @@ from typing import Tuple, Union
 
 import torch
 from torch.nn import functional as F
+from padertorch.ops import STFT
+from einops import rearrange
 
 
 class TasEncoder(torch.nn.Module):
@@ -127,3 +129,90 @@ class TasDecoder(torch.nn.Module):
         """
         # Convolution from (B, N, T_enc) to (B, 1, T) and remove channel
         return self.decoder_1d(w)[:, 0, :]
+
+
+class StftEncoder(torch.nn.Module):
+    """
+    >>> mixture = torch.rand((2, 6, 203))
+    >>> stft_encoder = StftEncoder(N=258)
+    >>> encoded, num_frames = stft_encoder(mixture, [203, 150])
+    >>> encoded.shape
+    torch.Size([2, 6, 258, 20])
+    >>> num_frames
+    [20, 14]
+    >>> from paderbox.transform import stft
+    >>> import numpy as np
+    >>> stft_out = stft(\
+            mixture.numpy(), 256, 10, window_length=20, \
+            fading=None)
+    >>> stft_encoded = np.concatenate(\
+            [np.real(stft_out), np.imag(stft_out)], axis=-1\
+        ).transpose(0,1,3,2)
+    >>> np.testing.assert_allclose(stft_encoded, encoded, atol=1e-5)
+    """
+    def __init__(self, L: int = 20, N: int = 256, stride: int = None):
+        super().__init__()
+        self.L, self.N, self.stride = L, N, stride
+
+        if stride is None:
+            stride = L // 2
+        self.stft = STFT(size=N-2, shift=stride, window_length=L, fading=False,
+                         complex_representation='concat')
+
+    def forward(self, inputs, num_samples=None):
+        """
+        Args:
+            inputs: shape: [..., T], T is #samples
+            num_samples, list or tensor of #samples
+        Returns:
+            [..., N, frames] the stft encoded signal
+        """
+
+        encoded = self.stft(inputs)
+        encoded = rearrange(encoded, '... frames fbins -> ... fbins frames')
+        if num_samples is not None:
+
+            num_frames = torch.tensor([self.stft.samples_to_frames(samples)
+                                       for samples in num_samples])
+            return encoded, num_frames
+        else:
+            return encoded
+
+
+class IstftDecoder(torch.nn.Module):
+    """
+    >>> stft_signal = torch.rand((2, 4, 258, 10))
+    >>> decoder = IstftDecoder(N=258)
+    >>> decoded = decoder(stft_signal)
+    >>> decoded.shape
+    torch.Size([2, 4, 110])
+    >>> from paderbox.transform import istft
+    >>> import numpy as np
+    >>> signal_np = stft_signal.numpy().transpose(0, 1, 3, 2)
+    >>> complex_signal = signal_np[..., :129] + 1j* signal_np[..., 129:]
+    >>> stft_decoded = istft(\
+            complex_signal, 256, 10, window_length=20, fading=False)
+    >>> np.testing.assert_allclose(stft_decoded, decoded, atol=1e-5)
+    """
+    def __init__(self, L: int = 20, N: int = 256, stride: int = None):
+        super().__init__()
+        # Hyper-parameter
+        self.N, self.L, self.stride = N, L, stride
+        if stride is None:
+            stride = L // 2
+        self.stft = STFT(size=N-2, shift=stride, window_length=L, fading=False,
+                         complex_representation='concat')
+
+    def forward(self, stft_signal):
+        """
+        Args:
+            stft_signal: shape: [B, ..., N, Frames]
+            num_samples, list or tensor of #samples
+        Returns:
+            [B, ..., T]
+        """
+
+        stft_signal = rearrange(
+            stft_signal, '... fbins frames  -> ... frames fbins')
+
+        return self.stft.inverse(stft_signal)
