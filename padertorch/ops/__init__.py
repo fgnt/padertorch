@@ -4,7 +4,7 @@ from . import sequence
 from . import mappings
 from . import tensor
 
-from .stft_module import STFT
+from ._stft import STFT
 from .einsum import *
 from .sequence import *
 from .tensor import *
