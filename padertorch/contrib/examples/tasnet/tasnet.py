@@ -226,3 +226,54 @@ class TasNet(pt.Model):
 
     def flatten_parameters(self) -> None:
         self.dprnn.flatten_parameters()
+
+
+class ModularTasNet(TasNet):
+    def __init__(
+            self,
+            encoder,
+            separator,
+            decoder,
+            mask: bool = True,
+            output_nonlinearity: Optional[str] = 'sigmoid',
+            num_speakers: int = 2,
+            additional_out_size: int = 0,
+            sample_rate=8000,
+    ):
+        """
+        Args:
+            encoder:
+            separator:
+            decoder:
+            mask: If `True`, use the output of the NN as a mask in tas domain
+                for separation. Otherwise, use the output directly as an
+                estimation for the separated signals.
+            output_nonlinearity: Nonlinearity applied to the output (right
+                before masking/decoding)
+            num_speakers: The number of speakers/output streams
+            additional_out_size: Size of the additional output. Has no effect if
+                set to 0.
+        """
+        super().__init__()
+
+        self.mask = mask
+        self.additional_out_size = additional_out_size
+        hidden_size = separator.feat_size
+        self.input_proj = torch.nn.Conv1d(hidden_size, hidden_size, 1)
+        self.output_prelu = torch.nn.PReLU()
+        self.output_proj = torch.nn.Conv1d(
+            hidden_size, hidden_size * num_speakers + additional_out_size, 1
+        )
+
+        self.encoder = encoder
+
+        self.encoded_input_norm = torch.nn.LayerNorm(hidden_size)
+
+        self.dprnn = separator
+
+        self.decoder = decoder
+
+        self.output_nonlinearity = ACTIVATION_FN_MAP[output_nonlinearity]()
+
+        self.num_speakers = num_speakers
+        self.sample_rate = sample_rate
