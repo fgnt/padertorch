@@ -576,6 +576,7 @@ class DPRNN(torch.nn.Module):
         super().__init__()
         self.window_size = window_length
         self.hop_size = hop_size
+        self.feat_size = feat_size
 
         self.dprnn_blocks = torch.nn.Sequential(*[
             DPRNNBlock(
