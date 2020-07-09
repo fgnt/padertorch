@@ -12,8 +12,8 @@ class TasEncoder(torch.nn.Module):
     be used as a module for feature extraction in other modules/models.
     """
 
-    def __init__(self, L: int = 20, N: int = 256, stride: int = None,
-                 bias: bool = False):
+    def __init__(self, window_length: int = 20, feature_size: int = 256,
+                 stride: int = None, bias: bool = False):
         """
         Args:
             L: The block size in samples (length of the filters).
@@ -27,14 +27,16 @@ class TasEncoder(torch.nn.Module):
         super().__init__()
 
         if stride is None:
-            stride = L // 2
+            stride = window_length // 2
 
-        self.L = L
-        self.N = N
+        self.window_length = window_length
+        self.feature_size = feature_size
         self.stride = stride
 
-        self.encoder_1d = torch.nn.Conv1d(1, N, L, stride=self.stride,
-                                          padding=0, bias=bias)
+        self.encoder_1d = torch.nn.Conv1d(
+            1, feature_size, window_length,
+            stride=self.stride, padding=0, bias=bias
+        )
 
     def forward(
             self,
@@ -68,14 +70,15 @@ class TasEncoder(torch.nn.Module):
         l = x.shape[-1]
         sq_offset = -1
 
-        if l % (self.L // 2) > 0:
-            padding = self.L // 2 - (l % (self.L // 2))
+        if l % (self.window_length // 2) > 0:
+            padding = self.window_length // 2 - (l % (self.window_length // 2))
             x = F.pad(x, (0, padding))
             sq_offset = 0
 
         # Compute new sequence_lengths
         if sequence_lengths is not None:
-            sequence_lengths = sequence_lengths // (self.L // 2) + sq_offset
+            sequence_lengths = sequence_lengths // (
+                    self.window_length // 2) + sq_offset
 
         # Add channel dimension. Results in (B, 1, T)
         x = torch.unsqueeze(x, dim=1)
@@ -91,8 +94,8 @@ class TasDecoder(torch.nn.Module):
     Encapsulates the decoder of the TasNet in a separate module
     """
 
-    def __init__(self, L: int = 20, N: int = 256, stride: int = None,
-                 bias=False):
+    def __init__(self, window_length: int = 20, feature_size: int = 256,
+                 stride: int = None, bias=False):
         """
         The arguments should match the used encoder.
 
@@ -108,14 +111,15 @@ class TasDecoder(torch.nn.Module):
         super().__init__()
 
         if stride is None:
-            stride = L // 2
+            stride = window_length // 2
 
-        self.L = L
-        self.N = N
+        self.window_length = window_length
+        self.feature_size = feature_size
         self.stride = stride
 
         self.decoder_1d = torch.nn.ConvTranspose1d(
-            N, 1, kernel_size=L, stride=self.stride, bias=bias
+            feature_size, 1, kernel_size=window_length,
+            stride=self.stride, bias=bias
         )
 
     def forward(self, w: torch.Tensor) -> torch.Tensor:
@@ -134,12 +138,12 @@ class TasDecoder(torch.nn.Module):
 class StftEncoder(torch.nn.Module):
     """
     >>> mixture = torch.rand((2, 6, 203))
-    >>> stft_encoder = StftEncoder(N=258)
+    >>> stft_encoder = StftEncoder(feature_size=258)
     >>> encoded, num_frames = stft_encoder(mixture, [203, 150])
     >>> encoded.shape
     torch.Size([2, 6, 258, 20])
     >>> num_frames
-    [20, 14]
+    tensor([20, 14])
     >>> from paderbox.transform import stft
     >>> import numpy as np
     >>> stft_out = stft(\
@@ -150,9 +154,12 @@ class StftEncoder(torch.nn.Module):
         ).transpose(0,1,3,2)
     >>> np.testing.assert_allclose(stft_encoded, encoded, atol=1e-5)
     """
-    def __init__(self, L: int = 20, N: int = 256, stride: int = None):
+    def __init__(self, window_length: int = 20, feature_size: int = 256,
+                 stride: int = None):
         super().__init__()
-        self.L, self.N, self.stride = L, N, stride
+        self.window_length = window_length
+        self.feature_size = feature_size
+        self.stride = stride
 
         if stride is None:
             stride = L // 2
@@ -182,7 +189,7 @@ class StftEncoder(torch.nn.Module):
 class IstftDecoder(torch.nn.Module):
     """
     >>> stft_signal = torch.rand((2, 4, 258, 10))
-    >>> decoder = IstftDecoder(N=258)
+    >>> decoder = IstftDecoder(feature_size=258)
     >>> decoded = decoder(stft_signal)
     >>> decoded.shape
     torch.Size([2, 4, 110])
@@ -194,10 +201,13 @@ class IstftDecoder(torch.nn.Module):
             complex_signal, 256, 10, window_length=20, fading=False)
     >>> np.testing.assert_allclose(stft_decoded, decoded, atol=1e-5)
     """
-    def __init__(self, L: int = 20, N: int = 256, stride: int = None):
+    def __init__(self, window_length: int = 20, feature_size: int = 256,
+                 stride: int = None):
         super().__init__()
         # Hyper-parameter
-        self.N, self.L, self.stride = N, L, stride
+        self.window_length = window_length
+        self.feature_size = feature_size
+        self.stride = stride
         if stride is None:
             stride = L // 2
         self.stft = STFT(size=N-2, shift=stride, window_length=L, fading=False,
