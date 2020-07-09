@@ -7,6 +7,7 @@ Use the following command:
 
 Other options for sacred are available, refer to the config() function.
 """
+import numpy as np
 import os
 
 import padertorch as pt
@@ -19,7 +20,7 @@ import torch.nn as nn
 
 from einops import rearrange
 
-from padertorch.contrib.je.data.transforms import Collate
+from padertorch.data.utils import collate_fn
 from padertorch.ops.losses.kl_divergence import gaussian_kl_divergence
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 from padertorch.testing.test_db import MnistDatabase
@@ -29,7 +30,7 @@ from torch.distributions import Normal
 ex = sacred.Experiment()
 
 
-def get_dataset(batch_size=10):
+def get_dataset(batch_size):
     """
     load MNIST train and test dataset
 
@@ -50,30 +51,38 @@ def get_dataset(batch_size=10):
     return training_data, test_data
 
 
-def prepare_dataset(dataset, batch_size=10, training=False):
+def prepare_dataset(dataset, batch_size, training=False):
     if training:
         dataset = dataset.shuffle(reshuffle=True)
+
+    def Collate(batch):
+        batch = collate_fn(batch)
+        batch['image'] = np.array([tensor for tensor in batch['image']])
+        return batch
+
     return dataset.prefetch(
-        num_workers=8, buffer_size=10*batch_size
-    ).batch(batch_size=batch_size).map(Collate())
+        num_workers=1, buffer_size=10*batch_size
+    ).batch(batch_size=batch_size).map(Collate)
 
 
 class VAEModel(pt.Model):
-    def __init__(self, activation_function, hidden_channels):
+    def __init__(self, activation_function, hidden_channels, kernel_size):
         super().__init__()
-        self.net = VAE(activation_function, hidden_channels)
+        self.net = VAE(activation_function, hidden_channels, kernel_size)
 
     def forward(self, inputs):
-        out, mu, std = self.net(inputs['image'][:, None, :, :])
+        images = inputs['image'][:, None, :, :]
+        out, mu, std = self.net(images)
 
         return dict(
-            prediction=out,
+            input=images,
             mean=mu,
+            prediction=out,
             std=std
         )
 
     def review(self, inputs, outputs):
-        images = rearrange(inputs['image'][:, None, :, :], 'b c x y -> b (c x y)')
+        images = rearrange(outputs['input'], 'b c x y -> b (c x y)')
         prediction = rearrange(outputs['prediction'], 'b c x y -> b (c x y)')
 
         mse = nn.functional.mse_loss(prediction, images)  # reconstruction error
@@ -94,22 +103,31 @@ class VAEModel(pt.Model):
 class VAE(nn.Module):
     """ A simple Variational Autoencoder"""
 
-    def __init__(self, activation_function, hidden_channels):
+    def __init__(self, activation_function, hidden_channels, kernel_size):
         super().__init__()
-        kernel_size = 4
+        self.n_layer = 3
+        self.padding = 1
+        self.size_bottleneck = 28  # image size 28*28
         stride = int(kernel_size/2)
+
+        for idx in range(self.n_layer):
+            self.size_bottleneck = int(
+                (self.size_bottleneck + 2 * self.padding - (kernel_size - 1) - 1) / stride + 1)
+
         # encoder
         self.conv_encoder = nn.Sequential(
-            torch.nn.Conv2d(in_channels=1, out_channels=hidden_channels, kernel_size=kernel_size, stride=stride),
+            torch.nn.Conv2d(in_channels=1, out_channels=hidden_channels, kernel_size=kernel_size, stride=stride,
+                            padding=self.padding),
             activation_function(),
             torch.nn.Conv2d(in_channels=hidden_channels, out_channels=hidden_channels, kernel_size=kernel_size,
-                            stride=stride),
+                            stride=stride, padding=self.padding),
             activation_function(),
-            torch.nn.Conv2d(in_channels=hidden_channels, out_channels=1, kernel_size=kernel_size, stride=1),
+            torch.nn.Conv2d(in_channels=hidden_channels, out_channels=1, kernel_size=kernel_size, stride=stride,
+                            padding=self.padding),
             activation_function(),
         )
-        self.linear_1 = torch.nn.Linear(in_features=2*2, out_features=1)
-        self.linear_2 = torch.nn.Linear(in_features=2*2, out_features=1)
+        self.linear_1 = torch.nn.Linear(in_features=self.size_bottleneck**2, out_features=1)
+        self.linear_2 = torch.nn.Linear(in_features=self.size_bottleneck**2, out_features=1)
 
         # decoder
         self.transp_conv_decoder = nn.Sequential(
@@ -122,7 +140,7 @@ class VAE(nn.Module):
             torch.nn.ConvTranspose2d(in_channels=hidden_channels, out_channels=1, kernel_size=kernel_size,
                                      stride=stride),
         )
-        self.linear_3 = torch.nn.Linear(in_features=1, out_features=2*2)
+        self.linear_3 = torch.nn.Linear(in_features=1, out_features=self.size_bottleneck**2)
 
     def encode(self, x):
         x = self.conv_encoder(x)
@@ -134,7 +152,7 @@ class VAE(nn.Module):
 
     def decode(self, x):
         x = self.linear_3(x)
-        x = rearrange(x, 'b (x y) -> b x y', y=2, x=2)
+        x = rearrange(x, 'b (x y) -> b x y', y=self.size_bottleneck, x=self.size_bottleneck)
         x = x[:, None, :, :]
         return self.transp_conv_decoder(x)
 
@@ -151,14 +169,16 @@ def config():
     resume = False      # PT: Continue from checkpoints
 
     assert os.environ.get('STORAGE_ROOT') is not None, 'STORAGE_ROOT is not defined in the environment variables'
-    logfilepath = os.environ['STORAGE_ROOT'] + '/mnist'  # PT creates log files
+    logfilepath = os.environ['STORAGE_ROOT'] + '/vae_mnist'  # PT creates log files
 
     activation_function = ACTIVATION_FN_MAP['relu']  # activation function after convolutional layers
     hidden_channels = 64
+    kernel_size = 2
+    assert kernel_size < 6, 'maximum kernel_size is 5'
 
 
 @ex.automain
-def main(activation_function, batch_size, epochs, hidden_channels, resume, logfilepath):
+def main(activation_function, batch_size, epochs, hidden_channels, kernel_size, resume, logfilepath):
     """
     Example Training for a Variational Autoencoder uses SGD for optimation
 
@@ -181,7 +201,7 @@ def main(activation_function, batch_size, epochs, hidden_channels, resume, logfi
     train_set, test_set = get_dataset(batch_size=batch_size)
 
     # load model
-    model = VAEModel(activation_function, hidden_channels)
+    model = VAEModel(activation_function, hidden_channels, kernel_size)
 
     trainer = pt.trainer.Trainer(
         model=model,
