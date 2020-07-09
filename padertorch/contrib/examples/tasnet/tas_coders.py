@@ -162,15 +162,21 @@ class StftEncoder(torch.nn.Module):
         self.stride = stride
 
         if stride is None:
-            stride = L // 2
-        self.stft = STFT(size=N-2, shift=stride, window_length=L, fading=False,
-                         complex_representation='concat')
+            stride = window_length // 2
+
+        # feature_size - 2 because the stft adds two uninformative
+        # values for an even size.
+        # Note that the STFT does not support uneven sizes at the moment.
+        self.stft = STFT(
+            size=feature_size - 2, shift=stride, window_length=window_length,
+            fading=False, complex_representation='concat'
+        )
 
     def forward(self, inputs, num_samples=None):
         """
         Args:
             inputs: shape: [..., T], T is #samples
-            num_samples, list or tensor of #samples
+            num_samples: list or tensor of #samples
         Returns:
             [..., N, frames] the stft encoded signal
         """
@@ -208,16 +214,22 @@ class IstftDecoder(torch.nn.Module):
         self.window_length = window_length
         self.feature_size = feature_size
         self.stride = stride
+
         if stride is None:
-            stride = L // 2
-        self.stft = STFT(size=N-2, shift=stride, window_length=L, fading=False,
-                         complex_representation='concat')
+            stride = window_length // 2
+
+        # feature_size - 2 because the stft adds two uninformative
+        # values for an even size.
+        # Note that the STFT does not support uneven sizes at the moment.
+        self.stft = STFT(
+            size=feature_size - 2, window_length=window_length,
+            shift=stride, fading=False, complex_representation='concat'
+        )
 
     def forward(self, stft_signal):
         """
         Args:
             stft_signal: shape: [B, ..., N, Frames]
-            num_samples, list or tensor of #samples
         Returns:
             [B, ..., T]
         """
