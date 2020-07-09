@@ -227,8 +227,7 @@ class DummyModel(pt.Model):
 
     def review(self, inputs, outputs):
         if self.training:
-            l = torch.Tensor([0])
-            l.requires_grad = True
+            l = self.lin.weight.sum()
             return {
                 'loss': l.sum()
             }
