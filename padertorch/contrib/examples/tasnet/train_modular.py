@@ -30,7 +30,7 @@ from lazy_dataset.database import JsonDatabase
 from padertorch.contrib.neumann.chunking import RandomChunkSingle
 from padertorch.contrib.ldrude.utils import get_new_folder
 
-nickname = "dprnn"
+nickname = "tasnet"
 ex = Experiment(nickname)
 
 
@@ -71,8 +71,8 @@ def config():
             "factory": pt.contrib.examples.tasnet.tasnet.ModularTasNet,
             'encoder': {
                 'factory': pt.contrib.examples.tasnet.tas_coders.TasEncoder,
-                'L': encoder_window_size,
-                'N': feat_size,
+                'window_size': encoder_window_size,
+                'feature_size': feat_size,
             },
             'separator': {
                 'factory': pt.modules.dual_path_rnn.DPRNN,
@@ -84,8 +84,8 @@ def config():
             },
             'decoder': {
                 'factory': pt.contrib.examples.tasnet.tas_coders.TasDecoder,
-                'L': encoder_window_size,
-                'N': feat_size,
+                'window_size': encoder_window_size,
+                'feature_size': feat_size,
             },
         },
         "storage_dir": None,
@@ -123,7 +123,7 @@ def win2():
     trainer = {
         'model': {
             'encoder': {
-                'L': 2
+                'window_size': 2
             },
             'separator': {
                 'window_length': 250,
