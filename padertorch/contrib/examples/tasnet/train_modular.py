@@ -71,7 +71,7 @@ def config():
             "factory": pt.contrib.examples.tasnet.tasnet.ModularTasNet,
             'encoder': {
                 'factory': pt.contrib.examples.tasnet.tas_coders.TasEncoder,
-                'window_size': encoder_window_size,
+                'window_length': encoder_window_size,
                 'feature_size': feat_size,
             },
             'separator': {
@@ -84,7 +84,7 @@ def config():
             },
             'decoder': {
                 'factory': pt.contrib.examples.tasnet.tas_coders.TasDecoder,
-                'window_size': encoder_window_size,
+                'window_length': encoder_window_size,
                 'feature_size': feat_size,
             },
         },
@@ -123,7 +123,7 @@ def win2():
     trainer = {
         'model': {
             'encoder': {
-                'window_size': 2
+                'window_length': 2
             },
             'separator': {
                 'window_length': 250,
