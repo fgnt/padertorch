@@ -9,7 +9,6 @@ from padertorch.contrib.je.modules.augment import (
     LogUniformSampler, TruncExponentialSampler, LogTruncNormalSampler
 )
 from padertorch.contrib.je.modules.norm import Norm
-from padertorch.contrib.je.modules.conv import WindowNorm
 from torch import nn
 from paderbox.transform.module_fbank import get_fbanks
 
