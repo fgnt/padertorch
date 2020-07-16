@@ -45,7 +45,7 @@ class SWAHook(TriggeredHook):
             else:
                 r = 1 / self.count
                 self.swa_module = nested_op(
-                    lambda x, y: (1-r) * x + r * y,
+                    lambda x, y: (1-r) * x.to(y.device) + r * y,
                     self.swa_module,
                     module.state_dict()
                 )
