@@ -669,8 +669,14 @@ def resolve_main_python_path() -> str:
     """
     python_path = getattr(sys.modules['__main__'].__spec__, 'name', '__main__')
 
-    if python_path == '__main__':
-        python_path = get_module_name_from_file(sys.modules['__main__'].__file__)
+    # In an interactive interpreter, sys.modules['__main__'] doesn't have a
+    # __file__ attribute, so just keep __main__ as python_path then. This
+    # obviously doesn't allow to load a config created in an interactive
+    # interpreter from outside.
+    if python_path == '__main__' and hasattr(
+            sys.modules['__main__'], '__file__'):
+        python_path = get_module_name_from_file(
+            sys.modules['__main__'].__file__)
 
     return python_path
 
