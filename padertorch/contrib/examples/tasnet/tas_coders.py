@@ -172,21 +172,21 @@ class StftEncoder(torch.nn.Module):
             fading=False, complex_representation='concat'
         )
 
-    def forward(self, inputs, num_samples=None):
+    def forward(self, inputs, sequence_lengths: torch.Tensor = None
+    ) -> Tuple[torch.Tensor, Union[torch.Tensor, None]]:
         """
         Args:
             inputs: shape: [..., T], T is #samples
-            num_samples: list or tensor of #samples
+            sequence_lengths: list or tensor of #samples
         Returns:
             [..., N, frames] the stft encoded signal
         """
 
         encoded = self.stft(inputs)
         encoded = rearrange(encoded, '... frames fbins -> ... fbins frames')
-        if num_samples is not None:
-
+        if sequence_lengths is not None:
             num_frames = torch.tensor([self.stft.samples_to_frames(samples)
-                                       for samples in num_samples])
+                                       for samples in sequence_lengths])
             return encoded, num_frames
         else:
             return encoded
@@ -226,7 +226,7 @@ class IstftDecoder(torch.nn.Module):
             shift=stride, fading=False, complex_representation='concat'
         )
 
-    def forward(self, stft_signal):
+    def forward(self, stft_signal) -> torch.Tensor:
         """
         Args:
             stft_signal: shape: [B, ..., N, Frames]
