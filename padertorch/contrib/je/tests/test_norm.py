@@ -45,12 +45,21 @@ def test_grads():
     beta_ref = beta.clone().detach()
     beta_ref.requires_grad = True
 
-    y, *_ = normalize(x, gamma, beta, [0, 2], 0, 2, seq_len, True, True, 1e-3)
-    (y[0, [0, 1]] - y[0, 2]).sum().backward()
-    y_ref, *_ = normalize_ref(x_ref, gamma_ref, beta_ref, [0, 2], 0, 2, seq_len, True, True, 1e-3)
-    (y_ref[0, [0, 1]] - y_ref[0, 2]).sum().backward()
+    for shift in [True, False]:
+        for scale in [True, False]:
+            if x.grad is not None:
+                x.grad.zero_()
+                x_ref.grad.zero_()
+                gamma.grad.zero_()
+                gamma_ref.grad.zero_()
+                beta.grad.zero_()
+                beta_ref.grad.zero_()
+            y, *_ = normalize(x, gamma, beta, [0, 2], 0, 2, seq_len, shift, scale, 1e-3)
+            (y[0, [0, 1]] - y[0, 2]).sum().backward()
+            y_ref, *_ = normalize_ref(x_ref, gamma_ref, beta_ref, [0, 2], 0, 2, seq_len, shift, scale, 1e-3)
+            (y_ref[0, [0, 1]] - y_ref[0, 2]).sum().backward()
 
-    tc.assert_array_almost_equal(y.detach().numpy(), y_ref.detach().numpy())
-    tc.assert_array_almost_equal(x.grad.numpy(), x_ref.grad.numpy())
-    tc.assert_array_almost_equal(gamma.grad.numpy(), gamma_ref.grad.numpy())
-    tc.assert_array_almost_equal(beta.grad.numpy(), beta_ref.grad.numpy())
+            tc.assert_array_almost_equal(y.detach().numpy(), y_ref.detach().numpy())
+            tc.assert_array_almost_equal(x.grad.numpy(), x_ref.grad.numpy())
+            tc.assert_array_almost_equal(gamma.grad.numpy(), gamma_ref.grad.numpy())
+            tc.assert_array_almost_equal(beta.grad.numpy(), beta_ref.grad.numpy())
