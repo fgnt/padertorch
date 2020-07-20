@@ -1,9 +1,8 @@
 import torch
 from padertorch.base import Module
+from padertorch.contrib.je.modules.global_pooling import compute_mask
 from torch import nn
 from torch.autograd import Function
-from padertorch.contrib.je.modules.global_pooling import compute_mask
-import numpy as np
 
 
 class Norm(Module):
@@ -262,7 +261,7 @@ class Normalize(Function):
         grad_y = grad_y * mask
         x_hat = x
         scale = torch.sqrt(power + ctx.eps)
-        if ctx.scale:
+        if ctx.shift:
             x_hat = x_hat - mean
         if ctx.scale:
             x_hat = x_hat / scale
