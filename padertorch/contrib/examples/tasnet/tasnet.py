@@ -12,80 +12,50 @@ from padertorch.ops.losses.regression import si_sdr_loss, log_mse_loss
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 
 
-class TasNet(pt.Model):
+class ModularTasNet(pt.Model):
     def __init__(
             self,
-            hidden_size: int = 64,
-            encoder_block_size: int = 16,
-            rnn_size: int = 128,
-            dprnn_window_length: Union[int, str] = 100,
-            dprnn_hop_size: Union[str, int] = 50,
+            encoder,
+            separator,
+            decoder,
             mask: bool = True,
-            dprnn_layers: int = 6,
             output_nonlinearity: Optional[str] = 'sigmoid',
-            inter_chunk_type: str = 'blstm',
-            intra_chunk_type: str = 'blstm',
             num_speakers: int = 2,
             additional_out_size: int = 0,
             sample_rate=8000,
     ):
         """
         Args:
-            hidden_size: Size between the layers (N)
-            encoder_block_size:
-            rnn_size: Size of the NNs in the inter- or intra-chunk RNNs. This
-                corresponds to H or H//2.
-            dprnn_window_length: Window length of the DPRNN segmentation (K).
-                If set to 'auto', it is determined for each example
-                independently based on the input length and the "rule of thumb"
-                K \approx sqrt(2L)
-            dprnn_hop_size: Hop size of the DPRNN segmentation (P). If set to
-                'auto' it is set to 50% of the block length K (half overlap).
+            encoder:
+            separator:
+            decoder:
             mask: If `True`, use the output of the NN as a mask in tas domain
                 for separation. Otherwise, use the output directly as an
                 estimation for the separated signals.
-            dprnn_layers: Number of stacked DPRNN blocks
             output_nonlinearity: Nonlinearity applied to the output (right
                 before masking/decoding)
-            inter_chunk_type: Type of the inter-chunk RNN
-            intra_chunk_type: Type of the intra-chunk RNN
             num_speakers: The number of speakers/output streams
             additional_out_size: Size of the additional output. Has no effect if
                 set to 0.
-            input_norm: If `True` normalize the input
         """
         super().__init__()
 
         self.mask = mask
         self.additional_out_size = additional_out_size
-
+        hidden_size = separator.feat_size
         self.input_proj = torch.nn.Conv1d(hidden_size, hidden_size, 1)
         self.output_prelu = torch.nn.PReLU()
         self.output_proj = torch.nn.Conv1d(
             hidden_size, hidden_size * num_speakers + additional_out_size, 1
         )
 
-        self.encoder = TasEncoder(
-            L=encoder_block_size,
-            N=hidden_size,
-        )
+        self.encoder = encoder
 
         self.encoded_input_norm = torch.nn.LayerNorm(hidden_size)
 
-        self.dprnn = DPRNN(
-            feat_size=hidden_size,
-            rnn_size=rnn_size,
-            window_length=dprnn_window_length,
-            hop_size=dprnn_hop_size,
-            inter_chunk_type=inter_chunk_type,
-            intra_chunk_type=intra_chunk_type,
-            num_blocks=dprnn_layers,
-        )
+        self.dprnn = separator
 
-        self.decoder = TasDecoder(
-            L=encoder_block_size,
-            N=hidden_size
-        )
+        self.decoder = decoder
 
         self.output_nonlinearity = ACTIVATION_FN_MAP[output_nonlinearity]()
 
@@ -226,3 +196,69 @@ class TasNet(pt.Model):
 
     def flatten_parameters(self) -> None:
         self.dprnn.flatten_parameters()
+
+
+class TasNet(ModularTasNet):
+    def __init__(
+            self,
+            hidden_size: int = 64,
+            encoder_block_size: int = 16,
+            rnn_size: int = 128,
+            dprnn_window_length: Union[int, str] = 100,
+            dprnn_hop_size: Union[str, int] = 50,
+            mask: bool = True,
+            dprnn_layers: int = 6,
+            output_nonlinearity: Optional[str] = 'sigmoid',
+            inter_chunk_type: str = 'blstm',
+            intra_chunk_type: str = 'blstm',
+            num_speakers: int = 2,
+            additional_out_size: int = 0,
+            sample_rate=8000,
+    ):
+        """
+        Args:
+            hidden_size: Size between the layers (N)
+            encoder_block_size:
+            rnn_size: Size of the NNs in the inter- or intra-chunk RNNs. This
+                corresponds to H or H//2.
+            dprnn_window_length: Window length of the DPRNN segmentation (K).
+                If set to 'auto', it is determined for each example
+                independently based on the input length and the "rule of thumb"
+                K \approx sqrt(2L)
+            dprnn_hop_size: Hop size of the DPRNN segmentation (P). If set to
+                'auto' it is set to 50% of the block length K (half overlap).
+            mask: If `True`, use the output of the NN as a mask in tas domain
+                for separation. Otherwise, use the output directly as an
+                estimation for the separated signals.
+            dprnn_layers: Number of stacked DPRNN blocks
+            output_nonlinearity: Nonlinearity applied to the output (right
+                before masking/decoding)
+            inter_chunk_type: Type of the inter-chunk RNN
+            intra_chunk_type: Type of the intra-chunk RNN
+            num_speakers: The number of speakers/output streams
+            additional_out_size: Size of the additional output. Has no effect
+             if set to 0.
+        """
+        encoder = TasEncoder(
+            window_length=encoder_block_size,
+            feature_size=hidden_size,
+        )
+
+        separator = DPRNN(
+            feat_size=hidden_size,
+            rnn_size=rnn_size,
+            window_length=dprnn_window_length,
+            hop_size=dprnn_hop_size,
+            inter_chunk_type=inter_chunk_type,
+            intra_chunk_type=intra_chunk_type,
+            num_blocks=dprnn_layers,
+        )
+
+        decoder = TasDecoder(
+            window_length=encoder_block_size,
+            feature_size=hidden_size
+        )
+        super().__init__(
+            encoder, separator, decoder, mask, output_nonlinearity,
+            num_speakers, additional_out_size, sample_rate,
+        )
