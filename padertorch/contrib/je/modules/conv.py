@@ -1,4 +1,5 @@
-import math
+from collections import defaultdict
+from copy import copy
 
 import numpy as np
 import torch
@@ -8,94 +9,12 @@ from padertorch.ops.mappings import ACTIVATION_FN_MAP
 from padertorch.utils import to_list
 from padertorch.contrib.je.modules.norm import Norm
 from torch import nn
-from copy import copy
-from collections import defaultdict
-from einops import rearrange
-from padertorch.contrib.je.modules.global_pooling import compute_mask
+from typing import List
 
-
-def to_pair(x):
-    return tuple(to_list(x, 2))
-
-
-class Pad(Module):
-    """
-    Adds padding of a certain size either to front, end or both.
-    """
-    def __init__(self, side='both', mode='constant'):
-        super().__init__()
-        self.side = side
-        self.mode = mode
-
-    def forward(self, x, size):
-        """
-
-        Args:
-            x: input tensor of shape b,c,(f,)t
-            size: size to pad to dims (f,)t
-
-        Returns:
-
-        """
-        sides = to_list(self.side, x.dim() - 2)
-        sizes = to_list(size, x.dim() - 2)
-        pad = []
-        for side, size in list(zip(sides, sizes))[::-1]:
-            if side is None or size < 1:
-                assert size == 0, sizes
-                pad.extend([0, 0])
-            elif side == 'front':
-                pad.extend([size, 0])
-            elif side == 'both':
-                # if size is odd: end is padded more than front
-                pad.extend([size // 2, math.ceil(size / 2)])
-            elif side == 'end':
-                pad.extend([0, size])
-            else:
-                raise ValueError(f'pad side {side} unknown')
-
-        x = F.pad(x, pad, mode=self.mode)
-        return x
-
-
-class Trim(Module):
-    """
-    Removes a certain number of values either from front, end or both.
-    (Counter part to Pad)
-    """
-    def __init__(self, side='both'):
-        super().__init__()
-        self.side = side
-
-    def forward(self, x, size):
-        """
-
-        Args:
-            x: input tensor of shape b,c,(f,)t
-            size: size to trim at dims (f,)t
-
-        Returns:
-
-        """
-        sides = to_list(self.side, x.dim() - 2)
-        sizes = to_list(size, x.dim() - 2)
-        slc = [slice(None)] * x.dim()
-        for i, (side, size) in enumerate(zip(sides, sizes)):
-            idx = 2 + i
-            if side is None or size < 1:
-                assert size == 0, sizes
-                continue
-            elif side == 'front':
-                slc[idx] = slice(size, x.shape[idx])
-            elif side == 'both':
-                # if size is odd: end is trimmed more than front
-                slc[idx] = slice(size//2, -math.ceil(size / 2))
-            elif side == 'end':
-                slc[idx] = slice(0, -size)
-            else:
-                raise ValueError
-        x = x[tuple(slc)]
-        return x
+from padertorch.contrib.je.modules.conv_utils import (
+    to_pair, _finalize_norm_kwargs, Pad, Trim,
+    Pool1d, Pool2d, Unpool1d, Unpool2d
+)
 
 
 class _Conv(Module):
@@ -126,7 +45,7 @@ class _Conv(Module):
             stride=1,
             bias=True,
             norm=None,
-            norm_kwargs={},
+            norm_kwargs=None,
             activation_fn='relu',
             pre_activation=False,
             gated=False,
@@ -141,9 +60,11 @@ class _Conv(Module):
             stride:
             bias:
             dropout:
-            norm: may be None or 'batch'
+            norm: may be None, 'batch' or 'sequence'
             activation_fn:
-            pre_activation:
+            pre_activation: If True normalization and activation is applied to
+                the input rather than to the output. This is important when
+                skip connections are used. See, e.g., https://towardsdatascience.com/resnet-with-identity-mapping-over-1000-layers-reached-image-classification-bb50a42af03e .
             gated:
         """
         super().__init__()
@@ -168,32 +89,21 @@ class _Conv(Module):
             kernel_size=kernel_size, dilation=dilation, stride=stride,
             bias=bias
         )
+        # initialize weights
         torch.nn.init.xavier_uniform_(self.conv.weight)
         if bias:
             torch.nn.init.zeros_(self.conv.bias)
 
         if norm is None:
             self.norm = None
+            assert norm_kwargs is None, norm_kwargs
         else:
-            num_channels = in_channels if pre_activation else out_channels
-            if self.is_2d():
-                norm_kwargs = {
-                    "data_format": 'bcft',
-                    "shape": (None, num_channels, None, None),
-                    **norm_kwargs
-                }
-            else:
-                norm_kwargs = {
-                    "data_format": 'bct',
-                    "shape": (None, num_channels, None),
-                    **norm_kwargs
-                }
-            if norm == 'batch':
-                norm_kwargs["statistics_axis"] = 'btf' if self.is_2d() else 'bt'
-            elif norm == 'sequence':
-                norm_kwargs["statistics_axis"] = 't'
-            else:
-                raise ValueError(f'{norm} normalization not known.')
+            norm_kwargs = {} if norm_kwargs is None else norm_kwargs
+            num_channels = self.in_channels if self.pre_activation \
+                else self.out_channels
+            norm_kwargs = _finalize_norm_kwargs(
+                norm_kwargs, norm, num_channels, self.is_2d()
+            )
             self.norm = Norm(**norm_kwargs)
 
         if self.gated:
@@ -201,13 +111,13 @@ class _Conv(Module):
                 in_channels, out_channels,
                 kernel_size=kernel_size, dilation=dilation, stride=stride,
                 bias=bias)
+            # initialize weights
             torch.nn.init.xavier_uniform_(self.gate_conv.weight)
             if bias:
                 torch.nn.init.zeros_(self.gate_conv.bias)
 
     def forward(
             self, x, seq_len=None, out_shape=None, seq_len_out=None,
-            norm_kwargs={}
     ):
         """
 
@@ -216,17 +126,17 @@ class _Conv(Module):
             seq_len: input sequence lengths for each sequence in the mini-batch
             out_shape: desired output shape relevant for transposed convs
             seq_len_out: desired output sequence lengths relevant for transposed convs
-            norm_kwargs:
 
         Returns:
 
         """
+
         if self.training and self.dropout > 0.:
             x = F.dropout(x, self.dropout)
 
         if self.pre_activation:
             if self.norm is not None:
-                x = self.norm(x, seq_len=seq_len, **norm_kwargs)
+                x = self.norm(x, seq_len=seq_len)
             x = self.activation_fn(x)
 
         if not self.is_transpose():
@@ -240,7 +150,7 @@ class _Conv(Module):
 
         if not self.pre_activation:
             if self.norm is not None:
-                y = self.norm(y, seq_len=seq_len, **norm_kwargs)
+                y = self.norm(y, seq_len=seq_len)
             y = self.activation_fn(y)
         if self.gated:
             g = self.gate_conv(x)
@@ -270,7 +180,8 @@ class _Conv(Module):
             pad_size *= pad_dims
             x = Pad(side=self.pad_side)(x, size=pad_size.tolist())
         if not all(pad_dims):
-            # for those axis not being padded: trim size (at both sides) which is not going to be processed anyway
+            # for those axis not being padded: trim size (at both sides)
+            # which is not going to be processed anyway
             trim_size = (
                 (np.array(x.shape[2:]) - np.array(self.kernel_size))
                 % np.array(self.stride)
@@ -304,7 +215,7 @@ class _Conv(Module):
             if any(size < 0):
                 x = Pad(side=pad_side, mode='constant')(x, size=-size*(size < 0))
         elif any([side is not None for side in to_list(self.pad_side)]):
-            # pad_size can not be inferred
+            # pad_size cannot be inferred
             raise NotImplementedError
         return x
 
@@ -317,6 +228,16 @@ class _Conv(Module):
 
         Returns:
 
+        >>> cnn = Conv1d(4, 20, 5, stride=2, pad_side=None)
+        >>> signal = torch.rand((5, 4, 103))
+        >>> out, seq_len = cnn(signal)
+        >>> cnn.get_out_shape(signal.shape)
+        array([ 5, 20, 50])
+        >>> cnn = Conv1d(4, 20, 5, stride=2, pad_side='both')
+        >>> signal = torch.rand((5, 4, 103))
+        >>> out, seq_len = cnn(signal)
+        >>> cnn.get_out_shape(signal.shape)
+        array([ 5, 20, 52])
         """
         out_shape = np.array(in_shape)
         assert len(out_shape) == 3 + self.is_2d(), (
@@ -342,9 +263,6 @@ class _Conv(Module):
     def get_seq_len_out(self, seq_len_in):
         """
         Compute output sequence lengths for each sequence in the mini-batch
-
-        L_{out} = (L_{in} - 1) \times \text{stride} - 2 \times \text{padding}
-                    + \text{kernel\_size} + \text{output\_padding}
 
         Args:
             seq_len_in: array/list of sequence lengths
@@ -382,128 +300,6 @@ class ConvTranspose2d(_Conv):
     conv_cls = nn.ConvTranspose2d
 
 
-class Pool1d(Module):
-    """
-    Wrapper for nn.{Max,Avg}Pool1d including padding
-    """
-    def __init__(self, pool_type, pool_size, pad_side='both'):
-        super().__init__()
-        self.pool_size = pool_size
-        self.pool_type = pool_type
-        self.pad_side = pad_side
-
-    def forward(self, x, seq_len=None):
-        if self.pool_size < 2:
-            return x, seq_len, None
-        if self.pad_side is not None:
-            pad_size = self.pool_size - 1 - ((x.shape[-1] - 1) % self.pool_size)
-            x = Pad(side=self.pad_side)(x, size=pad_size)
-        x = Trim(side='both')(x, size=x.shape[2] % self.pool_size)
-        if self.pool_type == 'max':
-            x, pool_indices = nn.MaxPool1d(
-                kernel_size=self.pool_size, return_indices=True
-            )(x)
-        elif self.pool_type == 'avg':
-            x = nn.AvgPool1d(kernel_size=self.pool_size)(x)
-            pool_indices = None
-        else:
-            raise ValueError(f'{self.pool_type} pooling unknown.')
-
-        if seq_len is not None:
-            seq_len = seq_len / self.pool_size
-            if self.pad_side is None:
-                seq_len = np.floor(seq_len).astype(np.int)
-            else:
-                seq_len = np.ceil(seq_len).astype(np.int)
-        return x, seq_len, pool_indices
-
-
-class Unpool1d(Module):
-    """
-    1d MaxUnpooling if indices are provided else upsampling
-    """
-    def __init__(self, pool_size):
-        super().__init__()
-        self.pool_size = pool_size
-
-    def forward(self, x, seq_len=None, indices=None):
-        if self.pool_size < 2:
-            return x, seq_len
-        if indices is None:
-            x = F.interpolate(x, scale_factor=self.pool_size)
-        else:
-            x = nn.MaxUnpool1d(kernel_size=self.pool_size)(
-                x, indices=indices
-            )
-        if seq_len is not None:
-            seq_len = seq_len * self.pool_size
-            seq_len = np.maximum(seq_len, x.shape[-1])
-        return x, seq_len
-
-
-class Pool2d(Module):
-    """
-    Wrapper for nn.{Max,Avg}Pool2d including padding
-    """
-    def __init__(self, pool_type, pool_size, pad_side='both'):
-        super().__init__()
-        self.pool_type = pool_type
-        self.pool_size = to_pair(pool_size)
-        self.pad_side = to_pair(pad_side)
-
-    def forward(self, x, seq_len=None):
-        if all(np.array(self.pool_size) < 2):
-            return x, seq_len, None
-        pad_size = (
-            self.pool_size[0] - 1 - ((x.shape[-2] - 1) % self.pool_size[0]),
-            self.pool_size[1] - 1 - ((x.shape[-1] - 1) % self.pool_size[1])
-        )
-        pad_size = np.where([pad is None for pad in self.pad_side], 0, pad_size)
-        if any(pad_size > 0):
-            x = Pad(side=self.pad_side)(x, size=pad_size)
-        x = Trim(side='both')(x, size=np.array(x.shape[2:]) % self.pool_size)
-        if self.pool_type == 'max':
-            x, pool_indices = nn.MaxPool2d(
-                kernel_size=self.pool_size, return_indices=True
-            )(x)
-        elif self.pool_type == 'avg':
-            x = nn.AvgPool2d(kernel_size=self.pool_size)(x)
-            pool_indices = None
-        else:
-            raise ValueError(f'{self.pool_type} pooling unknown.')
-
-        if seq_len is not None:
-            seq_len = seq_len / self.pool_size[-1]
-            if self.pad_side[-1] is None:
-                seq_len = np.floor(seq_len).astype(np.int)
-            else:
-                seq_len = np.ceil(seq_len).astype(np.int)
-        return x, seq_len, pool_indices
-
-
-class Unpool2d(Module):
-    """
-    2d MaxUnpooling if indices are provided else upsampling
-    """
-    def __init__(self, pool_size):
-        super().__init__()
-        self.pool_size = to_pair(pool_size)
-
-    def forward(self, x, seq_len=None, indices=None):
-        if all(np.array(self.pool_size) < 2):
-            return x, seq_len
-        if indices is None:
-            x = F.interpolate(x, scale_factor=self.pool_size)
-        else:
-            x = nn.MaxUnpool2d(kernel_size=self.pool_size)(
-                x, indices=indices
-            )
-        if seq_len is not None:
-            seq_len = seq_len * self.pool_size[-1]
-            seq_len = np.maximum(seq_len, x.shape[-1])
-        return x, seq_len
-
-
 class _CNN(Module):
     """
     Stack of Convolutional Layers. Base Class for CNN(Transpose)Xd.
@@ -522,7 +318,7 @@ class _CNN(Module):
     def __init__(
             self,
             in_channels,
-            out_channels,
+            out_channels: List[int],
             kernel_size,
             input_layer=True,
             output_layer=True,
@@ -533,7 +329,7 @@ class _CNN(Module):
             dilation=1,
             stride=1,
             norm=None,
-            norm_kwargs={},
+            norm_kwargs=None,
             activation_fn='relu',
             pre_activation=False,
             gated=False,
@@ -541,6 +337,45 @@ class _CNN(Module):
             pool_size=1,
             return_pool_indices=False,
     ):
+        """
+
+        Args:
+            in_channels: number of input channels
+            out_channels: list of number of output channels for each layer
+            kernel_size:
+            input_layer: if True neither normalization nor
+                activation_fn is applied to input and first layer doesn't use
+                gating.
+            output_layer: if True neither normalization nor
+                activation_fn is applied to output and last layer doesn't use
+                gating.
+            residual_connections: None or list of None/int/List[int] such that
+                if residual_connections[src_idx] == dst_idx or dst_idx in
+                residual_connections[src_idx] a residual connection is added
+                from the input of the src_idx-th layer to the input of the
+                dst_idx-th layer. If, e.g.,
+                residual_connections = [None, 3, None, None] there is a single
+                residual connection skipping the second and third layer.
+            dense_connections: None or list of None/int/List[int] such that
+                if dense_connections[src_idx] == dst_idx or dst_idx in
+                dense_connections[src_idx] a dense connection is added
+                from the input of the src_idx-th layer to the input of the
+                dst_idx-th layer. If, e.g.,
+                dense_connections = [None, 3, None, None] there is a single
+                dense_connection connection skipping the second and third layer.
+            dropout:
+            pad_side:
+            dilation:
+            stride:
+            norm:
+            norm_kwargs:
+            activation_fn:
+            pre_activation:
+            gated:
+            pool_type:
+            pool_size:
+            return_pool_indices:
+        """
         super().__init__()
 
         self.in_channels = in_channels
@@ -565,20 +400,47 @@ class _CNN(Module):
         self.pool_types = to_list(pool_type, num_layers)
         self.pool_sizes = to_list(pool_size, num_layers)
         self.return_pool_indices = return_pool_indices
-        self.activation_fn = to_list(activation_fn, num_layers)
-        self.norm = to_list(norm, num_layers)
+        self.activation_fn = to_list(activation_fn, num_layers+1)
+        self.norm = to_list(norm, num_layers+1)
         self.gated = to_list(gated, num_layers)
 
         if input_layer:
+            assert not isinstance(gated, (list, tuple)) or not gated[0]
             self.gated[0] = False
-            if pre_activation:
-                self.activation_fn[0] = 'identity'
-                self.norm[0] = None
+            assert (
+                not isinstance(activation_fn, (list, tuple))
+                or activation_fn[0] == 'identity'
+            )
+            self.activation_fn[0] = 'identity'
+            assert (
+                not isinstance(norm, (list, tuple))
+                or norm[0] is None
+            )
+            self.norm[0] = None
         if output_layer:
+            assert not isinstance(gated, (list, tuple)) or not gated[-1]
             self.gated[-1] = False
-            if not pre_activation:
-                self.activation_fn[-1] = 'identity'
-                self.norm[-1] = None
+            assert (
+                not isinstance(activation_fn, (list, tuple))
+                or activation_fn[-1] == 'identity'
+            )
+            self.activation_fn[-1] = 'identity'
+            assert (
+                not isinstance(norm, (list, tuple))
+                or norm[-1] is None
+            )
+            self.norm[-1] = None
+
+        if self.norm[0] is not None and not pre_activation:
+            norm_kwargs = {} if norm_kwargs is None else norm_kwargs
+            norm_kwargs = _finalize_norm_kwargs(
+                norm_kwargs, self.norm[0], self.in_channels, self.is_2d()
+            )
+            self.input_norm = Norm(**norm_kwargs)
+            self.input_activation_fn = ACTIVATION_FN_MAP[self.activation_fn[0]]
+        else:
+            self.input_norm = None
+            self.input_activation_fn = None
 
         convs = list()
         layer_in_channels = [in_channels] + copy(out_channels)
@@ -595,9 +457,9 @@ class _CNN(Module):
                 dilation=self.dilations[i],
                 stride=self.strides[i],
                 pad_side=self.pad_sides[i],
-                norm=self.norm[i],
+                norm=self.norm[i + (not pre_activation)],
                 norm_kwargs=norm_kwargs,
-                activation_fn=self.activation_fn[i],
+                activation_fn=self.activation_fn[i + (not pre_activation)],
                 pre_activation=pre_activation,
                 gated=self.gated[i],
             ))
@@ -627,10 +489,20 @@ class _CNN(Module):
         self.residual_convs = nn.ModuleDict(residual_convs)
         self.layer_in_channels = layer_in_channels
 
+        if self.norm[-1] is not None and pre_activation:
+            norm_kwargs = {} if norm_kwargs is None else norm_kwargs
+            norm_kwargs = _finalize_norm_kwargs(
+                norm_kwargs, self.norm[-1], layer_in_channels[-1], self.is_2d()
+            )
+            self.output_norm = Norm(**norm_kwargs)
+            self.output_activation_fn = ACTIVATION_FN_MAP[self.activation_fn[-1]]
+        else:
+            self.output_norm = None
+            self.output_activation_fn = None
+
     def forward(
             self, x, seq_len=None,
-            out_shapes=None, seq_lens_out=None, pool_indices=None,
-            norm_kwargs={}
+            out_shapes=None, seq_lens_out=None, pool_indices=None
     ):
         """
 
@@ -640,7 +512,6 @@ class _CNN(Module):
             out_shapes:
             seq_lens_out:
             pool_indices:
-            norm_kwargs:
 
         Returns:
 
@@ -663,6 +534,9 @@ class _CNN(Module):
                 seq_len=seq_len,
                 pool_indices=pool_indices[i],
             )
+            if i == 0 and self.input_norm is not None:
+                x = self.input_norm(x, seq_len=seq_len)
+                x = self.input_activation_fn(x)
             if self.residual_connections[i] is not None:
                 for dst_idx in self.residual_connections[i]:
                     residual_skip_signals[dst_idx].append((i, x))
@@ -671,9 +545,8 @@ class _CNN(Module):
                 for dst_idx in sorted(self.dense_connections[i]):
                     dense_skip_signals[dst_idx].append((i, x))
             x, seq_len = conv(
-                x,
-                seq_len=seq_len, out_shape=out_shapes[i], seq_len_out=seq_lens_out[i],
-                norm_kwargs=norm_kwargs
+                x, seq_len=seq_len,
+                out_shape=out_shapes[i], seq_len_out=seq_lens_out[i],
             )
             for src_idx, x_ in dense_skip_signals[i + 1]:
                 x_ = F.interpolate(x_, size=x.shape[2:])
@@ -683,6 +556,9 @@ class _CNN(Module):
                 if f'{src_idx}->{i+1}' in self.residual_convs:
                     x_, _ = self.residual_convs[f'{src_idx}->{i + 1}'](x_)
                 x = x + x_
+            if i == self.num_layers - 1 and self.output_norm is not None:
+                x = self.output_norm(x, seq_len=seq_len)
+                x = self.output_activation_fn(x)
             x, seq_len, pool_indices[i] = self.maybe_pool(
                 x,
                 pool_type=self.pool_types[i],
@@ -720,6 +596,16 @@ class _CNN(Module):
 
     @classmethod
     def get_transpose_config(cls, config, transpose_config=None):
+        """
+        generates config of a symmetric transposed CNN. Useful with autoencoders.
+
+        Args:
+            config:
+            transpose_config:
+
+        Returns:
+
+        """
         assert config['factory'] == cls
         if transpose_config is None:
             transpose_config = dict()
@@ -782,7 +668,7 @@ class _CNN(Module):
         shapes = [in_shape]
         for i, conv in enumerate(self.convs):
             out_shape = conv.get_out_shape(out_shape)
-            out_shape[1] = self.layer_in_channels[i + 1]  # has to be adjusted with dense skip connections
+            out_shape[1] = self.layer_in_channels[i + 1]  # channels differ from conv channels with dense skip connections
             if self.pool_types[i] is not None:
                 if self.is_transpose():
                     raise NotImplementedError
