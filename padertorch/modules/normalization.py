@@ -5,9 +5,9 @@ from torch import nn
 from torch.autograd import Function
 
 
-class Norm(Module):
+class Normalization(Module):
     """
-    >>> norm = Norm(data_format='bct', shape=(None, 10, None), statistics_axis='bt', momentum=0.5)
+    >>> norm = Normalization(data_format='bct', shape=(None, 10, None), statistics_axis='bt', momentum=0.5)
     >>> x, seq_len = 2*torch.ones((3,10,4)), [1, 2, 3]
     >>> norm.running_mean
     tensor([[[0.],
@@ -205,7 +205,7 @@ class Norm(Module):
         return x
 
 
-class Normalize(Function):
+class _Normalize(Function):
     """
     Normalization function incl. backward computation.
     The implementation of the backward step saves memory compared to simply
@@ -345,7 +345,7 @@ def normalize(
              [6.],
              [6.]]])
     """
-    return Normalize.apply(
+    return _Normalize.apply(
         x, gamma, beta, statistics_axis, batch_axis, sequence_axis,
         sequence_lengths, shift, scale, eps
     )
