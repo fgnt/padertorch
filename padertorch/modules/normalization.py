@@ -7,7 +7,7 @@ from torch.autograd import Function
 
 class Norm(Module):
     """
-    >>> norm = Norm(data_format='bct', shape=(None, 10, None), statistics_axis='bt', momentum=0.5, interpolation_factor=1.)
+    >>> norm = Norm(data_format='bct', shape=(None, 10, None), statistics_axis='bt', momentum=0.5)
     >>> x, seq_len = 2*torch.ones((3,10,4)), [1, 2, 3]
     >>> norm.running_mean
     tensor([[[0.],
@@ -68,7 +68,6 @@ class Norm(Module):
             scale=True,
             eps: float = 1e-5,
             momentum=0.95,
-            interpolation_factor=0.,
     ):
         super().__init__()
         self.data_format = data_format.lower()
@@ -104,8 +103,6 @@ class Norm(Module):
             self.register_parameter('running_mean', None)
             self.register_parameter('running_power', None)
         self.momentum = momentum
-        assert 0. <= interpolation_factor <= 1., interpolation_factor
-        self.interpolation_factor = interpolation_factor
 
         if independent_axis is not None:
             reduced_shape = len(data_format) * [1]
@@ -131,7 +128,10 @@ class Norm(Module):
 
     @property
     def runnning_var(self):
-        n = torch.max(self.num_tracked_values, 2. * torch.ones_like(self.num_tracked_values))
+        n = torch.max(
+            self.num_tracked_values,
+            2. * torch.ones_like(self.num_tracked_values)
+        )
         running_var = self.running_power
         if self.shift:
             running_var = n / (n-1) * (running_var - self.running_mean ** 2)
@@ -156,48 +156,40 @@ class Norm(Module):
 
     def forward(self, x, sequence_lengths=None):
         if self.training or not self.track_running_stats:
-            y, mean, power, n_values = normalize(
+            x, mean, power, n_values = normalize(
                 x, gamma=self.gamma, beta=self.beta,
                 statistics_axis=self.statistics_axis,
                 batch_axis=self.batch_axis, sequence_axis=self.sequence_axis,
-                sequence_lengths=sequence_lengths, shift=self.shift, scale=self.scale,
+                sequence_lengths=sequence_lengths,
+                shift=self.shift, scale=self.scale,
                 eps=self.eps
             )
             if self.track_running_stats:
-                self.num_tracked_values += n_values.data
+                self.num_tracked_values += n_values.detach()
                 if self.momentum is None:
-                    momentum = 1 - n_values / self.num_tracked_values.data
+                    momentum = 1 - n_values / self.num_tracked_values.detach()
                 else:
                     momentum = self.momentum
                 if self.shift:
                     self.running_mean *= momentum
-                    self.running_mean += (1 - momentum) * mean.data
-                    power = power.data + mean.data ** 2
+                    self.running_mean += (1 - momentum) * mean.detach()
+                    power = power.detach() + mean.detach() ** 2
                 if self.scale:
                     self.running_power *= momentum
-                    self.running_power += (1 - momentum) * power.data
-                if self.interpolation_factor > 0.:
-                    # perform straight through backpropagation
-                    # https://arxiv.org/pdf/1611.01144.pdf
-                    y_ = x
-                    if self.shift:
-                        y_ = y_ - self.running_mean.data
-                    if self.scale:
-                        y_ = y_ / torch.sqrt(self.runnning_var.data)
-                    y = y + self.interpolation_factor * (y_ - y).detach()
-                    y = y * compute_mask(y, sequence_lengths, self.batch_axis, self.sequence_axis)
+                    self.running_power += (1 - momentum) * power.detach()
         else:
-            y = x
             if self.shift:
-                y = y - self.running_mean.data
+                x = x - self.running_mean.detach()
             if self.scale:
-                y = y / torch.sqrt(self.runnning_var.data)
+                x = x / torch.sqrt(self.runnning_var.detach())
             if self.gamma is not None:
-                y = y * self.gamma
+                x = x * self.gamma
             if self.beta is not None:
-                y = y + self.beta
-            y = y * compute_mask(x, sequence_lengths, self.batch_axis, self.sequence_axis)
-        return y
+                x = x + self.beta
+            x = x * compute_mask(
+                x, sequence_lengths, self.batch_axis, self.sequence_axis
+            )
+        return x
 
     def inverse(self, x):
         if not self.track_running_stats:
@@ -214,8 +206,16 @@ class Norm(Module):
 
 
 class Normalize(Function):
+    """
+    Normalization function incl. backward computation.
+    The implementation of the backward step saves memory compared to simply
+    using autograd of the forward operations.
+    """
     @staticmethod
-    def forward(ctx, x, gamma, beta, statistics_axis, batch_axis, sequence_axis, sequence_lengths, shift, scale, eps):
+    def forward(
+            ctx, x, gamma, beta, statistics_axis, batch_axis, sequence_axis,
+            sequence_lengths, shift, scale, eps
+    ):
         ctx.statistics_axis = statistics_axis
         ctx.batch_axis = batch_axis
         ctx.sequence_axis = sequence_axis
@@ -230,8 +230,12 @@ class Normalize(Function):
         # compute statistics
         n_values = mask.sum(dim=statistics_axis, keepdim=True)
         x = x * mask
-        mean = x.sum(dim=statistics_axis, keepdim=True) / torch.max(n_values, torch.ones_like(n_values))
-        power = (x ** 2).sum(dim=statistics_axis, keepdim=True) / torch.max(n_values, torch.ones_like(n_values))
+        mean = x.sum(dim=statistics_axis, keepdim=True) / torch.max(
+            n_values, torch.ones_like(n_values)
+        )
+        power = (x ** 2).sum(dim=statistics_axis, keepdim=True) / torch.max(
+            n_values, torch.ones_like(n_values)
+        )
         y = x
         if shift:
             y = y - mean
@@ -281,11 +285,15 @@ class Normalize(Function):
             x = (x - mean) * mask
             grad_mean_ = -grad_x_hat.sum(ctx.statistics_axis, keepdim=True)
         if ctx.scale:
-            grad_power_ = (grad_x_hat * x).sum(ctx.statistics_axis, keepdim=True) * (-1 / 2) * (power + ctx.eps) ** (-3 / 2)
+            grad_power_ = (
+                    (grad_x_hat * x).sum(ctx.statistics_axis, keepdim=True)
+                    * (-1 / 2) * (power + ctx.eps) ** (-3 / 2)
+            )
             if ctx.shift:
                 grad_mean_ = (
                     grad_mean_ / scale
-                    - 2 * grad_power_ * x.sum(ctx.statistics_axis, keepdim=True) / n_values
+                    - 2 * grad_power_
+                        * x.sum(ctx.statistics_axis, keepdim=True) / n_values
                 )
 
         grad_x = grad_x_hat
@@ -296,7 +304,10 @@ class Normalize(Function):
         return grad_x * mask, grad_gamma, grad_beta, None, None, None, None, None, None, None
 
 
-def normalize(x, gamma, beta, statistics_axis, batch_axis, sequence_axis, sequence_lengths, shift, scale, eps):
+def normalize(
+        x, gamma, beta, statistics_axis, batch_axis, sequence_axis,
+        sequence_lengths, shift, scale, eps
+):
     """
     >>> x, seq_len = 2*torch.ones((3,10,4)), [1, 2, 3]
     >>> x, m, p, n = normalize(x, None, None, [0, 2], 0, 2, seq_len, True, True, 1e-3)
@@ -334,4 +345,7 @@ def normalize(x, gamma, beta, statistics_axis, batch_axis, sequence_axis, sequen
              [6.],
              [6.]]])
     """
-    return Normalize.apply(x, gamma, beta, statistics_axis, batch_axis, sequence_axis, sequence_lengths, shift, scale, eps)
+    return Normalize.apply(
+        x, gamma, beta, statistics_axis, batch_axis, sequence_axis,
+        sequence_lengths, shift, scale, eps
+    )
