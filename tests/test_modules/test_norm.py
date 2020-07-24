@@ -1,6 +1,6 @@
 import torch
-from padertorch.contrib.je.modules.global_pooling import compute_mask
-from padertorch.contrib.je.modules.norm import normalize
+from padertorch.ops.sequence.mask import compute_mask
+from padertorch.modules.normalization import normalize
 import paderbox.testing as tc
 
 

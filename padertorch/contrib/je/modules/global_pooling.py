@@ -1,69 +1,7 @@
 import numpy as np
 import torch
 from torch import nn
-
-
-def compute_mask(x, seq_len, batch_axis=0, seq_axis=1):
-    """
-    >>> x, seq_len = 2*torch.ones((3,1,10,4)), [1, 2, 3]
-    >>> mask = compute_mask(x, seq_len=seq_len, batch_axis=0, seq_axis=-1)
-    >>> mask[:,0]
-    tensor([[[1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.],
-             [1., 0., 0., 0.]],
-    <BLANKLINE>
-            [[1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.],
-             [1., 1., 0., 0.]],
-    <BLANKLINE>
-            [[1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.],
-             [1., 1., 1., 0.]]])
-
-    Args:
-        x:
-        seq_len:
-        batch_axis:
-        seq_axis:
-
-    Returns:
-
-    """
-    if seq_len is None:
-        return torch.ones_like(x)
-    if batch_axis < 0:
-        batch_axis = x.dim() + batch_axis
-    if seq_axis < 0:
-        seq_axis = x.dim() + seq_axis
-    seq_len = torch.Tensor(seq_len).long().to(x.device)
-    for dim in range(batch_axis + 1, x.dim()):
-        seq_len = seq_len.unsqueeze(-1)
-    idx = torch.arange(x.shape[seq_axis]).to(x.device)
-    for dim in range(seq_axis + 1, x.dim()):
-        idx = idx.unsqueeze(-1)
-    mask = (idx < seq_len).float().expand(x.shape)
-    return mask
+from padertorch.ops.sequence.mask import compute_mask
 
 
 class Sum(nn.Module):
