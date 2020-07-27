@@ -271,9 +271,10 @@ class Trainer(Configurable):
             except TypeError:
                 # TypeError: object of type '...' has no len()
                 max_it_len = None
-            hooks.append(ProgressBarHook(self._stop_trigger, max_it_len))
+            progressbar_hook = ProgressBarHook(self._stop_trigger, max_it_len)
             # set_last updates the iteration counter in case of resume
-            hooks[-1].set_last(self.iteration, self.epoch)
+            progressbar_hook.set_last(self.iteration, self.epoch)
+            hooks.append(progressbar_hook)
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
 
         if len(device) >= 2:
