@@ -46,7 +46,15 @@ def load_events_as_dict(
     {'wall_time': 1545605119.7274427, 'step': 1, 'summary': {'value': [{'tag': 'training/grad_norm', 'simple_value': 0.21423661708831787}]}}
 
     """
-    from protobuf_to_dict import protobuf_to_dict  # protobuf3-to-dict (PyPI)
+    try:
+        # protobuf3-to-dict (PyPI)
+        from protobuf_to_dict import protobuf_to_dict
+    except NameError as e:
+        raise RuntimeError(
+            'protobuf3-to-dict is required for load_events_as_dict to work, '
+            'but you seem to have installed protobuf-to-dict. You can '
+            'install it with:\n  pip install protobuf3-to-dict'
+        ) from e
 
     # from google.protobuf.json_format import MessageToDict
     # MessageToDict(e, preserving_proto_field_name=True)
