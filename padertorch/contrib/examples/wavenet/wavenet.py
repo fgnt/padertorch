@@ -3,7 +3,7 @@ from einops import rearrange
 from padertorch import modules
 from padertorch.base import Model
 from padertorch.contrib.je.modules.features import MelTransform
-from padertorch.contrib.je.modules.norm import Norm
+from padertorch.modules.normalization import Normalization
 from padertorch.ops import mu_law_decode
 
 
@@ -18,7 +18,7 @@ class WaveNet(Model):
             n_mels=n_mels, sample_rate=sample_rate, fft_length=fft_length,
             fmin=fmin, fmax=fmax,
         )
-        self.in_norm = Norm(
+        self.in_norm = Normalization(
             data_format='bcft',
             shape=(None, 1, n_mels, None),
             statistics_axis='bt',

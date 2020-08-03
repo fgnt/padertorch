@@ -4,8 +4,8 @@ import numpy as np
 
 from padertorch.base import Module
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
-from padertorch.contrib.je.modules.norm import Norm
-from padertorch.contrib.je.modules.global_pooling import compute_mask
+from padertorch.modules.normalization import Normalization
+from padertorch.ops.sequence.mask import compute_mask
 
 
 def scaled_dot_product_attention(q, k, v, seq_len=None, bidirectional=False):
@@ -29,7 +29,7 @@ def scaled_dot_product_attention(q, k, v, seq_len=None, bidirectional=False):
         mask = get_causal_mask(y)
         y = y + torch.log((mask > 0).float())
     elif seq_len is not None:
-        mask = compute_mask(y, seq_len, seq_axis=-1)
+        mask = compute_mask(y, seq_len, sequence_axis=-1)
         y = y + torch.log((mask > 0).float())
     return torch.softmax(y, dim=-1)@v
 
@@ -112,14 +112,14 @@ class TransformerBlock(Module):
             # ToDo: where is the difference between layer norm and instance norm?
         else:
             raise ValueError(f'{norm} normalization not known.')
-        self.self_attention_norm = Norm(**norm_kwargs)
-        self.output_norm = Norm(**norm_kwargs)
+        self.self_attention_norm = Normalization(**norm_kwargs)
+        self.output_norm = Normalization(**norm_kwargs)
 
         if cross_attention:
             self.multi_head_cross_attention = MultiHeadAttention(
                 hidden_size, hidden_size, num_heads, bidirectional=True
             )
-            self.cross_attention_norm = Norm(**norm_kwargs)
+            self.cross_attention_norm = Normalization(**norm_kwargs)
 
     def forward(self, x, v=None, seq_len_x=None, seq_len_v=None, state=None):
         x_ = x if state is None else torch.cat([state, x], 1)

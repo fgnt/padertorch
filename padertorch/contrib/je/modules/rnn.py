@@ -1,7 +1,7 @@
 from torch import nn
 import torch
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from padertorch.contrib.je.modules.global_pooling import compute_mask
+from padertorch.ops.sequence.mask import compute_mask
 
 
 class RNN(nn.Module):

@@ -8,7 +8,7 @@ from padertorch.contrib.je.modules.augment import (
     Scale, Resample, GaussianBlur2d, Mask, Noise,
     LogUniformSampler, TruncExponentialSampler, LogTruncNormalSampler
 )
-from padertorch.contrib.je.modules.norm import Norm
+from padertorch.modules.normalization import Normalization
 from torch import nn
 from paderbox.transform.module_fbank import get_fbanks
 
@@ -38,7 +38,7 @@ class NormalizedLogMelExtractor(nn.Module):
         )
         self.add_deltas = add_deltas
         self.add_delta_deltas = add_delta_deltas
-        self.norm = Norm(
+        self.norm = Normalization(
             data_format='bcft',
             shape=(None, 1 + add_deltas + add_delta_deltas, n_mels, None),
             statistics_axis=mel_norm_statistics_axis,
@@ -47,7 +47,6 @@ class NormalizedLogMelExtractor(nn.Module):
             eps=mel_norm_eps,
             independent_axis=None,
             momentum=None,
-            interpolation_factor=1.,
         )
 
         # augmentation
@@ -109,7 +108,7 @@ class NormalizedLogMelExtractor(nn.Module):
                     delta_deltas = compute_deltas(deltas)
                     x = torch.cat((x, delta_deltas), dim=1)
 
-            x = self.norm(x, seq_len=seq_len)
+            x = self.norm(x, sequence_lengths=seq_len)
 
             if self.time_masking is not None:
                 x = self.time_masking(x, seq_len=seq_len)
@@ -201,7 +200,7 @@ class MelTransform(Module):
         return nn.ReLU()(fbanks)
 
     def forward(self, x):
-        x = x @ self.get_fbanks(x)
+        x = x.matmul(self.get_fbanks(x))
         if self.log:
             x = torch.log(x + self.eps)
         return x
