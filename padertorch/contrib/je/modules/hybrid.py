@@ -12,11 +12,28 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 class HybridCNN(Module):
     """
     Combines CNN2d and CNN1d sequentially.
+
+    >>> config = HybridCNN.get_config(dict(\
+            factory=HybridCNN,\
+            input_size=80,\
+            cnn_2d=dict(\
+                in_channels=1, out_channels=3*[32], kernel_size=3, \
+            ), \
+            cnn_1d=dict(\
+                out_channels=3*[32], kernel_size=3\
+            ),\
+        ))
+    >>> cnn = HybridCNN.from_config(config)
+    >>> x = torch.randn((3, 1, 80, 11))
+    >>> y, seq_len = cnn(x)
+    >>> y.shape
+    torch.Size([3, 32, 11])
     """
     def __init__(
             self,
             cnn_2d: CNN2d,
             cnn_1d: CNN1d,
+            *,
             input_size=None,
             return_pool_indices=False
     ):
@@ -31,25 +48,18 @@ class HybridCNN(Module):
 
     def forward(self, x, seq_len=None):
         if self.cnn_2d.return_pool_indices:
-            x, seq_len, pool_indices_2d = self.cnn_2d(
-                x, seq_len
-            )
+            x, seq_len, pool_indices_2d = self.cnn_2d(x, seq_len)
         else:
             x, seq_len = self.cnn_2d(x, seq_len)
             pool_indices_2d = None
         x = rearrange(x, 'b c f t -> b (c f) t')
         if self.cnn_1d.return_pool_indices:
-            x, seq_len, pool_indices_1d = self.cnn_1d(
-                x, seq_len=seq_len
-            )
+            x, seq_len, pool_indices_1d = self.cnn_1d(x, seq_len)
         else:
             x, seq_len = self.cnn_1d(x, seq_len)
             pool_indices_1d = None
         if self.return_pool_indices:
-            return (
-                x, seq_len,
-                (pool_indices_2d, pool_indices_1d)
-            )
+            return x, seq_len, (pool_indices_2d, pool_indices_1d)
         return x, seq_len
 
     @classmethod
@@ -104,24 +114,28 @@ class HybridCNNTranspose(Module):
 
     def forward(
             self, x, seq_len=None,
-            shapes=None,
-            seq_lens=None,
-            pool_indices=None,
+            target_shape=None, target_sequence_lengths=None, pool_indices=None,
     ):
-        if shapes is None:
-            shapes = (None, None)
-        shapes_2d, shapes_1d = shapes
-        if seq_lens is None:
-            seq_lens = (None, None)
-        lengths_2d, lengths_1d = seq_lens
+        if target_shape is None:
+            target_shape_1d = None
+        else:
+            input_shape_2d = self.cnn_transpose_2d.get_shapes(target_shape=target_shape)[0]
+            target_shape_1d = (input_shape_2d[0], input_shape_2d[1]*input_shape_2d[2], input_shape_2d[3])
+        if target_sequence_lengths is None:
+            target_sequence_lengths_1d = None
+        else:
+            target_sequence_lengths_1d = self.cnn_transpose_2d.get_sequence_lengths(target_shape=target_shape)[0]
+
         if pool_indices is None:
-            pool_indices = (None, None)
-        pool_indices_2d, pool_indices_1d = pool_indices
+            pool_indices_2d = pool_indices_1d = None
+        else:
+            assert isinstance(pool_indices, (list, tuple)) and len(pool_indices) == 2, pool_indices
+            pool_indices_2d, pool_indices_1d = pool_indices
         x, seq_len = self.cnn_transpose_1d(
             x,
             seq_len=seq_len,
-            shapes=shapes_1d,
-            seq_lens=lengths_1d,
+            target_shape=target_shape_1d,
+            target_sequence_lengths=target_sequence_lengths_1d,
             pool_indices=pool_indices_1d,
         )
         x = x.view(
@@ -130,8 +144,8 @@ class HybridCNNTranspose(Module):
         x, seq_len = self.cnn_transpose_2d(
             x,
             seq_len=seq_len,
-            shapes=shapes_2d,
-            seq_lens=lengths_2d,
+            target_shape=target_shape,
+            target_sequence_lengths=target_sequence_lengths,
             pool_indices=pool_indices_2d,
         )
         return x, seq_len

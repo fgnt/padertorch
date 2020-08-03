@@ -1,20 +1,20 @@
 from collections import defaultdict
 from copy import copy
+from typing import List
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from padertorch.base import Module
-from padertorch.ops.mappings import ACTIVATION_FN_MAP
-from padertorch.utils import to_list
-from padertorch.contrib.je.modules.norm import Norm
-from torch import nn
-from typing import List
-
 from padertorch.contrib.je.modules.conv_utils import (
     to_pair, _finalize_norm_kwargs, Pad, Trim,
-    Pool1d, Pool2d, Unpool1d, Unpool2d
+    Pool1d, Pool2d, Unpool1d, Unpool2d, map_activation_fn,
+    compute_conv_output_shape, compute_conv_output_sequence_lengths,
+    compute_pool_output_shape, compute_pool_output_sequence_lengths,
 )
+from padertorch.modules.normalization import Normalization
+from padertorch.utils import to_list
+from torch import nn
 
 
 class _Conv(Module):
@@ -75,12 +75,13 @@ class _Conv(Module):
             kernel_size = to_pair(kernel_size)
             dilation = to_pair(dilation)
             stride = to_pair(stride)
+        self.bias = bias
         self.dropout = dropout
         self.pad_side = pad_side
         self.kernel_size = kernel_size
         self.dilation = dilation
         self.stride = stride
-        self.activation_fn = ACTIVATION_FN_MAP[activation_fn]()
+        self.activation_fn = map_activation_fn(activation_fn)
         self.pre_activation = pre_activation
         self.gated = gated
 
@@ -89,10 +90,13 @@ class _Conv(Module):
             kernel_size=kernel_size, dilation=dilation, stride=stride,
             bias=bias
         )
-        # initialize weights
-        torch.nn.init.xavier_uniform_(self.conv.weight)
-        if bias:
-            torch.nn.init.zeros_(self.conv.bias)
+
+        if self.gated:
+            self.gate_conv = self.conv_cls(
+                in_channels, out_channels,
+                kernel_size=kernel_size, dilation=dilation, stride=stride,
+                bias=bias
+            )
 
         if norm is None:
             self.norm = None
@@ -104,28 +108,52 @@ class _Conv(Module):
             norm_kwargs = _finalize_norm_kwargs(
                 norm_kwargs, norm, num_channels, self.is_2d()
             )
-            self.norm = Norm(**norm_kwargs)
+            self.norm = Normalization(**norm_kwargs)
 
+    def reset_parameters(self, output_activation_fn):
+        if isinstance(self.activation_fn, torch.nn.PReLU):
+            with torch.no_grad():
+                self.activation_fn.weight.fill_(.25)
+        output_activation_fn = map_activation_fn(output_activation_fn)
+        if (
+            isinstance(output_activation_fn, torch.nn.ReLU)
+            or isinstance(output_activation_fn, torch.nn.ELU)
+        ):
+            torch.nn.init.kaiming_uniform_(
+                self.conv.weight, nonlinearity='relu'
+            )
+        elif isinstance(output_activation_fn, torch.nn.LeakyReLU):
+            torch.nn.init.kaiming_uniform_(
+                self.conv.weight, nonlinearity='leaky_relu',
+                a=output_activation_fn.negative_slope
+            )
+        elif isinstance(output_activation_fn, torch.nn.PReLU):
+            torch.nn.init.kaiming_uniform_(
+                self.conv.weight, nonlinearity='leaky_relu', a=.25
+            )
+        else:
+            if isinstance(output_activation_fn, torch.nn.Tanh):
+                torch.nn.init.xavier_uniform_(self.conv.weight, gain=5/3)
+            else:
+                torch.nn.init.xavier_uniform_(self.conv.weight, gain=1.)
         if self.gated:
-            self.gate_conv = self.conv_cls(
-                in_channels, out_channels,
-                kernel_size=kernel_size, dilation=dilation, stride=stride,
-                bias=bias)
-            # initialize weights
-            torch.nn.init.xavier_uniform_(self.gate_conv.weight)
-            if bias:
+            torch.nn.init.xavier_uniform_(self.gate_conv.weight, gain=1.)
+        if self.bias:
+            torch.nn.init.zeros_(self.conv.bias)
+            if self.gated:
                 torch.nn.init.zeros_(self.gate_conv.bias)
 
     def forward(
-            self, x, seq_len=None, out_shape=None, seq_len_out=None,
+            self, x, sequence_lengths=None,
+            output_shape=None, output_sequence_lengths=None,
     ):
         """
 
         Args:
             x: input tensor of shape b,c,(f,)t
-            seq_len: input sequence lengths for each sequence in the mini-batch
-            out_shape: desired output shape relevant for transposed convs
-            seq_len_out: desired output sequence lengths relevant for transposed convs
+            sequence_lengths: input sequence lengths for each sequence in the mini-batch
+            output_shape: desired output shape relevant for transposed convs
+            output_sequence_lengths: desired output sequence lengths relevant for transposed convs
 
         Returns:
 
@@ -136,29 +164,29 @@ class _Conv(Module):
 
         if self.pre_activation:
             if self.norm is not None:
-                x = self.norm(x, seq_len=seq_len)
+                x = self.norm(x, sequence_lengths=sequence_lengths)
             x = self.activation_fn(x)
 
         if not self.is_transpose():
             x = self.pad_or_trim(x)
 
         y = self.conv(x)
-        if seq_len_out is not None:
-            seq_len = seq_len_out
-        elif seq_len is not None:
-            seq_len = self.get_seq_len_out(seq_len)
+        if output_sequence_lengths is not None:
+            sequence_lengths = output_sequence_lengths
+        elif sequence_lengths is not None:
+            sequence_lengths = self.get_output_sequence_lengths(sequence_lengths)
 
         if not self.pre_activation:
             if self.norm is not None:
-                y = self.norm(y, seq_len=seq_len)
+                y = self.norm(y, sequence_lengths=sequence_lengths)
             y = self.activation_fn(y)
         if self.gated:
             g = self.gate_conv(x)
             y = y * torch.sigmoid(g)
 
-        if out_shape is not None:
-            y = self.trim_padded_or_pad_trimmed(y, out_shape)
-        return y, seq_len
+        if output_shape is not None:
+            y = self.trim_padded_or_pad_trimmed(y, output_shape)
+        return y, sequence_lengths
 
     def pad_or_trim(self, x):
         """
@@ -219,69 +247,115 @@ class _Conv(Module):
             raise NotImplementedError
         return x
 
-    def get_out_shape(self, in_shape):
+    def get_output_shape(self, input_shape):
         """
         compute output shape given input shape
 
         Args:
-            in_shape: input shape
+            input_shape: input shape
 
         Returns:
 
         >>> cnn = Conv1d(4, 20, 5, stride=2, pad_side=None)
         >>> signal = torch.rand((5, 4, 103))
         >>> out, seq_len = cnn(signal)
-        >>> cnn.get_out_shape(signal.shape)
+        >>> cnn.get_output_shape(signal.shape)
         array([ 5, 20, 50])
         >>> cnn = Conv1d(4, 20, 5, stride=2, pad_side='both')
         >>> signal = torch.rand((5, 4, 103))
         >>> out, seq_len = cnn(signal)
-        >>> cnn.get_out_shape(signal.shape)
+        >>> cnn.get_output_shape(signal.shape)
         array([ 5, 20, 52])
         """
-        out_shape = np.array(in_shape)
-        assert len(out_shape) == 3 + self.is_2d(), (
-            len(out_shape), self.is_2d()
+        assert len(input_shape) == 3 + self.is_2d(), (
+            len(input_shape), self.is_2d()
         )
-        assert in_shape[1] == self.in_channels, (
-            in_shape[1], self.in_channels
+        assert input_shape[1] == self.in_channels, (
+            input_shape[1], self.in_channels
         )
-        out_shape[1] = self.out_channels
         if self.is_transpose():
             raise NotImplementedError
         else:
-            out_shape_ = out_shape[2:] - (
-                np.array(self.dilation) * (np.array(self.kernel_size) - 1)
+            return compute_conv_output_shape(
+                input_shape,
+                out_channels=self.out_channels,
+                kernel_size=self.kernel_size, dilation=self.dilation,
+                pad_side=self.pad_side, stride=self.stride
             )
-            out_shape[2:] = np.where(
-                [pad is None for pad in to_list(self.pad_side)],
-                out_shape_, out_shape[2:]
-            )
-            out_shape[2:] = np.ceil(out_shape[2:]/np.array(self.stride))
-        return out_shape.astype(np.int64)
 
-    def get_seq_len_out(self, seq_len_in):
+    def get_input_shape(self, output_shape):
+        """
+        compute input shape given output shape
+
+        Args:
+            output_shape: input shape
+
+        Returns:
+
+        >>> cnn = ConvTranspose1d(20, 4, 5, stride=2, pad_side=None)
+        >>> output_shape = (5, 4, 103)
+        >>> cnn.get_input_shape(output_shape)
+        array([ 5, 20, 50])
+        >>> cnn = ConvTranspose1d(20, 4, 5, stride=2, pad_side='both')
+        >>> output_shape = (5, 4, 103)
+        >>> cnn.get_input_shape(output_shape)
+        array([ 5, 20, 52])
+        """
+        assert len(output_shape) == 3 + self.is_2d(), (
+            len(output_shape), self.is_2d()
+        )
+        assert output_shape[1] == self.out_channels, (
+            output_shape[1], self.out_channels
+        )
+        if self.is_transpose():
+            return compute_conv_output_shape(
+                output_shape,
+                out_channels=self.in_channels,
+                kernel_size=self.kernel_size, dilation=self.dilation,
+                pad_side=self.pad_side, stride=self.stride
+            )
+        else:
+            raise NotImplementedError
+
+    def get_output_sequence_lengths(self, input_sequence_lengths):
         """
         Compute output sequence lengths for each sequence in the mini-batch
 
         Args:
-            seq_len_in: array/list of sequence lengths
+            input_sequence_lengths: array/list of sequence lengths
 
         Returns:
 
         """
-        seq_len_out = np.array(seq_len_in)
-        assert seq_len_out.ndim == 1, seq_len_out.ndim
+        input_sequence_lengths = np.array(input_sequence_lengths)
+        assert input_sequence_lengths.ndim == 1, input_sequence_lengths.ndim
         if self.is_transpose():
             raise NotImplementedError
         else:
-            if to_list(self.pad_side)[-1] is None:
-                seq_len_out = seq_len_out - (
-                    to_list(self.dilation)[-1]
-                    * (to_list(self.kernel_size)[-1] - 1)
-                )
-            seq_len_out = np.ceil(seq_len_out/to_list(self.stride)[-1])
-        return seq_len_out.astype(np.int64)
+            return compute_conv_output_sequence_lengths(
+                input_sequence_lengths, self.kernel_size, self.dilation,
+                self.pad_side, self.stride
+            )
+
+    def get_input_sequence_lengths(self, output_sequence_lengths):
+        """
+        Compute input sequence lengths for each sequence in the mini-batch
+
+        Args:
+            output_sequence_lengths: array/list of sequence lengths
+
+        Returns:
+
+        """
+        output_sequence_lengths = np.array(output_sequence_lengths)
+        assert output_sequence_lengths.ndim == 1, output_sequence_lengths.ndim
+        if self.is_transpose():
+            return compute_conv_output_sequence_lengths(
+                output_sequence_lengths, self.kernel_size, self.dilation,
+                self.pad_side, self.stride
+            )
+        else:
+            raise NotImplementedError
 
 
 class Conv1d(_Conv):
@@ -344,8 +418,7 @@ class _CNN(Module):
             out_channels: list of number of output channels for each layer
             kernel_size:
             input_layer: if True neither normalization nor
-                activation_fn is applied to input and first layer doesn't use
-                gating.
+                activation_fn is applied to input.
             output_layer: if True neither normalization nor
                 activation_fn is applied to output and last layer doesn't use
                 gating.
@@ -403,10 +476,9 @@ class _CNN(Module):
         self.activation_fn = to_list(activation_fn, num_layers+1)
         self.norm = to_list(norm, num_layers+1)
         self.gated = to_list(gated, num_layers)
+        self.pre_activation = pre_activation
 
         if input_layer:
-            assert not isinstance(gated, (list, tuple)) or not gated[0]
-            self.gated[0] = False
             assert (
                 not isinstance(activation_fn, (list, tuple))
                 or activation_fn[0] == 'identity'
@@ -430,17 +502,6 @@ class _CNN(Module):
                 or norm[-1] is None
             )
             self.norm[-1] = None
-
-        if self.norm[0] is not None and not pre_activation:
-            norm_kwargs = {} if norm_kwargs is None else norm_kwargs
-            norm_kwargs = _finalize_norm_kwargs(
-                norm_kwargs, self.norm[0], self.in_channels, self.is_2d()
-            )
-            self.input_norm = Norm(**norm_kwargs)
-            self.input_activation_fn = ACTIVATION_FN_MAP[self.activation_fn[0]]
-        else:
-            self.input_norm = None
-            self.input_activation_fn = None
 
         convs = list()
         layer_in_channels = [in_channels] + copy(out_channels)
@@ -489,28 +550,54 @@ class _CNN(Module):
         self.residual_convs = nn.ModuleDict(residual_convs)
         self.layer_in_channels = layer_in_channels
 
+        if self.norm[0] is not None and not pre_activation:
+            norm_kwargs = {} if norm_kwargs is None else norm_kwargs
+            norm_kwargs = _finalize_norm_kwargs(
+                norm_kwargs, self.norm[0], self.in_channels, self.is_2d()
+            )
+            self.input_norm = Normalization(**norm_kwargs)
+            self.input_activation_fn = map_activation_fn(self.activation_fn[0])
+        else:
+            self.input_norm = None
+            self.input_activation_fn = None
         if self.norm[-1] is not None and pre_activation:
             norm_kwargs = {} if norm_kwargs is None else norm_kwargs
             norm_kwargs = _finalize_norm_kwargs(
                 norm_kwargs, self.norm[-1], layer_in_channels[-1], self.is_2d()
             )
-            self.output_norm = Norm(**norm_kwargs)
-            self.output_activation_fn = ACTIVATION_FN_MAP[self.activation_fn[-1]]
+            self.output_norm = Normalization(**norm_kwargs)
+            self.output_activation_fn = map_activation_fn(self.activation_fn[-1])
         else:
             self.output_norm = None
             self.output_activation_fn = None
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        if isinstance(self.input_activation_fn, torch.nn.PReLU):
+            with torch.no_grad():
+                self.input_activation_fn.weight.fill_(0.25)
+        if isinstance(self.output_activation_fn, torch.nn.PReLU):
+            with torch.no_grad():
+                self.output_activation_fn.weight.fill_(0.25)
+        for i in range(self.num_layers):
+            output_activation_fn = self.output_activation_fn \
+                if i == self.num_layers - 1 and self.pre_activation \
+                else self.convs[i+self.pre_activation].activation_fn
+            self.convs[i].reset_parameters(output_activation_fn)
+        for conv in self.residual_convs.values():
+            conv.reset_parameters('linear')
 
     def forward(
-            self, x, seq_len=None,
-            out_shapes=None, seq_lens_out=None, pool_indices=None
+            self, x, sequence_lengths=None,
+            target_shape=None, target_sequence_lengths=None, pool_indices=None,
     ):
         """
 
         Args:
             x:
-            seq_len:
-            out_shapes:
-            seq_lens_out:
+            sequence_lengths:
+            target_shape:
+            target_sequence_lengths:
             pool_indices:
 
         Returns:
@@ -518,24 +605,36 @@ class _CNN(Module):
         """
         assert x.dim() == (3 + self.is_2d()), (x.shape, self.is_2d())
         if not self.is_transpose():
-            assert out_shapes is None, out_shapes
-            assert seq_lens_out is None, seq_lens_out
+            assert target_shape is None, target_shape
+            assert target_sequence_lengths is None, target_sequence_lengths
             assert pool_indices is None, pool_indices.shape
-        out_shapes = to_list(copy(out_shapes), self.num_layers)
-        seq_lens_out = to_list(copy(seq_lens_out), self.num_layers)
-        pool_indices = to_list(copy(pool_indices), self.num_layers)
+        if target_shape is not None:
+            expected_input_shape, *output_shapes = self.get_shapes(target_shape=target_shape)
+            assert (np.array(x.shape) == expected_input_shape).all(), (x.shape, expected_input_shape)
+        else:
+            output_shapes = self.num_layers * [None]
+        if target_sequence_lengths is not None:
+            expected_sequence_lengths, *output_sequence_lengths = self.get_sequence_lengths(
+                target_sequence_lengths=target_sequence_lengths
+            )
+            assert sequence_lengths is not None and (
+                np.array(sequence_lengths) == np.array(expected_sequence_lengths)
+            ).all(), (sequence_lengths, expected_sequence_lengths)
+        else:
+            output_sequence_lengths = self.num_layers * [None]
+        pool_indices = to_list(copy(pool_indices), self.num_layers)[::-1]
         residual_skip_signals = defaultdict(list)
         dense_skip_signals = defaultdict(list)
         for i, conv in enumerate(self.convs):
-            x, seq_len = self.maybe_unpool(
+            x, sequence_lengths = self.maybe_unpool(
                 x,
                 pool_type=self.pool_types[i],
                 pool_size=self.pool_sizes[i],
-                seq_len=seq_len,
+                sequence_lengths=sequence_lengths,
                 pool_indices=pool_indices[i],
             )
             if i == 0 and self.input_norm is not None:
-                x = self.input_norm(x, seq_len=seq_len)
+                x = self.input_norm(x, sequence_lengths=sequence_lengths)
                 x = self.input_activation_fn(x)
             if self.residual_connections[i] is not None:
                 for dst_idx in self.residual_connections[i]:
@@ -544,9 +643,10 @@ class _CNN(Module):
                 assert not self.is_transpose()
                 for dst_idx in sorted(self.dense_connections[i]):
                     dense_skip_signals[dst_idx].append((i, x))
-            x, seq_len = conv(
-                x, seq_len=seq_len,
-                out_shape=out_shapes[i], seq_len_out=seq_lens_out[i],
+            x, sequence_lengths = conv(
+                x, sequence_lengths=sequence_lengths,
+                output_shape=output_shapes[i],
+                output_sequence_lengths=output_sequence_lengths[i],
             )
             for src_idx, x_ in dense_skip_signals[i + 1]:
                 x_ = F.interpolate(x_, size=x.shape[2:])
@@ -557,40 +657,40 @@ class _CNN(Module):
                     x_, _ = self.residual_convs[f'{src_idx}->{i + 1}'](x_)
                 x = x + x_
             if i == self.num_layers - 1 and self.output_norm is not None:
-                x = self.output_norm(x, seq_len=seq_len)
+                x = self.output_norm(x, sequence_lengths=sequence_lengths)
                 x = self.output_activation_fn(x)
-            x, seq_len, pool_indices[i] = self.maybe_pool(
+            x, sequence_lengths, pool_indices[i] = self.maybe_pool(
                 x,
                 pool_type=self.pool_types[i],
                 pool_size=self.pool_sizes[i],
                 pad_side=self.pad_sides[i],
-                seq_len=seq_len
+                sequence_lengths=sequence_lengths
             )
         if self.return_pool_indices:
-            return x, seq_len, pool_indices
-        return x, seq_len
+            return x, sequence_lengths, pool_indices
+        return x, sequence_lengths
 
-    def maybe_pool(self, x, pool_type, pool_size, pad_side, seq_len=None):
+    def maybe_pool(self, x, pool_type, pool_size, pad_side, sequence_lengths=None):
         if self.is_transpose() or pool_type is None or pool_size == 1:
-            return x, seq_len, None
+            return x, sequence_lengths, None
 
         pool_cls = Pool2d if self.is_2d() else Pool1d
-        x, seq_len, pool_indices = pool_cls(
+        x, sequence_lengths, pool_indices = pool_cls(
             pool_type=pool_type,
             pool_size=pool_size,
             pad_side=pad_side,
-        )(x, seq_len=seq_len)
-        return x, seq_len, pool_indices
+        )(x, sequence_lengths=sequence_lengths)
+        return x, sequence_lengths, pool_indices
 
-    def maybe_unpool(self, x, pool_type, pool_size, seq_len=None, pool_indices=None):
+    def maybe_unpool(self, x, pool_type, pool_size, sequence_lengths=None, pool_indices=None):
         if not self.is_transpose() or not pool_type or pool_size == 1:
             assert pool_indices is None, (
                 self.is_transpose(), pool_type, pool_size, pool_indices is None
             )
-            return x, seq_len
+            return x, sequence_lengths
         unpool_cls = Unpool2d if self.is_2d() else Unpool1d
         x, seq_len = unpool_cls(pool_size=pool_size)(
-            x, seq_len=seq_len, indices=pool_indices
+            x, sequence_lengths=sequence_lengths, indices=pool_indices
         )
         return x, seq_len
 
@@ -620,6 +720,10 @@ class _CNN(Module):
 
         channels = [config['in_channels']] + config['out_channels']
         num_layers = len(config['out_channels'])
+        if 'input_layer' in config.keys():
+            transpose_config['output_layer'] = config['input_layer']
+        if 'output_layer' in config.keys():
+            transpose_config['input_layer'] = config['output_layer']
         if 'residual_connections' in config.keys():
             if config['residual_connections'] is not None:
                 skip_connections = defaultdict(list)
@@ -662,47 +766,86 @@ class _CNN(Module):
             transpose_config[kw] = config[kw]
         return transpose_config
 
-    def get_shapes(self, in_shape):
-        assert in_shape[1] == self.in_channels, (in_shape[1], self.in_channels)
-        out_shape = in_shape
-        shapes = [in_shape]
-        for i, conv in enumerate(self.convs):
-            out_shape = conv.get_out_shape(out_shape)
-            out_shape[1] = self.layer_in_channels[i + 1]  # channels differ from conv channels with dense skip connections
-            if self.pool_types[i] is not None:
-                if self.is_transpose():
-                    raise NotImplementedError
-                else:
-                    out_shape_ = out_shape[2:] / np.array(self.pool_sizes[i])
-                    out_shape[2:] = np.where(
-                        [pad is None for pad in to_list(self.pad_sides[i])],
-                        np.floor(out_shape_), np.ceil(out_shape_)
-                    )
-            shapes.append(out_shape)
+    def get_shapes(self, input_shape=None, target_shape=None):
+        assert (input_shape is None) ^ (target_shape is None), (input_shape, target_shape)
+        if input_shape is not None:
+            shapes = [input_shape]
+            cur_shape = input_shape
+            for i, conv in enumerate(self.convs):
+                cur_shape = conv.get_output_shape(cur_shape)
+                cur_shape[1] = self.layer_in_channels[i + 1]  # layer channels differ from conv channels with dense skip connections
+                if self.pool_types[i] is not None:
+                    if self.is_transpose():
+                        raise NotImplementedError
+                    else:
+                        cur_shape = compute_pool_output_shape(
+                            cur_shape,
+                            pool_type=self.pool_types[i],
+                            pool_size=self.pool_sizes[i],
+                            pad_side=self.pad_sides[i]
+                        )
+                shapes.append(cur_shape)
+        else:
+            shapes = [target_shape]
+            cur_shape = target_shape
+            for i, conv in reversed(list(enumerate(self.convs))):
+                cur_shape = np.copy(cur_shape)
+                cur_shape[1] = conv.out_channels  # conv channels differ from layer channels with dense skip connections
+                cur_shape = conv.get_input_shape(cur_shape)
+                if self.pool_types[i] is not None:
+                    if self.is_transpose():
+                        cur_shape = compute_pool_output_shape(
+                            cur_shape,
+                            pool_type=self.pool_types[i],
+                            pool_size=self.pool_sizes[i],
+                            pad_side=self.pad_sides[i]
+                        )
+                    else:
+                        raise NotImplementedError
+                shapes.append(cur_shape)
+            shapes = shapes[::-1]
         return shapes
 
-    def get_transposed_out_shapes(self, in_shape):
-        return self.get_shapes(in_shape)[::-1][1:]
-
-    def get_seq_lens(self, seq_len_in):
-        seq_len_out = seq_len_in
-        seq_lens = [seq_len_in]
-        for i, conv in enumerate(self.convs):
-            seq_len_out = conv.get_seq_len_out(seq_len_out)
-            if self.pool_types[i] is not None:
-                if self.is_transpose():
-                    raise NotImplementedError
-                else:
-                    seq_len_out = seq_len_out / to_list(self.pool_sizes[i])[-1]
-                    if to_list(self.pad_sides[i])[-1] is None:
-                        seq_len_out = np.floor(seq_len_out)
+    def get_sequence_lengths(
+            self, input_sequence_lengths=None, target_sequence_lengths=None
+    ):
+        assert (input_sequence_lengths is None) ^ (target_sequence_lengths is None), (
+            input_sequence_lengths, target_sequence_lengths
+        )
+        if input_sequence_lengths is not None:
+            seq_lens = [input_sequence_lengths]
+            cur_seq_len = input_sequence_lengths
+            for i, conv in enumerate(self.convs):
+                cur_seq_len = conv.get_output_sequence_lengths(cur_seq_len)
+                if self.pool_types[i] is not None:
+                    if self.is_transpose():
+                        raise NotImplementedError
                     else:
-                        seq_len_out = np.ceil(seq_len_out)
-            seq_lens.append(seq_len_out)
+                        cur_seq_len = compute_pool_output_sequence_lengths(
+                            cur_seq_len,
+                            pool_type=self.pool_types[i],
+                            pool_size=self.pool_sizes[i],
+                            pad_side=self.pad_sides[i]
+                        )
+                seq_lens.append(cur_seq_len)
+        else:
+            seq_lens = [target_sequence_lengths]
+            cur_seq_len = target_sequence_lengths
+            for i, conv in reversed(list(enumerate(self.convs))):
+                cur_seq_len = conv.get_input_sequence_lengths(cur_seq_len)
+                if self.pool_types[i] is not None:
+                    if self.is_transpose():
+                        cur_seq_len = compute_pool_output_sequence_lengths(
+                            cur_seq_len,
+                            pool_type=self.pool_types[i],
+                            pool_size=self.pool_sizes[i],
+                            pad_side=self.pad_sides[i]
+                        )
+                    else:
+                        raise NotImplementedError
+                seq_lens.append(cur_seq_len)
+            seq_lens = seq_lens[::-1]
         return seq_lens
-
-    def get_transposed_seq_lens_out(self, seq_len_in):
-        return self.get_seq_lens(seq_len_in)[::-1][1:]
 
     def get_receptive_field(self):
         receptive_field = np.ones(1+self.is_2d()).astype(np.int)
