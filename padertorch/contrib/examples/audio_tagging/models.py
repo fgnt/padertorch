@@ -6,7 +6,7 @@ from padertorch.contrib.je.modules.augment import MelWarping, \
     LogTruncNormalSampler, TruncExponentialSampler
 from padertorch.contrib.je.modules.conv import CNN2d, CNN1d
 from padertorch.contrib.je.modules.features import NormalizedLogMelExtractor
-from padertorch.contrib.je.modules.global_pooling import Mean, TakeLast
+from padertorch.contrib.je.modules.reduce import Mean, TakeLast
 from padertorch.contrib.je.modules.rnn import GRU, reverse_sequence
 from torch import nn
 from torchvision.utils import make_grid
@@ -82,9 +82,9 @@ class WALNet(Model):
     def modify_summary(self, summary):
         # compute precision, recall and fscore
         if f'predictions' in summary['buffers']:
-            k = self.cnn.out_channels[-1]
-            predictions = np.array(summary['buffers'].pop('predictions')).reshape((-1, k))
-            targets = np.array(summary['buffers'].pop('targets')).reshape((-1, k))
+            predictions = np.concatenate(summary['buffers'].pop('predictions'))
+            k = predictions.shape[-1]
+            targets = np.concatenate(summary['buffers'].pop('targets'))
             candidate_thresholds = Collate()([
                 np.array(th)[np.linspace(0,len(th)-1,100).astype(np.int)]
                 for th in get_candidate_thresholds(targets, predictions)
@@ -238,11 +238,11 @@ class CRNN(Model):
     def modify_summary(self, summary):
         # compute precision, recall and fscore
         if f'predictions' in summary['buffers']:
-            k = self._clf_fwd.out_channels[-1]
-            predictions = np.array(summary['buffers'].pop('predictions')).reshape((-1, k))
-            targets = np.array(summary['buffers'].pop('targets')).reshape((-1, k))
+            predictions = np.concatenate(summary['buffers'].pop('predictions'))
+            k = predictions.shape[-1]
+            targets = np.concatenate(summary['buffers'].pop('targets'))
             candidate_thresholds = Collate()([
-                np.array(th)[np.linspace(0,len(th)-1,100).astype(np.int)]
+                np.array(th)[np.linspace(0,len(th)-1, 100).astype(np.int)]
                 for th in get_candidate_thresholds(targets, predictions)
             ])
             decisions = predictions > candidate_thresholds.T[:, None]

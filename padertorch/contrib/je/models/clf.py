@@ -3,7 +3,7 @@ import torch
 from padertorch.base import Model
 from padertorch.contrib.je.modules.conv import CNN1d
 from padertorch.contrib.je.modules.features import NormalizedLogMelExtractor
-from padertorch.contrib.je.modules.global_pooling import Mean
+from padertorch.contrib.je.modules.reduce import Mean
 from torchvision.utils import make_grid
 from einops import rearrange
 

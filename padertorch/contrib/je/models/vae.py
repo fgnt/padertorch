@@ -6,7 +6,7 @@ from padertorch.contrib.je.modules.conv import CNN1d, CNNTranspose1d
 from padertorch.contrib.je.modules.gmm import GMM
 from padertorch.contrib.je.modules.hmm import HMM
 from padertorch.contrib.je.modules.features import NormalizedLogMelExtractor
-from padertorch.contrib.je.modules.global_pooling import Mean
+from padertorch.contrib.je.modules.reduce import Mean
 from padertorch.contrib.je.modules.hybrid import HybridCNN, HybridCNNTranspose
 from sklearn import metrics
 from torch.distributions import Normal
