@@ -34,7 +34,7 @@ class HybridCNN(Module):
             cnn_2d: CNN2d,
             cnn_1d: CNN1d,
             *,
-            input_size=None,
+            input_height=None,
             return_pool_indices=False
     ):
         super().__init__()
@@ -43,24 +43,24 @@ class HybridCNN(Module):
         )
         self.cnn_2d = cnn_2d
         self.cnn_1d = cnn_1d
-        self.input_size = input_size
+        self.input_height = input_height
         self.return_pool_indices = return_pool_indices
 
-    def forward(self, x, seq_len=None):
+    def forward(self, x, sequence_lengths=None):
         if self.cnn_2d.return_pool_indices:
-            x, seq_len, pool_indices_2d = self.cnn_2d(x, seq_len)
+            x, sequence_lengths, pool_indices_2d = self.cnn_2d(x, sequence_lengths)
         else:
-            x, seq_len = self.cnn_2d(x, seq_len)
+            x, sequence_lengths = self.cnn_2d(x, sequence_lengths)
             pool_indices_2d = None
         x = rearrange(x, 'b c f t -> b (c f) t')
         if self.cnn_1d.return_pool_indices:
-            x, seq_len, pool_indices_1d = self.cnn_1d(x, seq_len)
+            x, sequence_lengths, pool_indices_1d = self.cnn_1d(x, sequence_lengths)
         else:
-            x, seq_len = self.cnn_1d(x, seq_len)
+            x, sequence_lengths = self.cnn_1d(x, sequence_lengths)
             pool_indices_1d = None
         if self.return_pool_indices:
-            return x, seq_len, (pool_indices_2d, pool_indices_1d)
-        return x, seq_len
+            return x, sequence_lengths, (pool_indices_2d, pool_indices_1d)
+        return x, sequence_lengths
 
     @classmethod
     def finalize_dogmatic_config(cls, config):
@@ -72,9 +72,9 @@ class HybridCNN(Module):
             'factory': CNN1d,
             'return_pool_indices': config['return_pool_indices']
         }
-        if config['input_size'] is not None:
+        if config['input_height'] is not None:
             cnn_2d = config['cnn_2d']['factory'].from_config(config['cnn_2d'])
-            _, out_channels, output_size, _ = cnn_2d.get_shapes((1, config['cnn_2d']['in_channels'], config['input_size'], 1000))[-1]
+            _, out_channels, output_size, _ = cnn_2d.get_shapes((1, config['cnn_2d']['in_channels'], config['input_height'], 1000))[-1]
             config['cnn_1d']['in_channels'] = out_channels * output_size
 
     @classmethod
@@ -113,7 +113,7 @@ class HybridCNNTranspose(Module):
         self.cnn_transpose_2d = cnn_transpose_2d
 
     def forward(
-            self, x, seq_len=None,
+            self, x, sequence_lengths=None,
             target_shape=None, target_sequence_lengths=None, pool_indices=None,
     ):
         if target_shape is None:
@@ -124,16 +124,16 @@ class HybridCNNTranspose(Module):
         if target_sequence_lengths is None:
             target_sequence_lengths_1d = None
         else:
-            target_sequence_lengths_1d = self.cnn_transpose_2d.get_sequence_lengths(target_shape=target_shape)[0]
+            target_sequence_lengths_1d = self.cnn_transpose_2d.get_sequence_lengths(target_sequence_lengths=target_sequence_lengths)[0]
 
         if pool_indices is None:
             pool_indices_2d = pool_indices_1d = None
         else:
             assert isinstance(pool_indices, (list, tuple)) and len(pool_indices) == 2, pool_indices
             pool_indices_2d, pool_indices_1d = pool_indices
-        x, seq_len = self.cnn_transpose_1d(
+        x, sequence_lengths = self.cnn_transpose_1d(
             x,
-            seq_len=seq_len,
+            sequence_lengths=sequence_lengths,
             target_shape=target_shape_1d,
             target_sequence_lengths=target_sequence_lengths_1d,
             pool_indices=pool_indices_1d,
@@ -141,14 +141,14 @@ class HybridCNNTranspose(Module):
         x = x.view(
             (x.shape[0], self.cnn_transpose_2d.in_channels, -1, x.shape[-1])
         )
-        x, seq_len = self.cnn_transpose_2d(
+        x, sequence_lengths = self.cnn_transpose_2d(
             x,
-            seq_len=seq_len,
+            sequence_lengths=sequence_lengths,
             target_shape=target_shape,
             target_sequence_lengths=target_sequence_lengths,
             pool_indices=pool_indices_2d,
         )
-        return x, seq_len
+        return x, sequence_lengths
 
     @classmethod
     def finalize_dogmatic_config(cls, config):
