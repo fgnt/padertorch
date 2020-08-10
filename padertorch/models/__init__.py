@@ -1,1 +1,1 @@
-from . import bss
+from padertorch.contrib.tcl import bss
