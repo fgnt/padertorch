@@ -282,10 +282,10 @@ def test_single_model():
                 # but this model is really cheap.
                 # e.g. 0.00108 and 0.000604 per iteration.
                 # This may cause the mismatch.
-                # Allow a calculation error of 15%.
+                # Allow a calculation error of 25%.
                 # ToDo: Get this work with less than 1% error.
                 relative_times = np.array(list(relative_timings.values())).sum(axis=0)
-                if not np.all(relative_times > 0.85):
+                if not np.all(relative_times > 0.75):
                     raise AssertionError(pretty((relative_times, time_per_iteration, dict(relative_timings))))
                 if not np.all(relative_times <= 1):
                     raise AssertionError(pretty((relative_times, time_per_iteration, dict(relative_timings))))
