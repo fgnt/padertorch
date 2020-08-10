@@ -9,7 +9,7 @@ class TestDeepClusteringModel(unittest.TestCase):
     # TODO: Test forward deterministic if not train
 
     def setUp(self):
-        self.model = pt.models.bss.DeepClusteringModel()
+        self.model = padertorch.contrib.tcl.bss.DeepClusteringModel()
 
         self.T = 100
         self.B = 4
