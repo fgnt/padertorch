@@ -4,12 +4,13 @@ import numpy as np
 import torch
 
 from padertorch.contrib.examples.pit.model import PermutationInvariantTrainingModel
+from padertorch.contrib.tcl.dc import DeepClusteringModel
 
 class TestDeepClusteringModel(unittest.TestCase):
     # TODO: Test forward deterministic if not train
 
     def setUp(self):
-        self.model = padertorch.contrib.tcl.bss.DeepClusteringModel()
+        self.model = DeepClusteringModel()
 
         self.T = 100
         self.B = 4
