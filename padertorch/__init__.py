@@ -12,5 +12,4 @@ from .configurable import Configurable
 from .ops import *
 
 # This import has to be late, otherwise you can not use pt.Models in models.
-from . import models
 from . import modules
