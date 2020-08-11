@@ -248,7 +248,7 @@ class SequenceProvider(Parameterized):
                                      unbatch=unbatch)
 
     def get_eval_iterator(self, num_examples=-1):
-        self._train = False
+        self.is_training = False
 
         iterator = self.database.get_dataset_validation()
         iterator = iterator.map(self.read_audio) \
@@ -257,19 +257,19 @@ class SequenceProvider(Parameterized):
         iterator = iterator.map(self.to_eval_structure)[:num_examples]
         return self.get_map_iterator(iterator, self.opts.batch_size_eval)
 
-    def get_predict_iterator(self, num_examples=-1,
-                             dataset=None,
+    def get_predict_iterator(self, dataset=None, num_examples=None,
                              iterable_apply_fn=None,
-                             filter_fn=lambda x: True):
-        self._train = False
+                             filter_fn=None):
+        self.is_training = False
         if dataset is None:
             iterator = self.database.get_dataset_test()
         else:
             iterator = self.database.get_dataset(dataset)
         iterator = iterator.map(self.read_audio) \
             .map(self.database.add_num_samples)
-
-        iterator = iterator.map(self.to_predict_structure)[:num_examples]
+        iterator = iterator.map(self.to_predict_structure)
+        if num_examples is not None:
+            iterator = iterator[:num_examples]
         if iterable_apply_fn is not None:
             iterator = iterator.apply(iterable_apply_fn)
         iterator = self.get_map_iterator(iterator, prefetch=False)
