@@ -522,6 +522,11 @@ class ValidationHook(SummaryHook):
                 f'Got an empty validation iterator: {self.iterator}'
             )
         self.finalize_summary(trainer)
+        assert self.metric in self.summary['scalars'].keys(), (
+            f'The chosen validation metric {self.metric} is not included in '
+            f'the scalars dictionary provided by the models review function. '
+            f'Provided keys: {self.summary["scalars"].keys()}'
+        )
         score = self.summary['scalars'][self.metric]
         self.dump_summary(trainer)
         assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
