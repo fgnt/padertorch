@@ -81,6 +81,39 @@ class Module(nn.Module, Configurable, abc.ABC):
             in_config_path,
             consider_mpi=consider_mpi,
         )
+        return module.load_checkpoint(
+            checkpoint_path=checkpoint_path,
+            in_checkpoint_path=in_checkpoint_path,
+            map_location=map_location,
+            consider_mpi=consider_mpi,
+        )
+
+    def load_checkpoint(
+            self,
+            checkpoint_path: (Path, str),
+            in_checkpoint_path: str = 'model',
+
+            map_location='cpu',
+            consider_mpi=False,
+    ) -> 'Module':
+        """Update the module parameters from the given checkpoint.
+
+        Args:
+            checkpoint_path:
+            in_checkpoint_path:
+            map_location:
+            consider_mpi:
+                If True and mpi is used, only read config_path and
+                checkpoint_path once and broadcast the content with mpi.
+                Reduces the io load.
+
+        Returns:
+
+
+        """
+        checkpoint_path = Path(checkpoint_path).expanduser().resolve()
+
+        assert checkpoint_path.is_file(), checkpoint_path
 
         # Load weights
         if consider_mpi:
@@ -105,9 +138,9 @@ class Module(nn.Module, Configurable, abc.ABC):
                     checkpoint = checkpoint[part]
                 except KeyError:
                     raise ValueError(part, in_checkpoint_path, checkpoint)
-        module.load_state_dict(checkpoint)
+        self.load_state_dict(checkpoint)
 
-        return module
+        return self
 
     @classmethod
     def from_storage_dir(
