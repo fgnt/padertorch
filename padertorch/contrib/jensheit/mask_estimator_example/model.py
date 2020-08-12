@@ -29,7 +29,6 @@ class MaskEstimatorModel(pt.Model):
     [1] Heymann 2016, https://groups.uni-paderborn.de/nt/pubs/2016/icassp_2016_heymann_paper.pdf
 
 
-    ToDo: normalization
     ToDo: input transform/ at least a logarithm or spectrogram
     ToDo: Add vad estimation?
 
@@ -56,7 +55,7 @@ class MaskEstimatorModel(pt.Model):
         obs = batch[K.OBSERVATION_ABS]
         num_frames = batch[K.NUM_FRAMES]
         out = {key: [v[:, :frames] for v, frames in zip(value, num_frames)]
-               for key, value in self.estimator(obs).items()}
+               for key, value in self.estimator(obs, num_frames).items()}
         assert isinstance(out, dict)
         return out
 
@@ -103,8 +102,8 @@ class MaskEstimatorModel(pt.Model):
                 batch[K.OBSERVATION][0]), self.sample_rate)})
         if K.SPEECH_IMAGE in batch:
             audio_dict.update({
-            K.SPEECH_IMAGE: (maybe_remove_channel(batch[K.SPEECH_IMAGE][0]),
-                             self.sample_rate)})
+                K.SPEECH_IMAGE: (maybe_remove_channel(batch[K.SPEECH_IMAGE][0]),
+                                 self.sample_rate)})
         if K.SPEECH_PRED in output and self.transformer is not None:
             phase = np.exp(1j*np.angle(batch[K.OBSERVATION_STFT][0]))
             enh = output[K.SPEECH_PRED][0].detach().cpu().numpy() * phase
@@ -160,8 +159,8 @@ class MaskEstimatorModel(pt.Model):
 
             def get_loss(target, logits):
                 return F.binary_cross_entropy_with_logits(
-                    input=logits, target=target,
-                    reduction='none')
+                    input=logits, target=target, reduction='none'
+                )
 
             def weight_loss(sample_loss, power_weights):
                 return torch.sum(sample_loss * power_weights) / torch.sum(

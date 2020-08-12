@@ -17,6 +17,7 @@ from padertorch.contrib.jensheit.batch import Padder
 from padertorch.contrib.jensheit.mask_estimator_example.modul import MaskKeys as M_K
 from pb_bss.extraction.mask_module import biased_binary_mask
 from scipy import signal
+from collections import Generator
 
 WINDOW_MAP = Dispatcher(
     blackman=signal.blackman,
@@ -30,6 +31,8 @@ class MaskTransformer(Parameterized):
     class opts:
         stft: Dict = dict_func({
             'factory': STFT,
+            'shift': 256,
+            'size': 1024,
         })
         low_cut: int = 5
         high_cut: int = -5
@@ -42,6 +45,12 @@ class MaskTransformer(Parameterized):
         return self.stft.inverse(signal)
 
     def __call__(self, example):
+        if isinstance(example, (list, tuple, Generator)):
+            return [self.transform(ex) for ex in example]
+        else:
+            return self.transform(example)
+
+    def transform(self, example):
         def maybe_add_channel(signal):
             if signal.ndim == 1:
                 return np.expand_dims(signal, axis=0)

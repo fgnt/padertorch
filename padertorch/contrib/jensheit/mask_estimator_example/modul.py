@@ -7,6 +7,7 @@ from padertorch.modules import fully_connected_stack
 from padertorch.modules.normalization import Normalization
 from padertorch.modules.recurrent import StatefulLSTM
 from padertorch.ops import pack_sequence, pad_packed_sequence
+from padertorch.ops.sequence import pad_sequence, unpad_sequence
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 
 __all__ = [
@@ -50,6 +51,7 @@ class MaskEstimator(pt.Module):
             input_size=num_features,
             hidden_size=256,
             bidirectional=True,
+            batch_first=False,
         )
         if config['recurrent']['bidirectional']:
             recurrent_output = 2 * config['recurrent']['hidden_size']
@@ -69,12 +71,15 @@ class MaskEstimator(pt.Module):
                 config['normalization'] is not None:
             config['normalization'] = dict(
                 factory=Normalization,
-                num_features=num_features,
-                order='l2',
-                statistics_axis=0,
+                data_format='tbf',
+                shape=(1, 1, 1, num_features),
+                statistics_axis='t',
+                independent_axis='f',
+                batch_axis='b',
+                sequence_axis='t',
             )
-            n_in = config['normalization']['num_features']
-            assert n_in == num_features, (n_in, num_features)
+            n_in = config['normalization']['shape'][-1]
+            assert n_in % num_features == 0, (n_in, num_features)
 
     def __init__(
             self,
@@ -87,7 +92,7 @@ class MaskEstimator(pt.Module):
             use_powerspectrum: bool = False,
             separate_masks: bool = True,
             output_activation: str = 'sigmoid',
-            fix_states: bool = False,
+            reuse_states: bool = False,
             vad: bool = False,
     ):
         super().__init__()
@@ -103,24 +108,28 @@ class MaskEstimator(pt.Module):
         self.use_powerspectrum = use_powerspectrum
         self.separate_masks = separate_masks
         self.output_activation = output_activation
-        self.fix_states = fix_states
         self.vad = vad
         if vad:
             self.linear_vad = torch.nn.Linear(2*num_features, 1)
 
-    def forward(self, x):
+        self.reuse_states = reuse_states
+
+    def forward(self, x, num_frames):
         """
         :param x: list of tensors of shape(C T F)
         :return:
         """
         num_channels = x[0].shape[0]
+        num_frames = torch.repeat_interleave(
+            torch.Tensor(num_frames), num_channels)
         h = [obs_single_channel for obs in x for obs_single_channel in obs]
-        h = pack_sequence(h)
         if self.normalization:
-            h = PackedSequence(self.normalization(h.data), h.batch_sizes) # only works with torch 1.0 and higher
-        h = PackedSequence(self.input_dropout(h.data), h.batch_sizes)
+            h = pad_sequence(h, batch_first=False)
+            h = self.normalization(h, num_frames.type(torch.FloatTensor))
+            h = unpad_sequence(h, num_frames.type(torch.LongTensor))
 
-        if not self.fix_states:
+        h = pack_sequence(h)
+        if not self.reuse_states:
             del self.recurrent.states
         h = self.recurrent(h)
         h = PackedSequence(self.fully_connected(h.data), h.batch_sizes)
