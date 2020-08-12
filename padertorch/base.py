@@ -96,7 +96,7 @@ class Module(nn.Module, Configurable, abc.ABC):
             map_location='cpu',
             consider_mpi=False,
     ) -> 'Module':
-        """Instantiate the module from given config and checkpoint.
+        """Update the module parameters from the given checkpoint.
 
         Args:
             checkpoint_path:
