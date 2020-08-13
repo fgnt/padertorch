@@ -13,7 +13,6 @@ def get_new_folder(
         try_id=None,
         dry_run=False,
         consider_mpi=False,
-        chdir=False,
         mkdir=True,
         force_suffix=False,
 ):
@@ -89,9 +88,6 @@ def get_new_folder(
                 import dlp_mpi
                 assert dlp_mpi.IS_MASTER, dlp_mpi.RANK
                 simu_dir = dlp_mpi.bcast(simu_dir)
-
-            if chdir:
-                os.chdir(simu_dir)
 
             return simu_dir
         except FileExistsError:
