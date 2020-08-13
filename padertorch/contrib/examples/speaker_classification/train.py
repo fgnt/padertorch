@@ -17,11 +17,6 @@ from padertorch.modules.normalization import Normalization
 from torch.nn import GRU
 from padertorch.contrib.examples.speaker_classification.data import get_datasets
 
-storage_dir = str(
-    Path(os.environ['STORAGE_ROOT']) / 'speaker_clf' / timeStamped('')[1:]
-)
-os.makedirs(storage_dir, exist_ok=True)
-
 
 def get_model():
     feature_extractor = Normalization(
@@ -46,7 +41,7 @@ def get_model():
     return speaker_clf
 
 
-def train(speaker_clf):
+def train(speaker_clf, storage_dir):
     train_set, validate_set, _ = get_datasets(storage_dir)
 
     trainer = Trainer(
@@ -63,5 +58,10 @@ def train(speaker_clf):
 
 
 if __name__ == '__main__':
+    storage_dir = str(
+        Path(os.environ['STORAGE_ROOT']) / 'speaker_clf' / timeStamped('')[1:]
+    )
+    os.makedirs(storage_dir, exist_ok=True)
+
     model = get_model()
-    train(model)
+    train(model, storage_dir)
