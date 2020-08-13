@@ -70,12 +70,15 @@ def prepare_dataset(dataset, batch_size=16, training=False):
     dataset = dataset.map(mel_transform)
 
     def finalize(example):
-        return {
+        _example = {
             'example_id': example['example_id'],
             'features': np.moveaxis(example['mel_transform'], 1, 2).astype(np.float32),
             'seq_len': example['mel_transform'].shape[-2],
             'speaker_id': example['speaker_id'].astype(np.int)
         }
+        if not training:
+            _example['audio_path'] = example['audio_path']
+        return _example
 
     dataset = dataset.map(finalize)
 
