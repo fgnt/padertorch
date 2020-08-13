@@ -15,6 +15,7 @@ def get_new_folder(
         consider_mpi=False,
         chdir=False,
         mkdir=True,
+        force_suffix=False,
 ):
     """
 
@@ -38,6 +39,8 @@ def get_new_folder(
 
     suggested_id = try_id
     basedir = Path(basedir).expanduser().resolve()
+    if not basedir.exists():
+        basedir.mkdir(parents=True)
 
     if Path('/net') in basedir.parents:
         # If nt filesystem, assert not in /net/home
@@ -52,7 +55,7 @@ def get_new_folder(
             ]
             _id = max(dir_nrs + [0]) + 1
         else:
-            if (basedir / f'{suggested_id}').exists():
+            if force_suffix or (basedir / f'{suggested_id}').exists():
                 dir_nrs = [
                     int(re.sub(f'{suggested_id}_?', '', str(d)))
                     for d in os.listdir(str(basedir))
@@ -60,7 +63,12 @@ def get_new_folder(
                     if fnmatch.fnmatch(d, f'{suggested_id}_*')
                     if re.sub(f'{suggested_id}_?', '', str(d)).isdigit()
                 ]
-                _id = max(dir_nrs + [1]) + 1
+                if force_suffix:
+                    dir_nrs += [0]
+                else:
+                    dir_nrs += [1]
+
+                _id = max(dir_nrs) + 1
                 _id = f'{suggested_id}_{_id}'
             else:
                 _id = f'{suggested_id}'
