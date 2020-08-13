@@ -40,7 +40,12 @@ def get_new_folder(
     suggested_id = try_id
     basedir = Path(basedir).expanduser().resolve()
     if not basedir.exists():
-        basedir.mkdir(parents=True)
+        if dry_run:
+            print(f'dry_run: "os.makedirs({basedir})"')
+            # ToDo: Make this working.
+            #       Will fail when calling os.listdir
+        else:
+            basedir.mkdir(parents=True)
 
     if Path('/net') in basedir.parents:
         # If nt filesystem, assert not in /net/home
