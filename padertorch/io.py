@@ -13,6 +13,7 @@ def get_new_folder(
         try_id=None,
         dry_run=False,
         consider_mpi=False,
+        id_type='index',
         mkdir=True,
         force_suffix=False,
 ):
@@ -46,31 +47,38 @@ def get_new_folder(
         assert Path('/net/home') not in basedir.parents, basedir
 
     for i in range(200):
-        if suggested_id is None:
-            dir_nrs = [
-                int(d)
-                for d in os.listdir(str(basedir))
-                if (basedir / d).is_dir() and d.isdigit()
-            ]
-            _id = max(dir_nrs + [0]) + 1
-        else:
-            if force_suffix or (basedir / f'{suggested_id}').exists():
+        if id_type == 'index':
+            if suggested_id is None:
                 dir_nrs = [
-                    int(re.sub(f'{suggested_id}_?', '', str(d)))
+                    int(d)
                     for d in os.listdir(str(basedir))
-                    if (basedir / d).is_dir()
-                    if fnmatch.fnmatch(d, f'{suggested_id}_*')
-                    if re.sub(f'{suggested_id}_?', '', str(d)).isdigit()
+                    if (basedir / d).is_dir() and d.isdigit()
                 ]
-                if force_suffix:
-                    dir_nrs += [0]
-                else:
-                    dir_nrs += [1]
-
-                _id = max(dir_nrs) + 1
-                _id = f'{suggested_id}_{_id}'
+                _id = max(dir_nrs + [0]) + 1
             else:
-                _id = f'{suggested_id}'
+                if force_suffix or (basedir / f'{suggested_id}').exists():
+                    dir_nrs = [
+                        int(re.sub(f'{suggested_id}_?', '', str(d)))
+                        for d in os.listdir(str(basedir))
+                        if (basedir / d).is_dir()
+                        if fnmatch.fnmatch(d, f'{suggested_id}_*')
+                        if re.sub(f'{suggested_id}_?', '', str(d)).isdigit()
+                    ]
+                    if force_suffix:
+                        dir_nrs += [0]
+                    else:
+                        dir_nrs += [1]
+
+                    _id = max(dir_nrs) + 1
+                    _id = f'{suggested_id}_{_id}'
+                else:
+                    _id = f'{suggested_id}'
+        elif id_type == 'time':
+            if i != 0:
+                time.sleep(1)
+            _id = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+        else:
+            raise ValueError(id_type)
 
         simu_dir = basedir / str(_id)
 
