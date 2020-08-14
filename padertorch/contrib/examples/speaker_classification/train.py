@@ -52,7 +52,10 @@ def train(speaker_clf, storage_dir):
         checkpoint_trigger=(1000, 'iteration'),
         stop_trigger=(100000, 'iteration')
     )
-    trainer.register_validation_hook(validate_set)
+    # Early stopping if loss is not decreasing after three consecutive validation
+    # runs. Typically around 20k iterations (13 epochs) with an accuracy >98%
+    # on the test set.
+    trainer.register_validation_hook(validate_set, early_stopping_patience=3)
     trainer.test_run(train_set, validate_set)
     trainer.train(train_set)
 
