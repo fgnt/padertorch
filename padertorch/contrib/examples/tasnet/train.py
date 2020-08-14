@@ -30,7 +30,7 @@ from lazy_dataset.database import JsonDatabase
 from padertorch.contrib.neumann.chunking import RandomChunkSingle
 from padertorch.contrib.ldrude.utils import get_new_folder
 
-nickname = "dprnn"
+nickname = "tasnet"
 ex = Experiment(nickname)
 
 
@@ -63,10 +63,29 @@ def config():
         raise InvalidConfigError('The database JSON does not exist!',
                                  'database_json')
 
-    # Start with an empty dict to allow tracking by Sacred
+    feat_size = 64
+    encoder_window_size = 16
     trainer = {
         "model": {
             "factory": pt.contrib.examples.tasnet.tasnet.TasNet,
+            'encoder': {
+                'factory': pt.contrib.examples.tasnet.tas_coders.TasEncoder,
+                'window_length': encoder_window_size,
+                'feature_size': feat_size,
+            },
+            'separator': {
+                'factory': pt.modules.dual_path_rnn.DPRNN,
+                'feat_size': 64,
+                'rnn_size': 128,
+                'window_length': 100,
+                'hop_size': 50,
+                'num_blocks': 6,
+            },
+            'decoder': {
+                'factory': pt.contrib.examples.tasnet.tas_coders.TasDecoder,
+                'window_length': encoder_window_size,
+                'feature_size': feat_size,
+            },
         },
         "storage_dir": None,
         "optimizer": {
@@ -78,7 +97,7 @@ def config():
         "loss_weights": {
             "si-sdr": 1.0,
             "log-mse": 0.0,
-            "si-sdr-grad-stop": 0.0,
+            "log1p-mse": 0.0,
         }
     }
     pt.Trainer.get_config(trainer)
@@ -102,19 +121,57 @@ def win2():
 
     trainer = {
         'model': {
-            'encoder_block_size': 2,
-            'dprnn_window_length': 250,
-            'dprnn_hop_size': 125,  # Half of window length
+            'encoder': {
+                'window_length': 2
+            },
+            'separator': {
+                'window_length': 250,
+                'dprnn_hop_size': 125,  # Half of window length
+            }
+        }
+    }
+
+
+@ex.named_config
+def stft():
+    """
+    Use the STFT and iSTFT as encoder and decoder instead of a learned
+    transformation
+    """
+    trainer = {
+        'model': {
+            'encoder': {
+                'factory': 'padertorch.contrib.examples.tasnet.tas_coders.StftEncoder'
+            },
+            'decoder': {
+                'factory': 'padertorch.contrib.examples.tasnet.tas_coders.IstftDecoder'
+            },
         }
     }
 
 
 @ex.named_config
 def log_mse():
+    """
+    Use the log_mse loss
+    """
     trainer = {
         'loss_weights': {
             'si-sdr': 0.0,
             'log-mse': 1.0,
+        }
+    }
+
+
+@ex.named_config
+def log1p_mse():
+    """
+    Use the log1p_mse loss
+    """
+    trainer = {
+        'loss_weights': {
+            'si-sdr': 0.0,
+            'log1p-mse': 1.0,
         }
     }
 
@@ -155,16 +212,16 @@ def prepare_iterable(
 
     iterator = (
         iterator
-        .map(pre_batch_transform)
-        .map(RandomChunkSingle(chunk_size, chunk_keys=('y', 's'), axis=-1))
-        .shuffle(reshuffle=True)
-        .batch(batch_size)
-        .map(lambda batch: sorted(
+            .map(pre_batch_transform)
+            .map(RandomChunkSingle(chunk_size, chunk_keys=('y', 's'), axis=-1))
+            .shuffle(reshuffle=True)
+            .batch(batch_size)
+            .map(lambda batch: sorted(
             batch,
             key=lambda example: example['num_samples'],
             reverse=True,
         ))
-        .map(pt.data.utils.collate_fn)
+            .map(pt.data.utils.collate_fn)
     )
 
     if prefetch:

@@ -163,7 +163,8 @@ def prepare_iterable(
     if iterator_slice is not None:
         iterator = iterator[iterator_slice]
 
-    # This
+    # Group iterators by number of speakers so that all examples in a batch
+    # have the same number of speakers
     iterators = list(iterator.groupby(lambda x: x['num_speakers']).values())
 
     iterators = [
@@ -212,41 +213,21 @@ def dump_config_and_makefile(_config):
     makefile_path = Path(experiment_dir) / "Makefile"
 
     if not makefile_path.exists():
+        # Dump config
         config_path = experiment_dir / "config.json"
-
         pb.io.dump_json(_config, config_path)
 
-        main_python_path = pt.configurable.resolve_main_python_path()
-        eval_python_path = '.'.join(
-            pt.configurable.resolve_main_python_path().split('.')[:-1]
-        ) + '.evaluate'
-        makefile_path.write_text(
-            f"SHELL := /bin/bash\n"
-            f"MODEL_PATH := $(shell pwd)\n"
-            f"\n"
-            f"export OMP_NUM_THREADS=1\n"
-            f"export MKL_NUM_THREADS=1\n"
-            f"\n"
-            f"train:\n"
-            f"\tpython -m {main_python_path} with config.json\n"
-            f"\n"
-            f"finetune:\n"
-            f"\tpython -m {main_python_path} init_with_new_storage_dir with config.json trainer.model.finetune=True load_model_from=$(MODEL_PATH)/checkpoints/ckpt_latest.pth batch_size=1\n"
-            f"\n"
-            f"ccsalloc:\n"
-            f"\tccsalloc \\\n"
-            f"\t\t--notifyuser=awe \\\n"
-            f"\t\t--res=rset=1:ncpus=4:gtx1080=1:ompthreads=1 \\\n"
-            f"\t\t--time=100h \\\n"
-            f"\t\t--join \\\n"
-            f"\t\t--stdout=stdout \\\n"
-            f"\t\t--tracefile=%x.%reqid.trace \\\n"
-            f"\t\t-N train_{nickname} \\\n"
-            f"\t\tpython -m {main_python_path} with config.json\n"
-            f"\n"
-            f"evaluate:\n"
-            f"\tpython -m {eval_python_path} init with model_path=$(MODEL_PATH)\n"
-        )
+        # Dump makefile
+        from .templates import MAKEFILE_TEMPLATE_TRAIN
+        makefile_path.write_text(MAKEFILE_TEMPLATE_TRAIN.format(
+            main_python_path=pt.configurable.resolve_main_python_path(),
+            eval_python_path='.'.join(
+                pt.configurable.resolve_main_python_path().split('.')[:-1]
+                + ['evaluate']
+            ),
+            nickname=nickname,
+            model_path=experiment_dir,
+        ))
 
 
 @ex.command
@@ -268,6 +249,8 @@ def init(_config, _run):
 
 @ex.command
 def init_with_new_storage_dir(_config, _run):
+    """Like init, but ignores the set storage dir. Can be used to continue
+    training with a modified configuration"""
     # Create a mutable copy of the config and overwrite the storage dir
     _config = copy.deepcopy(_config)
     _config['trainer']['storage_dir'] = get_storage_dir()

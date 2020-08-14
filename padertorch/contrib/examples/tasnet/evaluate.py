@@ -49,32 +49,28 @@ from .train import prepare_iterable
 # Unfortunately need to disable this since conda scipy needs update
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-mpl.use("Agg")
-nickname = "dprnn"
+mpl.use('Agg')
+nickname = 'dprnn'
 ex = Experiment(nickname)
-
-
-def get_storage_dir():
-    # Sacred should not add path_template to the config
-    # -> move this few lines to a function
-    path_template = Path(os.environ["STORAGE"]) / "pth_evaluate" / nickname
-    return str(get_new_folder(
-        path_template, mkdir=False, consider_mpi=True,
-    ))
 
 
 @ex.config
 def config():
     debug = False
+    export_audio = False
+
+    # Model config
     model_path = ''
     assert len(model_path) > 0, 'Set the model path on the command line.'
     checkpoint_name = 'ckpt_best_loss.pth'
-    experiment_dir = get_storage_dir()
-    datasets = ["mix_2_spk_min_cv", "mix_2_spk_min_tt"]
-    export_audio = False
-    sample_rate = 8000
-    target = 'speech_source'
+    experiment_dir = str(get_new_folder(
+        Path(model_path) / 'evaluation', consider_mpi=True))
+
+    # Database config
     database_json = None
+    sample_rate = 8000
+    datasets = ['mix_2_spk_min_cv', 'mix_2_spk_min_tt']
+    target = 'speech_source'
 
     if database_json is None:
         raise MissingConfigError(
@@ -105,41 +101,13 @@ def get_model(_run, model_path, checkpoint_name):
 
     return model
 
+
 @ex.capture
 def dump_config_and_makefile(_config):
     """
     Dumps the configuration into the experiment dir and creates a Makefile
     next to it. If a Makefile already exists, it does not do anything.
     """
-
-    "SHELL := /bin/bash"
-    ""
-    "evaluate:"
-    "\tpython -m {main_python_path} with config.json"
-    ""
-    "ccsalloc:"
-    "\tccsalloc \\"
-    "\t\t--notifyuser=awe \\"
-    "\t\t--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\"
-    "\t\t--time=1h \\"
-    "\t\t--join \\"
-    "\t\t--stdout=stdout \\"
-    "\t\t--tracefile=trace_%reqid.trace \\"
-    "\t\t-N evaluate_{nickname} \\"
-    "\t\tompi \\"
-    "\t\t-x STORAGE \\"
-    "\t\t-x NT_MERL_MIXTURES_DIR \\"
-    "\t\t-x NT_DATABASE_JSONS_DIR \\"
-    "\t\t-x KALDI_ROOT \\"
-    "\t\t-x LD_PRELOAD \\"
-    "\t\t-x CONDA_EXE \\"
-    "\t\t-x CONDA_PREFIX \\"
-    "\t\t-x CONDA_PYTHON_EXE \\"
-    "\t\t-x CONDA_DEFAULT_ENV \\"
-    "\t\t-x PATH \\"
-    "\t\t-- \\"
-    "\t\tpython -m {main_python_path} with config.json"
-
 
     experiment_dir = Path(_config['experiment_dir'])
     makefile_path = Path(experiment_dir) / "Makefile"
@@ -209,8 +177,8 @@ def main(_run, datasets, debug, experiment_dir, export_audio,
     db = JsonDatabase(database_json)
 
     model.eval()
+    summary = defaultdict(dict)
     with torch.no_grad():
-        summary = defaultdict(dict)
         for dataset in datasets:
             iterable = prepare_iterable(
                 db, dataset, 1,
@@ -220,9 +188,11 @@ def main(_run, datasets, debug, experiment_dir, export_audio,
             )
 
             if export_audio:
-                (experiment_dir / 'audio' / dataset).mkdir(parents=True, exist_ok=True)
+                (experiment_dir / 'audio' / dataset).mkdir(
+                    parents=True, exist_ok=True)
 
-            for batch in tqdm(iterable, total=len(iterable), disable=not mpi.IS_MASTER):
+            for batch in tqdm(iterable, total=len(iterable),
+                              disable=not mpi.IS_MASTER):
                 example_id = batch['example_id'][0]
                 summary[dataset][example_id] = entry = dict()
 
@@ -253,13 +223,11 @@ def main(_run, datasets, debug, experiment_dir, export_audio,
                     _log.error(f'Exception was raised in example with ID "{example_id}"')
                     raise
 
-    summary_list = mpi.gather(summary, root=mpi.MASTER)
+    summary = mpi.gather(summary, root=mpi.MASTER)
 
     if mpi.IS_MASTER:
         # Combine all summaries to one
-        for partial_summary in summary_list:
-            for dataset, values in partial_summary.items():
-                summary[dataset].update(values)
+        summary = pb.utils.nested.nested_merge(*summary)
 
         for dataset, values in summary.items():
             _log.info(f'{dataset}: {len(values)}')

@@ -1,60 +1,49 @@
 import os
 import warnings
 from collections import defaultdict
-from pathlib import Path
-from pprint import pprint
 
-import matplotlib as mpl
+import dlp_mpi as mpi
 import numpy as np
 import paderbox as pb
+import pb_bss
+import sacred.commands
+import torch
 from lazy_dataset.database import JsonDatabase
+from pathlib import Path
+from pprint import pprint
+from sacred import Experiment
+from sacred.observers import FileStorageObserver
+from sacred.utils import InvalidConfigError, MissingConfigError
+from tqdm import tqdm
 
 import padertorch as pt
-import sacred.commands
-from sacred.utils import InvalidConfigError, MissingConfigError
-import torch
-import dlp_mpi as mpi
 from padertorch.contrib.ldrude.utils import (
     get_new_folder
 )
-from sacred import Experiment
-from sacred.observers import FileStorageObserver
-from tqdm import tqdm
-import pb_bss
-
 from .train import prepare_iterable
 
-# Unfortunately need to disable this since conda scipy needs update
-warnings.simplefilter(action='ignore', category=FutureWarning)
-
-mpl.use("Agg")
-nickname = "or-pit"
+nickname = 'or-pit'
 ex = Experiment(nickname)
-
-
-def get_storage_dir():
-    # Sacred should not add path_template to the config
-    # -> move this few lines to a function
-    path_template = Path(os.environ["STORAGE"]) / "pth_evaluate" / nickname
-    return str(get_new_folder(
-        path_template, mkdir=False, consider_mpi=True,
-    ))
 
 
 @ex.config
 def config():
     debug = False
-    model_path = ''
+
+    # Model config
+    model_path = ''     # Required path to the model to evaluate
     assert len(model_path) > 0, 'Set the model path on the command line.'
     checkpoint_name = 'ckpt_best_loss.pth'
-    experiment_dir = get_storage_dir()
-    datasets = ["mix_2_spk_min_cv", "mix_2_spk_min_tt"]
-    export_audio = False
-    sample_rate = 8000
-    target = 'speech_source'
+    experiment_dir = str(get_new_folder(
+        Path(model_path) / 'evaluation', consider_mpi=True))
+
+    # Data config
     database_json = None
-    oracle_num_spk = False  # If true, the model is forced to perform the correct (oracle) number of iterations
-    max_iterations = 4  # The number of iterations is limited to this number
+    if "WSJ0_2MIX" in os.environ:
+        database_json = os.environ.get("WSJ0_2MIX")
+    datasets = ["mix_2_spk_min_cv", "mix_2_spk_min_tt"]
+    target = 'speech_source'
+    sample_rate = 8000
 
     if database_json is None:
         raise MissingConfigError(
@@ -62,6 +51,11 @@ def config():
     if not Path(database_json).exists():
         raise InvalidConfigError('The database JSON does not exist!',
                                  'database_json')
+
+    # Evaluation options
+    export_audio = False    # If true, exports the separated audio files into a sub-directory "audio"
+    oracle_num_spk = False  # If true, the model is forced to perform the correct (oracle) number of iterations
+    max_iterations = 4  # The number of iterations is limited to this number
 
     locals()  # Fix highlighting
 
@@ -92,38 +86,8 @@ def dump_config_and_makefile(_config):
     Dumps the configuration into the experiment dir and creates a Makefile
     next to it. If a Makefile already exists, it does not do anything.
     """
-
-    "SHELL := /bin/bash"
-    ""
-    "evaluate:"
-    "\tpython -m {main_python_path} with config.json"
-    ""
-    "ccsalloc:"
-    "\tccsalloc \\"
-    "\t\t--notifyuser=awe \\"
-    "\t\t--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\"
-    "\t\t--time=1h \\"
-    "\t\t--join \\"
-    "\t\t--stdout=stdout \\"
-    "\t\t--tracefile=trace_%reqid.trace \\"
-    "\t\t-N evaluate_{nickname} \\"
-    "\t\tompi \\"
-    "\t\t-x STORAGE \\"
-    "\t\t-x NT_MERL_MIXTURES_DIR \\"
-    "\t\t-x NT_DATABASE_JSONS_DIR \\"
-    "\t\t-x KALDI_ROOT \\"
-    "\t\t-x LD_PRELOAD \\"
-    "\t\t-x CONDA_EXE \\"
-    "\t\t-x CONDA_PREFIX \\"
-    "\t\t-x CONDA_PYTHON_EXE \\"
-    "\t\t-x CONDA_DEFAULT_ENV \\"
-    "\t\t-x PATH \\"
-    "\t\t-- \\"
-    "\t\tpython -m {main_python_path} with config.json"
-
     experiment_dir = Path(_config['experiment_dir'])
     makefile_path = Path(experiment_dir) / "Makefile"
-
     model_path = Path(_config['model_path'])
 
     assert (model_path / 'checkpoints' / _config[
@@ -131,49 +95,18 @@ def dump_config_and_makefile(_config):
         f'No model checkpoint found in "{model_path}"!'
     )
 
-    # Create symlinks between model and evaluation
-    eval_symlink = model_path / 'eval' / experiment_dir.name
-    if not eval_symlink.is_symlink():
-        eval_symlink.parent.mkdir(exist_ok=True)
-        eval_symlink.symlink_to(experiment_dir, target_is_directory=True)
-
-    model_symlink = experiment_dir / 'model'
-    if not model_symlink.is_symlink():
-        model_symlink.symlink_to(model_path, target_is_directory=True)
-
     if not makefile_path.exists():
+        # Dump config
         config_path = experiment_dir / "config.json"
-
         pb.io.dump_json(_config, config_path)
+
+        # Dump Makefile
+        from .templates import MAKEFILE_TEMPLATE_EVAL
         main_python_path = pt.configurable.resolve_main_python_path()
         makefile_path.write_text(
-            f"SHELL := /bin/bash\n"
-            f"\n"
-            f"evaluate:\n"
-            f"\tpython -m {main_python_path} with config.json\n"
-            f"\n"
-            f"ccsalloc:\n"
-            f"\tccsalloc \\\n"
-            f"\t\t--notifyuser=awe \\\n"
-            f"\t\t--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\\n"
-            f"\t\t--time=1h \\\n"
-            f"\t\t--join \\\n"
-            f"\t\t--stdout=stdout \\\n"
-            f"\t\t--tracefile=trace_%reqid.trace \\\n"
-            f"\t\t-N evaluate_{nickname} \\\n"
-            f"\t\tompi \\\n"
-            f"\t\t-x STORAGE \\\n"
-            f"\t\t-x NT_MERL_MIXTURES_DIR \\\n"
-            f"\t\t-x NT_DATABASE_JSONS_DIR \\\n"
-            f"\t\t-x KALDI_ROOT \\\n"
-            f"\t\t-x LD_PRELOAD \\\n"
-            f"\t\t-x CONDA_EXE \\\n"
-            f"\t\t-x CONDA_PREFIX \\\n"
-            f"\t\t-x CONDA_PYTHON_EXE \\\n"
-            f"\t\t-x CONDA_DEFAULT_ENV \\\n"
-            f"\t\t-x PATH \\\n"
-            f"\t\t-- \\\n"
-            f"\t\tpython -m {main_python_path} with config.json\n"
+            MAKEFILE_TEMPLATE_EVAL.format(
+                main_python_path=main_python_path, nickname=nickname
+            )
         )
 
 
