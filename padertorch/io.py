@@ -1,11 +1,9 @@
 import os
 import re
+import time
 import fnmatch
 import datetime
 from pathlib import Path
-
-import paderbox as pb
-import padertorch as pt
 
 
 def get_new_folder(
@@ -150,3 +148,14 @@ def get_new_folder(
                 # After some tries,
                 # expect that something other went wrong
                 raise
+
+
+def get_basedir(
+        experiment_name
+):
+    """
+    >>> os.environ['STORAGE_ROOT'] = '/tmp'  # simulate enviroment variable for doctest
+    >>> get_basedir('fance_nn_experiment')
+    PosixPath('/tmp/fance_nn_experiment')
+    """
+    return Path(os.environ['STORAGE_ROOT']) / experiment_name
