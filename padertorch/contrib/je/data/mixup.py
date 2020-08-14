@@ -4,90 +4,107 @@ import numbers
 
 
 class MixUpDataset(Dataset):
-    def __init__(self, input_dataset, mixin_dataset, p, mixin_keys=None):
+    """
+    >>> ds = MixUpDataset(range(10), SampleMixupComponents((.0,1.)), (lambda x: x), buffer_size=2)
+    >>> list(ds)
+    """
+    def __init__(self, input_dataset, sample_fn, mixup_fn, buffer_size=100):
         """
         Combines examples from input_dataset and mixin_dataset into tuples.
 
         Args:
             input_dataset: lazy dataset providing example dict with key audio_length.
-            mixin_dataset: lazy dataset providing example dict with key audio_length.
-            p: list of probabilities of the number of mixture components.
+            sample_fn: sample_fn(buffer) returning a list of examples from buffer for mixup.
         """
         self.input_dataset = input_dataset
-        self.mixin_dataset = mixin_dataset
-        self.p = p
-        if mixin_keys is None:
-            self.mixin_keys = sorted(self.mixin_dataset.keys())
-        elif isinstance(mixin_keys, (list, tuple, set)):
-            self.mixin_keys = sorted(mixin_keys)
-        elif isinstance(mixin_keys, dict):
-            self.mixin_keys = {
-                key: sorted(keys) for key, keys in mixin_keys.items()
-            }
+        self.buffer = []
+        self.buffer_size = buffer_size
+        self.sample_fn = sample_fn
+        self.mixup_fn = mixup_fn
 
     def __len__(self):
         return len(self.input_dataset)
 
     def __iter__(self):
-        for key in self.keys():
-            yield self[key]
-
-    def keys(self):
-        return self.input_dataset.keys()
+        for example in self.input_dataset:
+            self.buffer.append(example)
+            if len(self.buffer) > self.buffer_size:
+                examples = self.sample_fn(self.buffer)
+                if len(examples) == 1:
+                    yield examples[0]
+                elif len(examples) > 1:
+                    yield self.mixup_fn(examples)
+                else:
+                    raise ValueError('sample_fn has to return at least one example')
+                self.buffer.pop(0)
+            else:
+                yield example
 
     def copy(self, freeze=False):
         return self.__class__(
             input_dataset=self.input_dataset.copy(freeze=freeze),
-            mixin_dataset=self.mixin_dataset.copy(freeze=freeze),
-            p=self.p,
-            mixin_keys=self.mixin_keys,
+            sample_fn=self.sample_fn,
+            mixup_fn=self.mixup_fn,
+            buffer_size=self.buffer_size,
         )
 
     @property
     def indexable(self):
-        return True
+        return False
 
-    def __getitem__(self, item):
-        n_components = np.random.choice(len(self.p), p=self.p) + 1
-        if isinstance(item, str):
-            key = item
-        elif isinstance(item, numbers.Integral):
-            key = self.keys()[item]
-        else:
-            return super().__getitem__(item)
-        if isinstance(self.mixin_keys, list):
-            mixin_keys = self.mixin_keys
-        elif isinstance(self.mixin_keys, dict):
-            mixin_keys = self.mixin_keys[key]
-        n_components = min(n_components, len(mixin_keys))
-        if n_components > 1:
-            mixin_idx = np.random.choice(len(mixin_keys), n_components-1, replace=False)
-        else:
-            mixin_idx = []
-        components = [self.input_dataset[item]] + [self.mixin_dataset[mixin_keys[i]] for i in mixin_idx]
-        return components
+
+class SampleMixupComponents:
+    """
+    >>> sample_fn = SampleMixupComponents((0,1.))
+    >>> buffer = list(range(10))
+    >>> sample_fn(buffer)
+    >>> buffer
+    """
+    def __init__(self, mixup_prob):
+        self.mixup_prob = mixup_prob
+
+    def __call__(self, buffer):
+        examples = [buffer[-1]]
+        num_mixins = np.random.choice(len(self.mixup_prob), p=self.mixup_prob)
+        num_mixins = min(num_mixins, len(buffer) - 1)
+        if num_mixins > 0:
+            idx = np.random.choice(len(buffer)-1, num_mixins, replace=False)
+            examples.extend(buffer[i] for i in idx)
+        return examples
 
 
 class SuperposeEvents:
-    def __init__(self, sample_rate, min_overlap=1, max_length=None):
-        self.sample_rate = sample_rate
+    """
+    >>> mixup_fn = SuperposeEvents(min_overlap=0.5)
+    >>> example1 = {'example_id': '0', 'dataset': '0', 'stft': np.ones((1, 10, 9, 2)), 'events': np.array([0,1,0,0,1]), 'events_alignment': np.array([0,1,0,0,1])[:,None].repeat(10,axis=1)}
+    >>> example2 = {'example_id': '1', 'dataset': '1', 'stft': -np.ones((1, 8, 9, 2)), 'events': np.array([0,0,1,0,0]), 'events_alignment': np.array([0,0,1,0,0])[:,None].repeat(8,axis=1)}
+    >>> mixup_fn([example1, example2])
+    """
+    def __init__(
+            self, min_overlap=1., max_length=None,
+            join_example_ids_fn=lambda ids: '+'.join(ids),
+            join_dataset_names_fn=lambda names: '+'.join(names),
+    ):
         self.min_overlap = min_overlap
         self.max_length = max_length
+        self.join_example_ids_fn = join_example_ids_fn
+        self.join_dataset_names_fn = join_dataset_names_fn
 
     def __call__(self, components):
         assert len(components) > 0
         start_indices = [0]
-        stop_indices = [components[0]['audio_data'].shape[-1]]
+        stop_indices = [components[0]['stft'].shape[1]]
         for comp in components[1:]:
-            l = comp['audio_data'].shape[-1]
-            min_start = max(
-                -int(l*(1-self.min_overlap)),
-                max(stop_indices) - self.max_length * self.sample_rate
-            )
-            max_start = min(
-                components[0]['audio_data'].shape[-1] - int(np.ceil(self.min_overlap*l)),
-                min(start_indices) + self.max_length * self.sample_rate - l
-            )
+            l = comp['stft'].shape[1]
+            min_start = -int(l*(1-self.min_overlap))
+            max_start = components[0]['stft'].shape[1] - int(np.ceil(self.min_overlap*l))
+            if self.max_length is not None:
+                min_start = max(
+                    min_start, max(stop_indices) - self.max_length
+                )
+                max_start = min(
+                    max_start, min(start_indices) + self.max_length - l
+                )
             if max_start < min_start:
                 raise FilterException
             start_indices.append(
@@ -99,29 +116,28 @@ class SuperposeEvents:
         stop_indices -= start_indices.min()
         start_indices -= start_indices.min()
 
-        mixed_audio = np.zeros((*components[0]['audio_data'].shape[:-1], stop_indices.max()))
+        stft_shape = list(components[0]['stft'].shape)
+        stft_shape[1] = stop_indices.max()
+        mixed_stft = np.zeros(stft_shape, dtype=components[0]['stft'].dtype)
+        if 'events_alignment' in components[0]:
+            assert all(['events_alignment' in comp for comp in components])
+            alignment_shape = list(components[0]['events_alignment'].shape)
+            alignment_shape[1] = stop_indices.max()
+            mixed_alignment = np.zeros(alignment_shape)
+        else:
+            mixed_alignment = None
         for comp, start, stop in zip(components, start_indices, stop_indices):
-            mixed_audio[..., start:stop] += comp['audio_data']
+            mixed_stft[:, start:stop] += comp['stft']
+            if mixed_alignment is not None:
+                mixed_alignment[:, start:stop] += comp['events_alignment']
+
         mix = {
-            'example_id': '+'.join([comp['example_id'] for comp in components]),
-            'audio_data': mixed_audio,
-            'audio_length': mixed_audio.shape[-1] / self.sample_rate,
-            'events': [event for comp in components for event in comp['events']],
-            'dataset': '+'.join([comp['dataset'] for comp in components])
+            'example_id': self.join_example_ids_fn([comp['example_id'] for comp in components]),
+            'dataset': self.join_dataset_names_fn(sorted(set([comp['dataset'] for comp in components]))),
+            'stft': mixed_stft,
+            'seq_len': mixed_stft.shape[1],
+            'events': (np.sum([comp['events'] for comp in components], axis=0) > .5).astype(components[0]['events'].dtype),
         }
-        if "events_start_times" in components[0]:
-            mix["events_start_times"] = [
-                mixin_start_sample/self.sample_rate + event_start_time
-                for mixin_start_sample, comp in zip(start_indices, components)
-                for event_start_time in comp['events_start_times']
-            ]
-        if "events_stop_times" in components[0]:
-            mix["events_stop_times"] = [
-                mixin_start_sample/self.sample_rate + event_stop_time
-                for mixin_start_sample, comp in zip(start_indices, components)
-                for event_stop_time in comp['events_stop_times']
-            ]
-        for key in components[0].keys():
-            if key not in mix:
-                mix[key] = [comp[key] for comp in components]
+        if mixed_alignment is not None:
+            mix['events_alignment'] = (mixed_alignment > .5).astype(components[0]['events_alignment'].dtype)
         return mix
