@@ -35,7 +35,26 @@ def _remove_batch_axis(array, batch_first, ndim=2):
     return array
 
 
-def mask_to_image(mask, batch_first=False, color=None):
+def _apply_origin(image, origin):
+    """
+    When origin is 'lower' flip the top and bottom from the image
+
+    Args:
+        signal: Shape(..., features/y-axis, frames/x-axis)
+        origin: 'upper' or 'lower' (For speech usually lower)
+
+    Returns:
+        Shape(..., features, frames)
+
+    """
+    assert origin in ['upper', 'lower'], origin
+    if origin == 'lower':
+        image = image[..., ::-1, :]
+    return image
+
+
+
+def mask_to_image(mask, batch_first=False, color=None, origin='lower'):
     """
     For more details of the output shape, see the tensorboardx docs
     Args:
@@ -52,10 +71,10 @@ def mask_to_image(mask, batch_first=False, color=None):
 
     image = _remove_batch_axis(image, batch_first=batch_first)
 
-    return _colorize(image, color).transpose(0, 2, 1)[:, ::-1]
+    return _colorize(_apply_origin(image.T, origin), color)
 
 
-def stft_to_image(signal, batch_first=False, color='viridis'):
+def stft_to_image(signal, batch_first=False, color='viridis', origin='lower'):
     """
         For more details of the output shape, see the tensorboardx docs
     Args:
@@ -68,7 +87,7 @@ def stft_to_image(signal, batch_first=False, color='viridis'):
     signal = to_numpy(signal, detach=True)
 
     return spectrogram_to_image(
-        np.abs(signal), batch_first=batch_first, color=color
+        np.abs(signal), batch_first=batch_first, color=color, origin=origin,
     )
 
 
@@ -123,7 +142,8 @@ def _colorize(image, color):
         return np.moveaxis(cmap(image), -1, 0)
 
 
-def spectrogram_to_image(signal, batch_first=False, color='viridis'):
+def spectrogram_to_image(
+        signal, batch_first=False, color='viridis', origin='lower'):
     """
         For more details of the output shape, see the tensorboardx docs
     Args:
