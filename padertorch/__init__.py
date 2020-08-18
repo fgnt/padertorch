@@ -7,6 +7,7 @@ from . import configurable
 from . import data
 from . import ops
 from . import summary
+from . import io
 from .base import *
 from .configurable import Configurable
 from .ops import *
