@@ -53,7 +53,6 @@ def _apply_origin(image, origin):
     return image
 
 
-
 def mask_to_image(mask, batch_first=False, color=None, origin='lower'):
     """
     For more details of the output shape, see the tensorboardx docs
