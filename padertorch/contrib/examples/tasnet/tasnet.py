@@ -44,27 +44,28 @@ class TasNet(pt.Model):
         """
         super().__init__()
 
+        assert not mask or encoder.feature_size == decoder.feature_size, (
+            'Encoder and decoder features sizes must match if masking is '
+            'enabled!'
+        )
+        self.encoder = encoder
+        self.separator = separator
+        self.decoder = decoder
         self.mask = mask
+        self.output_nonlinearity = ACTIVATION_FN_MAP[output_nonlinearity]()
+        self.num_speakers = num_speakers
         self.additional_out_size = additional_out_size
-        hidden_size = separator.feat_size
-        self.input_proj = torch.nn.Conv1d(hidden_size, hidden_size, 1)
+        self.sample_rate = sample_rate
+
+        self.encoded_input_norm = torch.nn.LayerNorm(encoder.feature_size)
+        self.input_proj = torch.nn.Conv1d(
+            encoder.feature_size, separator.input_size, 1)
         self.output_prelu = torch.nn.PReLU()
         self.output_proj = torch.nn.Conv1d(
-            hidden_size, hidden_size * num_speakers + additional_out_size, 1
+            separator.hidden_size,
+            decoder.feature_size * num_speakers + additional_out_size, 1
         )
 
-        self.encoder = encoder
-
-        self.encoded_input_norm = torch.nn.LayerNorm(hidden_size)
-
-        self.separator = separator
-
-        self.decoder = decoder
-
-        self.output_nonlinearity = ACTIVATION_FN_MAP[output_nonlinearity]()
-
-        self.num_speakers = num_speakers
-        self.sample_rate = sample_rate
 
     def forward(self, batch: dict) -> dict:
         """
@@ -113,13 +114,13 @@ class TasNet(pt.Model):
         processed = self.output_nonlinearity(processed)
 
         # The estimation can be a little longer than the input signal.
-        # Shorten the estimation to match the input signal
+        # Shorten the estimation to match the input signal, mainly for masking
         processed = processed[..., :encoded_raw.shape[-1]]
-        assert encoded_raw.shape == processed.shape[1:], (
-            processed.shape, encoded_raw.shape)
 
         if self.mask:
             # Mask if set
+            assert encoded_raw.shape == processed.shape[1:], (
+                processed.shape, encoded_raw.shape)
             processed = encoded_raw.unsqueeze(0) * processed
 
         # Decode stream for each speaker

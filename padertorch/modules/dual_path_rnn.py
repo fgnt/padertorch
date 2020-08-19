@@ -554,7 +554,7 @@ class DPRNN(torch.nn.Module):
 
     def __init__(
             self,
-            feat_size: int,
+            input_size: int,
             rnn_size: int,
             window_length: int,
             hop_size: int,
@@ -565,7 +565,7 @@ class DPRNN(torch.nn.Module):
         """
 
         Args:
-            feat_size: The feature size (N)
+            input_size: The feature size (N)
             rnn_size: The units of the RNNs in each direction
             window_length: Length of window for segmentation (in frames)
             hop_size: Hop size for segmentation (in frames)
@@ -576,7 +576,10 @@ class DPRNN(torch.nn.Module):
         super().__init__()
         self.window_size = window_length
         self.hop_size = hop_size
-        self.feat_size = feat_size
+
+        # Naming is taken from torch.nn.LSTM. In the DPRNN, all sizes are
+        # always equal
+        self.input_size = self.hidden_size = input_size
 
         self.dprnn_blocks = torch.nn.Sequential(*[
             DPRNNBlock(
