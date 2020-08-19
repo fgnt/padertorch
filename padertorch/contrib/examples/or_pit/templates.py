@@ -18,7 +18,7 @@ ccsalloc:
         --join \\
         --stdout=stdout \\
         --tracefile=%x.%reqid.trace \\
-        -N train_{nickname} \\
+        -N train_{experiment_name} \\
         python -m {main_python_path} with config.json
 
 evaluate:
@@ -41,7 +41,7 @@ ccsalloc:
         --join \\
         --stdout=stdout \\
         --tracefile=trace_%reqid.trace \\
-        -N evaluate_{nickname} \\
+        -N evaluate_{experiment_name} \\
         ompi \\
         -x STORAGE \\
         -x NT_MERL_MIXTURES_DIR \\

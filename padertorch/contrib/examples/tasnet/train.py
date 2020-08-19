@@ -6,40 +6,23 @@ mkdir -p $STORAGE/pth_models/dprnn
 python -m padertorch.contrib.examples.tasnet.train print_config
 python -m padertorch.contrib.examples.tasnet.train
 """
-import torch
-from paderbox.io import load_audio
-
-from sacred import Experiment
+import numpy as np
+import paderbox as pb
 import sacred.commands
-
-# sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False
-
-import os
+import torch
+from lazy_dataset.database import JsonDatabase
 from pathlib import Path
-
+from sacred import Experiment
+from sacred.observers.file_storage import FileStorageObserver
 from sacred.utils import InvalidConfigError, MissingConfigError
 
 import padertorch as pt
 import padertorch.contrib.examples.tasnet.tasnet
-import paderbox as pb
-import numpy as np
-
-from sacred.observers.file_storage import FileStorageObserver
-from lazy_dataset.database import JsonDatabase
-
 from padertorch.contrib.neumann.chunking import RandomChunkSingle
-from padertorch.contrib.ldrude.utils import get_new_folder
 
+sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 experiment_name = "tasnet"
 ex = Experiment(experiment_name)
-
-
-def get_storage_dir():
-    # Sacred should not add path_template to the config
-    # -> move this few lines to a function
-    path_template = Path(os.environ["STORAGE"]) / 'pth_models' / experiment_name
-    path_template.mkdir(exist_ok=True, parents=True)
-    return get_new_folder(path_template, mkdir=False)
 
 
 @ex.config
@@ -102,7 +85,7 @@ def config():
     }
     pt.Trainer.get_config(trainer)
     if trainer['storage_dir'] is None:
-        trainer['storage_dir'] = get_storage_dir()
+        trainer['storage_dir'] = pt.io.get_new_storage_dir(experiment_name)
 
     ex.observers.append(FileStorageObserver(
         Path(trainer['storage_dir']) / 'sacred')
@@ -187,11 +170,11 @@ def on_wsj0_2mix_max():
 def pre_batch_transform(inputs):
     return {
         's': np.ascontiguousarray([
-            load_audio(p)
+            pb.io.load_audio(p)
             for p in inputs['audio_path']['speech_source']
         ], np.float32),
         'y': np.ascontiguousarray(
-            load_audio(inputs['audio_path']['observation']), np.float32),
+            pb.io.load_audio(inputs['audio_path']['observation']), np.float32),
         'num_samples': inputs['num_samples'],
         'example_id': inputs['example_id'],
         'audio_path': inputs['audio_path'],

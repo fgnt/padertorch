@@ -17,9 +17,6 @@ from sacred.utils import InvalidConfigError, MissingConfigError
 from tqdm import tqdm
 
 import padertorch as pt
-from padertorch.contrib.ldrude.utils import (
-    get_new_folder
-)
 from .train import prepare_iterable
 
 nickname = 'or-pit'
@@ -34,8 +31,8 @@ def config():
     model_path = ''     # Required path to the model to evaluate
     assert len(model_path) > 0, 'Set the model path on the command line.'
     checkpoint_name = 'ckpt_best_loss.pth'
-    experiment_dir = str(get_new_folder(
-        Path(model_path) / 'evaluation', consider_mpi=True))
+    experiment_dir = pt.io.get_new_subdir(
+        Path(model_path) / 'evaluation', consider_mpi=True)
 
     # Data config
     database_json = None

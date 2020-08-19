@@ -20,30 +20,25 @@ TODO: mpi: For mpi I need to know the experiment dir before.
 TODO: Change to sacred IDs again, otherwise I can not apply `unique` to `_id`.
 TODO: Maybe a shuffle helps here, too, to more evenly distribute work with MPI.
 """
-import os
 import warnings
 from collections import defaultdict
-from pathlib import Path
-from pprint import pprint
 
+import dlp_mpi as mpi
 import matplotlib as mpl
 import numpy as np
 import paderbox as pb
-from lazy_dataset.database import JsonDatabase
-
-import padertorch as pt
+import pb_bss
 import sacred.commands
-from sacred.utils import InvalidConfigError, MissingConfigError
 import torch
-import dlp_mpi as mpi
-from padertorch.contrib.ldrude.utils import (
-    get_new_folder
-)
+from lazy_dataset.database import JsonDatabase
+from pathlib import Path
+from pprint import pprint
 from sacred import Experiment
 from sacred.observers import FileStorageObserver
+from sacred.utils import InvalidConfigError, MissingConfigError
 from tqdm import tqdm
-import pb_bss
 
+import padertorch as pt
 from .train import prepare_iterable
 
 # Unfortunately need to disable this since conda scipy needs update
@@ -63,8 +58,8 @@ def config():
     model_path = ''
     assert len(model_path) > 0, 'Set the model path on the command line.'
     checkpoint_name = 'ckpt_best_loss.pth'
-    experiment_dir = str(get_new_folder(
-        Path(model_path) / 'evaluation', consider_mpi=True))
+    experiment_dir = pt.io.get_new_subdir(
+        Path(model_path) / 'evaluation', consider_mpi=True)
 
     # Database config
     database_json = None

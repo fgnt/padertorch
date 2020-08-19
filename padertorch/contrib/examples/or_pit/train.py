@@ -30,18 +30,10 @@ from sacred.observers.file_storage import FileStorageObserver
 from lazy_dataset.database import JsonDatabase, DictDatabase
 
 from padertorch.contrib.neumann.chunking import RandomChunkSingle
-from padertorch.contrib.ldrude.utils import get_new_folder
+from padertorch.io import get_new_storage_dir
 
-nickname = "or-pit"
-ex = Experiment(nickname)
-
-
-def get_storage_dir():
-    # Sacred should not add path_template to the config
-    # -> move this few lines to a function
-    path_template = Path(os.environ["STORAGE"]) / 'pth_models' / nickname
-    path_template.mkdir(exist_ok=True, parents=True)
-    return get_new_folder(path_template, mkdir=False)
+experiment_name = "or-pit"
+ex = Experiment(experiment_name)
 
 
 @ex.config
@@ -85,7 +77,7 @@ def config():
     }
     pt.Trainer.get_config(trainer)
     if trainer['storage_dir'] is None:
-        trainer['storage_dir'] = get_storage_dir()
+        trainer['storage_dir'] = get_new_storage_dir(experiment_name)
 
     ex.observers.append(FileStorageObserver(
         Path(trainer['storage_dir']) / 'sacred')
@@ -225,7 +217,7 @@ def dump_config_and_makefile(_config):
                 pt.configurable.resolve_main_python_path().split('.')[:-1]
                 + ['evaluate']
             ),
-            nickname=nickname,
+            experiment_name=experiment_name,
             model_path=experiment_dir,
         ))
 
