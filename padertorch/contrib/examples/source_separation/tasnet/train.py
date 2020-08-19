@@ -113,7 +113,10 @@ def win2():
             },
             'separator': {
                 'window_length': 250,
-                'dprnn_hop_size': 125,  # Half of window length
+                'hop_size': 125,  # Half of window length
+            },
+            'decoder': {
+                'window_length': 2
             }
         }
     }

@@ -114,9 +114,18 @@ def win2():
 
     trainer = {
         'model': {
-            'encoder_block_size': 2,
-            'dprnn_window_length': 250,
-            'dprnn_hop_size': 125,  # Half of window length
+            'separator': {
+                'encoder': {
+                    'window_length': 2
+                },
+                'separator': {
+                    'window_length': 250,
+                    'hop_size': 125,  # Half of window length
+                },
+                'decoder': {
+                    'window_length': 2
+                }
+            }
         }
     }
 
@@ -179,16 +188,16 @@ def prepare_iterable(
 
     iterators = [
         iterator
-        .map(pre_batch_transform)
-        .map(RandomChunkSingle(chunk_size, chunk_keys=('y', 's'), axis=-1))
-        .shuffle(reshuffle=shuffle)
-        .batch(batch_size)
-        .map(lambda batch: sorted(
+            .map(pre_batch_transform)
+            .map(RandomChunkSingle(chunk_size, chunk_keys=('y', 's'), axis=-1))
+            .shuffle(reshuffle=shuffle)
+            .batch(batch_size)
+            .map(lambda batch: sorted(
             batch,
             key=lambda example: example['num_samples'],
             reverse=True,
         ))
-        .map(pt.data.utils.collate_fn)
+            .map(pt.data.utils.collate_fn)
         for iterator in iterators
     ]
 
