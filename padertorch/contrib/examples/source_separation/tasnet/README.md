@@ -4,6 +4,7 @@ TasNet (Currently DPRNN-TasNet only)
 This directory contains scripts to train and evaluate different TasNet models:
  - TasNet (BLSTM-based) [2] (TODO),
  - ConvTasNet [3] (TODO), and
+ - TasNet with STFT-Encoder or ISTFT-Decoder [4]
  - Dual-Path RNN TasNet [1].
 
 Results
@@ -56,6 +57,11 @@ Available loss functions are: `log-mse`, `si-sdr` and `log1p-mse`.
 
 The configuration that has the best performance in the paper (window size of 2) can be selected with the named config `with win2`.
 
+To use the STFTEncoder or ISTFT Decoder use the named config stft or istft:
+```bash
+$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" stft istft
+```
+
 Evaluation
 ----------
 
@@ -92,4 +98,5 @@ References
   
   [3] Luo, Yi, und Nima Mesgarani. „Conv-TasNet: Surpassing Ideal Time-Frequency Magnitude Masking for Speech Separation“, 20. September 2018. https://doi.org/10.1109/taslp.2019.2915167.
 
+  [4] Jens Heitkaemper, Darius Jakobeit, Christoph Boeddeker, Lukas Drude, Reinhold Haeb-Umbach. „Demystifying TasNet: A Dissecting Approach“, 20. Novmber 2019. https://arxiv.org/abs/1911.08895.
 
