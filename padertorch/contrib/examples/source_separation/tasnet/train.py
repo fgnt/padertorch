@@ -58,7 +58,7 @@ def config():
             },
             'separator': {
                 'factory': pt.modules.dual_path_rnn.DPRNN,
-                'feat_size': 64,
+                'input_size': 64,
                 'rnn_size': 128,
                 'window_length': 100,
                 'hop_size': 50,

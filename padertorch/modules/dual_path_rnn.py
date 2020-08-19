@@ -583,7 +583,7 @@ class DPRNN(torch.nn.Module):
 
         self.dprnn_blocks = torch.nn.Sequential(*[
             DPRNNBlock(
-                feat_size=feat_size,
+                feat_size=input_size,
                 rnn_size=rnn_size,
                 inter_chunk_type=inter_chunk_type,
                 intra_chunk_type=intra_chunk_type,

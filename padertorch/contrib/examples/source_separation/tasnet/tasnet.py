@@ -16,9 +16,9 @@ from padertorch.ops.mappings import ACTIVATION_FN_MAP
 class TasNet(pt.Model):
     def __init__(
             self,
-            encoder: torch.Module,
-            separator: torch.Module,
-            decoder: torch.Module,
+            encoder: torch.nn.Module,
+            separator: torch.nn.Module,
+            decoder: torch.nn.Module,
             mask: bool = True,
             output_nonlinearity: Optional[str] = 'sigmoid',
             num_speakers: int = 2,
