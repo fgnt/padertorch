@@ -5,47 +5,47 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 train:
-    python -m {main_python_path} with config.json
+\tpython -m {main_python_path} with config.json
 
 ccsalloc:
-    ccsalloc \\
-        --notifyuser=awe \\
-        --res=rset=1:ncpus=4:gtx1080=1:ompthreads=1 \\
-        --time=100h \\
-        --join \\
-        --stdout=stdout \\
-        --tracefile=%x.%reqid.trace \\
-        -N train_{experiment_name} \\
-        python -m {main_python_path} with config.json
+\tccsalloc \\
+\t\t--notifyuser=awe \\
+\t\t--res=rset=1:ncpus=4:gtx1080=1:ompthreads=1 \\
+\t\t--time=100h \\
+\t\t--join \\
+\t\t--stdout=stdout \\
+\t\t--tracefile=%x.%reqid.trace \\
+\t\t-N train_{experiment_name} \\
+\t\tpython -m {main_python_path} with config.json
 
 evaluate:
-    python -m {eval_python_path} init with model_path=$(MODEL_PATH)"""
+\tpython -m {eval_python_path} init with model_path=$(MODEL_PATH)"""
 
 MAKEFILE_TEMPLATE_EVAL = """SHELL := /bin/bash
 
 evaluate:
-    python -m {main_python_path} with config.json
+\tpython -m {main_python_path} with config.json
 
 ccsalloc:
-    ccsalloc \\
-        --notifyuser=awe \\
-        --res=rset=100:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\
-        --time=1h \\
-        --join \\
-        --stdout=stdout \\
-        --tracefile=trace_%reqid.trace \\
-        -N evaluate_{nickname} \\
-        ompi \\
-        -x STORAGE \\
-        -x NT_MERL_MIXTURES_DIR \\
-        -x NT_DATABASE_JSONS_DIR \\
-        -x KALDI_ROOT \\
-        -x LD_PRELOAD \\
-        -x CONDA_EXE \\
-        -x CONDA_PREFIX \\
-        -x CONDA_PYTHON_EXE \\
-        -x CONDA_DEFAULT_ENV \\
-        -x PATH \\
-        -- \\
-        python -m {main_python_path} with config.json
+\tccsalloc \\
+\t\t--notifyuser=awe \\
+\t\t--res=rset=100:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\
+\t\t--time=1h \\
+\t\t--join \\
+\t\t--stdout=stdout \\
+\t\t--tracefile=trace_%reqid.trace \\
+\t\t-N evaluate_{nickname} \\
+\t\tompi \\
+\t\t-x STORAGE \\
+\t\t-x NT_MERL_MIXTURES_DIR \\
+\t\t-x NT_DATABASE_JSONS_DIR \\
+\t\t-x KALDI_ROOT \\
+\t\t-x LD_PRELOAD \\
+\t\t-x CONDA_EXE \\
+\t\t-x CONDA_PREFIX \\
+\t\t-x CONDA_PYTHON_EXE \\
+\t\t-x CONDA_DEFAULT_ENV \\
+\t\t-x PATH \\
+\t\t-- \\
+\t\tpython -m {main_python_path} with config.json
 """
