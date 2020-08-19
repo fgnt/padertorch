@@ -17,15 +17,22 @@ With the default parameters, the following numbers can be obtained:
 | DPRNN default  | 16.4  | 16.7  |
 | DPRNN `with log_mse`  | 16.7  | 17.0  |
 
+Pre-requisites
+--------------
+A storage root must be set with `export STORAGE_ROOT=/path/to/your/storage`.
+You can optionally set the environment variable `"WSJ0_2MIX"` to the wsj0-2mix JSON file.
+
+
 Training
 --------
 
-A storage root must be set with `export STORAGE=/path/to/your/storage`.
 After installing `padertorch`, a training can be started with
 
 ```bash
-$ python -m padertorch.contrib.examples.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}"
+$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}"
 ```
+
+If you set the environment variable "WSO0", you don't have to provide `database_json` in the above command.
 
 This creates a `Makefile` for easy re-running and evaluation. You can call `...train init` to just create the `Makefile` without starting the training run.
 Please have a look at the the header of `train.py` for information on how to run on the PC2 computing cluster. 
@@ -36,13 +43,13 @@ Different Configurations
 Different loss functions can be selected by adjusting the loss weights with for example
 
 ```bash
-$ python -m padertorch.contrib.examples.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" trainer.loss_weights.log-mse=1 trainer.loss_weights.si-sdr=0
+$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" trainer.loss_weights.log-mse=1 trainer.loss_weights.si-sdr=0
 ```
 
 There is a named config for simple access to `log-mse`:
 
 ```bash
-$ python -m padertorch.contrib.examples.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" log_mse
+$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" log_mse
 ```
 
 Available loss functions are: `log-mse`, `si-sdr` and `log1p-mse`.
@@ -54,7 +61,7 @@ Evaluation
 
 The evaluation requires `dlp_mpi` and `pb_bss` as additional dependencies.
 `dlp_mpi` can be installed via `pip install dlp_mpi` and `pb_bss` is available at [github.com/fgnt/pb_bss](github.com/fgnt/pb_bss).
-The evaluation can be initialized by using the `Makefile` that was created by the training script.
+If the environment variable "WSJ0_2MIX" is set, the evaluation can be initialized by using the `Makefile` that was created by the training script.
 Go into the model directory and run
 
 ```bash
@@ -63,6 +70,15 @@ make evaluation
 
 Then follow the instructions printed by the script.
 If you want to evaluate the model on the PC2 computing cluster, have a look at the file header of `evaluate.py` for instructions on how to utilize mpi for parallelization.
+
+If you don't want to set the "WSJ0_2MIX" environment variable, you can start an evaluation with:
+
+```bash
+python -m padertorch.contrib.examples.source_separation.tasnet.evaluate with model_path="<path/to/the/model>" database_json="<path/to/the/database/json>"
+```
+
+You can enable saving of separated audio files `with dump_audio=True`. 
+The script then creates a sub-folder for the audio files and creates entries in the results json file for the audio files.
 
 References
 ----------
