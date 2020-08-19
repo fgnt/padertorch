@@ -57,9 +57,27 @@ def config():
     # Start with an empty dict to allow tracking by Sacred
     trainer = {
         "model": {
-            "factory": 'padertorch.contrib.examples.or_pit.or_pit.OneAndRestPIT',
+            "factory": pt.contrib.examples.source_separation.or_pit.OneAndRestPIT,
             "separator": {
-                "factory": 'padertorch.contrib.examples.tasnet.tasnet.TasNet'
+                "factory": pt.contrib.examples.source_separation.tasnet.TasNet,
+                'encoder': {
+                    'factory': pt.contrib.examples.source_separation.tasnet.tas_coders.TasEncoder,
+                    'window_length': 16,
+                    'feature_size': 64,
+                },
+                'separator': {
+                    'factory': pt.modules.dual_path_rnn.DPRNN,
+                    'input_size': 64,
+                    'rnn_size': 128,
+                    'window_length': 100,
+                    'hop_size': 50,
+                    'num_blocks': 6,
+                },
+                'decoder': {
+                    'factory': pt.contrib.examples.source_separation.tasnet.tas_coders.TasDecoder,
+                    'window_length': 16,
+                    'feature_size': 64,
+                },
             }
         },
         "storage_dir": None,

@@ -6,6 +6,8 @@ mkdir -p $STORAGE/pth_models/dprnn
 python -m padertorch.contrib.examples.tasnet.train print_config
 python -m padertorch.contrib.examples.tasnet.train
 """
+import os
+
 import numpy as np
 import paderbox as pb
 import sacred.commands
@@ -38,6 +40,8 @@ def config():
     lr_scheduler_gamma = 0.98
     load_model_from = None
     database_json = None
+    if "WSJ0_2MIX" in os.environ:
+        database_json = os.environ.get("WSJ0_2MIX")
 
     if database_json is None:
         raise MissingConfigError(

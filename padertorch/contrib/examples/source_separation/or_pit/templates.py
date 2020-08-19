@@ -25,7 +25,7 @@ evaluate:
 \tpython -m {eval_python_path} init with model_path=$(MODEL_PATH)
 
 evaluate_oracle_num_spk:
-\tpython -m {eval_pyhton_path} init with model_path=$(MODEL_PATH) oracle_num_spk=True
+\tpython -m {eval_python_path} init with model_path=$(MODEL_PATH) oracle_num_spk=True
 """
 
 MAKEFILE_TEMPLATE_EVAL = """SHELL := /bin/bash

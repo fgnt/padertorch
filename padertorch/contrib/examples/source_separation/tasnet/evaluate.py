@@ -20,6 +20,7 @@ TODO: mpi: For mpi I need to know the experiment dir before.
 TODO: Change to sacred IDs again, otherwise I can not apply `unique` to `_id`.
 TODO: Maybe a shuffle helps here, too, to more evenly distribute work with MPI.
 """
+import os
 import warnings
 from collections import defaultdict
 
@@ -52,7 +53,7 @@ ex = Experiment(nickname)
 @ex.config
 def config():
     debug = False
-    export_audio = False
+    dump_audio = False
 
     # Model config
     model_path = ''
@@ -63,6 +64,8 @@ def config():
 
     # Database config
     database_json = None
+    if "WSJ0_2MIX" in os.environ:
+        database_json = os.environ.get("WSJ0_2MIX")
     sample_rate = 8000
     datasets = ['mix_2_spk_min_cv', 'mix_2_spk_min_tt']
     target = 'speech_source'
@@ -136,7 +139,7 @@ def init(_config, _run):
 
 
 @ex.main
-def main(_run, datasets, debug, experiment_dir, export_audio,
+def main(_run, datasets, debug, experiment_dir, dump_audio,
          sample_rate, _log, database_json):
     experiment_dir = Path(experiment_dir)
 
@@ -158,7 +161,7 @@ def main(_run, datasets, debug, experiment_dir, export_audio,
                 iterator_slice=slice(mpi.RANK, 20 if debug else None, mpi.SIZE),
             )
 
-            if export_audio:
+            if dump_audio:
                 (experiment_dir / 'audio' / dataset).mkdir(
                     parents=True, exist_ok=True)
 
@@ -184,7 +187,7 @@ def main(_run, datasets, debug, experiment_dir, export_audio,
                     # entry['stoi'] = pb_bss.evaluation.stoi(s, z, sample_rate)
                     # entry['pesq'] = pb_bss.evaluation.pesq(s, z, sample_rate)
 
-                    if export_audio:
+                    if dump_audio:
                         entry['audio_path'] = batch['audio_path']
                         for k, audio in enumerate(z):
                             audio_path = experiment_dir / 'audio' / dataset / f'{example_id}_{k}.wav'
