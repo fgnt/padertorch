@@ -17,7 +17,7 @@ from sacred.observers.file_storage import FileStorageObserver
 from sacred.utils import InvalidConfigError, MissingConfigError
 
 import padertorch as pt
-import padertorch.contrib.examples.tasnet.tasnet
+import padertorch.contrib.examples.source_separation.tasnet.tasnet
 from padertorch.contrib.neumann.chunking import RandomChunkSingle
 
 sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False
@@ -50,9 +50,9 @@ def config():
     encoder_window_size = 16
     trainer = {
         "model": {
-            "factory": pt.contrib.examples.tasnet.tasnet.TasNet,
+            "factory": padertorch.contrib.examples.source_separation.tasnet.tasnet.TasNet,
             'encoder': {
-                'factory': pt.contrib.examples.tasnet.tas_coders.TasEncoder,
+                'factory': padertorch.contrib.examples.source_separation.tasnet.tas_coders.TasEncoder,
                 'window_length': encoder_window_size,
                 'feature_size': feat_size,
             },
@@ -65,7 +65,7 @@ def config():
                 'num_blocks': 6,
             },
             'decoder': {
-                'factory': pt.contrib.examples.tasnet.tas_coders.TasDecoder,
+                'factory': padertorch.contrib.examples.source_separation.tasnet.tas_coders.TasDecoder,
                 'window_length': encoder_window_size,
                 'feature_size': feat_size,
             },
@@ -241,7 +241,7 @@ def dump_config_and_makefile(_config):
     makefile_path = Path(experiment_dir) / "Makefile"
 
     if not makefile_path.exists():
-        from padertorch.contrib.examples.tasnet.templates import \
+        from padertorch.contrib.examples.source_separation.tasnet.templates import \
             MAKEFILE_TEMPLATE_TRAIN
 
         config_path = experiment_dir / "config.json"

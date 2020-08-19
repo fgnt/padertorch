@@ -1,8 +1,10 @@
 TasNet (Currently DPRNN-TasNet only)
 =============
 
-This directory contains scripts to train and evaluate a Dual-Path RNN (DPRNN)-TasNet model proposed in [1].
-Currently, only the DPRNN-TasNet is provided, but the BLSTM-based TasNet [2] and Conv-TasNet [3] are planned.
+This directory contains scripts to train and evaluate different TasNet models:
+ - TasNet (BLSTM-based) [2] (TODO),
+ - ConvTasNet [3] (TODO), and
+ - Dual-Path RNN TasNet [1].
 
 Results
 -------
@@ -12,8 +14,8 @@ With the default parameters, the following numbers can be obtained:
 
 | trained with  | SI-SDRi  | SDRi  |
 |---|---|---|
-| default  | 16.4  | 16.7  |
-| `with log_mse`  | 16.7  | 17.0  |
+| DPRNN default  | 16.4  | 16.7  |
+| DPRNN `with log_mse`  | 16.7  | 17.0  |
 
 Training
 --------
@@ -43,7 +45,7 @@ There is a named config for simple access to `log-mse`:
 $ python -m padertorch.contrib.examples.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" log_mse
 ```
 
-Available loss functions are: `log-mse`, `si-sdr`.
+Available loss functions are: `log-mse`, `si-sdr` and `log1p-mse`.
 
 The configuration that has the best performance in the paper (window size of 2) can be selected with the named config `with win2`.
 

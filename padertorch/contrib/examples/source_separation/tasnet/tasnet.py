@@ -66,7 +66,6 @@ class TasNet(pt.Model):
             decoder.feature_size * num_speakers + additional_out_size, 1
         )
 
-
     def forward(self, batch: dict) -> dict:
         """
         Separates the time-signal in `sequence` into `self.num_speakers`

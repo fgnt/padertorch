@@ -111,7 +111,7 @@ def dump_config_and_makefile(_config):
         config_path = experiment_dir / "config.json"
         pb.io.dump_json(_config, config_path)
 
-        from padertorch.contrib.examples.tasnet.templates import \
+        from padertorch.contrib.examples.source_separation.tasnet.templates import \
             MAKEFILE_TEMPLATE_EVAL
         makefile_path.write_text(
             MAKEFILE_TEMPLATE_EVAL.format(
