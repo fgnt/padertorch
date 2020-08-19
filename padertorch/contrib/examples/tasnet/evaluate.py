@@ -114,37 +114,13 @@ def dump_config_and_makefile(_config):
 
     if not makefile_path.exists():
         config_path = experiment_dir / "config.json"
-
         pb.io.dump_json(_config, config_path)
-        main_python_path = pt.configurable.resolve_main_python_path()
+
+        from padertorch.contrib.examples.tasnet.templates import \
+            MAKEFILE_TEMPLATE_EVAL
         makefile_path.write_text(
-            f"SHELL := /bin/bash\n"
-            f"\n"
-            f"evaluate:\n"
-            f"\tpython -m {main_python_path} with config.json\n"
-            f"\n"
-            f"ccsalloc:\n"
-            f"\tccsalloc \\\n"
-            f"\t\t--notifyuser=awe \\\n"
-            f"\t\t--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\\n"
-            f"\t\t--time=1h \\\n"
-            f"\t\t--join \\\n"
-            f"\t\t--stdout=stdout \\\n"
-            f"\t\t--tracefile=trace_%reqid.trace \\\n"
-            f"\t\t-N evaluate_{nickname} \\\n"
-            f"\t\tompi \\\n"
-            f"\t\t-x STORAGE \\\n"
-            f"\t\t-x NT_MERL_MIXTURES_DIR \\\n"
-            f"\t\t-x NT_DATABASE_JSONS_DIR \\\n"
-            f"\t\t-x KALDI_ROOT \\\n"
-            f"\t\t-x LD_PRELOAD \\\n"
-            f"\t\t-x CONDA_EXE \\\n"
-            f"\t\t-x CONDA_PREFIX \\\n"
-            f"\t\t-x CONDA_PYTHON_EXE \\\n"
-            f"\t\t-x CONDA_DEFAULT_ENV \\\n"
-            f"\t\t-x PATH \\\n"
-            f"\t\t-- \\\n"
-            f"\t\tpython -m {main_python_path} with config.json\n"
+            MAKEFILE_TEMPLATE_EVAL.format(
+                main_python_path=pt.configurable.resolve_main_python_path())
         )
 
 

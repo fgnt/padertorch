@@ -30,14 +30,14 @@ from lazy_dataset.database import JsonDatabase
 from padertorch.contrib.neumann.chunking import RandomChunkSingle
 from padertorch.contrib.ldrude.utils import get_new_folder
 
-nickname = "tasnet"
-ex = Experiment(nickname)
+experiment_name = "tasnet"
+ex = Experiment(experiment_name)
 
 
 def get_storage_dir():
     # Sacred should not add path_template to the config
     # -> move this few lines to a function
-    path_template = Path(os.environ["STORAGE"]) / 'pth_models' / nickname
+    path_template = Path(os.environ["STORAGE"]) / 'pth_models' / experiment_name
     path_template.mkdir(exist_ok=True, parents=True)
     return get_new_folder(path_template, mkdir=False)
 
@@ -258,37 +258,20 @@ def dump_config_and_makefile(_config):
     makefile_path = Path(experiment_dir) / "Makefile"
 
     if not makefile_path.exists():
-        config_path = experiment_dir / "config.json"
+        from padertorch.contrib.examples.tasnet.templates import \
+            MAKEFILE_TEMPLATE_TRAIN
 
+        config_path = experiment_dir / "config.json"
         pb.io.dump_json(_config, config_path)
 
-        main_python_path = pt.configurable.resolve_main_python_path()
-        eval_python_path = '.'.join(
-            pt.configurable.resolve_main_python_path().split('.')[:-1]
-        ) + '.evaluate'
         makefile_path.write_text(
-            f"SHELL := /bin/bash\n"
-            f"MODEL_PATH := $(shell pwd)\n"
-            f"\n"
-            f"export OMP_NUM_THREADS=1\n"
-            f"export MKL_NUM_THREADS=1\n"
-            f"\n"
-            f"train:\n"
-            f"\tpython -m {main_python_path} with config.json\n"
-            f"\n"
-            f"ccsalloc:\n"
-            f"\tccsalloc \\\n"
-            f"\t\t--notifyuser=awe \\\n"
-            f"\t\t--res=rset=1:ncpus=4:gtx1080=1:ompthreads=1 \\\n"
-            f"\t\t--time=100h \\\n"
-            f"\t\t--join \\\n"
-            f"\t\t--stdout=stdout \\\n"
-            f"\t\t--tracefile=%x.%reqid.trace \\\n"
-            f"\t\t-N train_{nickname} \\\n"
-            f"\t\tpython -m {main_python_path} with config.json\n"
-            f"\n"
-            f"evaluate:\n"
-            f"\tpython -m {eval_python_path} init with model_path=$(MODEL_PATH)\n"
+            MAKEFILE_TEMPLATE_TRAIN.format(
+                main_python_path=pt.configurable.resolve_main_python_path(),
+                experiment_name=experiment_name,
+                eval_python_path=('.'.join(
+                    pt.configurable.resolve_main_python_path().split('.')[:-1]
+                ) + '.evaluate')
+            )
         )
 
 
