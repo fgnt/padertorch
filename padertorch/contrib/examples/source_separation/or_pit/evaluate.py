@@ -50,7 +50,7 @@ def config():
                                  'database_json')
 
     # Evaluation options
-    export_audio = False    # If true, exports the separated audio files into a sub-directory "audio"
+    dump_audio = False    # If true, exports the separated audio files into a sub-directory "audio"
     oracle_num_spk = False  # If true, the model is forced to perform the correct (oracle) number of iterations
     max_iterations = 4  # The number of iterations is limited to this number
 
@@ -124,7 +124,7 @@ def init(_config, _run):
 
 
 @ex.main
-def main(_run, datasets, debug, experiment_dir, export_audio,
+def main(_run, datasets, debug, experiment_dir, dump_audio,
          sample_rate, _log, database_json, oracle_num_spk, max_iterations):
     experiment_dir = Path(experiment_dir)
 
@@ -148,7 +148,7 @@ def main(_run, datasets, debug, experiment_dir, export_audio,
                                      mpi.SIZE),
             )
 
-            if export_audio:
+            if dump_audio:
                 (experiment_dir / 'audio' / dataset).mkdir(
                     parents=True, exist_ok=True)
 
@@ -195,7 +195,7 @@ def main(_run, datasets, debug, experiment_dir, export_audio,
                             'might not be representative!'
                         )
 
-                    if export_audio:
+                    if dump_audio:
                         entry['audio_path'] = batch['audio_path']
                         entry['audio_path'].setdefault('estimated', [])
 

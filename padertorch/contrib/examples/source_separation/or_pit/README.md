@@ -10,7 +10,7 @@ Training
 
 Prerequisites
 
- - Set `${STORAGE_DIR}` to the location you want to store your experiment results
+ - Set `${STORAGE_ROOT}` to the location you want to store your experiment results
  - Set `OMP_NUM_THREADS=1` and `MKL_NUM_THREADS=1`
  - Prepare the JSON(s) for different numbers of speakers. Each example must have the key `'speaker_id'` and a list as 
      value whose length corresponds to the number of speaker in the mixture
@@ -19,13 +19,13 @@ The training procedure of the OR-PIT consists of two steps: no fine-tuning and f
 The training for the first step can be initialized with:
      
 ```bash
-$ python -m padertorch.contrib.examples.or_pit.train init with database_jsons=${path_to_your_jsons}
+$ python -m padertorch.contrib.examples.source_separation.or_pit.train init with database_jsons=${path_to_your_jsons}
  ```
 
 and started with 
 
 ```bash
-$ make run
+$ make train
 ```
 
 The `database_jsons` can be a single file or a comma-separated list of files, if you want to supply multiple files.
@@ -38,7 +38,7 @@ The fine-tune experiment can be initialized with:
 $ make fine-tune
 ```
 
-It uses the same configuration (including number of epochs, data, etc.) as the base training.
+It creates a new storage dir and uses the same configuration (including number of epochs, data, etc.) as the base training.
 
 Evaluation
 ----------
@@ -46,8 +46,10 @@ Evaluation
 Start an evaluation with 
 
 ```bash
-$ python -m padertorch.contrib.examples.or_pit.evaluate init with model_path=${path_to_the_model_dir} database_json=${path_to_the_json} "datasets=['your','datasets']"
+$ python -m padertorch.contrib.examples.source_separation.or_pit.evaluate init with model_path=${path_to_the_model_dir} database_json=${path_to_the_json} "datasets=['your','datasets']"
 ```
+
+Enable audio exporting with `dump_audio=True`.
 
 Important configuration values
 ------------------------------
