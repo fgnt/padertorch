@@ -16,14 +16,14 @@ from padertorch.ops.mappings import ACTIVATION_FN_MAP
 class TasNet(pt.Model):
     def __init__(
             self,
-            encoder,
-            separator,
-            decoder,
+            encoder: torch.Module,
+            separator: torch.Module,
+            decoder: torch.Module,
             mask: bool = True,
             output_nonlinearity: Optional[str] = 'sigmoid',
             num_speakers: int = 2,
             additional_out_size: int = 0,
-            sample_rate=8000,
+            sample_rate: int = 8000,
     ):
         """
         Args:
@@ -38,6 +38,9 @@ class TasNet(pt.Model):
             num_speakers: The number of speakers/output streams
             additional_out_size: Size of the additional output. Has no effect if
                 set to 0.
+            sample_rate: Sample rate of the audio. Only used for correct
+                reporting to TensorBoard, has no effect on the model
+                architecture.
         """
         super().__init__()
 
@@ -54,7 +57,7 @@ class TasNet(pt.Model):
 
         self.encoded_input_norm = torch.nn.LayerNorm(hidden_size)
 
-        self.dprnn = separator
+        self.separator = separator
 
         self.decoder = decoder
 
@@ -92,7 +95,7 @@ class TasNet(pt.Model):
             encoded = rearrange(encoded, 'b n l -> b l n')
 
         # Call DPRNN. Needs shape BxLxN
-        processed = self.dprnn(encoded, encoded_sequence_lengths)
+        processed = self.separator(encoded, encoded_sequence_lengths)
         processed = rearrange(processed, 'b l n -> b n l')
 
         processed = self.output_proj(self.output_prelu(processed))
@@ -172,7 +175,7 @@ class TasNet(pt.Model):
 
         return {k: torch.mean(torch.stack(v)) for k, v in losses.items()}
 
-    def review(self, inputs, outputs):
+    def review(self, inputs: dict, outputs: dict) -> dict:
         # Report audios
         audios = {
             'observation': pt.summary.audio(
@@ -196,4 +199,4 @@ class TasNet(pt.Model):
         )
 
     def flatten_parameters(self) -> None:
-        self.dprnn.flatten_parameters()
+        self.separator.flatten_parameters()
