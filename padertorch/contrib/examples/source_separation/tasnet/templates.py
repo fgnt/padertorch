@@ -32,8 +32,8 @@ ccsalloc:
 \t\t--stdout=%x.%reqid.stdout \\
 \t\t--stderr=%x.%reqid.stderr \\
 \t\t--tracefile=%x.%reqid.trace \\
-\t\t-N evaluate_{nickname} \\
-\t\tompi \\
+\t\t-N evaluate_{experiment_name} \\
+\t\tompi -V gcc/2.0.2-mt \\
 \t\t-x STORAGE \\
 \t\t-x NT_MERL_MIXTURES_DIR \\
 \t\t-x NT_DATABASE_JSONS_DIR \\
