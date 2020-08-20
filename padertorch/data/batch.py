@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-
+from typing import Union, Iterable
 
 __all__ = [
     'example_to_device',
@@ -106,12 +106,36 @@ def example_to_numpy(example, detach=False):
 
 class Sorter:
     # pb.database.keys.NUM_SAMPLES is 'num_samples'
-    def __init__(self, key=lambda example: example['num_samples']):
-        self.key = key
+    def __init__(
+            self,
+            key: Union[str, callable] = 'num_samples',
+            reverse: bool = True
+    ):
+        """
+        Sorts the example in a batch by `key`. Meant to be mapped to a lazy
+        dataset after batching and before collating like
+        `dataset.batch(4).map(Sorter('num_samples')).map(collate_fn)`.
 
-    def __call__(self, examples):
+        Examples:
+            >>> batch = [{'value': x} for x in [5, 1, 3, 2]]
+            >>> Sorter('value')(batch)
+            [{'value': 5}, {'value': 3}, {'value': 2}, {'value': 1}]
+
+        Args:
+            key: Key to sort by
+            reverse: If `True`, sorts in reverse order. The default `True` is
+                required if sorting by length for `PackedSequence`s.
+        """
+        if callable(key):
+            self.key = key
+        else:
+            self.key = lambda example: example[key]
+
+        self.reverse = reverse
+
+    def __call__(self, examples: Iterable) -> tuple:
         return tuple(sorted(
             examples,
             key=self.key,
-            reverse=True,
+            reverse=self.reverse,
         ))
