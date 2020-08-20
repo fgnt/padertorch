@@ -21,6 +21,7 @@ from sacred.utils import InvalidConfigError, MissingConfigError
 import padertorch as pt
 import padertorch.contrib.examples.source_separation.tasnet.tasnet
 from padertorch.contrib.neumann.chunking import RandomChunkSingle
+from padertorch.contrib.neumann.data import sort_by
 
 sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 experiment_name = "tasnet"
@@ -207,11 +208,7 @@ def prepare_iterable(
             .map(chunker)
             .shuffle(reshuffle=True)
             .batch(batch_size)
-            .map(lambda batch: sorted(
-            batch,
-            key=lambda example: example['num_samples'],
-            reverse=True,
-        ))
+            .map(sort_by('num_samples'))
             .map(pt.data.utils.collate_fn)
     )
 

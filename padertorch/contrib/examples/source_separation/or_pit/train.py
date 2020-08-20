@@ -30,6 +30,7 @@ from sacred.observers.file_storage import FileStorageObserver
 from lazy_dataset.database import JsonDatabase, DictDatabase
 
 from padertorch.contrib.neumann.chunking import RandomChunkSingle
+from padertorch.contrib.neumann.data import sort_by
 from padertorch.io import get_new_storage_dir
 
 experiment_name = "or-pit"
@@ -193,11 +194,7 @@ def prepare_iterable(
             .map(chunker)
             .shuffle(reshuffle=shuffle)
             .batch(batch_size)
-            .map(lambda batch: sorted(
-            batch,
-            key=lambda example: example['num_samples'],
-            reverse=True,
-        ))
+            .map(sort_by('num_samples'))
             .map(pt.data.utils.collate_fn)
         for iterator in iterators
     ]
