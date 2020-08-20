@@ -9,11 +9,10 @@ train:
 
 ccsalloc:
 \tccsalloc \\
-\t\t--notifyuser=awe \\
 \t\t--res=rset=1:ncpus=4:gtx1080=1:ompthreads=1 \\
 \t\t--time=100h \\
-\t\t--join \\
-\t\t--stdout=stdout \\
+\t\t--stdout=%x.%reqid.stdout \\
+\t\t--stderr=%x.%reqid.stderr \\
 \t\t--tracefile=%x.%reqid.trace \\
 \t\t-N train_{experiment_name} \\
 \t\tpython -m {main_python_path} with config.json
@@ -28,12 +27,11 @@ evaluate:
 
 ccsalloc:
 \tccsalloc \\
-\t\t--notifyuser=awe \\
 \t\t--res=rset=100:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\
 \t\t--time=1h \\
-\t\t--join \\
-\t\t--stdout=stdout \\
-\t\t--tracefile=trace_%reqid.trace \\
+\t\t--stdout=%x.%reqid.stdout \\
+\t\t--stderr=%x.%reqid.stderr \\
+\t\t--tracefile=%x.%reqid.trace \\
 \t\t-N evaluate_{nickname} \\
 \t\tompi \\
 \t\t-x STORAGE \\
