@@ -1,11 +1,10 @@
 """
 Example call on NT infrastructure:
 
-export STORAGE=<your desired storage root>
-mkdir -p $STORAGE/pth_models/dprnn
+export STORAGE_ROOT=<your desired storage root>
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
-python -m padertorch.contrib.examples.or_pit.train with database_jsons=${paths to your JSONs}
+python -m padertorch.contrib.examples.source_separation.or_pit.train with database_jsons=${paths to your JSONs}
 """
 import copy
 

@@ -1,10 +1,10 @@
 """
 Example call on NT infrastructure:
 
-export STORAGE=<your desired storage root>
-mkdir -p $STORAGE/pth_models/dprnn
-python -m padertorch.contrib.examples.tasnet.train print_config
-python -m padertorch.contrib.examples.tasnet.train
+export STORAGE_ROOT=<your desired storage root>
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json=${paths to your JSON}
 """
 import os
 
