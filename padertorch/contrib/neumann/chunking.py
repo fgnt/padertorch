@@ -174,6 +174,9 @@ class RandomChunkSingle:
     min_length: int = None
 
     def __post_init__(self):
+        assert self.chunk_size == -1 or self.chunk_size > 0, (
+            f'Invalid chunk size: {self.chunk_size}'
+        )
         if self.min_length is None:
             self.min_length = self.chunk_size
 
@@ -185,8 +188,8 @@ class RandomChunkSingle:
         to_chunk = {k: example.pop(k) for k in self.chunk_keys}
         to_chunk_lengths = [c.shape[self.axis] for c in to_chunk.values()]
         assert to_chunk_lengths[1:] == to_chunk_lengths[:-1], (
-            'The shapes along the chunk dimension of all entries to chunk must '
-            'be equal!'
+            f'The shapes along the chunk dimension of all entries to chunk '
+            f'must be equal! {to_chunk_lengths}'
         )
         to_chunk_length = to_chunk_lengths[0]
 
@@ -207,7 +210,8 @@ class RandomChunkSingle:
         elif to_chunk_length >= self.chunk_size:
             start = np.random.randint(0, to_chunk_length - self.chunk_size + 1)
         else:
-            raise RuntimeError(to_chunk_length, self.min_length, self.chunk_size)
+            raise RuntimeError(
+                to_chunk_length, self.min_length, self.chunk_size)
 
         chunk = deepcopy(example)
         chunk.update({

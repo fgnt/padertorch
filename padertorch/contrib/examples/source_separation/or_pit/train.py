@@ -186,10 +186,11 @@ def prepare_iterable(
     # have the same number of speakers
     iterators = list(iterator.groupby(lambda x: x['num_speakers']).values())
 
+    chunker = RandomChunkSingle(chunk_size, chunk_keys=('y', 's'), axis=-1)
     iterators = [
         iterator
             .map(pre_batch_transform)
-            .map(RandomChunkSingle(chunk_size, chunk_keys=('y', 's'), axis=-1))
+            .map(chunker)
             .shuffle(reshuffle=shuffle)
             .batch(batch_size)
             .map(lambda batch: sorted(
@@ -203,9 +204,14 @@ def prepare_iterable(
 
     iterator = lazy_dataset.concatenate(*iterators).shuffle(reshuffle=shuffle)
 
+    # FilterExceptions are only raised inside the chunking code if the
+    # example is too short. If min_length <= 0 or chunk_size == -1, no filter
+    # exception is raised.
+    catch_exception = chunker.chunk_size != -1 and chunker.min_length > 0
     if prefetch:
-        iterator = iterator.prefetch(8, 16, catch_filter_exception=True)
-    elif chunk_size > 0:
+        iterator = iterator.prefetch(
+            8, 16, catch_filter_exception=catch_exception)
+    elif catch_exception:
         iterator = iterator.catch()
 
     return iterator
