@@ -25,6 +25,7 @@ from sacred.utils import InvalidConfigError, MissingConfigError
 from tqdm import tqdm
 
 import padertorch as pt
+from padertorch.contrib.neumann.evaluation import compute_means
 from .train import prepare_iterable
 
 # Unfortunately need to disable this since conda scipy needs update
@@ -244,23 +245,7 @@ def main(_run, datasets, debug, experiment_dir, dump_audio,
         pb.io.dump_json(results, result_json_path)
 
         # Compute means for some metrics
-        mean_keys = list(map('.'.join, itertools.product(
-            ['input', 'output', 'improvement'],
-            ['mir_eval.sdr', 'mir_eval.sar', 'mir_eval.sir', 'si_sdr']
-        )))
-        means = {}
-        for dataset, dataset_results in results.items():
-            means[dataset] = {}
-            flattened = {
-                k: pb.utils.nested.flatten(v) for k, v in
-                dataset_results.items()
-            }
-            for mean_key in mean_keys:
-                means[dataset][mean_key] = np.mean(np.array([
-                    v[mean_key] for v in flattened.values()
-                ]))
-            means[dataset] = pb.utils.nested.deflatten(means[dataset])
-
+        means = compute_means(results)
         mean_json_path = experiment_dir / 'means.json'
         _log.info(f'Exporting means: {mean_json_path}')
         pb.io.dump_json(means, mean_json_path)

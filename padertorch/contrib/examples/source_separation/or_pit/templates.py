@@ -1,5 +1,5 @@
 MAKEFILE_TEMPLATE_TRAIN = """SHELL := /bin/bash
-MODEL_PATH := "{model_path}"
+MODEL_PATH := $(shell pwd)
 
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
@@ -34,13 +34,13 @@ evaluate:
 
 ccsalloc:
 \tccsalloc \\
-\t\t--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\
+\t\t--res=rset=100:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\
 \t\t--time=1h \\
 \t\t--stdout=%x.%reqid.stdout \\
 \t\t--stderr=%x.%reqid.stderr \\
 \t\t--tracefile=trace_%reqid.trace \\
 \t\t-N evaluate_{experiment_name} \\
-\t\tompi \\
+\t\tompi -V gcc/2.0.2-mt \\
 \t\t-x STORAGE \\
 \t\t-x NT_MERL_MIXTURES_DIR \\
 \t\t-x NT_DATABASE_JSONS_DIR \\

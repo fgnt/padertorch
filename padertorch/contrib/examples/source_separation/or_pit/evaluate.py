@@ -1,3 +1,5 @@
+import operator
+
 import os
 import warnings
 from collections import defaultdict
@@ -12,15 +14,18 @@ from lazy_dataset.database import JsonDatabase
 from pathlib import Path
 from pprint import pprint
 from sacred import Experiment
+from sacred import SETTINGS
 from sacred.observers import FileStorageObserver
 from sacred.utils import InvalidConfigError, MissingConfigError
 from tqdm import tqdm
 
 import padertorch as pt
+from padertorch.contrib.neumann.evaluation import compute_means
 from .train import prepare_iterable
 
-nickname = 'or-pit'
-ex = Experiment(nickname)
+SETTINGS.CONFIG.READ_ONLY_CONFIG = False
+experiment_name = 'or-pit'
+ex = Experiment(experiment_name)
 
 
 @ex.config
@@ -31,8 +36,10 @@ def config():
     model_path = ''     # Required path to the model to evaluate
     assert len(model_path) > 0, 'Set the model path on the command line.'
     checkpoint_name = 'ckpt_best_loss.pth'
-    experiment_dir = pt.io.get_new_subdir(
-        Path(model_path) / 'evaluation', consider_mpi=True)
+    experiment_dir = None
+    if experiment_dir is None:
+        experiment_dir = pt.io.get_new_subdir(
+            Path(model_path) / 'evaluation', consider_mpi=True)
 
     # Data config
     database_json = None
@@ -102,7 +109,8 @@ def dump_config_and_makefile(_config):
         main_python_path = pt.configurable.resolve_main_python_path()
         makefile_path.write_text(
             MAKEFILE_TEMPLATE_EVAL.format(
-                main_python_path=main_python_path, nickname=nickname
+                main_python_path=main_python_path,
+                experiment_name=experiment_name
             )
         )
 
@@ -137,7 +145,7 @@ def main(_run, datasets, debug, experiment_dir, dump_audio,
 
     model.eval()
     with torch.no_grad():
-        summary = defaultdict(dict)
+        results = defaultdict(dict)
         for dataset in datasets:
             iterable = prepare_iterable(
                 db, dataset, 1,
@@ -157,7 +165,7 @@ def main(_run, datasets, debug, experiment_dir, dump_audio,
                     desc=dataset,
             ):
                 example_id = batch['example_id'][0]
-                summary[dataset][example_id] = entry = dict()
+                results[dataset][example_id] = entry = dict()
                 oracle_speaker_count = \
                     entry['oracle_speaker_count'] = batch['s'][0].shape[0]
 
@@ -170,24 +178,62 @@ def main(_run, datasets, debug, experiment_dir, dump_audio,
                     )
 
                     # Bring to numpy float64 for evaluation metrics computation
-                    s = batch['s'][0].astype(np.float64)
-                    z = model_output['out'][0].cpu().numpy().astype(np.float64)
+                    observation = batch['y'][0].astype(np.float64)[None, ]
+                    speech_prediction = (
+                        model_output['out'][0].cpu().numpy().astype(np.float64)
+                    )
+                    speech_source = batch['s'][0].astype(np.float64)
 
                     estimated_speaker_count = \
-                        entry['estimated_speaker_count'] = z.shape[0]
+                        entry['estimated_speaker_count'] = speech_prediction.shape[0]
                     entry['source_counting_accuracy'] = \
                         estimated_speaker_count == oracle_speaker_count
 
                     if oracle_speaker_count == estimated_speaker_count:
                         # These evaluations don't work if the number of
                         # speakers in s and z don't match
-                        entry['mir_eval'] = pb_bss.evaluation.mir_eval_sources(
-                            s, z, return_dict=True)
+                        input_metrics = pb_bss.evaluation.InputMetrics(
+                            observation=observation,
+                            speech_source=speech_source,
+                            sample_rate=sample_rate,
+                            enable_si_sdr=True,
+                        )
 
-                        # Get the correct order for si_sdr and saving
-                        z = z[entry['mir_eval']['selection']]
+                        output_metrics = pb_bss.evaluation.OutputMetrics(
+                            speech_prediction=speech_prediction,
+                            speech_source=speech_source,
+                            sample_rate=sample_rate,
+                            enable_si_sdr=True,
+                        )
 
-                        entry['si_sdr'] = pb_bss.evaluation.si_sdr(s, z)
+                        # Select the metrics to compute
+                        entry['input'] = dict(
+                            mir_eval=input_metrics.mir_eval,
+                            si_sdr=input_metrics.si_sdr,
+                            # TODO: stoi fails with short speech segments (https://github.com/mpariente/pystoi/issues/21)
+                            # stoi=input_metrics.stoi,
+                            # TODO: pesq creates "Processing error" messages
+                            # pesq=input_metrics.pesq,
+                        )
+
+                        # Remove selection from mir_eval dict to enable
+                        # recursive calculation of improvement
+                        entry['output'] = dict(
+                            mir_eval={
+                                k: v for k, v in
+                                output_metrics.mir_eval.items()
+                                if k != 'selection'
+                            },
+                            si_sdr=output_metrics.si_sdr,
+                            # stoi=output_metrics.stoi,
+                            # pesq=output_metrics.pesq,
+                        )
+
+                        entry['improvement'] = pb.utils.nested.nested_op(
+                            operator.sub, entry['output'], entry['input'],
+                        )
+                        entry['selection'] = output_metrics.mir_eval[
+                            'selection']
                     else:
                         warnings.warn(
                             'The number of speakers is estimated incorrectly '
@@ -199,10 +245,11 @@ def main(_run, datasets, debug, experiment_dir, dump_audio,
                         entry['audio_path'] = batch['audio_path']
                         entry['audio_path'].setdefault('estimated', [])
 
-                        for k, audio in enumerate(z):
+                        for k, audio in enumerate(speech_prediction):
                             audio_path = (
                                     experiment_dir / 'audio' / dataset /
-                                    f'{example_id}_{k}.wav')
+                                    f'{example_id}_{k}.wav'
+                            )
                             pb.io.dump_audio(
                                 audio, audio_path, sample_rate=sample_rate)
                             entry['audio_path']['estimated'].append(audio_path)
@@ -213,41 +260,23 @@ def main(_run, datasets, debug, experiment_dir, dump_audio,
                     )
                     raise
 
-    summary_list = mpi.gather(summary, root=mpi.MASTER)
+    results = mpi.gather(results, root=mpi.MASTER)
 
     if mpi.IS_MASTER:
-        # Combine all summaries to one
-        for partial_summary in summary_list:
-            for dataset, values in partial_summary.items():
-                summary[dataset].update(values)
+        # Combine all results to one. This function raises an exception if it
+        # finds duplicate keys
+        results = pb.utils.nested.nested_merge(*results)
 
-        for dataset, values in summary.items():
+        for dataset, values in results.items():
             _log.info(f'{dataset}: {len(values)}')
 
-        # Write summary to JSON
+        # Write results to JSON
         result_json_path = experiment_dir / 'result.json'
         _log.info(f"Exporting result: {result_json_path}")
-        pb.io.dump_json(summary, result_json_path)
+        pb.io.dump_json(results, result_json_path)
 
         # Compute means for some metrics
-        mean_keys = ['mir_eval.sdr', 'mir_eval.sar', 'mir_eval.sir', 'si_sdr',
-                     'source_counting_accuracy']
-        means = {}
-        for dataset, dataset_results in summary.items():
-            means[dataset] = {}
-            flattened = {
-                k: pb.utils.nested.flatten(v) for k, v in
-                dataset_results.items()
-            }
-            for mean_key in mean_keys:
-                try:
-                    means[dataset][mean_key] = np.mean(np.array([
-                        v[mean_key] for v in flattened.values()
-                    ]))
-                except KeyError:
-                    warnings.warn(f'Couldn\'t compute mean for {mean_key}.')
-            means[dataset] = pb.utils.nested.deflatten(means[dataset])
-
+        means = compute_means(results)
         mean_json_path = experiment_dir / 'means.json'
         _log.info(f'Exporting means: {mean_json_path}')
         pb.io.dump_json(means, mean_json_path)

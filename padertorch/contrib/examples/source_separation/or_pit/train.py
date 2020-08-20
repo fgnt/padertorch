@@ -18,19 +18,20 @@ import sacred.commands
 import os
 from pathlib import Path
 
-from sacred.utils import InvalidConfigError, MissingConfigError
 from typing import List
 
 import padertorch as pt
 import paderbox as pb
 import numpy as np
 
+import sacred
 from sacred.observers.file_storage import FileStorageObserver
 from lazy_dataset.database import JsonDatabase, DictDatabase
 
 from padertorch.contrib.neumann.chunking import RandomChunkSingle
 from padertorch.io import get_new_storage_dir
 
+sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 experiment_name = "or-pit"
 ex = Experiment(experiment_name)
 

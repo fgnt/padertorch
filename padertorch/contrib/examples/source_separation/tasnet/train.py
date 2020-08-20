@@ -80,7 +80,7 @@ def config():
             "gradient_clipping": 1
         },
         "summary_trigger": (1000, "iteration"),
-        "stop_trigger": (100_000, "iteration"),
+        "stop_trigger": (100, "epoch"),
         "loss_weights": {
             "si-sdr": 1.0,
             "log-mse": 0.0,
@@ -131,10 +131,10 @@ def stft():
     trainer = {
         'model': {
             'encoder': {
-                'factory': 'padertorch.contrib.examples.tasnet.tas_coders.StftEncoder'
+                'factory': 'padertorch.contrib.examples.source_separation.tasnet.tas_coders.StftEncoder'
             },
             'decoder': {
-                'factory': 'padertorch.contrib.examples.tasnet.tas_coders.IstftDecoder'
+                'factory': 'padertorch.contrib.examples.source_separation.tasnet.tas_coders.IstftDecoder'
             },
         }
     }
