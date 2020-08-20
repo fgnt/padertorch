@@ -172,16 +172,20 @@ def prepare_iterable(
     This is re-used in the evaluate script
     """
     # Create an iterator from the datasets (a simple concatenation of the
-    # single datasets) and determine the number of speakers in each example
+    # single datasets)
     if isinstance(datasets, str):
         datasets = datasets.split(',')
-
-    iterator = db.get_dataset(datasets).map(
-        lambda x: (x.update(num_speakers=len(x['speaker_id'])), x)[1])
+    iterator = db.get_dataset(datasets)
 
     # TODO: this does not make too much sense when we have multiple datasets
     if iterator_slice is not None:
         iterator = iterator[iterator_slice]
+
+    # Determine the number of speakers in each example
+    def add_num_speakers(example):
+        example.update(num_speakers=len(example['speaker_id']))
+        return example
+    iterator = iterator.map(add_num_speakers)
 
     # Group iterators by number of speakers so that all examples in a batch
     # have the same number of speakers
