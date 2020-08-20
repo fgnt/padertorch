@@ -33,9 +33,10 @@ After installing `padertorch`, a training can be started with
 $ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}"
 ```
 
-If you set the environment variable "WSO0", you don't have to provide `database_json` in the above command.
+If you set the environment variable "WSJ0_MIX", you don't have to provide `database_json` in the above command.
 
-This creates a `Makefile` for easy re-running and evaluation. You can call `...train init` to just create the `Makefile` without starting the training run.
+This creates a `Makefile` for easy re-running and evaluation. 
+You can call `...train init` to just create the `Makefile` without starting the training run.
 Please have a look at the the header of `train.py` for information on how to run on the PC2 computing cluster. 
 
 Different Configurations

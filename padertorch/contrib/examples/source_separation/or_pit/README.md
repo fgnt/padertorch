@@ -16,13 +16,13 @@ Prerequisites
      value whose length corresponds to the number of speaker in the mixture
 
 The training procedure of the OR-PIT consists of two steps: no fine-tuning and fine-tuning.     
-The training for the first step can be initialized with:
+The training for the first step can be run with:
      
 ```bash
-$ python -m padertorch.contrib.examples.source_separation.or_pit.train init with database_jsons=${path_to_your_jsons}
+$ python -m padertorch.contrib.examples.source_separation.or_pit.train with database_jsons=${path_to_your_jsons}
  ```
 
-and started with 
+You can initialize an experiment directory with `python -m ...or_pit.train init with ...` and start it with: 
 
 ```bash
 $ make train
@@ -46,7 +46,7 @@ Evaluation
 Start an evaluation with 
 
 ```bash
-$ python -m padertorch.contrib.examples.source_separation.or_pit.evaluate init with model_path=${path_to_the_model_dir} database_json=${path_to_the_json} "datasets=['your','datasets']"
+$ python -m padertorch.contrib.examples.source_separation.or_pit.evaluate with model_path=${path_to_the_model_dir} database_json=${path_to_the_json} "datasets=['your','datasets']"
 ```
 
 Enable audio exporting with `dump_audio=True`.
