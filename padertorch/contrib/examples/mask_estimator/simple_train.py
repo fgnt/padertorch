@@ -47,8 +47,16 @@ class SimpleMaskEstimator(pt.Model):
         super().__init__()
         self.num_features = num_features
         self.net = torch.nn.Sequential(
+            pt.modules.Normalization(
+                'btf', (1, 1, num_features), statistics_axis='t',
+                independent_axis='f', batch_axis='b', sequence_axis='t'
+            ),
+            pt.modules.StatefulLSTM(
+                num_features, num_units // 4,
+                bidirectional=True, batch_first=True
+            ),
             torch.nn.Dropout(dropout),
-            torch.nn.Linear(num_features, num_units),
+            torch.nn.Linear((num_units // 4) * 2, num_units),
             pt.mappings.ACTIVATION_FN_MAP[activation](),
             torch.nn.Dropout(dropout),
             torch.nn.Linear(num_units, num_units),
@@ -115,7 +123,7 @@ def change_example_structure(example):
     return net_input
 
 
-def get_train_ds(database: JsonAudioDatabase):
+def get_train_dataset(database: JsonAudioDatabase):
     # AudioReader is a specialized function to read audio organized
     # in a json as described in pb.database.database
     audio_reader = AudioReader(audio_keys=[
@@ -128,7 +136,7 @@ def get_train_ds(database: JsonAudioDatabase):
             .prefetch(num_workers=4, buffer_size=4))
 
 
-def get_validation_ds(database: JsonAudioDatabase):
+def get_validation_dataset(database: JsonAudioDatabase):
     # AudioReader is a specialized function to read audio organized
     # in a json as described in pb.database.database
     audio_reader = AudioReader(audio_keys=[
@@ -141,32 +149,22 @@ def get_validation_ds(database: JsonAudioDatabase):
 
 
 def train():
+    storage_dir = pt.io.get_new_storage_dir(
+        'speech_enhancement', prefix='simple_mask_estimator')
     model = SimpleMaskEstimator(513)
     print(f'Simple training for the following model: {model}')
     database = Chime3()
-    train_ds = get_train_ds(database)
-    validation_ds = get_validation_ds(database)
-    trainer = pt.Trainer(model, STORAGE_ROOT / 'simple_mask_estimator',
+    train_dataset = get_train_dataset(database)
+    validation_dataset = get_validation_dataset(database)
+    trainer = pt.Trainer(model, storage_dir,
                          optimizer=pt.train.optimizer.Adam(),
                          stop_trigger=(int(1e5), 'iteration'))
-    trainer.test_run(train_ds, validation_ds)
-    trainer.register_validation_hook(validation_ds)
-    trainer.train(train_ds)
+    trainer.test_run(train_dataset, validation_dataset)
+    trainer.register_validation_hook(
+        validation_dataset, n_back_off=5, lr_update_factor=1 / 10,
+            back_off_patience=1, early_stopping_patience=None)
+    trainer.train(train_dataset)
 
 
 if __name__ == '__main__':
-    STORAGE_ROOT = os.environ.get('STORAGE_ROOT')
-    if STORAGE_ROOT is None:
-        raise EnvironmentError(
-            'You have to specify an STORAGE_ROOT '
-            'environmental variable see getting_started'
-        )
-    elif not Path(STORAGE_ROOT).exists():
-        raise FileNotFoundError(
-            'You have to specify an existing STORAGE_ROOT '
-            'environmental variable see getting_started.\n'
-            f'Got: {STORAGE_ROOT}'
-        )
-    else:
-        STORAGE_ROOT = Path(STORAGE_ROOT)
     train()
