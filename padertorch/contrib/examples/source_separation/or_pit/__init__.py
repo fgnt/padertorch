@@ -1,1 +1,1 @@
-from .or_pit import OneAndRestPIT
+from .model import OneAndRestPIT

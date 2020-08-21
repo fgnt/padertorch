@@ -19,7 +19,7 @@ from sacred.observers.file_storage import FileStorageObserver
 from sacred.utils import InvalidConfigError, MissingConfigError
 
 import padertorch as pt
-import padertorch.contrib.examples.source_separation.tasnet.tasnet
+import padertorch.contrib.examples.source_separation.tasnet.model
 from padertorch.contrib.neumann.chunking import RandomChunkSingle
 
 sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False
@@ -54,7 +54,7 @@ def config():
     encoder_window_size = 16
     trainer = {
         "model": {
-            "factory": padertorch.contrib.examples.source_separation.tasnet.tasnet.TasNet,
+            "factory": padertorch.contrib.examples.source_separation.tasnet.TasNet,
             'encoder': {
                 'factory': padertorch.contrib.examples.source_separation.tasnet.tas_coders.TasEncoder,
                 'window_length': encoder_window_size,
