@@ -276,7 +276,7 @@ def main(_run, datasets, debug, experiment_dir, dump_audio,
         pb.io.dump_json(results, result_json_path)
 
         # Compute means for some metrics
-        means = compute_means(results)
+        means = compute_means(results, skip_invalid=True)
         mean_json_path = experiment_dir / 'means.json'
         _log.info(f'Exporting means: {mean_json_path}')
         pb.io.dump_json(means, mean_json_path)

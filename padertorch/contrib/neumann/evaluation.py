@@ -14,6 +14,7 @@ def compute_means(
         results: dict,
         mean_keys: Optional[Iterable] = None,
         exclude_keys: tuple = (r'.*selection', ),
+        skip_invalid=False,
 ) -> dict:
     """
 
@@ -24,6 +25,8 @@ def compute_means(
             If `None`, computes mean over all keys found in the data.
         exclude_keys: Keys or key patterns to exclude when inferring mean keys
             from data. Has no effect if `mean_keys is not None`.
+        skip_invalid: If `True`, invalid keys are skipped (e.g., not all
+            examples have this key)
 
     Returns:
         {'dataset_name': {... nested means ...}}
@@ -47,9 +50,15 @@ def compute_means(
             _mean_keys = mean_keys
 
         for mean_key in _mean_keys:
-            means[dataset][mean_key] = np.mean(np.array([
-                v[mean_key] for v in flattened.values()
-            ]))
+            try:
+                means[dataset][mean_key] = np.mean(np.array([
+                    v[mean_key] for v in flattened.values()
+                ]))
+            except KeyError:
+                if skip_invalid:
+                    pass
+                else:
+                    raise
         means[dataset] = pb.utils.nested.deflatten(means[dataset])
 
     return means
