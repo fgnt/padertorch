@@ -4,20 +4,17 @@ Saves checkpoints and summaries to $STORAGE_ROOT/speech_enhancement/simple_mask_
 may be called with:
 python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.train
 """
-import os
-from pathlib import Path
 
 import numpy as np
-import torch
-
 import paderbox as pb
 import padercontrib.database.keys as K
-from padercontrib.database import JsonAudioDatabase
-from padercontrib.database.iterator import AudioReader
-from padercontrib.database.chime import Chime3
-from pb_bss.extraction.mask_module import biased_binary_mask
 import padertorch as pt
+import torch
+from padercontrib.database import JsonAudioDatabase
+from padercontrib.database.chime import Chime3
+from padercontrib.database.iterator import AudioReader
 from padertorch.summary import mask_to_image, stft_to_image
+from pb_bss.extraction.mask_module import biased_binary_mask
 
 
 class SimpleMaskEstimator(pt.Model):

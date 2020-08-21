@@ -7,19 +7,17 @@ mpiexec -np 8 python -m padertorch.contrib.examples.speech_enhancement.simple_ma
 import os
 from pathlib import Path
 
-from einops import rearrange
-import torch
-
+import dlp_mpi
 import numpy as np
 import paderbox as pb
 import padertorch as pt
 import pb_bss
-from pb_bss.extraction import get_bf_vector
-import dlp_mpi
-
+import torch
+from einops import rearrange
 from padercontrib.database import JsonAudioDatabase
 from padercontrib.database.chime import Chime3
 from padercontrib.database.iterator import AudioReader
+from pb_bss.extraction import get_bf_vector
 
 from . import SimpleMaskEstimator
 
