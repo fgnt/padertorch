@@ -41,6 +41,12 @@ $ STORAGE_ROOT=/path/to/your/storage; mpiexec -n $(nproc --all) python -m padert
 ```
 It always evaluates the latest model in the specified STORAGE_ROOT
 
+If you want to evaluate a specific checkpoint, specify the path as an
+additional argument to the call.
+
+```bash
+$ STORAGE_ROOT=/path/to/your/storage; mpiexec -n $(nproc --all) python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.evaluate /path/to/checkpoint
+```
 References
 ----------
 
