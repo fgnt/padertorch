@@ -43,8 +43,9 @@ def get_test_dataset(database: JsonAudioDatabase):
         'observation', 'speech_source'
     ])
     val_iterator = database.get_dataset_test()
-    return val_iterator.map(audio_reader)\
+    return val_iterator.map(audio_reader) \
         .map(change_example_structure)
+
 
 def evaluate():
     model = SimpleMaskEstimator(513)
@@ -124,13 +125,14 @@ def evaluate():
             print(signal_type)
             for metric in next(iter(values.values())).keys():
                 mean = np.mean([value[metric] for key, value in values.items()
-                                if not '_mean' in key])
+                                if '_mean' not in key])
                 values[metric + '_mean'] = mean
                 print(f'{metric}: {mean}')
 
         result_json_path = eval_dir / 'result.json'
         print(f"Exporting result: {result_json_path}")
         pb.io.dump_json(summary, result_json_path)
+
 
 if __name__ == '__main__':
     STORAGE_ROOT = os.environ.get('STORAGE_ROOT')
@@ -149,5 +151,3 @@ if __name__ == '__main__':
         STORAGE_ROOT = Path(STORAGE_ROOT)
 
     evaluate()
-
-

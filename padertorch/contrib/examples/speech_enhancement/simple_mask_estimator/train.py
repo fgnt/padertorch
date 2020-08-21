@@ -83,7 +83,8 @@ class SimpleMaskEstimator(pt.Model):
         return dict(loss=noise_mask_loss + speech_mask_loss,
                     images=self.add_images(batch, output))
 
-    def add_images(self, batch, output):
+    @staticmethod
+    def add_images(batch, output):
         speech_mask = output['speech_mask_prediction']
         observation = batch['observation_abs']
         images = dict()
@@ -140,8 +141,8 @@ def get_validation_dataset(database: JsonAudioDatabase):
         K.OBSERVATION, K.NOISE_IMAGE, K.SPEECH_IMAGE
     ])
     val_iterator = database.get_dataset_validation()
-    return val_iterator.map(audio_reader)\
-        .map(change_example_structure)\
+    return val_iterator.map(audio_reader) \
+        .map(change_example_structure) \
         .prefetch(num_workers=4, buffer_size=4)
 
 
@@ -159,7 +160,7 @@ def train():
     trainer.test_run(train_dataset, validation_dataset)
     trainer.register_validation_hook(
         validation_dataset, n_back_off=5, lr_update_factor=1 / 10,
-            back_off_patience=1, early_stopping_patience=None)
+        back_off_patience=1, early_stopping_patience=None)
     trainer.train(train_dataset)
 
 
