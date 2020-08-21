@@ -40,17 +40,7 @@ ccsalloc:
 \t\t--stderr=%x.%reqid.stderr \\
 \t\t--tracefile=trace_%reqid.trace \\
 \t\t-N evaluate_{experiment_name} \\
-\t\tompi -V gcc/2.0.2-mt \\
-\t\t-x STORAGE \\
-\t\t-x NT_MERL_MIXTURES_DIR \\
-\t\t-x NT_DATABASE_JSONS_DIR \\
-\t\t-x KALDI_ROOT \\
-\t\t-x LD_PRELOAD \\
-\t\t-x CONDA_EXE \\
-\t\t-x CONDA_PREFIX \\
-\t\t-x CONDA_PYTHON_EXE \\
-\t\t-x CONDA_DEFAULT_ENV \\
-\t\t-x PATH \\
+\t\tompi \\
 \t\t-- \\
 \t\tpython -m {main_python_path} with config.json
 """
