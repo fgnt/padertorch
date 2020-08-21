@@ -56,6 +56,7 @@ def evaluate():
     checkpoint_path = model_dir / 'checkpoints' / 'ckpt_best_loss.pth'
     eval_dir = pt.io.get_new_subdir(model_dir, prefix='evaluate',
                                     consider_mpi=True)
+
     model.load_checkpoint(
         checkpoint_path=checkpoint_path,
         in_checkpoint_path='model',
@@ -63,6 +64,8 @@ def evaluate():
     )
     model.eval()
 
+    print(f'Start to evaluate the checkpoint {checkpoint_path.resolve()} and '
+          f'will write the evaluation result to {eval_dir / "result.json"}')
     database = Chime3()
     test_dataset = get_test_dataset(database)
     with torch.no_grad():
@@ -148,6 +151,6 @@ if __name__ == '__main__':
             f'Got: {STORAGE_ROOT}'
         )
     else:
-        STORAGE_ROOT = Path(STORAGE_ROOT)
+        STORAGE_ROOT = Path(STORAGE_ROOT).expanduser().resolve()
 
     evaluate()
