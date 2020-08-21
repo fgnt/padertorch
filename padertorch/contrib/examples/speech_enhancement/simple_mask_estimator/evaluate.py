@@ -3,6 +3,9 @@ Evaluation script for the last mask estimator trained in $STORAGE_ROOT.
 Saves results to $STORAGE_ROOT/speech_enhancement/simple_mask_estimator_{id}/evaluate_{eval_id}
 mpiexec -np 8 python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.evaluate
 
+If you want to evaluate a specific checkpoint, specify the path
+as an additional argument to the call.
+mpiexec -np 8 python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.evaluate /path/to/checkpoint
 """
 import os
 import sys
