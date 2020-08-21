@@ -25,7 +25,7 @@ from padercontrib.database import JsonAudioDatabase
 from padercontrib.database.chime import Chime3
 from padercontrib.database.iterator import AudioReader
 
-from .simple_train import SimpleMaskEstimator
+from . import SimpleMaskEstimator
 
 
 def change_example_structure(example):
