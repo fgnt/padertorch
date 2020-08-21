@@ -2,7 +2,7 @@ Simple Mask Estimator
 =============
 
 This directory contains scripts to train and evaluate a simple mask estimator
-inspired by .
+inspired by [1].
 
 Results
 -------
