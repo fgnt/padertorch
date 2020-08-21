@@ -10,12 +10,14 @@ import paderbox as pb
 import padercontrib.database.keys as K
 import padertorch as pt
 import torch
+from sacred import Experiment
 from padercontrib.database import JsonAudioDatabase
 from padercontrib.database.chime import Chime3
 from padercontrib.database.iterator import AudioReader
 from padertorch.summary import mask_to_image, stft_to_image
 from pb_bss.extraction.mask_module import biased_binary_mask
 
+ex = Experiment('Simple Mask Estimator')
 
 class SimpleMaskEstimator(pt.Model):
     def __init__(self, num_features, num_units=1024, dropout=0.5,
@@ -146,6 +148,21 @@ def get_validation_dataset(database: JsonAudioDatabase):
         .prefetch(num_workers=4, buffer_size=4)
 
 
+@ex.command
+def test_run():
+    model = SimpleMaskEstimator(513)
+    print(f'Simple training for the following model: {model}')
+    database = Chime3()
+    train_dataset = get_train_dataset(database)
+    validation_dataset = get_validation_dataset(database)
+    trainer = pt.train.trainer.Trainer(
+        model, '/this/is/no/path', optimizer=pt.train.optimizer.Adam(),
+        stop_trigger=(int(1e5), 'iteration')
+    )
+    trainer.test_run(train_dataset, validation_dataset)
+
+
+@ex.automain
 def train():
     storage_dir = pt.io.get_new_storage_dir(
         'speech_enhancement', prefix='simple_mask_estimator')
@@ -162,7 +179,3 @@ def train():
         validation_dataset, n_back_off=5, lr_update_factor=1 / 10,
         back_off_patience=1, early_stopping_patience=None)
     trainer.train(train_dataset)
-
-
-if __name__ == '__main__':
-    train()
