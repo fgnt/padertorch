@@ -1,1 +1,1 @@
-from .train import SimpleMaskEstimator
+from .model import SimpleMaskEstimator
