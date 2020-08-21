@@ -40,7 +40,7 @@ ccsalloc:
 \t\t--stderr=%x.%reqid.stderr \\
 \t\t--tracefile=trace_%reqid.trace \\
 \t\t-N evaluate_{experiment_name} \\
-\t\tompi \\
+\t\tompi $OMPI_PARAMS \\
 \t\t-- \\
 \t\tpython -m {main_python_path} with config.json
 """
