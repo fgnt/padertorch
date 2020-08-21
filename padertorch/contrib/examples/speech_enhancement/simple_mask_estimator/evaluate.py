@@ -1,11 +1,7 @@
 """
-Example call on NT infrastructure:
-
-export STORAGE=<your/desired/storage/root>
-export WSJ0_2MIX=<path/to/wsj0_2mix/json>
-mkdir -p $STORAGE/pth_evaluate/evaluate
-mpiexec -np 8 python -m padertorch.contrib.examples.pit.evaluate with model_path=<model_path>
-
+Evaluation script for the last mask estimator trained in $STORAGE_ROOT.
+Saves results to $STORAGE_ROOT/speech_enhancement/simple_mask_estimator_{id}/evaluate_{eval_id}
+mpiexec -np 8 python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.evaluate
 
 """
 import os

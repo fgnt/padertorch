@@ -1,8 +1,8 @@
 """
 Very simple training script for a mask estimator.
-Saves checkpoints and summaries to $STORAGE_ROOT/simple_mask_estimator
+Saves checkpoints and summaries to $STORAGE_ROOT/speech_enhancement/simple_mask_estimator_{id}
 may be called with:
-python -m padertorch.contrib.examples.mask_estimator.simple_train
+python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.train
 """
 import os
 from pathlib import Path
