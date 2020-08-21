@@ -119,7 +119,7 @@ class Sorter:
         Examples:
             >>> batch = [{'value': x} for x in [5, 1, 3, 2]]
             >>> Sorter('value')(batch)
-            [{'value': 5}, {'value': 3}, {'value': 2}, {'value': 1}]
+            ({'value': 5}, {'value': 3}, {'value': 2}, {'value': 1})
 
         Args:
             key: Key to sort by
