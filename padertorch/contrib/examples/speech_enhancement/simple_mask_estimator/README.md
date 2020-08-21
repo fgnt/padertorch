@@ -7,7 +7,8 @@ inspired by .
 Results
 -------
 
-The simple mask estimator model can achieve the following results:
+The simple mask estimator model achieves the following results on
+the CHiME 3 simulated evaluation set:
 
 
 data type         |  pesq         | stoi         |      sdr 
@@ -15,6 +16,8 @@ data type         |  pesq         | stoi         |      sdr
 observed           |  1.07       |  0.672       |  -0.79 dB
 masked             |  1.22       |  0.736       |  5.68 dB
 beamformed         |  1.91       |  0.958       |   17.10 dB  
+
+Masked and observed are evaluated on the first channel of the 6ch track.
 
 Training
 --------
@@ -34,7 +37,7 @@ The evaluation requires `dlp_mpi` and `pb_bss` as additional dependencies.
 The evaluation can be started by
 
 ```bash
-$ STORAGE_ROOT=/path/to/your/storage; python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.evaluate
+$ STORAGE_ROOT=/path/to/your/storage; mpiexec -n $(nproc --all) python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.evaluate
 ```
 It always evaluates the latest model in the specified STORAGE_ROOT
 
