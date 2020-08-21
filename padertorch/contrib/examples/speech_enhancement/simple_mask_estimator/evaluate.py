@@ -5,6 +5,7 @@ mpiexec -np 8 python -m padertorch.contrib.examples.speech_enhancement.simple_ma
 
 """
 import os
+import sys
 from pathlib import Path
 
 import dlp_mpi
@@ -47,13 +48,9 @@ def get_test_dataset(database: JsonAudioDatabase):
         .map(change_example_structure)
 
 
-def evaluate():
+def evaluate(checkpoint_path):
     model = SimpleMaskEstimator(513)
-    task_dir = STORAGE_ROOT / 'speech_enhancement'
-    dirs = list(task_dir.glob('simple_mask_estimator_*'))
-    latest_id = sorted([int(path.name.split('_')[-1]) for path in dirs])[-1]
-    model_dir = task_dir / f'simple_mask_estimator_{latest_id}'
-    checkpoint_path = model_dir / 'checkpoints' / 'ckpt_best_loss.pth'
+    model_dir = checkpoint_path.parent / '..'
     eval_dir = pt.io.get_new_subdir(model_dir, prefix='evaluate',
                                     consider_mpi=True)
 
@@ -63,9 +60,10 @@ def evaluate():
         consider_mpi=True
     )
     model.eval()
-
-    print(f'Start to evaluate the checkpoint {checkpoint_path.resolve()} and '
-          f'will write the evaluation result to {eval_dir / "result.json"}')
+    if dlp_mpi.IS_MASTER:
+        print(f'Start to evaluate the checkpoint {checkpoint_path.resolve()} '
+              f'and will write the evaluation result to'
+              f' {eval_dir / "result.json"}')
     database = Chime3()
     test_dataset = get_test_dataset(database)
     with torch.no_grad():
@@ -138,19 +136,31 @@ def evaluate():
 
 
 if __name__ == '__main__':
-    STORAGE_ROOT = os.environ.get('STORAGE_ROOT')
-    if STORAGE_ROOT is None:
-        raise EnvironmentError(
-            'You have to specify an STORAGE_ROOT '
-            'environmental variable see getting_started'
-        )
-    elif not Path(STORAGE_ROOT).exists():
-        raise FileNotFoundError(
-            'You have to specify an existing STORAGE_ROOT '
-            'environmental variable see getting_started.\n'
-            f'Got: {STORAGE_ROOT}'
-        )
+    args = sys.argv
+    if len(args) == 1:
+        STORAGE_ROOT = os.environ.get('STORAGE_ROOT')
+        if STORAGE_ROOT is None:
+            raise EnvironmentError(
+                'You have to specify an STORAGE_ROOT '
+                'environmental variable see getting_started'
+            )
+        elif not Path(STORAGE_ROOT).exists():
+            raise FileNotFoundError(
+                'You have to specify an existing STORAGE_ROOT '
+                'environmental variable see getting_started.\n'
+                f'Got: {STORAGE_ROOT}'
+            )
+        else:
+            STORAGE_ROOT = Path(STORAGE_ROOT).expanduser().resolve()
+        task_dir = STORAGE_ROOT / 'speech_enhancement'
+        dirs = list(task_dir.glob('simple_mask_estimator_*'))
+        latest_id = sorted(
+            [int(path.name.split('_')[-1]) for path in dirs])[-1]
+        model_dir = task_dir / f'simple_mask_estimator_{latest_id}'
+        checkpoint_path = model_dir / 'checkpoints' / 'ckpt_best_loss.pth'
+    elif len(args) == 2:
+        checkpoint_path = Path(args[1]).expanduser().resolve()
     else:
-        STORAGE_ROOT = Path(STORAGE_ROOT).expanduser().resolve()
-
-    evaluate()
+        raise ValueError('Not more than one argument allowed, the one'
+                         'argument describes the checkpoint path', args)
+    evaluate(checkpoint_path)
