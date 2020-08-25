@@ -38,7 +38,7 @@ The fine-tune experiment can be initialized with:
 $ make fine-tune
 ```
 
-It creates a new storage dir and uses the same configuration (including number of epochs, data, etc.) as the base training.
+This command creates a new storage dir and uses the same configuration (including number of epochs, data, etc.) as the base training.
 
 Evaluation
 ----------
