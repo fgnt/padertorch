@@ -46,7 +46,7 @@ def config():
     checkpoint_name = 'ckpt_best_loss.pth'
     experiment_dir = None
     if experiment_dir is None:
-        pt.io.get_new_subdir(
+        experiment_dir = pt.io.get_new_subdir(
             Path(model_path) / 'evaluation', consider_mpi=True)
 
     # Database config
@@ -161,7 +161,7 @@ def main(_run, datasets, debug, experiment_dir, dump_audio,
                 results[dataset][example_id] = entry = dict()
 
                 try:
-                    model_output = model(pt.data.example_to_device(batch))
+                    model_output = model(model.example_to_device(batch))
 
                     # Bring to numpy float64 for evaluation metrics computation
                     observation = batch['y'][0].astype(np.float64)[None, ]

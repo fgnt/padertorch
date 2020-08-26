@@ -638,7 +638,7 @@ class DPRNN(torch.nn.Module):
 
         # Make sure that the sequence lengths are a Tensor
         if not torch.is_tensor(sequence_lengths):
-            torch.tensor(sequence_lengths)
+            sequence_lengths = torch.tensor(sequence_lengths)
 
         # Segment
         window_size, hop_size = self.calculate_window_and_hop_size(
