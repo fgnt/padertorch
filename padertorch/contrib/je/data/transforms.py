@@ -12,6 +12,7 @@ from padertorch.utils import to_list
 from tqdm import tqdm
 from lazy_dataset import FilterException
 
+
 class AudioReader:
     def __init__(self, source_sample_rate=16000, target_sample_rate=16000):
         self.source_sample_rate = source_sample_rate
@@ -261,7 +262,7 @@ class MultiHotAlignmentEncoder(LabelEncoder):
             onset = self.stft.sample_index_to_frame_index(int(self.sample_rate*onset))
             offset = self.stft.sample_index_to_frame_index(int(self.sample_rate*offset))
             ali[onset:offset+1, label] = 1
-        example[f'{self.label_key}_ali'] = ali
+        example[f'{self.label_key}_alignment'] = ali
         return example
 
 
