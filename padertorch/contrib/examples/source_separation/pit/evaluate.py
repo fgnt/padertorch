@@ -39,6 +39,7 @@ from paderbox.transform import istft
 from lazy_dataset.database import JsonDatabase
 from dlp_mpi import COMM, IS_MASTER, MASTER, split_managed
 from padertorch.contrib.examples.pit.data import prepare_iterable
+from padertorch.io import get_new_storage_dir
 
 from padertorch.contrib.ldrude.utils import (
     decorator_append_file_storage_observer_with_lazy_basedir,
