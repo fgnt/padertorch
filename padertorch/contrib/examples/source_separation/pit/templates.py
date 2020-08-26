@@ -30,16 +30,6 @@ ccsalloc:
 \t\t--tracefile=%x.%reqid.trace \\
 \t\t-N evaluate_{nickname} \\
 \t\tompi \\
-\t\t-x STORAGE \\
-\t\t-x NT_MERL_MIXTURES_DIR \\
-\t\t-x NT_DATABASE_JSONS_DIR \\
-\t\t-x KALDI_ROOT \\
-\t\t-x LD_PRELOAD \\
-\t\t-x CONDA_EXE \\
-\t\t-x CONDA_PREFIX \\
-\t\t-x CONDA_PYTHON_EXE \\
-\t\t-x CONDA_DEFAULT_ENV \\
-\t\t-x PATH \\
 \t\t-- \\
 \t\tpython -m {main_python_path} with config.json
 """
