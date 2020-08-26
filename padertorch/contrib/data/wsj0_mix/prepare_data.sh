@@ -11,7 +11,7 @@ wsj0_root=
 python -m padertorch.contrib.data.wsj0_mix.create_json \
 	--database_path ${database_path} \
 	--wsj0_root ${wsj0_root} \
-	--json_path wsj0_mix_8k.json \
+	--json_path wsj0_mix_min_8k.json \
 	--num_speakers 2 --num_speakers 3 \
 	--signal_length min \
 	--sample_rate wav8k
