@@ -1,60 +1,53 @@
+import operator
+
 import os
 import warnings
 from collections import defaultdict
-from pathlib import Path
-from pprint import pprint
 
-import matplotlib as mpl
+import dlp_mpi as mpi
 import numpy as np
 import paderbox as pb
+import pb_bss
+import sacred.commands
+import torch
 from lazy_dataset.database import JsonDatabase
+from pathlib import Path
+from pprint import pprint
+from sacred import Experiment
+from sacred import SETTINGS
+from sacred.observers import FileStorageObserver
+from sacred.utils import InvalidConfigError, MissingConfigError
+from tqdm import tqdm
 
 import padertorch as pt
-import sacred.commands
-from sacred.utils import InvalidConfigError, MissingConfigError
-import torch
-import dlp_mpi as mpi
-from padertorch.contrib.ldrude.utils import (
-    get_new_folder
-)
-from sacred import Experiment
-from sacred.observers import FileStorageObserver
-from tqdm import tqdm
-import pb_bss
-
+from padertorch.contrib.neumann.evaluation import compute_means
 from .train import prepare_iterable
 
-# Unfortunately need to disable this since conda scipy needs update
-warnings.simplefilter(action='ignore', category=FutureWarning)
-
-mpl.use("Agg")
-nickname = "or-pit"
-ex = Experiment(nickname)
-
-
-def get_storage_dir():
-    # Sacred should not add path_template to the config
-    # -> move this few lines to a function
-    path_template = Path(os.environ["STORAGE"]) / "pth_evaluate" / nickname
-    return str(get_new_folder(
-        path_template, mkdir=False, consider_mpi=True,
-    ))
+SETTINGS.CONFIG.READ_ONLY_CONFIG = False
+experiment_name = 'or-pit'
+ex = Experiment(experiment_name)
 
 
 @ex.config
 def config():
     debug = False
-    model_path = ''
+
+    # Model config
+    model_path = ''     # Required path to the model to evaluate
     assert len(model_path) > 0, 'Set the model path on the command line.'
     checkpoint_name = 'ckpt_best_loss.pth'
-    experiment_dir = get_storage_dir()
-    datasets = ["mix_2_spk_min_cv", "mix_2_spk_min_tt"]
-    export_audio = False
-    sample_rate = 8000
-    target = 'speech_source'
+    experiment_dir = None
+    if experiment_dir is None:
+        experiment_dir = pt.io.get_new_subdir(
+            Path(model_path) / 'evaluation', consider_mpi=True)
+
+    # Data config
     database_json = None
-    oracle_num_spk = False  # If true, the model is forced to perform the correct (oracle) number of iterations
-    max_iterations = 4  # The number of iterations is limited to this number
+    if "WSJ0_2MIX" in os.environ:
+        database_json = os.environ.get("WSJ0_2MIX")
+    datasets = ["mix_2_spk_min_cv", "mix_2_spk_min_tt"]
+    target = 'speech_source'
+    sample_rate = 8000
 
     if database_json is None:
         raise MissingConfigError(
@@ -62,6 +55,11 @@ def config():
     if not Path(database_json).exists():
         raise InvalidConfigError('The database JSON does not exist!',
                                  'database_json')
+
+    # Evaluation options
+    dump_audio = False    # If true, exports the separated audio files into a sub-directory "audio"
+    oracle_num_spk = False  # If true, the model is forced to perform the correct (oracle) number of iterations
+    max_iterations = 4  # The number of iterations is limited to this number
 
     locals()  # Fix highlighting
 
@@ -92,38 +90,8 @@ def dump_config_and_makefile(_config):
     Dumps the configuration into the experiment dir and creates a Makefile
     next to it. If a Makefile already exists, it does not do anything.
     """
-
-    "SHELL := /bin/bash"
-    ""
-    "evaluate:"
-    "\tpython -m {main_python_path} with config.json"
-    ""
-    "ccsalloc:"
-    "\tccsalloc \\"
-    "\t\t--notifyuser=awe \\"
-    "\t\t--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\"
-    "\t\t--time=1h \\"
-    "\t\t--join \\"
-    "\t\t--stdout=stdout \\"
-    "\t\t--tracefile=trace_%reqid.trace \\"
-    "\t\t-N evaluate_{nickname} \\"
-    "\t\tompi \\"
-    "\t\t-x STORAGE \\"
-    "\t\t-x NT_MERL_MIXTURES_DIR \\"
-    "\t\t-x NT_DATABASE_JSONS_DIR \\"
-    "\t\t-x KALDI_ROOT \\"
-    "\t\t-x LD_PRELOAD \\"
-    "\t\t-x CONDA_EXE \\"
-    "\t\t-x CONDA_PREFIX \\"
-    "\t\t-x CONDA_PYTHON_EXE \\"
-    "\t\t-x CONDA_DEFAULT_ENV \\"
-    "\t\t-x PATH \\"
-    "\t\t-- \\"
-    "\t\tpython -m {main_python_path} with config.json"
-
     experiment_dir = Path(_config['experiment_dir'])
     makefile_path = Path(experiment_dir) / "Makefile"
-
     model_path = Path(_config['model_path'])
 
     assert (model_path / 'checkpoints' / _config[
@@ -131,49 +99,19 @@ def dump_config_and_makefile(_config):
         f'No model checkpoint found in "{model_path}"!'
     )
 
-    # Create symlinks between model and evaluation
-    eval_symlink = model_path / 'eval' / experiment_dir.name
-    if not eval_symlink.is_symlink():
-        eval_symlink.parent.mkdir(exist_ok=True)
-        eval_symlink.symlink_to(experiment_dir, target_is_directory=True)
-
-    model_symlink = experiment_dir / 'model'
-    if not model_symlink.is_symlink():
-        model_symlink.symlink_to(model_path, target_is_directory=True)
-
     if not makefile_path.exists():
+        # Dump config
         config_path = experiment_dir / "config.json"
-
         pb.io.dump_json(_config, config_path)
+
+        # Dump Makefile
+        from .templates import MAKEFILE_TEMPLATE_EVAL
         main_python_path = pt.configurable.resolve_main_python_path()
         makefile_path.write_text(
-            f"SHELL := /bin/bash\n"
-            f"\n"
-            f"evaluate:\n"
-            f"\tpython -m {main_python_path} with config.json\n"
-            f"\n"
-            f"ccsalloc:\n"
-            f"\tccsalloc \\\n"
-            f"\t\t--notifyuser=awe \\\n"
-            f"\t\t--res=rset=200:mpiprocs=1:ncpus=1:mem=4g:vmem=6g \\\n"
-            f"\t\t--time=1h \\\n"
-            f"\t\t--join \\\n"
-            f"\t\t--stdout=stdout \\\n"
-            f"\t\t--tracefile=trace_%reqid.trace \\\n"
-            f"\t\t-N evaluate_{nickname} \\\n"
-            f"\t\tompi \\\n"
-            f"\t\t-x STORAGE \\\n"
-            f"\t\t-x NT_MERL_MIXTURES_DIR \\\n"
-            f"\t\t-x NT_DATABASE_JSONS_DIR \\\n"
-            f"\t\t-x KALDI_ROOT \\\n"
-            f"\t\t-x LD_PRELOAD \\\n"
-            f"\t\t-x CONDA_EXE \\\n"
-            f"\t\t-x CONDA_PREFIX \\\n"
-            f"\t\t-x CONDA_PYTHON_EXE \\\n"
-            f"\t\t-x CONDA_DEFAULT_ENV \\\n"
-            f"\t\t-x PATH \\\n"
-            f"\t\t-- \\\n"
-            f"\t\tpython -m {main_python_path} with config.json\n"
+            MAKEFILE_TEMPLATE_EVAL.format(
+                main_python_path=main_python_path,
+                experiment_name=experiment_name
+            )
         )
 
 
@@ -194,7 +132,7 @@ def init(_config, _run):
 
 
 @ex.main
-def main(_run, datasets, debug, experiment_dir, export_audio,
+def main(_run, datasets, debug, experiment_dir, dump_audio,
          sample_rate, _log, database_json, oracle_num_spk, max_iterations):
     experiment_dir = Path(experiment_dir)
 
@@ -207,7 +145,7 @@ def main(_run, datasets, debug, experiment_dir, export_audio,
 
     model.eval()
     with torch.no_grad():
-        summary = defaultdict(dict)
+        results = defaultdict(dict)
         for dataset in datasets:
             iterable = prepare_iterable(
                 db, dataset, 1,
@@ -218,7 +156,7 @@ def main(_run, datasets, debug, experiment_dir, export_audio,
                                      mpi.SIZE),
             )
 
-            if export_audio:
+            if dump_audio:
                 (experiment_dir / 'audio' / dataset).mkdir(
                     parents=True, exist_ok=True)
 
@@ -227,7 +165,7 @@ def main(_run, datasets, debug, experiment_dir, export_audio,
                     desc=dataset,
             ):
                 example_id = batch['example_id'][0]
-                summary[dataset][example_id] = entry = dict()
+                results[dataset][example_id] = entry = dict()
                 oracle_speaker_count = \
                     entry['oracle_speaker_count'] = batch['s'][0].shape[0]
 
@@ -240,24 +178,62 @@ def main(_run, datasets, debug, experiment_dir, export_audio,
                     )
 
                     # Bring to numpy float64 for evaluation metrics computation
-                    s = batch['s'][0].astype(np.float64)
-                    z = model_output['out'][0].cpu().numpy().astype(np.float64)
+                    observation = batch['y'][0].astype(np.float64)[None, ]
+                    speech_prediction = (
+                        model_output['out'][0].cpu().numpy().astype(np.float64)
+                    )
+                    speech_source = batch['s'][0].astype(np.float64)
 
                     estimated_speaker_count = \
-                        entry['estimated_speaker_count'] = z.shape[0]
+                        entry['estimated_speaker_count'] = speech_prediction.shape[0]
                     entry['source_counting_accuracy'] = \
                         estimated_speaker_count == oracle_speaker_count
 
                     if oracle_speaker_count == estimated_speaker_count:
                         # These evaluations don't work if the number of
                         # speakers in s and z don't match
-                        entry['mir_eval'] = pb_bss.evaluation.mir_eval_sources(
-                            s, z, return_dict=True)
+                        input_metrics = pb_bss.evaluation.InputMetrics(
+                            observation=observation,
+                            speech_source=speech_source,
+                            sample_rate=sample_rate,
+                            enable_si_sdr=True,
+                        )
 
-                        # Get the correct order for si_sdr and saving
-                        z = z[entry['mir_eval']['selection']]
+                        output_metrics = pb_bss.evaluation.OutputMetrics(
+                            speech_prediction=speech_prediction,
+                            speech_source=speech_source,
+                            sample_rate=sample_rate,
+                            enable_si_sdr=True,
+                        )
 
-                        entry['si_sdr'] = pb_bss.evaluation.si_sdr(s, z)
+                        # Select the metrics to compute
+                        entry['input'] = dict(
+                            mir_eval=input_metrics.mir_eval,
+                            si_sdr=input_metrics.si_sdr,
+                            # TODO: stoi fails with short speech segments (https://github.com/mpariente/pystoi/issues/21)
+                            # stoi=input_metrics.stoi,
+                            # TODO: pesq creates "Processing error" messages
+                            # pesq=input_metrics.pesq,
+                        )
+
+                        # Remove selection from mir_eval dict to enable
+                        # recursive calculation of improvement
+                        entry['output'] = dict(
+                            mir_eval={
+                                k: v for k, v in
+                                output_metrics.mir_eval.items()
+                                if k != 'selection'
+                            },
+                            si_sdr=output_metrics.si_sdr,
+                            # stoi=output_metrics.stoi,
+                            # pesq=output_metrics.pesq,
+                        )
+
+                        entry['improvement'] = pb.utils.nested.nested_op(
+                            operator.sub, entry['output'], entry['input'],
+                        )
+                        entry['selection'] = output_metrics.mir_eval[
+                            'selection']
                     else:
                         warnings.warn(
                             'The number of speakers is estimated incorrectly '
@@ -265,14 +241,15 @@ def main(_run, datasets, debug, experiment_dir, export_audio,
                             'might not be representative!'
                         )
 
-                    if export_audio:
+                    if dump_audio:
                         entry['audio_path'] = batch['audio_path']
                         entry['audio_path'].setdefault('estimated', [])
 
-                        for k, audio in enumerate(z):
+                        for k, audio in enumerate(speech_prediction):
                             audio_path = (
                                     experiment_dir / 'audio' / dataset /
-                                    f'{example_id}_{k}.wav')
+                                    f'{example_id}_{k}.wav'
+                            )
                             pb.io.dump_audio(
                                 audio, audio_path, sample_rate=sample_rate)
                             entry['audio_path']['estimated'].append(audio_path)
@@ -283,41 +260,23 @@ def main(_run, datasets, debug, experiment_dir, export_audio,
                     )
                     raise
 
-    summary_list = mpi.gather(summary, root=mpi.MASTER)
+    results = mpi.gather(results, root=mpi.MASTER)
 
     if mpi.IS_MASTER:
-        # Combine all summaries to one
-        for partial_summary in summary_list:
-            for dataset, values in partial_summary.items():
-                summary[dataset].update(values)
+        # Combine all results to one. This function raises an exception if it
+        # finds duplicate keys
+        results = pb.utils.nested.nested_merge(*results)
 
-        for dataset, values in summary.items():
+        for dataset, values in results.items():
             _log.info(f'{dataset}: {len(values)}')
 
-        # Write summary to JSON
+        # Write results to JSON
         result_json_path = experiment_dir / 'result.json'
         _log.info(f"Exporting result: {result_json_path}")
-        pb.io.dump_json(summary, result_json_path)
+        pb.io.dump_json(results, result_json_path)
 
         # Compute means for some metrics
-        mean_keys = ['mir_eval.sdr', 'mir_eval.sar', 'mir_eval.sir', 'si_sdr',
-                     'source_counting_accuracy']
-        means = {}
-        for dataset, dataset_results in summary.items():
-            means[dataset] = {}
-            flattened = {
-                k: pb.utils.nested.flatten(v) for k, v in
-                dataset_results.items()
-            }
-            for mean_key in mean_keys:
-                try:
-                    means[dataset][mean_key] = np.mean(np.array([
-                        v[mean_key] for v in flattened.values()
-                    ]))
-                except KeyError:
-                    warnings.warn(f'Couldn\'t compute mean for {mean_key}.')
-            means[dataset] = pb.utils.nested.deflatten(means[dataset])
-
+        means = compute_means(results, skip_invalid=True)
         mean_json_path = experiment_dir / 'means.json'
         _log.info(f'Exporting means: {mean_json_path}')
         pb.io.dump_json(means, mean_json_path)

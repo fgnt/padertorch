@@ -8,21 +8,22 @@ from torch.nn.utils.rnn import pad_sequence
 
 from .tas_coders import TasEncoder, TasDecoder
 from padertorch.modules.dual_path_rnn import DPRNN, apply_examplewise
-from padertorch.ops.losses.regression import si_sdr_loss, log_mse_loss
+from padertorch.ops.losses.regression import si_sdr_loss, log_mse_loss, \
+    log1p_mse_loss
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 
 
-class ModularTasNet(pt.Model):
+class TasNet(pt.Model):
     def __init__(
             self,
-            encoder,
-            separator,
-            decoder,
+            encoder: torch.nn.Module,
+            separator: torch.nn.Module,
+            decoder: torch.nn.Module,
             mask: bool = True,
             output_nonlinearity: Optional[str] = 'sigmoid',
             num_speakers: int = 2,
             additional_out_size: int = 0,
-            sample_rate=8000,
+            sample_rate: int = 8000,
     ):
         """
         Args:
@@ -37,30 +38,33 @@ class ModularTasNet(pt.Model):
             num_speakers: The number of speakers/output streams
             additional_out_size: Size of the additional output. Has no effect if
                 set to 0.
+            sample_rate: Sample rate of the audio. Only used for correct
+                reporting to TensorBoard, has no effect on the model
+                architecture.
         """
         super().__init__()
 
+        assert not mask or encoder.feature_size == decoder.feature_size, (
+            'Encoder and decoder features sizes must match if masking is '
+            'enabled!'
+        )
+        self.encoder = encoder
+        self.separator = separator
+        self.decoder = decoder
         self.mask = mask
+        self.output_nonlinearity = ACTIVATION_FN_MAP[output_nonlinearity]()
+        self.num_speakers = num_speakers
         self.additional_out_size = additional_out_size
-        hidden_size = separator.feat_size
-        self.input_proj = torch.nn.Conv1d(hidden_size, hidden_size, 1)
+        self.sample_rate = sample_rate
+
+        self.encoded_input_norm = torch.nn.LayerNorm(encoder.feature_size)
+        self.input_proj = torch.nn.Conv1d(
+            encoder.feature_size, separator.input_size, 1)
         self.output_prelu = torch.nn.PReLU()
         self.output_proj = torch.nn.Conv1d(
-            hidden_size, hidden_size * num_speakers + additional_out_size, 1
+            separator.hidden_size,
+            decoder.feature_size * num_speakers + additional_out_size, 1
         )
-
-        self.encoder = encoder
-
-        self.encoded_input_norm = torch.nn.LayerNorm(hidden_size)
-
-        self.dprnn = separator
-
-        self.decoder = decoder
-
-        self.output_nonlinearity = ACTIVATION_FN_MAP[output_nonlinearity]()
-
-        self.num_speakers = num_speakers
-        self.sample_rate = sample_rate
 
     def forward(self, batch: dict) -> dict:
         """
@@ -91,7 +95,7 @@ class ModularTasNet(pt.Model):
             encoded = rearrange(encoded, 'b n l -> b l n')
 
         # Call DPRNN. Needs shape BxLxN
-        processed = self.dprnn(encoded, encoded_sequence_lengths)
+        processed = self.separator(encoded, encoded_sequence_lengths)
         processed = rearrange(processed, 'b l n -> b n l')
 
         processed = self.output_proj(self.output_prelu(processed))
@@ -109,13 +113,13 @@ class ModularTasNet(pt.Model):
         processed = self.output_nonlinearity(processed)
 
         # The estimation can be a little longer than the input signal.
-        # Shorten the estimation to match the input signal
+        # Shorten the estimation to match the input signal, mainly for masking
         processed = processed[..., :encoded_raw.shape[-1]]
-        assert encoded_raw.shape == processed.shape[1:], (
-            processed.shape, encoded_raw.shape)
 
         if self.mask:
             # Mask if set
+            assert encoded_raw.shape == processed.shape[1:], (
+                processed.shape, encoded_raw.shape)
             processed = encoded_raw.unsqueeze(0) * processed
 
         # Decode stream for each speaker
@@ -155,7 +159,7 @@ class ModularTasNet(pt.Model):
         loss_functions = {
             'si-sdr': si_sdr_loss,
             'log-mse': log_mse_loss,
-            'si-sdr-grad-stop': partial(si_sdr_loss, grad_stop=True),
+            'log1p-mse': log1p_mse_loss,
         }
         losses = {k: [] for k in loss_functions.keys()}
 
@@ -171,7 +175,7 @@ class ModularTasNet(pt.Model):
 
         return {k: torch.mean(torch.stack(v)) for k, v in losses.items()}
 
-    def review(self, inputs, outputs):
+    def review(self, inputs: dict, outputs: dict) -> dict:
         # Report audios
         audios = {
             'observation': pt.summary.audio(
@@ -195,70 +199,4 @@ class ModularTasNet(pt.Model):
         )
 
     def flatten_parameters(self) -> None:
-        self.dprnn.flatten_parameters()
-
-
-class TasNet(ModularTasNet):
-    def __init__(
-            self,
-            hidden_size: int = 64,
-            encoder_block_size: int = 16,
-            rnn_size: int = 128,
-            dprnn_window_length: Union[int, str] = 100,
-            dprnn_hop_size: Union[str, int] = 50,
-            mask: bool = True,
-            dprnn_layers: int = 6,
-            output_nonlinearity: Optional[str] = 'sigmoid',
-            inter_chunk_type: str = 'blstm',
-            intra_chunk_type: str = 'blstm',
-            num_speakers: int = 2,
-            additional_out_size: int = 0,
-            sample_rate=8000,
-    ):
-        """
-        Args:
-            hidden_size: Size between the layers (N)
-            encoder_block_size:
-            rnn_size: Size of the NNs in the inter- or intra-chunk RNNs. This
-                corresponds to H or H//2.
-            dprnn_window_length: Window length of the DPRNN segmentation (K).
-                If set to 'auto', it is determined for each example
-                independently based on the input length and the "rule of thumb"
-                K \approx sqrt(2L)
-            dprnn_hop_size: Hop size of the DPRNN segmentation (P). If set to
-                'auto' it is set to 50% of the block length K (half overlap).
-            mask: If `True`, use the output of the NN as a mask in tas domain
-                for separation. Otherwise, use the output directly as an
-                estimation for the separated signals.
-            dprnn_layers: Number of stacked DPRNN blocks
-            output_nonlinearity: Nonlinearity applied to the output (right
-                before masking/decoding)
-            inter_chunk_type: Type of the inter-chunk RNN
-            intra_chunk_type: Type of the intra-chunk RNN
-            num_speakers: The number of speakers/output streams
-            additional_out_size: Size of the additional output. Has no effect
-             if set to 0.
-        """
-        encoder = TasEncoder(
-            window_length=encoder_block_size,
-            feature_size=hidden_size,
-        )
-
-        separator = DPRNN(
-            feat_size=hidden_size,
-            rnn_size=rnn_size,
-            window_length=dprnn_window_length,
-            hop_size=dprnn_hop_size,
-            inter_chunk_type=inter_chunk_type,
-            intra_chunk_type=intra_chunk_type,
-            num_blocks=dprnn_layers,
-        )
-
-        decoder = TasDecoder(
-            window_length=encoder_block_size,
-            feature_size=hidden_size
-        )
-        super().__init__(
-            encoder, separator, decoder, mask, output_nonlinearity,
-            num_speakers, additional_out_size, sample_rate,
-        )
+        self.separator.flatten_parameters()

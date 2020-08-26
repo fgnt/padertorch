@@ -1,11 +1,10 @@
 """
 Example call on NT infrastructure:
 
-export STORAGE=<your desired storage root>
-mkdir -p $STORAGE/pth_models/dprnn
+export STORAGE_ROOT=<your desired storage root>
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
-python -m padertorch.contrib.examples.or_pit.train with database_jsons=${paths to your JSONs}
+python -m padertorch.contrib.examples.source_separation.or_pit.train with database_jsons=${paths to your JSONs}
 """
 import copy
 
@@ -19,29 +18,22 @@ import sacred.commands
 import os
 from pathlib import Path
 
-from sacred.utils import InvalidConfigError, MissingConfigError
 from typing import List
 
 import padertorch as pt
 import paderbox as pb
 import numpy as np
 
+import sacred
 from sacred.observers.file_storage import FileStorageObserver
 from lazy_dataset.database import JsonDatabase, DictDatabase
 
 from padertorch.contrib.neumann.chunking import RandomChunkSingle
-from padertorch.contrib.ldrude.utils import get_new_folder
+from padertorch.io import get_new_storage_dir
 
-nickname = "or-pit"
-ex = Experiment(nickname)
-
-
-def get_storage_dir():
-    # Sacred should not add path_template to the config
-    # -> move this few lines to a function
-    path_template = Path(os.environ["STORAGE"]) / 'pth_models' / nickname
-    path_template.mkdir(exist_ok=True, parents=True)
-    return get_new_folder(path_template, mkdir=False)
+sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False
+experiment_name = "or-pit"
+ex = Experiment(experiment_name)
 
 
 @ex.config
@@ -65,9 +57,27 @@ def config():
     # Start with an empty dict to allow tracking by Sacred
     trainer = {
         "model": {
-            "factory": 'padertorch.contrib.examples.or_pit.or_pit.OneAndRestPIT',
+            "factory": pt.contrib.examples.source_separation.or_pit.OneAndRestPIT,
             "separator": {
-                "factory": 'padertorch.contrib.examples.tasnet.tasnet.TasNet'
+                "factory": pt.contrib.examples.source_separation.tasnet.TasNet,
+                'encoder': {
+                    'factory': pt.contrib.examples.source_separation.tasnet.tas_coders.TasEncoder,
+                    'window_length': 16,
+                    'feature_size': 64,
+                },
+                'separator': {
+                    'factory': pt.modules.dual_path_rnn.DPRNN,
+                    'input_size': 64,
+                    'rnn_size': 128,
+                    'window_length': 100,
+                    'hop_size': 50,
+                    'num_blocks': 6,
+                },
+                'decoder': {
+                    'factory': pt.contrib.examples.source_separation.tasnet.tas_coders.TasDecoder,
+                    'window_length': 16,
+                    'feature_size': 64,
+                },
             }
         },
         "storage_dir": None,
@@ -85,7 +95,7 @@ def config():
     }
     pt.Trainer.get_config(trainer)
     if trainer['storage_dir'] is None:
-        trainer['storage_dir'] = get_storage_dir()
+        trainer['storage_dir'] = get_new_storage_dir(experiment_name)
 
     ex.observers.append(FileStorageObserver(
         Path(trainer['storage_dir']) / 'sacred')
@@ -104,9 +114,18 @@ def win2():
 
     trainer = {
         'model': {
-            'encoder_block_size': 2,
-            'dprnn_window_length': 250,
-            'dprnn_hop_size': 125,  # Half of window length
+            'separator': {
+                'encoder': {
+                    'window_length': 2
+                },
+                'separator': {
+                    'window_length': 250,
+                    'hop_size': 125,  # Half of window length
+                },
+                'decoder': {
+                    'window_length': 2
+                }
+            }
         }
     }
 
@@ -152,40 +171,47 @@ def prepare_iterable(
     This is re-used in the evaluate script
     """
     # Create an iterator from the datasets (a simple concatenation of the
-    # single datasets) and determine the number of speakers in each example
+    # single datasets)
     if isinstance(datasets, str):
         datasets = datasets.split(',')
-
-    iterator = db.get_dataset(datasets).map(
-        lambda x: (x.update(num_speakers=len(x['speaker_id'])), x)[1])
+    iterator = db.get_dataset(datasets)
 
     # TODO: this does not make too much sense when we have multiple datasets
     if iterator_slice is not None:
         iterator = iterator[iterator_slice]
 
-    # This
+    # Determine the number of speakers in each example
+    def add_num_speakers(example):
+        example.update(num_speakers=len(example['speaker_id']))
+        return example
+    iterator = iterator.map(add_num_speakers)
+
+    # Group iterators by number of speakers so that all examples in a batch
+    # have the same number of speakers
     iterators = list(iterator.groupby(lambda x: x['num_speakers']).values())
 
+    chunker = RandomChunkSingle(chunk_size, chunk_keys=('y', 's'), axis=-1)
     iterators = [
         iterator
-        .map(pre_batch_transform)
-        .map(RandomChunkSingle(chunk_size, chunk_keys=('y', 's'), axis=-1))
-        .shuffle(reshuffle=shuffle)
-        .batch(batch_size)
-        .map(lambda batch: sorted(
-            batch,
-            key=lambda example: example['num_samples'],
-            reverse=True,
-        ))
-        .map(pt.data.utils.collate_fn)
+            .map(pre_batch_transform)
+            .map(chunker)
+            .shuffle(reshuffle=shuffle)
+            .batch(batch_size)
+            .map(pt.data.batch.Sorter('num_samples'))
+            .map(pt.data.utils.collate_fn)
         for iterator in iterators
     ]
 
     iterator = lazy_dataset.concatenate(*iterators).shuffle(reshuffle=shuffle)
 
+    # FilterExceptions are only raised inside the chunking code if the
+    # example is too short. If min_length <= 0 or chunk_size == -1, no filter
+    # exception is raised.
+    catch_exception = chunker.chunk_size != -1 and chunker.min_length > 0
     if prefetch:
-        iterator = iterator.prefetch(8, 16, catch_filter_exception=True)
-    elif chunk_size > 0:
+        iterator = iterator.prefetch(
+            8, 16, catch_filter_exception=catch_exception)
+    elif catch_exception:
         iterator = iterator.catch()
 
     return iterator
@@ -212,41 +238,21 @@ def dump_config_and_makefile(_config):
     makefile_path = Path(experiment_dir) / "Makefile"
 
     if not makefile_path.exists():
+        # Dump config
         config_path = experiment_dir / "config.json"
-
         pb.io.dump_json(_config, config_path)
 
-        main_python_path = pt.configurable.resolve_main_python_path()
-        eval_python_path = '.'.join(
-            pt.configurable.resolve_main_python_path().split('.')[:-1]
-        ) + '.evaluate'
-        makefile_path.write_text(
-            f"SHELL := /bin/bash\n"
-            f"MODEL_PATH := $(shell pwd)\n"
-            f"\n"
-            f"export OMP_NUM_THREADS=1\n"
-            f"export MKL_NUM_THREADS=1\n"
-            f"\n"
-            f"train:\n"
-            f"\tpython -m {main_python_path} with config.json\n"
-            f"\n"
-            f"finetune:\n"
-            f"\tpython -m {main_python_path} init_with_new_storage_dir with config.json trainer.model.finetune=True load_model_from=$(MODEL_PATH)/checkpoints/ckpt_latest.pth batch_size=1\n"
-            f"\n"
-            f"ccsalloc:\n"
-            f"\tccsalloc \\\n"
-            f"\t\t--notifyuser=awe \\\n"
-            f"\t\t--res=rset=1:ncpus=4:gtx1080=1:ompthreads=1 \\\n"
-            f"\t\t--time=100h \\\n"
-            f"\t\t--join \\\n"
-            f"\t\t--stdout=stdout \\\n"
-            f"\t\t--tracefile=%x.%reqid.trace \\\n"
-            f"\t\t-N train_{nickname} \\\n"
-            f"\t\tpython -m {main_python_path} with config.json\n"
-            f"\n"
-            f"evaluate:\n"
-            f"\tpython -m {eval_python_path} init with model_path=$(MODEL_PATH)\n"
-        )
+        # Dump makefile
+        from .templates import MAKEFILE_TEMPLATE_TRAIN
+        makefile_path.write_text(MAKEFILE_TEMPLATE_TRAIN.format(
+            main_python_path=pt.configurable.resolve_main_python_path(),
+            eval_python_path='.'.join(
+                pt.configurable.resolve_main_python_path().split('.')[:-1]
+                + ['evaluate']
+            ),
+            experiment_name=experiment_name,
+            model_path=experiment_dir,
+        ))
 
 
 @ex.command
@@ -268,6 +274,8 @@ def init(_config, _run):
 
 @ex.command
 def init_with_new_storage_dir(_config, _run):
+    """Like init, but ignores the set storage dir. Can be used to continue
+    training with a modified configuration"""
     # Create a mutable copy of the config and overwrite the storage dir
     _config = copy.deepcopy(_config)
     _config['trainer']['storage_dir'] = get_storage_dir()

@@ -4,7 +4,7 @@ from einops import rearrange
 from typing import Tuple, Optional
 
 import padertorch as pt
-from padertorch.contrib.examples.tasnet.tasnet import TasNet
+from padertorch.contrib.examples.source_separation.tasnet import TasNet
 from padertorch.summary import tbx_utils, review_dict
 
 

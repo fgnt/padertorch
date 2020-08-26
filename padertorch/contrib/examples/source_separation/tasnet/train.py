@@ -1,45 +1,30 @@
 """
 Example call on NT infrastructure:
 
-export STORAGE=<your desired storage root>
-mkdir -p $STORAGE/pth_models/dprnn
-python -m padertorch.contrib.examples.tasnet.train print_config
-python -m padertorch.contrib.examples.tasnet.train
+export STORAGE_ROOT=<your desired storage root>
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json=${paths to your JSON}
 """
-import torch
-from paderbox.io import load_audio
-
-from sacred import Experiment
-import sacred.commands
-
-# sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False
-
 import os
-from pathlib import Path
 
+import numpy as np
+import paderbox as pb
+import sacred.commands
+import torch
+from lazy_dataset.database import JsonDatabase
+from pathlib import Path
+from sacred import Experiment
+from sacred.observers.file_storage import FileStorageObserver
 from sacred.utils import InvalidConfigError, MissingConfigError
 
 import padertorch as pt
-import padertorch.contrib.examples.tasnet.tasnet
-import paderbox as pb
-import numpy as np
-
-from sacred.observers.file_storage import FileStorageObserver
-from lazy_dataset.database import JsonDatabase
-
+import padertorch.contrib.examples.source_separation.tasnet.model
 from padertorch.contrib.neumann.chunking import RandomChunkSingle
-from padertorch.contrib.ldrude.utils import get_new_folder
 
-nickname = "tasnet"
-ex = Experiment(nickname)
-
-
-def get_storage_dir():
-    # Sacred should not add path_template to the config
-    # -> move this few lines to a function
-    path_template = Path(os.environ["STORAGE"]) / 'pth_models' / nickname
-    path_template.mkdir(exist_ok=True, parents=True)
-    return get_new_folder(path_template, mkdir=False)
+sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False
+experiment_name = "tasnet"
+ex = Experiment(experiment_name)
 
 
 @ex.config
@@ -55,6 +40,8 @@ def config():
     lr_scheduler_gamma = 0.98
     load_model_from = None
     database_json = None
+    if "WSJ0_2MIX" in os.environ:
+        database_json = os.environ.get("WSJ0_2MIX")
 
     if database_json is None:
         raise MissingConfigError(
@@ -63,27 +50,26 @@ def config():
         raise InvalidConfigError('The database JSON does not exist!',
                                  'database_json')
 
-    # Start with an empty dict to allow tracking by Sacred
     feat_size = 64
     encoder_window_size = 16
     trainer = {
         "model": {
-            "factory": pt.contrib.examples.tasnet.tasnet.ModularTasNet,
+            "factory": padertorch.contrib.examples.source_separation.tasnet.TasNet,
             'encoder': {
-                'factory': pt.contrib.examples.tasnet.tas_coders.TasEncoder,
+                'factory': padertorch.contrib.examples.source_separation.tasnet.tas_coders.TasEncoder,
                 'window_length': encoder_window_size,
                 'feature_size': feat_size,
             },
             'separator': {
                 'factory': pt.modules.dual_path_rnn.DPRNN,
-                'feat_size': 64,
+                'input_size': 64,
                 'rnn_size': 128,
                 'window_length': 100,
                 'hop_size': 50,
                 'num_blocks': 6,
             },
             'decoder': {
-                'factory': pt.contrib.examples.tasnet.tas_coders.TasDecoder,
+                'factory': padertorch.contrib.examples.source_separation.tasnet.tas_coders.TasDecoder,
                 'window_length': encoder_window_size,
                 'feature_size': feat_size,
             },
@@ -94,16 +80,16 @@ def config():
             "gradient_clipping": 1
         },
         "summary_trigger": (1000, "iteration"),
-        "stop_trigger": (100_000, "iteration"),
+        "stop_trigger": (100, "epoch"),
         "loss_weights": {
             "si-sdr": 1.0,
             "log-mse": 0.0,
-            "si-sdr-grad-stop": 0.0,
+            "log1p-mse": 0.0,
         }
     }
     pt.Trainer.get_config(trainer)
     if trainer['storage_dir'] is None:
-        trainer['storage_dir'] = get_storage_dir()
+        trainer['storage_dir'] = pt.io.get_new_storage_dir(experiment_name)
 
     ex.observers.append(FileStorageObserver(
         Path(trainer['storage_dir']) / 'sacred')
@@ -127,20 +113,28 @@ def win2():
             },
             'separator': {
                 'window_length': 250,
-                'dprnn_hop_size': 125,  # Half of window length
+                'hop_size': 125,  # Half of window length
+            },
+            'decoder': {
+                'window_length': 2
             }
         }
     }
 
+
 @ex.named_config
 def stft():
+    """
+    Use the STFT and iSTFT as encoder and decoder instead of a learned
+    transformation
+    """
     trainer = {
         'model': {
             'encoder': {
-                'factory': 'padertorch.contrib.examples.tasnet.tas_coders.StftEncoder'
+                'factory': 'padertorch.contrib.examples.source_separation.tasnet.tas_coders.StftEncoder'
             },
             'decoder': {
-                'factory': 'padertorch.contrib.examples.tasnet.tas_coders.IstftDecoder'
+                'factory': 'padertorch.contrib.examples.source_separation.tasnet.tas_coders.IstftDecoder'
             },
         }
     }
@@ -148,10 +142,26 @@ def stft():
 
 @ex.named_config
 def log_mse():
+    """
+    Use the log_mse loss
+    """
     trainer = {
         'loss_weights': {
             'si-sdr': 0.0,
             'log-mse': 1.0,
+        }
+    }
+
+
+@ex.named_config
+def log1p_mse():
+    """
+    Use the log1p_mse loss
+    """
+    trainer = {
+        'loss_weights': {
+            'si-sdr': 0.0,
+            'log1p-mse': 1.0,
         }
     }
 
@@ -167,11 +177,11 @@ def on_wsj0_2mix_max():
 def pre_batch_transform(inputs):
     return {
         's': np.ascontiguousarray([
-            load_audio(p)
+            pb.io.load_audio(p)
             for p in inputs['audio_path']['speech_source']
         ], np.float32),
         'y': np.ascontiguousarray(
-            load_audio(inputs['audio_path']['observation']), np.float32),
+            pb.io.load_audio(inputs['audio_path']['observation']), np.float32),
         'num_samples': inputs['num_samples'],
         'example_id': inputs['example_id'],
         'audio_path': inputs['audio_path'],
@@ -190,23 +200,25 @@ def prepare_iterable(
     if iterator_slice is not None:
         iterator = iterator[iterator_slice]
 
+    chunker = RandomChunkSingle(chunk_size, chunk_keys=('y', 's'), axis=-1)
     iterator = (
         iterator
             .map(pre_batch_transform)
-            .map(RandomChunkSingle(chunk_size, chunk_keys=('y', 's'), axis=-1))
+            .map(chunker)
             .shuffle(reshuffle=True)
             .batch(batch_size)
-            .map(lambda batch: sorted(
-            batch,
-            key=lambda example: example['num_samples'],
-            reverse=True,
-        ))
+            .map(pt.data.batch.Sorter('num_samples'))
             .map(pt.data.utils.collate_fn)
     )
 
+    # FilterExceptions are only raised inside the chunking code if the
+    # example is too short. If min_length <= 0 or chunk_size == -1, no filter
+    # exception is raised.
+    catch_exception = chunker.chunk_size != -1 and chunker.min_length > 0
     if prefetch:
-        iterator = iterator.prefetch(8, 16, catch_filter_exception=True)
-    elif chunk_size > 0:
+        iterator = iterator.prefetch(
+            8, 16, catch_filter_exception=catch_exception)
+    elif catch_exception:
         iterator = iterator.catch()
 
     return iterator
@@ -238,37 +250,20 @@ def dump_config_and_makefile(_config):
     makefile_path = Path(experiment_dir) / "Makefile"
 
     if not makefile_path.exists():
-        config_path = experiment_dir / "config.json"
+        from padertorch.contrib.examples.source_separation.tasnet.templates import \
+            MAKEFILE_TEMPLATE_TRAIN
 
+        config_path = experiment_dir / "config.json"
         pb.io.dump_json(_config, config_path)
 
-        main_python_path = pt.configurable.resolve_main_python_path()
-        eval_python_path = '.'.join(
-            pt.configurable.resolve_main_python_path().split('.')[:-1]
-        ) + '.evaluate'
         makefile_path.write_text(
-            f"SHELL := /bin/bash\n"
-            f"MODEL_PATH := $(shell pwd)\n"
-            f"\n"
-            f"export OMP_NUM_THREADS=1\n"
-            f"export MKL_NUM_THREADS=1\n"
-            f"\n"
-            f"train:\n"
-            f"\tpython -m {main_python_path} with config.json\n"
-            f"\n"
-            f"ccsalloc:\n"
-            f"\tccsalloc \\\n"
-            f"\t\t--notifyuser=awe \\\n"
-            f"\t\t--res=rset=1:ncpus=4:gtx1080=1:ompthreads=1 \\\n"
-            f"\t\t--time=100h \\\n"
-            f"\t\t--join \\\n"
-            f"\t\t--stdout=stdout \\\n"
-            f"\t\t--tracefile=%x.%reqid.trace \\\n"
-            f"\t\t-N train_{nickname} \\\n"
-            f"\t\tpython -m {main_python_path} with config.json\n"
-            f"\n"
-            f"evaluate:\n"
-            f"\tpython -m {eval_python_path} init with model_path=$(MODEL_PATH)\n"
+            MAKEFILE_TEMPLATE_TRAIN.format(
+                main_python_path=pt.configurable.resolve_main_python_path(),
+                experiment_name=experiment_name,
+                eval_python_path=('.'.join(
+                    pt.configurable.resolve_main_python_path().split('.')[:-1]
+                ) + '.evaluate')
+            )
         )
 
 
