@@ -1,23 +1,16 @@
 """
 Example call on NT infrastructure:
 
-export STORAGE=<your/desired/storage/root>
-export WSJ0_2MIX=<path/to/wsj0_2mix/json>
-mkdir -p $STORAGE/pth_models/pit
-python -m padertorch.contrib.examples.pit.train print_config
-python -m padertorch.contrib.examples.pit.train
+python -m padertorch.contrib.examples.source_separation.pit.train print_config
+python -m padertorch.contrib.examples.source_separation.pit.train with database_json=<path/to/database.json>
 
 
 Example call on PC2 infrastructure (only relevant for Paderborn University usage):
 
-export STORAGE=<your/desired/storage/root>
-mkdir -p $STORAGE/pth_models/pit
-python -m padertorch.contrib.examples.pit.train init
+python -m padertorch.contrib.examples.pit.source_separation.train init with database_json=<database_json>
 make ccsalloc
 
 
-TODO: Enable shuffle
-TODO: Change to sacred IDs again, otherwise I can not apply `unique` to `_id`.
 """
 from sacred import Experiment
 import sacred.commands
@@ -28,33 +21,35 @@ import paderbox as pb
 from lazy_dataset.database import JsonDatabase
 
 from sacred.observers.file_storage import FileStorageObserver
+from sacred.utils import InvalidConfigError, MissingConfigError
 
-from padertorch.contrib.examples.pit.data import prepare_iterable
-from padertorch.contrib.ldrude.utils import get_new_folder
-from padertorch.contrib.examples.pit.templates import MAKEFILE_TEMPLATE_TRAIN as MAKEFILE_TEMPLATE
+from padertorch.contrib.examples.source_separation.pit.data import prepare_iterable
+from padertorch.contrib.examples.source_separation.pit.templates import MAKEFILE_TEMPLATE_TRAIN as MAKEFILE_TEMPLATE
 
-nickname = "pit"
-ex = Experiment(nickname)
-
-path_template = Path(os.environ["STORAGE"]) / "pth_models" / nickname
-
+experiment_name = "pit"
+ex = Experiment(experiment_name)
 
 @ex.config
 def config():
     debug = False
     batch_size = 6
-    database_json = ""  # Path to WSJ0_2mix .json
+    database_json = None  # Path to WSJ0_2mix .json
     if "WSJ0_2MIX" in os.environ:
         database_json = os.environ.get("WSJ0_2MIX")
-    assert len(database_json) > 0, 'Set path to database Json on the command line or set environment variable WSJ0_2MIX'
+    if database_json is None:
+        raise MissingConfigError(
+            'You have to set the path to the database JSON!', 'database_json')
+    if not Path(database_json).exists():
+        raise InvalidConfigError('The database JSON does not exist!',
+                                 'database_json')
     train_dataset = "mix_2_spk_min_tr"
     validate_dataset = "mix_2_spk_min_cv"
 
-    # dict describing the model parameters, to allow changing the paramters from the command line.
-    # Configurable automatically inserts default values of not mentioned parameters to the config.json
+    # dict describing the model parameters, to allow changing the parameters from the command line.
+    # Configurable automatically inserts the default values of not mentioned parameters to the config.json
     trainer = {
         "model": {
-            "factory": pt.contrib.examples.pit.model.PermutationInvariantTrainingModel,
+            "factory": pt.contrib.examples.source_separation.pit.model.PermutationInvariantTrainingModel,
             "dropout_input": 0.,
             "dropout_hidden": 0.,
             "dropout_linear": 0.
@@ -73,9 +68,9 @@ def config():
     }
     pt.Trainer.get_config(trainer)
     if trainer['storage_dir'] is None:
-        trainer['storage_dir'] = get_new_folder(path_template, mkdir=False)
+        trainer['storage_dir'] = pt.io.get_new_storage_dir(experiment_name)
 
-    ex.observers.append(FileStorageObserver.create(
+    ex.observers.append(FileStorageObserver(
         Path(trainer['storage_dir']) / 'sacred')
     )
 
@@ -102,7 +97,7 @@ def init(_config, _run):
     makefile_path.write_text(MAKEFILE_TEMPLATE.format(
         main_python_path=pt.configurable.resolve_main_python_path(),
         experiment_dir=experiment_dir,
-        nickname=nickname
+        nickname=experiment_name
     ))
 
     sacred.commands.print_config(_run)
@@ -152,13 +147,14 @@ def main(_config, _run):
     experiment_dir = Path(_config['trainer']['storage_dir'])
     config_path = experiment_dir / "config.json"
     pb.io.dump_json(_config, config_path)
-
     makefile_path = Path(experiment_dir) / "Makefile"
-    makefile_path.write_text(MAKEFILE_TEMPLATE.format(
-        main_python_path=pt.configurable.resolve_main_python_path(),
-        experiment_dir=experiment_dir,
-        nickname=nickname
-    ))
+    if not makefile_path.exists():
+
+        makefile_path.write_text(MAKEFILE_TEMPLATE.format(
+            main_python_path=pt.configurable.resolve_main_python_path(),
+            experiment_dir=experiment_dir,
+            nickname=experiment_name
+        ))
 
     prepare_and_train()
 
