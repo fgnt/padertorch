@@ -45,7 +45,7 @@ def config():
     train_dataset = "mix_2_spk_min_tr"
     validate_dataset = "mix_2_spk_min_cv"
 
-    # dict describing the model parameters, to allow changing the parameters from the command line.
+    # Dict describing the model parameters, to allow changing the parameters from the command line.
     # Configurable automatically inserts the default values of not mentioned parameters to the config.json
     trainer = {
         "model": {
