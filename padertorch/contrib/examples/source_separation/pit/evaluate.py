@@ -96,7 +96,7 @@ def init(_config, _run):
     makefile_path.write_text(MAKEFILE_TEMPLATE.format(
         main_python_path=pt.configurable.resolve_main_python_path(),
         experiment_dir=experiment_dir,
-        nickname=experiment_name
+        experiment_name=experiment_name
     ))
 
     sacred.commands.print_config(_run)
