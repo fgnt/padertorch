@@ -45,6 +45,21 @@ OBSERVATION = 'observation'
 SPEECH_SOURCE = 'speech_source'
 AUDIO_PATH = 'audio_path'
 
+dataset_sizes = pb.utils.mapping.Dispatcher({
+    'mix_2_spk_min_cv': 5000,
+    'mix_2_spk_min_tr': 20000,
+    'mix_2_spk_min_tt': 3000,
+    'mix_2_spk_max_cv': 5000,
+    'mix_2_spk_max_tr': 20000,
+    'mix_2_spk_max_tt': 3000,
+    'mix_3_spk_min_cv': 5000,
+    'mix_3_spk_min_tr': 20000,
+    'mix_3_spk_min_tt': 3000,
+    'mix_3_spk_max_cv': 5000,
+    'mix_3_spk_max_tr': 20000,
+    'mix_3_spk_max_tt': 3000,
+})
+
 
 def download_normalize_transcript():
     """
@@ -174,6 +189,11 @@ def get_dataset(transcriptions, scenario_path, spk2gender, dataset_name):
             desc=f'{dataset_name} ({scenario_path})',
             total=len(files)
         ))
+
+    assert len(dataset) == dataset_sizes[dataset_name], (
+        f'Size mismatch in dataset {dataset_name}! Expected '
+        f'{dataset_sizes[dataset_name]} examples, but found {len(dataset)}!'
+    )
 
     return dataset
 
