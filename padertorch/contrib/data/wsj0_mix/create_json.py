@@ -203,11 +203,11 @@ def get_dataset(transcriptions, scenario_path, num_speakers, spk2gender,
         return example_id, example
 
     with ThreadPoolExecutor() as pool:
-        files = list((scenario_path / 'mix').glob('*.wav'))
+        files = (scenario_path / 'mix').glob('*.wav')
         dataset = dict(tqdm(
             pool.map(task, files),
             desc=f'{dataset_name} ({scenario_path})',
-            total=len(files)
+            total=dataset_sizes[dataset_name]
         ))
 
     assert len(dataset) == dataset_sizes[dataset_name], (
