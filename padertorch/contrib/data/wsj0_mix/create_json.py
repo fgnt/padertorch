@@ -10,6 +10,7 @@ import click
 import numpy as np
 import sh
 from tqdm import tqdm
+from appdirs import user_cache_dir
 
 import paderbox as pb
 
@@ -49,10 +50,12 @@ def download_normalize_transcript():
     """
     Downloads Kaldis "normalize_transcript.pl" for WSJ to the working directory
     """
-    normalize_transcript_path = Path('normalize_transcript.pl').resolve()
+    cache_dir = Path(user_cache_dir('padertorch'))
+    normalize_transcript_path = cache_dir / 'normalize_transcript.pl'
     if not normalize_transcript_path.exists():
+        cache_dir.mkdir(parents=True, exist_ok=True)
         pb.utils.process_caller.run_process(
-            'wget https://raw.githubusercontent.com/kaldi-asr/kaldi/master/egs/wsj/s5/local/normalize_transcript.pl'
+            f'wget -O {normalize_transcript_path} https://raw.githubusercontent.com/kaldi-asr/kaldi/master/egs/wsj/s5/local/normalize_transcript.pl'
         )
     return normalize_transcript_path
 
@@ -231,7 +234,7 @@ def main(database_path, json_path, wsj0_root,
 
     if wsj0_root is not None:
         wsj0_root = Path(wsj0_root)
-        print('Reading transcriptions from WSJ')
+        print(f'Reading transcriptions from WSJ ({wsj0_root})')
         transcriptions = get_transcriptions(wsj0_root)
     else:
         transcriptions = None
