@@ -3,7 +3,7 @@ import padertorch as pt
 import numpy as np
 import torch
 
-from padertorch.contrib.examples.pit.model import PermutationInvariantTrainingModel
+from padertorch.contrib.examples.source_separation.pit.model import PermutationInvariantTrainingModel
 from padertorch.contrib.tcl.dc import DeepClusteringModel
 
 class TestDeepClusteringModel(unittest.TestCase):
