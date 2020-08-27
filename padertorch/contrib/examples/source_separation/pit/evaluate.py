@@ -1,27 +1,21 @@
 """
 Example call on NT infrastructure:
 
-export STORAGE=<your/desired/storage/root>
-export WSJ0_2MIX=<path/to/wsj0_2mix/json>
-mkdir -p $STORAGE/pth_evaluate/evaluate
-mpiexec -np 8 python -m padertorch.contrib.examples.pit.evaluate with model_path=<model_path>
+mpiexec -np 8 python -m padertorch.contrib.examples.source_separation.pit.evaluate with model_path=<model_path> database_json=<path/to/database.json>
+
 
 For usage with a single cpu:
-export STORAGE=<your/desired/storage/root>
-export WSJ0_2MIX=<path/to/wsj0_2mix/json>
-mkdir -p $STORAGE/pth_evaluate/evaluate
-python -m padertorch.contrib.examples.pit.evaluate with model_path=<model_path> debug=True
+
+python -m padertorch.contrib.examples.source_separation.pit.evaluate with model_path=<model_path> database_json=<path/to/database.json> debug=True
+
 
 Example call on PC2 infrastructure (only neccessary in Paderborn University infrastructure):
 
-export STORAGE=<your/desired/storage/root>
-mkdir -p $STORAGE/pth_evaluate/pit
-python -m padertorch.contrib.examples.pit.evaluate init with model_path=<model_path>
+python -m padertorch.contrib.examples.source_separation.pit.evaluate init with model_path=<model_path>
 
 
 TODO: Add input mir_sdr result to be able to calculate gains.
 TODO: Add pesq, stoi, invasive_sxr.
-TODO: mpi: For mpi I need to know the experiment dir before.
 """
 import os
 from collections import defaultdict
@@ -30,52 +24,50 @@ from pathlib import Path
 import einops
 import sacred.commands
 from sacred import Experiment
+from sacred.observers import FileStorageObserver
+from sacred.utils import InvalidConfigError, MissingConfigError
 import torch
 
+import dlp_mpi as mpi
 import paderbox as pb
 import padertorch as pt
 import pb_bss
 from paderbox.transform import istft
 from lazy_dataset.database import JsonDatabase
-from dlp_mpi import COMM, IS_MASTER, MASTER, split_managed
-from padertorch.contrib.examples.pit.data import prepare_iterable
+from padertorch.contrib.examples.source_separation.pit.data import prepare_iterable
+from padertorch.contrib.examples.source_separation.pit.templates import MAKEFILE_TEMPLATE_EVAL as MAKEFILE_TEMPLATE
 
-from padertorch.contrib.ldrude.utils import (
-    decorator_append_file_storage_observer_with_lazy_basedir,
-    get_new_folder
-)
-from padertorch.contrib.examples.pit.templates import MAKEFILE_TEMPLATE_EVAL as MAKEFILE_TEMPLATE
-
-nickname = "pit"
-ex = Experiment(nickname)
-path_template = Path(os.environ["STORAGE"]) / "pth_evaluate" / nickname
+experiment_name = "pit"
+ex = Experiment(experiment_name)
 
 
 @ex.config
 def config():
     debug = False
-    database_json = ''
+
+    database_json = None
     if "WSJ0_2MIX" in os.environ:
         database_json = os.environ.get("WSJ0_2MIX")
     assert len(database_json) > 0, 'Set path to database Json on the command line or set environment variable WSJ0_2MIX'
     model_path = ''
-    assert len(model_path) > 0, 'Set the model path on the command line.'
     checkpoint_name = 'ckpt_best_loss.pth'
-    experiment_dir = str(get_new_folder(
-        path_template, mkdir=False, consider_mpi=True,
-    ))
+    experiment_dir = None
+    if experiment_dir is None:
+        experiment_dir = pt.io.get_new_subdir(
+            Path(model_path) / 'evaluation', consider_mpi=True)
     batch_size = 1
     datasets = ["mix_2_spk_min_cv", "mix_2_spk_min_tt"]
     locals()  # Fix highlighting
 
-
-@decorator_append_file_storage_observer_with_lazy_basedir(
-    ex,
-    consider_mpi=True
-)
-def basedir(_config):
-    return _config['experiment_dir']
-
+    ex.observers.append(FileStorageObserver(
+        Path(Path(experiment_dir) / 'sacred')
+    ))
+    if database_json is None:
+        raise MissingConfigError(
+            'You have to set the path to the database JSON!', 'database_json')
+    if not Path(database_json).exists():
+        raise InvalidConfigError('The database JSON does not exist!',
+                                 'database_json')
 
 @ex.capture
 def get_model(_run, model_path, checkpoint_name):
@@ -104,7 +96,7 @@ def init(_config, _run):
     makefile_path.write_text(MAKEFILE_TEMPLATE.format(
         main_python_path=pt.configurable.resolve_main_python_path(),
         experiment_dir=experiment_dir,
-        nickname=nickname
+        experiment_name=experiment_name
     ))
 
     sacred.commands.print_config(_run)
@@ -122,10 +114,9 @@ def init(_config, _run):
 def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
     experiment_dir = Path(experiment_dir)
 
-    if IS_MASTER:
+    if mpi.IS_MASTER:
         sacred.commands.print_config(_run)
 
-    # TODO: Substantially faster to load the model once and distribute via MPI
     model = get_model()
     db = JsonDatabase(json_path=database_json)
 
@@ -139,10 +130,10 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
                 prefetch=False,
             )
 
-            for batch in split_managed(iterable, is_indexable=False,
-                                       progress_bar=True,
-                                       allow_single_worker=debug
-                                       ):
+            for batch in mpi.split_managed(iterable, is_indexable=False,
+                                           progress_bar=True,
+                                           allow_single_worker=debug
+                                           ):
                 entry = dict()
                 model_output = model(pt.data.example_to_device(batch))
 
@@ -164,9 +155,9 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
 
         summary[dataset][example_id] = entry
 
-    summary_list = COMM.gather(summary, root=MASTER)
+    summary_list = mpi.gather(summary, root=mpi.MASTER)
 
-    if IS_MASTER:
+    if mpi.IS_MASTER:
         print(f'len(summary_list): {len(summary_list)}')
         for partial_summary in summary_list:
             for dataset, values in partial_summary.items():
