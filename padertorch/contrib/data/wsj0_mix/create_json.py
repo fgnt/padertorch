@@ -134,7 +134,8 @@ def audio_length(file):
     return pb.io.audioread.audio_length(file)
 
 
-def get_dataset(transcriptions, scenario_path, spk2gender, dataset_name):
+def get_dataset(transcriptions, scenario_path, num_speakers, spk2gender,
+                dataset_name):
     def get_path(index, example_id):
         path = scenario_path / f's{index + 1}' / f'{example_id}.wav'
 
@@ -156,12 +157,18 @@ def get_dataset(transcriptions, scenario_path, spk2gender, dataset_name):
         wsj_utterance_ids = split[::2]
         speaker_sdr = split[1::2]
 
+        assert len(wsj_utterance_ids) == num_speakers, (
+            example_id, len(wsj_utterance_ids), num_speakers
+        )
+        assert len(speaker_sdr) == num_speakers, (
+            example_id, len(speaker_sdr), num_speakers
+        )
+
         # Build example from information gathered from the mix file
         example = {
             AUDIO_PATH: {
                 SPEECH_SOURCE: [
-                    get_path(i, example_id)
-                    for i in range(len(wsj_utterance_ids))
+                    get_path(i, example_id) for i in range(num_speakers)
                 ],
                 OBSERVATION: str(file),
             },
@@ -170,15 +177,28 @@ def get_dataset(transcriptions, scenario_path, spk2gender, dataset_name):
             SPEAKER_ID: [utt_id[:3] for utt_id in wsj_utterance_ids],
         }
 
+        assert len(example[AUDIO_PATH][SPEECH_SOURCE]) == num_speakers, (
+            example_id, example[SPEECH_SOURCE], num_speakers
+        )
+        assert len(example[SPEAKER_ID]) == num_speakers, (
+            example_id, len(example[SPEAKER_ID]), num_speakers
+        )
+
         # Gender is optional
         if spk2gender is not None:
             example[GENDER] = [spk2gender[spk] for spk in example[SPEAKER_ID]]
+            assert len(example[GENDER]) == num_speakers, (
+                example_id, len(example[GENDER]), num_speakers
+            )
 
         # Transcriptions are optional
         if transcriptions is not None:
             example[TRANSCRIPTION] = [
                 str(transcriptions[id_]) for id_ in wsj_utterance_ids
             ]
+            assert len(example[TRANSCRIPTION]) == num_speakers, (
+                example_id, len(example[TRANSCRIPTION]), num_speakers
+            )
 
         return example_id, example
 
@@ -270,6 +290,9 @@ def main(database_path, json_path, wsj0_root,
     json_path = Path(json_path)
 
     assert json_path.suffix == '.json', json_path
+    if json_path.exists():
+        print(f'The JSON output path "{json_path}" already exists. It will be '
+              f'overwritten with the new JSON.')
 
     num_speakers = list(map(int, num_speakers))
 
@@ -299,7 +322,8 @@ def main(database_path, json_path, wsj0_root,
         )
 
         database[scenario] = get_dataset(
-            transcriptions, scenario_path, spk2gender, scenario
+            transcriptions, scenario_path, int(num_speakers_), spk2gender,
+            scenario
         )
 
     print('Check that all wav files in the json exist.')
