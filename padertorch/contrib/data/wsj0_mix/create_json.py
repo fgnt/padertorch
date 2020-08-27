@@ -119,7 +119,7 @@ def audio_length(file):
     return pb.io.audioread.audio_length(file)
 
 
-def get_dataset(transcriptions, scenario_path, spk2gender, scenario):
+def get_dataset(transcriptions, scenario_path, spk2gender, dataset_name):
     def get_path(index, example_id):
         path = scenario_path / f's{index + 1}' / f'{example_id}.wav'
 
@@ -170,7 +170,10 @@ def get_dataset(transcriptions, scenario_path, spk2gender, scenario):
     with ThreadPoolExecutor() as pool:
         files = list((scenario_path / 'mix').glob('*.wav'))
         dataset = dict(tqdm(
-            pool.map(task, files), desc=scenario, total=len(files)))
+            pool.map(task, files),
+            desc=f'{dataset_name} ({scenario_path})',
+            total=len(files)
+        ))
 
     return dataset
 
@@ -199,25 +202,31 @@ def get_dataset(transcriptions, scenario_path, spk2gender, scenario):
     '--spk2gender_path',
     type=click.Path(exists=True),
     default=None,
-    help='Path to Kaldi spk2gender file'
+    help='Optional path to Kaldi spk2gender file. Used to determine gender '
+         'of each speaker.'
 )
 @click.option(
     '--num_speakers',
     default=['2', '3'],
     type=click.Choice(['2', '3']),
     multiple=True,
+    help='Which numbers of speakers to generate. You can specify both '
+         '--num_speakers 2 and --num_speakers 3 simultaneously.'
 )
 @click.option(
     '--scenarios',
     default=['cv', 'tr', 'tt'],
     type=click.Choice(['cv', 'tr', 'tt']),
     multiple=True,
+    help='Subset/scenario names. tr=train, cv=validation, tt=test.'
 )
 @click.option(
     '--sample_rate',
     default=['wav8k'],
     type=click.Choice(['wav8k', 'wav16k']),
-    multiple=True,
+    multiple=False,
+    help='Sample rate. It would create confilicts if both wav8k and wav16k '
+         'are stored in the same JSON.'
 )
 @click.option(
     '--signal_length',
@@ -240,7 +249,7 @@ def main(database_path, json_path, wsj0_root,
     database_path = Path(database_path)
     json_path = Path(json_path)
 
-    assert json_path.suffix == '.json'
+    assert json_path.suffix == '.json', json_path
 
     num_speakers = list(map(int, num_speakers))
 
@@ -252,21 +261,20 @@ def main(database_path, json_path, wsj0_root,
         transcriptions = None
 
     if spk2gender_path is not None:
-        print('Reading spk2gender file')
+        print(f'Reading spk2gender file ({spk2gender_path})')
         spk2gender = load_spk2gender(Path(spk2gender_path))
     else:
         spk2gender = None
 
-    print('Processing database')
+    print(f'Processing database ({database_path})')
     database = {}
-    for signal_length_, num_speakers_, subset, sample_rate_ in itertools.product(
-            signal_length, num_speakers,
-            scenarios, sample_rate
+    for signal_length_, num_speakers_, subset in itertools.product(
+            signal_length, num_speakers, scenarios
     ):
         scenario = f'mix_{num_speakers_}_spk_{signal_length_}_{subset}'
 
         scenario_path = (
-                database_path / f'{num_speakers_}speakers' / sample_rate_ /
+                database_path / f'{num_speakers_}speakers' / sample_rate /
                 signal_length_ / subset
         )
 
@@ -281,6 +289,7 @@ def main(database_path, json_path, wsj0_root,
     pb.io.dump_json(
         {DATASETS: database}, json_path, create_path=True, indent=4
     )
+    print(f'Dumped JSON to {json_path.resolve()}')
 
 
 if __name__ == '__main__':
