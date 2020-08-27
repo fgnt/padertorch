@@ -120,6 +120,19 @@ def audio_length(file):
 
 
 def get_dataset(transcriptions, scenario_path, spk2gender, scenario):
+    def get_path(index, example_id):
+        path = scenario_path / f's{index + 1}' / f'{example_id}.wav'
+
+        # Try to support the old and new versions of the database
+        if index == 1 and not path.exists():
+            path = scenario_path / f's{index + 1}' / f'{example_id}_2.wav'
+
+        assert path.exists(), (
+            f'File for speaker {index} not found for example {example_id}! '
+            f'Expected {path} (with or without potential _2 postfix)'
+        )
+
+        return str(path.resolve())
 
     def task(file):
         # Filename is composed like utt1_snr1_utt2_snr2[_utt3_snr3].wav
@@ -132,8 +145,7 @@ def get_dataset(transcriptions, scenario_path, spk2gender, scenario):
         example = {
             AUDIO_PATH: {
                 SPEECH_SOURCE: [
-                    str((scenario_path / f's{i + 1}' / f'{example_id}.wav'
-                         ).resolve())
+                    get_path(i, example_id)
                     for i in range(len(wsj_utterance_ids))
                 ],
                 OBSERVATION: str(file),
