@@ -155,7 +155,7 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
 
         summary[dataset][example_id] = entry
 
-    summary_list = mpi.COMM.gather(summary, root=mpi.MASTER)
+    summary_list = mpi.gather(summary, root=mpi.MASTER)
 
     if mpi.IS_MASTER:
         print(f'len(summary_list): {len(summary_list)}')
