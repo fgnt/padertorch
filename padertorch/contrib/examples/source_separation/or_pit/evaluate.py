@@ -4,7 +4,7 @@ import os
 import warnings
 from collections import defaultdict
 
-import dlp_mpi as mpi
+import dlp_mpi
 import numpy as np
 import paderbox as pb
 import pb_bss
@@ -136,7 +136,7 @@ def main(_run, datasets, debug, experiment_dir, dump_audio,
          sample_rate, _log, database_json, oracle_num_spk, max_iterations):
     experiment_dir = Path(experiment_dir)
 
-    if mpi.IS_MASTER:
+    if dlp_mpi.IS_MASTER:
         sacred.commands.print_config(_run)
         dump_config_and_makefile()
 
@@ -152,8 +152,8 @@ def main(_run, datasets, debug, experiment_dir, dump_audio,
                 chunk_size=-1,
                 prefetch=False,
                 shuffle=False,
-                iterator_slice=slice(mpi.RANK, 20 if debug else None,
-                                     mpi.SIZE),
+                iterator_slice=slice(dlp_mpi.RANK, 20 if debug else None,
+                                     dlp_mpi.SIZE),
             )
 
             if dump_audio:
@@ -161,7 +161,7 @@ def main(_run, datasets, debug, experiment_dir, dump_audio,
                     parents=True, exist_ok=True)
 
             for batch in tqdm(
-                    iterable, total=len(iterable), disable=not mpi.IS_MASTER,
+                    iterable, total=len(iterable), disable=not dlp_mpi.IS_MASTER,
                     desc=dataset,
             ):
                 example_id = batch['example_id'][0]
@@ -260,9 +260,9 @@ def main(_run, datasets, debug, experiment_dir, dump_audio,
                     )
                     raise
 
-    results = mpi.gather(results, root=mpi.MASTER)
+    results = dlp_mpi.gather(results, root=dlp_mpi.MASTER)
 
-    if mpi.IS_MASTER:
+    if dlp_mpi.IS_MASTER:
         # Combine all results to one. This function raises an exception if it
         # finds duplicate keys
         results = pb.utils.nested.nested_merge(*results)

@@ -28,7 +28,7 @@ from sacred.observers import FileStorageObserver
 from sacred.utils import InvalidConfigError, MissingConfigError
 import torch
 
-import dlp_mpi as mpi
+import dlp_mpi
 import paderbox as pb
 import padertorch as pt
 import pb_bss
@@ -114,7 +114,7 @@ def init(_config, _run):
 def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
     experiment_dir = Path(experiment_dir)
 
-    if mpi.IS_MASTER:
+    if dlp_mpi.IS_MASTER:
         sacred.commands.print_config(_run)
 
     model = get_model()
@@ -130,7 +130,7 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
                 prefetch=False,
             )
 
-            for batch in mpi.split_managed(iterable, is_indexable=False,
+            for batch in dlp_mpi.split_managed(iterable, is_indexable=False,
                                            progress_bar=True,
                                            allow_single_worker=debug
                                            ):
@@ -155,9 +155,9 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
 
         summary[dataset][example_id] = entry
 
-    summary_list = mpi.gather(summary, root=mpi.MASTER)
+    summary_list = dlp_mpi.gather(summary, root=dlp_mpi.MASTER)
 
-    if mpi.IS_MASTER:
+    if dlp_mpi.IS_MASTER:
         print(f'len(summary_list): {len(summary_list)}')
         for partial_summary in summary_list:
             for dataset, values in partial_summary.items():
