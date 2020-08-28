@@ -2,13 +2,10 @@ import itertools
 
 import functools
 import re
-import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import click
-import numpy as np
-import sh
 from tqdm import tqdm
 from appdirs import user_cache_dir
 
@@ -63,7 +60,8 @@ dataset_sizes = pb.utils.mapping.Dispatcher({
 
 def download_normalize_transcript():
     """
-    Downloads Kaldis "normalize_transcript.pl" for WSJ to the working directory
+    Downloads "normalize_transcript.pl" for WSJ from Kaldi to the cache
+    directory
     """
     cache_dir = Path(user_cache_dir('padertorch'))
     normalize_transcript_path = cache_dir / 'normalize_transcript.pl'
