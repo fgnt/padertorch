@@ -90,11 +90,9 @@ def stft_to_image(signal, batch_first=False, color='viridis', origin='lower'):
     )
 
 
-_spectrogram_to_image_cmap = {}
-
-
-def _colorize(image, color):
+class _Colorize:
     """
+    >>> _colorize = _Colorize()
     >>> i = np.arange(15).reshape([3, 5])
     >>> _colorize(i, True).shape
     (4, 3, 5)
@@ -113,32 +111,43 @@ def _colorize(image, color):
     <BLANKLINE>
            [[1.      , 1.      , 1.      ],
             [1.      , 1.      , 1.      ]]])
-    >>> _colorize(i, None)
-    array([[[0, 1, 2],
-            [3, 4, 5]]])
+    >>> print(_colorize(i, None))
+    [[[0 1 2]
+      [3 4 5]]]
+    >>> import mock
+    >>> _colorize = _Colorize()
+    >>> with mock.patch.dict('sys.modules', {'matplotlib.pyplot': None}):
+    ...     print(_colorize(i, True))
+    [[[0 1 2]
+      [3 4 5]]]
     """
-    if color is None:
-        return image[None, :, :]
-    else:
-        if color is True:
-            color = 'viridis'
-        try:
-            cmap = _spectrogram_to_image_cmap[color]
-        except KeyError:
+    def __init__(self):
+        self.color_to_cmap = {}
+
+    def __call__(self, image, color):
+        if color is None:
+            return image[None, :, :]
+        else:
+            if color is True:
+                color = 'viridis'
             try:
-                import matplotlib.pyplot as plt
-                cmap = plt.cm.get_cmap(color)
-                _spectrogram_to_image_cmap[color] = cmap
-            except ImportError:
-                from warnings import warn
-                gray_scale = lambda x: x[None, ...]
-                warn('Since matplotlib is not installed, all images are '
-                     'switched to grey scale')
-                _spectrogram_to_image_cmap[color] = gray_scale
-                cmap = gray_scale
-                # gray image
-                # return gray_scale(image)
-        return np.moveaxis(cmap(image), -1, 0)
+                cmap = self.color_to_cmap[color]
+            except KeyError:
+                try:
+                    import matplotlib.pyplot as plt
+                    cmap = plt.cm.get_cmap(color)
+                    self.color_to_cmap[color] = cmap
+                except ImportError:
+                    from warnings import warn
+                    gray_scale = lambda x: x[..., None]
+                    warn('Since matplotlib is not installed, all images are '
+                         'switched to grey scale')
+                    self.color_to_cmap[color] = gray_scale
+                    cmap = gray_scale
+            return np.moveaxis(cmap(image), -1, 0)
+
+
+_colorize = _Colorize()
 
 
 def spectrogram_to_image(
