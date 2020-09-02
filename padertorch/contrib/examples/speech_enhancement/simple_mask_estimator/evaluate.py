@@ -1,14 +1,13 @@
 """
 Evaluation script for the last mask estimator trained in $STORAGE_ROOT.
 Saves results to $STORAGE_ROOT/speech_enhancement/simple_mask_estimator_{id}/evaluate_{eval_id}
-mpiexec -np 8 python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.evaluate
+mpiexec -np 8 python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.evaluate with database_json=/path/to/json
 
 If you want to evaluate a specific checkpoint, specify the path
 as an additional argument to the call.
-mpiexec -np 8 python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.evaluate /path/to/checkpoint
+mpiexec -np 8 python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.evaluate with checkpoint_path=/path/to/checkpoint database_json=/path/to/json
 """
 import os
-import sys
 from pathlib import Path
 
 import dlp_mpi
@@ -18,44 +17,77 @@ import padertorch as pt
 import pb_bss
 import torch
 from einops import rearrange
-from padercontrib.database import JsonAudioDatabase
-from padercontrib.database.chime import Chime3
-from padercontrib.database.iterator import AudioReader
+from lazy_dataset.database import JsonDatabase
 from pb_bss.extraction import get_bf_vector
+from sacred import Experiment, observers
 
-from . import SimpleMaskEstimator
+from .model import SimpleMaskEstimator
+
+ex = Experiment('Simple Mask Estimator')
 
 
-def change_example_structure(example):
-    stft = pb.transform.stft
-    audio_data = example['audio_data']
-    net_input = dict()
-    net_input['observation'] = audio_data['observation']
-    net_input['observation_stft'] = stft(
-        audio_data['observation']).astype(np.complex64)
+@ex.config
+def config():
+    checkpoint_path = get_checkpoint_path()
+    eval_dir = pt.io.get_new_subdir(
+        checkpoint_path.parent / '..', prefix='evaluate', consider_mpi=True)
+    database_json = None
+    assert database_json is not None, (
+        'You have to specify a path to a json describing your database,'
+        'use "with database_json=/Path/To/Json" as suffix to your call'
+    )
+    assert Path(database_json).exists(), database_json
+    assert Path(checkpoint_path).exists(), checkpoint_path
+    ex.observers.append(observers.FileStorageObserver(
+        Path(eval_dir).expanduser().resolve() / 'sacred')
+    )
+
+
+def get_checkpoint_path():
+    storage_root = os.environ.get('STORAGE_ROOT')
+    if storage_root is None:
+        raise EnvironmentError(
+            'You have to specify an STORAGE_ROOT '
+            'environmental variable see getting_started'
+        )
+    elif not Path(storage_root).exists():
+        raise FileNotFoundError(
+            'You have to specify an existing STORAGE_ROOT '
+            'environmental variable see getting_started.\n'
+            f'Got: {storage_root}'
+        )
+    else:
+        storage_root = Path(storage_root).expanduser().resolve()
+    task_dir = storage_root / 'speech_enhancement'
+    dirs = list(task_dir.glob('simple_mask_estimator_*'))
+    latest_id = sorted(
+        [int(path.name.split('_')[-1]) for path in dirs])[-1]
+    model_dir = task_dir / f'simple_mask_estimator_{latest_id}'
+    return model_dir / 'checkpoints' / 'ckpt_best_loss.pth'
+
+
+def prepare_data(example):
+    stft = pb.transform.STFT(shift=256, size=1024)
+    audio_data = dict()
+    for key in ['observation', 'speech_source']:
+        audio_data[key] = np.array([
+            pb.io.load_audio(audio) for audio in example['audio_path'][key]])
+    net_input = audio_data.copy()
     net_input['observation_abs'] = np.abs(
-        net_input['observation_stft']).astype(np.float32)
-    net_input['speech_source'] = audio_data['speech_source']
+        stft(audio_data['observation'])).astype(np.float32)
+    net_input['observation_stft'] = stft(audio_data['observation'])
     net_input['example_id'] = example['example_id']
     return net_input
 
 
-def get_test_dataset(database: JsonAudioDatabase):
-    # AudioReader is a specialized function to read audio organized
-    # in a json as described in pb.database.database
-    audio_reader = AudioReader(audio_keys=[
-        'observation', 'speech_source'
-    ])
-    val_iterator = database.get_dataset_test()
-    return val_iterator.map(audio_reader) \
-        .map(change_example_structure)
+def get_test_dataset(database: JsonDatabase):
+    val_iterator = database.get_dataset('et05_simu')
+    return val_iterator.map(prepare_data)
 
 
-def evaluate(checkpoint_path):
+@ex.automain
+def evaluate(checkpoint_path, eval_dir, database_json):
     model = SimpleMaskEstimator(513)
-    model_dir = checkpoint_path.parent / '..'
-    eval_dir = pt.io.get_new_subdir(model_dir, prefix='evaluate',
-                                    consider_mpi=True)
 
     model.load_checkpoint(
         checkpoint_path=checkpoint_path,
@@ -67,7 +99,7 @@ def evaluate(checkpoint_path):
         print(f'Start to evaluate the checkpoint {checkpoint_path.resolve()} '
               f'and will write the evaluation result to'
               f' {eval_dir / "result.json"}')
-    database = Chime3()
+    database = JsonDatabase(database_json)
     test_dataset = get_test_dataset(database)
     with torch.no_grad():
         summary = dict(masked=dict(), beamformed=dict(), observed=dict())
@@ -136,34 +168,3 @@ def evaluate(checkpoint_path):
         result_json_path = eval_dir / 'result.json'
         print(f"Exporting result: {result_json_path}")
         pb.io.dump_json(summary, result_json_path)
-
-
-if __name__ == '__main__':
-    args = sys.argv
-    if len(args) == 1:
-        STORAGE_ROOT = os.environ.get('STORAGE_ROOT')
-        if STORAGE_ROOT is None:
-            raise EnvironmentError(
-                'You have to specify an STORAGE_ROOT '
-                'environmental variable see getting_started'
-            )
-        elif not Path(STORAGE_ROOT).exists():
-            raise FileNotFoundError(
-                'You have to specify an existing STORAGE_ROOT '
-                'environmental variable see getting_started.\n'
-                f'Got: {STORAGE_ROOT}'
-            )
-        else:
-            STORAGE_ROOT = Path(STORAGE_ROOT).expanduser().resolve()
-        task_dir = STORAGE_ROOT / 'speech_enhancement'
-        dirs = list(task_dir.glob('simple_mask_estimator_*'))
-        latest_id = sorted(
-            [int(path.name.split('_')[-1]) for path in dirs])[-1]
-        model_dir = task_dir / f'simple_mask_estimator_{latest_id}'
-        checkpoint_path = model_dir / 'checkpoints' / 'ckpt_best_loss.pth'
-    elif len(args) == 2:
-        checkpoint_path = Path(args[1]).expanduser().resolve()
-    else:
-        raise ValueError('Not more than one argument allowed, the one'
-                         'argument describes the checkpoint path', args)
-    evaluate(checkpoint_path)
