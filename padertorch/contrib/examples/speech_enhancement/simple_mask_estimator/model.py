@@ -1,17 +1,18 @@
-import torch
-
 import padertorch as pt
+import torch
 from padertorch.summary import mask_to_image, stft_to_image
+
 
 class SimpleMaskEstimator(pt.Model):
     def __init__(self, num_features, num_units=1024, dropout=0.5,
                  activation='elu'):
         """
 
-        :param num_features: number of input features
-        :param num_units: number of units in linear layern
-        :param dropout: dropout forget ratio
-        :param activation:
+        Args:
+            num_features: number of input features
+            num_units: number of units in linear layern
+            dropout: dropout forget ratio
+            activation: activation for the linear layer except the output layer
 
         >>> SimpleMaskEstimator(513)
         SmallExampleModel(
