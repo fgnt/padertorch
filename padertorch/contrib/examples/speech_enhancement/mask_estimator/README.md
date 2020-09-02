@@ -7,7 +7,7 @@ inspired by [1].
 Results
 -------
 
-The simple mask estimator model achieves the following results on
+The mask estimator model achieves the following results on
 the CHiME 3 simulated evaluation set:
 
 
@@ -26,7 +26,7 @@ A storage root must be set with `export STORAGE_ROOT=/path/to/your/storage`.
 After installing `padertorch`, a training can for example be started with
 
 ```bash
-$ STORAGE_ROOT=/path/to/your/storage; python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.train
+$ STORAGE_ROOT=/path/to/your/storage; python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.train with database_json=/path/to/json
 ```
 
 Evaluation
@@ -37,7 +37,7 @@ The evaluation requires `dlp_mpi` and `pb_bss` as additional dependencies.
 The evaluation can be started by
 
 ```bash
-$ STORAGE_ROOT=/path/to/your/storage; mpiexec -n $(nproc --all) python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.evaluate
+$ STORAGE_ROOT=/path/to/your/storage; mpiexec -n $(nproc --all) python -m padertorch.contrib.examples.speech_enhancement.mask_estimator.evaluate with database_json=/path/to/json
 ```
 It always evaluates the latest model in the specified STORAGE_ROOT
 
@@ -45,7 +45,7 @@ If you want to evaluate a specific checkpoint, specify the path as an
 additional argument to the call.
 
 ```bash
-$ STORAGE_ROOT=/path/to/your/storage; mpiexec -n $(nproc --all) python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.evaluate /path/to/checkpoint
+$ STORAGE_ROOT=/path/to/your/storage; mpiexec -n $(nproc --all) python -m padertorch.contrib.examples.speech_enhancement.mask_estimator.evaluate with with database_json=/path/to/json checkpoint_path=/path/to/checkpoint
 ```
 References
 ----------
