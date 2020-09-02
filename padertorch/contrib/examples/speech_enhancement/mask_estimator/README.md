@@ -29,6 +29,28 @@ After installing `padertorch`, a training can for example be started with
 $ STORAGE_ROOT=/path/to/your/storage; python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.train with database_json=/path/to/json
 ```
 
+The database json path should point to a json containing all information about 
+the CHiME3 data in a format described in ```lazy_dataset.database```.
+Each example should contain at least the following keys:
+```
+    audio_path:
+        speech_source:
+            <path to clean speech>
+        observation:
+            array: [
+                <path to observation of channel 0>
+                <path to observation of channel 1>
+                ...
+            ]
+        # the following keys are not necessary during evaluation
+        speech_image: [
+            ...
+        ]
+        noise_image: [
+            ...
+        ]
+```
+
 Evaluation
 ----------
 
