@@ -23,7 +23,7 @@ from sacred import Experiment, observers
 
 from .model import SimpleMaskEstimator
 
-ex = Experiment('Simple Mask Estimator')
+ex = Experiment('Evaluate Simple Mask Estimator')
 
 
 @ex.config
