@@ -37,7 +37,7 @@ class SimpleMaskEstimator(pt.Model):
             ),
             pt.modules.StatefulLSTM(
                 num_features, num_units // 4,
-                bidirectional=True, batch_first=True
+                bidirectional=True, batch_first=True, save_states=False
             ),
             torch.nn.Dropout(dropout),
             torch.nn.Linear((num_units // 4) * 2, num_units),

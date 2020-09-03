@@ -13,7 +13,7 @@ class StatefulLSTM(Module):
             bidirectional: bool = False,
             dropout: float = 0.,
             batch_first: bool = True,
-            save_states: bool = False
+            save_states: bool = True
     ):
         super().__init__()
         self.lstm = torch.nn.LSTM(input_size=input_size,
