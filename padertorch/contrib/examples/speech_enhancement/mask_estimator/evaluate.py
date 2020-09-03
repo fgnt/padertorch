@@ -38,9 +38,10 @@ def config():
     )
     assert Path(database_json).exists(), database_json
     assert Path(checkpoint_path).exists(), checkpoint_path
-    ex.observers.append(observers.FileStorageObserver(
-        Path(eval_dir).expanduser().resolve() / 'sacred')
-    )
+    if dlp_mpi.IS_MASTER:
+        ex.observers.append(observers.FileStorageObserver(
+            Path(eval_dir).expanduser().resolve() / 'sacred')
+        )
 
 
 def get_checkpoint_path():
@@ -138,7 +139,6 @@ def evaluate(checkpoint_path, eval_dir, database_json):
             z_bf = pb.transform.istft(Z_bf)[None]
 
             y = batch['observation'][0][None]
-
             s = s[:, :z_bf.shape[1]]
             for key, signal in zip(summary.keys(), [z_mask, z_bf, y]):
                 signal = signal[:, :s.shape[1]]
