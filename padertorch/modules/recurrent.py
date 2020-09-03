@@ -7,8 +7,8 @@ class StatefulLSTM(Module):
 
     def __init__(
             self,
-            input_size: int = 513,
-            hidden_size: int = 512,
+            input_size: int,
+            hidden_size: int,
             num_layers: int = 1,
             bidirectional: bool = False,
             dropout: float = 0.,
