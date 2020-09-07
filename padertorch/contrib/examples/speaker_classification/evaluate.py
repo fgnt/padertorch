@@ -31,6 +31,11 @@ ex = Experiment('speaker_clf')
 @ex.config
 def defaults():
     model_path = None
+    assert model_path is not None, (
+        'model_path cannot be None.\n'
+        'Start the evaluation with "python -m padertorch.contrib.examples.'
+        'speaker_classification.evaluate with model_path=<path/to/trained/model>"'
+    )
     load_ckpt = 'ckpt_best_loss.pth'
     batch_size = 1
     device = 'cpu'
