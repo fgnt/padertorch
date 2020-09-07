@@ -78,6 +78,25 @@ def train(speaker_clf, storage_dir, database_json, dataset, batch_size):
     trainer.train(train_set)
 
 
+@ex.command
+def test_run(database_json, dataset, batch_size, num_speakers):
+    # Perform a few training and validation steps to test whether data
+    # preperation and the model are working
+
+    train_set, validate_set, _ = get_datasets(
+        None, database_json, dataset, batch_size
+    )
+    trainer = Trainer(
+        model=get_model(num_speakers),
+        optimizer=Adam(lr=3e-4),
+        storage_dir='/tmp/',  # not used during test run
+        summary_trigger=(100, 'iteration'),
+        checkpoint_trigger=(1000, 'iteration'),
+        stop_trigger=(100000, 'iteration')
+    )
+    trainer.test_run(train_set, validate_set)
+
+
 @ex.automain
 def main(_run, _log, num_speakers):
     storage_dir = get_new_storage_dir(
