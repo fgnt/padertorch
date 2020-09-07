@@ -4,17 +4,16 @@ Example call:
 export STORAGE_ROOT=<your desired storage root>
 python -m padertorch.contrib.examples.speaker_classification.train with database_json=</path/to/json>
 """
-import os
-from pathlib import Path
+from torch.nn import GRU
+from sacred import Experiment, commands
 
-from paderbox.utils.timer import timeStamped
+from padertorch.io import get_new_storage_dir
 from padertorch import Trainer
 from padertorch.contrib.examples.speaker_classification.model import SpeakerClf
 from padertorch.contrib.je.modules.conv import CNN1d
 from padertorch.modules.fully_connected import fully_connected_stack
 from padertorch.train.optimizer import Adam
 from padertorch.modules.normalization import Normalization
-from torch.nn import GRU
 from padertorch.contrib.examples.speaker_classification.data import get_datasets
 
 
@@ -79,11 +78,14 @@ def train(speaker_clf, storage_dir, database_json, dataset, batch_size):
     trainer.train(train_set)
 
 
-if __name__ == '__main__':
-    storage_dir = str(
-        Path(os.environ['STORAGE_ROOT']) / 'speaker_clf' / timeStamped('')[1:]
+@ex.automain
+def main(_run, _log, num_speakers):
+    storage_dir = get_new_storage_dir(
+        'speaker_clf', id_naming='time', mkdir=True
     )
-    os.makedirs(storage_dir, exist_ok=True)
+    commands.save_config(
+        _run.config, _log, config_filename=str(storage_dir / 'config.json')
+    )
 
     model = get_model(num_speakers)
     train(model, storage_dir)

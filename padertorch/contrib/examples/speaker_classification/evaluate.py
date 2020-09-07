@@ -1,7 +1,5 @@
 """
-Example call:
-
-export STORAGE_ROOT=<your desired storage root>
+Example calls:
 
 On single CPU (slow):
 python -m padertorch.contrib.examples.speaker_classification.evaluate with model_path=<path/to/trained/model>
@@ -22,7 +20,6 @@ import torch
 from dlp_mpi import COMM, IS_MASTER, MASTER, split_managed
 
 import paderbox as pb
-from paderbox.utils.timer import timeStamped
 
 import padertorch as pt
 from padertorch.contrib.examples.speaker_classification.data import get_datasets
@@ -45,8 +42,9 @@ def main(model_path, load_ckpt, batch_size, device, _run):
         commands.print_config(_run)
 
     model_path = Path(model_path)
-    eval_dir = Path(model_path) / 'eval' / timeStamped('')[1:]
-    # eval_dir.mkdir(parents=True, exist_ok=False)
+    eval_dir = pb.io.new_subdir.get_new_subdir(
+        model_path / 'eval', id_naming='time', consider_mpi=True
+    )
     # perform evaluation on a sub-set (10%) of the dataset used for training
     config = pb.io.load_json(model_path / 'config.json')
     database_json = config['database_json']
