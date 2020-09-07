@@ -2,7 +2,7 @@
 Example call:
 
 export STORAGE_ROOT=<your desired storage root>
-python -m padertorch.contrib.examples.speaker_classification.train
+python -m padertorch.contrib.examples.speaker_classification.train with database_json=</path/to/json>
 """
 import os
 from pathlib import Path
@@ -18,7 +18,23 @@ from torch.nn import GRU
 from padertorch.contrib.examples.speaker_classification.data import get_datasets
 
 
-def get_model():
+ex = Experiment('speaker_clf')
+
+
+@ex.config
+def defaults():
+    database_json = None
+    assert database_json is not None, (
+        'database_json cannot be None.\n'
+        'Start the training with "python -m padertorch.contrib.examples.'
+        'speaker_classification.train with database_json=</path/to/json>"'
+    )
+    dataset = 'train_clean_100'
+    batch_size = 16
+    num_speakers = 251
+
+
+def get_model(num_speakers):
     feature_extractor = Normalization(
         data_format='bft',
         shape=(None, 64, None),
@@ -34,15 +50,18 @@ def get_model():
     )
     gru = GRU(input_size=512, hidden_size=256, num_layers=2, batch_first=True)
     fcn = fully_connected_stack(
-        256, hidden_size=[256], output_size=251, dropout=0.
+        256, hidden_size=[256], output_size=num_speakers, dropout=0.
     )
 
     speaker_clf = SpeakerClf(feature_extractor, cnn, gru, fcn)
     return speaker_clf
 
 
-def train(speaker_clf, storage_dir):
-    train_set, validate_set, _ = get_datasets(storage_dir)
+@ex.capture
+def train(speaker_clf, storage_dir, database_json, dataset, batch_size):
+    train_set, validate_set, _ = get_datasets(
+        storage_dir, database_json, dataset, batch_size
+    )
 
     trainer = Trainer(
         model=speaker_clf,
@@ -66,5 +85,5 @@ if __name__ == '__main__':
     )
     os.makedirs(storage_dir, exist_ok=True)
 
-    model = get_model()
+    model = get_model(num_speakers)
     train(model, storage_dir)

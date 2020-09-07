@@ -1,30 +1,30 @@
 import numpy as np
 
-from padercontrib.database.librispeech import LibriSpeech
+from lazy_dataset.database import JsonDatabase
 
 from padertorch.contrib.je.data.transforms import (
     LabelEncoder, AudioReader, STFT, MelTransform, Collate
 )
 
 
-def get_datasets(storage_dir, batch_size=16):
-    db = LibriSpeech()
-    train_clean_100 = db.get_dataset('train_clean_100')
+def get_datasets(storage_dir, database_json, dataset, batch_size=16):
+    db = JsonDatabase(database_json)
+    ds = db.get_dataset(dataset)
 
     def prepare_example(example):
         example['audio_path'] = example['audio_path']['observation']
         example['speaker_id'] = example['speaker_id'].split('-')[0]
         return example
 
-    train_clean_100 = train_clean_100.map(prepare_example)
+    ds = ds.map(prepare_example)
 
     speaker_encoder = LabelEncoder(
         label_key='speaker_id', storage_dir=storage_dir, to_array=True
     )
-    speaker_encoder.initialize_labels(dataset=train_clean_100, verbose=True)
-    train_clean_100 = train_clean_100.map(speaker_encoder)
+    speaker_encoder.initialize_labels(dataset=ds, verbose=True)
+    ds = ds.map(speaker_encoder)
 
-    train_set, validate_set, test_set = train_test_split(train_clean_100)
+    train_set, validate_set, test_set = train_test_split(ds)
     training_data = prepare_dataset(train_set, batch_size, training=True)
     validation_data = prepare_dataset(validate_set, batch_size, training=False)
     test_data = prepare_dataset(test_set, batch_size, training=False)

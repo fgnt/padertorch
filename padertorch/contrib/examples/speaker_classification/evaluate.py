@@ -47,8 +47,13 @@ def main(model_path, load_ckpt, batch_size, device, _run):
     model_path = Path(model_path)
     eval_dir = Path(model_path) / 'eval' / timeStamped('')[1:]
     # eval_dir.mkdir(parents=True, exist_ok=False)
+    # perform evaluation on a sub-set (10%) of the dataset used for training
+    config = pb.io.load_json(model_path / 'config.json')
+    database_json = config['database_json']
+    dataset = config['dataset']
+    num_speakers = config['num_speakers']
 
-    model = get_model()
+    model = get_model(num_speakers)
     model = model.load_checkpoint(
         model_path / 'checkpoints' / load_ckpt, consider_mpi=True
     )
@@ -56,7 +61,9 @@ def main(model_path, load_ckpt, batch_size, device, _run):
     # Turn on evaluation mode for, e.g., BatchNorm and Dropout modules
     model.eval()
 
-    _, _, test_set = get_datasets(model_path, batch_size)
+    _, _, test_set = get_datasets(
+        model_path, database_json, dataset, batch_size
+    )
 
     summary = dict(
         misclassified_examples=dict(),
