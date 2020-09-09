@@ -4,6 +4,9 @@ Example call:
 export STORAGE_ROOT=<your desired storage root>
 python -m padertorch.contrib.examples.speaker_classification.train with database_json=</path/to/json>
 """
+import os
+from pathlib import Path
+
 from torch.nn import GRU
 from sacred import Experiment, commands
 
@@ -22,11 +25,17 @@ ex = Experiment('speaker_clf')
 
 @ex.config
 def defaults():
-    database_json = None
+    database_json = (
+        Path(os.environ['NT_DATABASE_JSONS_DIR']) / 'librispeech.json'
+        if 'NT_DATABASE_JSONS_DIR' in os.environ else None
+    )
     assert database_json is not None, (
         'database_json cannot be None.\n'
-        'Start the training with "python -m padertorch.contrib.examples.'
-        'speaker_classification.train with database_json=</path/to/json>"'
+        'Either start the training with "python -m padertorch.contrib.examples.'
+        'speaker_classification.train with database_json=</path/to/json>" '
+        'or export "NT_DATABASE_JSONS_DIR" which points to a directory with a '
+        '"librispeech.json" prior to training start (see README for the '
+        'JSON format).'
     )
     dataset = 'train_clean_100'
     batch_size = 16
