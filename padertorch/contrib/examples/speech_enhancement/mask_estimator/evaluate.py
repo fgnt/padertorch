@@ -28,7 +28,13 @@ ex = Experiment('Evaluate Simple Mask Estimator')
 
 @ex.config
 def config():
-    checkpoint_path = get_checkpoint_path()
+    checkpoint_path = None
+    if checkpoint_path is None:
+        checkpoint_path = get_checkpoint_path()
+    assert Path(checkpoint_path).exists(), (
+        f'You have to specify an existing STORAGE_ROOT environmental '
+        f'variable see getting_started.\n Got: {checkpoint_path}'
+    )
     eval_dir = pt.io.get_new_subdir(
         checkpoint_path.parent / '..', prefix='evaluate', consider_mpi=True)
     database_json = None
@@ -45,20 +51,12 @@ def config():
 
 
 def get_checkpoint_path():
-    storage_root = os.environ.get('STORAGE_ROOT')
-    if storage_root is None:
+    if 'STORAGE_ROOT' not in os.environ:
         raise EnvironmentError(
-            'You have to specify an STORAGE_ROOT '
-            'environmental variable see getting_started'
-        )
-    elif not Path(storage_root).exists():
-        raise FileNotFoundError(
-            'You have to specify an existing STORAGE_ROOT '
-            'environmental variable see getting_started.\n'
-            f'Got: {storage_root}'
+            'You have to specify an STORAGE_ROOT environmental variable'
         )
     else:
-        storage_root = Path(storage_root).expanduser().resolve()
+        storage_root = Path(os.environ['STORAGE_ROOT']).expanduser().resolve()
     task_dir = storage_root / 'speech_enhancement'
     dirs = list(task_dir.glob('simple_mask_estimator_*'))
     latest_id = sorted(

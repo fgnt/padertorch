@@ -7,6 +7,7 @@ python -m padertorch.contrib.examples.speech_enhancement.simple_mask_estimator.t
 
 from pathlib import Path
 
+import os
 import numpy as np
 import paderbox as pb
 import padertorch as pt
@@ -21,9 +22,15 @@ ex = Experiment('Train Simple Mask Estimator')
 
 @ex.config
 def config():
-    storage_dir = pt.io.get_new_storage_dir(
-        'speech_enhancement', prefix='simple_mask_estimator')
+    storage_dir = None
+    if storage_dir is None:
+        storage_dir = pt.io.get_new_storage_dir(
+            'speech_enhancement', prefix='simple_mask_estimator')
     database_json = None
+    if database_json is None:
+        if 'NT_DATABASE_JSONS_DIR' in os.environ:
+            database_json = Path(
+                os.environ['NT_DATABASE_JSONS_DIR']) / 'chime.json'
     assert database_json is not None, (
         'You have to specify a path to a json describing your database,'
         'use "with database_json=/Path/To/Json" as suffix to your call'
@@ -67,14 +74,14 @@ def get_validation_dataset(database: JsonDatabase):
 
 
 @ex.command
-def test_run(chime3_json_path):
+def test_run(storage_dir, chime3_json_path):
     model = SimpleMaskEstimator(513)
     print(f'Simple training for the following model: {model}')
     database = JsonDatabase(chime3_json_path)
     train_dataset = get_train_dataset(database)
     validation_dataset = get_validation_dataset(database)
     trainer = pt.train.trainer.Trainer(
-        model, '/this/is/no/path', optimizer=pt.train.optimizer.Adam(),
+        model, storage_dir, optimizer=pt.train.optimizer.Adam(),
         stop_trigger=(int(1e5), 'iteration')
     )
     trainer.test_run(train_dataset, validation_dataset)
