@@ -69,20 +69,25 @@ def main(model_path, load_ckpt, batch_size, device, _run):
         prefetch=device != 'cpu'
     )
     with torch.no_grad():
+        summary = dict(
+            misclassified_examples=dict(),
+            correct_classified_examples=dict(),
+            hits=list()
+        )
         for batch in split_managed(
             test_set, is_indexable=batch_size == 1 and device == 'cpu',
             progress_bar=True, allow_single_worker=True
         ):
-            output = model(pt.data.example_to_device(batch, device=device))
-            prediction = torch.argmax(output, dim=-1).cpu().detach().numpy()
+            output = model(pt.data.example_to_device(batch, device))
+            prediction = torch.argmax(output, dim=-1).cpu().numpy()
             confidence = torch.softmax(output, dim=-1).max(dim=-1).values.cpu()\
-                .detach().numpy()
+                .numpy()
             label = np.array(batch['speaker_id'])
             hits = (label == prediction).astype('bool')
-            summary['accuracies'].extend(hits.tolist())
+            summary['hits'].extend(hits.tolist())
             summary['misclassified_examples'].update({
                 k: {
-                    'label': v1,
+                    'true_label': v1,
                     'predicted_label': v2,
                     'audio_path': v3,
                     'confidence': f'{v4:.2%}',
@@ -106,10 +111,15 @@ def main(model_path, load_ckpt, batch_size, device, _run):
     summary_list = COMM.gather(summary, root=MASTER)
 
     if IS_MASTER:
-        print(f'len(summary_list): {len(summary_list)}')
+        print(f'\nlen(summary_list): {len(summary_list)}')
         if len(summary_list) > 1:
+            summary = dict(
+                misclassified_examples=dict(),
+                correct_classified_examples=dict(),
+                hits=list(),
+            )
             for partial_summary in summary_list:
-                summary['accuracies'].extend(partial_summary['accuracies'])
+                summary['hits'].extend(partial_summary['hits'])
                 summary['misclassified_examples'].update(
                     partial_summary['misclassified_examples']
                 )
@@ -121,10 +131,10 @@ def main(model_path, load_ckpt, batch_size, device, _run):
                         summary['correct_classified_examples'].keys()
                         else audio_path_list
                     })
-        accuracies = summary['accuracies']
+        hits = summary['hits']
         misclassified_examples = summary['misclassified_examples']
         correct_classified_examples = summary['correct_classified_examples']
-        accuracy = np.array(accuracies).astype('float').mean()
+        accuracy = np.array(hits).astype('float').mean()
         misclassified_dir = eval_dir / 'misclassified_examples'
         for example_id, v in misclassified_examples.items():
             label, prediction_label, audio_path, _ = v.values()
@@ -139,7 +149,7 @@ def main(model_path, load_ckpt, batch_size, device, _run):
                 example_dir / 'predicted_speaker_example.wav'
             )
         outputs = dict(
-            accuracy=f'{accuracy:.2%} ({np.sum(accuracies)}/{len(accuracies)})',
+            accuracy=f'{accuracy:.2%} ({np.sum(hits)}/{len(hits)})',
             misclassifications=misclassified_examples,
         )
         print(f'Speaker classification accuracy on test set: {accuracy:.2%}')
