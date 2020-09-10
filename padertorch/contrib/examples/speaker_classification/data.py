@@ -7,7 +7,9 @@ from padertorch.contrib.je.data.transforms import (
 )
 
 
-def get_datasets(storage_dir, database_json, dataset, batch_size=16):
+def get_datasets(
+    storage_dir, database_json, dataset, batch_size=16, prefetch=True
+):
     db = JsonDatabase(database_json)
     ds = db.get_dataset(dataset)
 
@@ -27,7 +29,9 @@ def get_datasets(storage_dir, database_json, dataset, batch_size=16):
     train_set, validate_set, test_set = train_test_split(ds)
     training_data = prepare_dataset(train_set, batch_size, training=True)
     validation_data = prepare_dataset(validate_set, batch_size, training=False)
-    test_data = prepare_dataset(test_set, batch_size, training=False)
+    test_data = prepare_dataset(
+        test_set, batch_size, training=False, prefetch=prefetch
+    )
     return training_data, validation_data, test_data
 
 
@@ -55,7 +59,7 @@ def train_test_split(dataset, dev_split=0.1,  test_split=0.1, seed=0):
     )
 
 
-def prepare_dataset(dataset, batch_size=16, training=False):
+def prepare_dataset(dataset, batch_size=16, training=False, prefetch=True):
     audio_reader = AudioReader(
         source_sample_rate=16000, target_sample_rate=16000
     )
@@ -84,9 +88,13 @@ def prepare_dataset(dataset, batch_size=16, training=False):
 
     if training:
         dataset = dataset.shuffle(reshuffle=True)
-    return dataset.prefetch(
-        num_workers=8, buffer_size=10*batch_size
-    ).batch_dynamic_time_series_bucket(
+    if prefetch:
+        dataset = dataset.prefetch(
+            num_workers=8, buffer_size=10*batch_size
+        )
+    if batch_size == 1:
+        return dataset.batch(1).map(Collate())
+    return dataset.batch_dynamic_time_series_bucket(
         batch_size=batch_size, len_key='seq_len', max_padding_rate=0.1,
         expiration=1000*batch_size, drop_incomplete=training,
         sort_key='seq_len', reverse_sort=True

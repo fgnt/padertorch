@@ -65,18 +65,13 @@ def main(model_path, load_ckpt, batch_size, device, _run):
     model.eval()
 
     _, _, test_set = get_datasets(
-        model_path, database_json, dataset, batch_size
-    )
-
-    summary = dict(
-        misclassified_examples=dict(),
-        correct_classified_examples=dict(),
-        accuracies=list(),
+        model_path, database_json, dataset, batch_size,
+        prefetch=device != 'cpu'
     )
     with torch.no_grad():
         for batch in split_managed(
-            test_set, is_indexable=False, progress_bar=True,
-            allow_single_worker=True
+            test_set, is_indexable=batch_size == 1 and device == 'cpu',
+            progress_bar=True, allow_single_worker=True
         ):
             output = model(pt.data.example_to_device(batch, device=device))
             prediction = torch.argmax(output, dim=-1).cpu().detach().numpy()
