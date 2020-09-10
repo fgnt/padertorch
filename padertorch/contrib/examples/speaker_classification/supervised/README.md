@@ -6,7 +6,7 @@ This example performs a simple speaker classification on the *clean_100* and
 ## Training
 To start the training, first define a path to where the trained models should be saved:
 ```bash
-export STORAGE_ROOT=<your desired storage root>; python -m padertorch.contrib.examples.speaker_classification.train with database_json=</path/to/json> dataset=<your_dataset>
+export STORAGE_ROOT=<your desired storage root>; python -m padertorch.contrib.examples.speaker_classification.supervised.train with database_json=</path/to/json> dataset=<your_dataset>
 ```
 Your trained models can be found in `$STORAGE_ROOT/speaker_clf`. During training,
 only 80% of the dataset is used for training. 10% are left out for validation
@@ -47,7 +47,7 @@ If you train on a different database than LibriSpeech, you can replace
 To run an evaluation, provide the evaluation script with the path to your
 trained model:
 ```bash
-mpiexec -np $(nproc --all) python -m padertorch.contrib.examples.speaker_classification.evaluate with model_path=<path/to/trained/model>
+mpiexec -np $(nproc --all) python -m padertorch.contrib.examples.speaker_classification.supervised.evaluate with model_path=<path/to/trained/model>
 ```
 The evaluation script loads the best checkpoint (lowest achieved loss) and
 performs a speaker classification on the evaluation data.

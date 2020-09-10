@@ -2,7 +2,7 @@
 Example call:
 
 export STORAGE_ROOT=<your desired storage root>
-python -m padertorch.contrib.examples.speaker_classification.train with database_json=</path/to/json>
+python -m padertorch.contrib.examples.speaker_classification.supervised.train with database_json=</path/to/json>
 """
 import os
 from pathlib import Path
@@ -12,12 +12,12 @@ from sacred import Experiment, commands
 
 from padertorch.io import get_new_storage_dir
 from padertorch import Trainer
-from padertorch.contrib.examples.speaker_classification.model import SpeakerClf
+from padertorch.contrib.examples.speaker_classification.supervised.model import SpeakerClf
 from padertorch.contrib.je.modules.conv import CNN1d
 from padertorch.modules.fully_connected import fully_connected_stack
 from padertorch.train.optimizer import Adam
 from padertorch.modules.normalization import Normalization
-from padertorch.contrib.examples.speaker_classification.data import get_datasets
+from padertorch.contrib.examples.speaker_classification.supervised.data import get_datasets
 
 
 ex = Experiment('speaker_clf')

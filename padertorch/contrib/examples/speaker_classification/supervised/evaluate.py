@@ -2,13 +2,13 @@
 Example calls:
 
 On single CPU (slow):
-python -m padertorch.contrib.examples.speaker_classification.evaluate with model_path=<path/to/trained/model>
+python -m padertorch.contrib.examples.speaker_classification.supervised.evaluate with model_path=<path/to/trained/model>
 
 On GPU:
-python -m padertorch.contrib.examples.speaker_classification.evaluate with model_path=<path/to/trained/model> device=0 batch_size=16
+python -m padertorch.contrib.examples.speaker_classification.supervised.evaluate with model_path=<path/to/trained/model> device=0 batch_size=16
 
 On multiple CPUs:
-mpiexec -np 8 python -m padertorch.contrib.examples.speaker_classification.evaluate with model_path=<path/to/trained/model>
+mpiexec -np 8 python -m padertorch.contrib.examples.speaker_classification.supervised.evaluate with model_path=<path/to/trained/model>
 """
 import os
 from pathlib import Path
@@ -22,8 +22,8 @@ from dlp_mpi import COMM, IS_MASTER, MASTER, split_managed
 import paderbox as pb
 
 import padertorch as pt
-from padertorch.contrib.examples.speaker_classification.data import get_datasets
-from padertorch.contrib.examples.speaker_classification.train import get_model
+from padertorch.contrib.examples.speaker_classification.supervised.data import get_datasets
+from padertorch.contrib.examples.speaker_classification.supervised.train import get_model
 
 ex = Experiment('speaker_clf')
 
