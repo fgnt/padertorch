@@ -22,7 +22,7 @@ database in the following format:
                 "audio_path": {
                     "observation": <path/to/wav>
                 },
-                "speaker_id": <chapter-id>-<speaker-id>
+                "speaker_id": <speaker-id>
             },
             <example_id_A1>: {
                 ...
@@ -39,8 +39,17 @@ database in the following format:
     }
 }
 ```
-If you train on a different database than LibriSpeech, you can replace
-`<chapter-id>` with an arbitrary string.
+If you train on LibriSpeech like we did, be aware that the speaker ID is defined
+as `<speaker-id>-<chapter-id>` by LibriSpeech, where `<chapter-id>` is an
+identifier for a book chapter.
+Here, we perform a speaker identification across chapters so we omit the chapter
+ID (the part of the speaker ID after the hyphen).
+This is taken care of during the data preparation.
+Generally, if the speaker ID contains one or more hyphens, the data preparation
+will take the part before the **first** hyphen as the final speaker label for
+classification.
+If the speaker ID does not contain any hyphens, it will take the complete speaker
+ID string as it is as speaker label.
 
 ## Evaluation
 
