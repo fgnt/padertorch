@@ -55,7 +55,6 @@ def main(model_path, load_ckpt, batch_size, device, _run):
     config = load_json(model_path / 'config.json')
     database_json = config['database_json']
     dataset = config['dataset']
-    num_speakers = config['num_speakers']
 
     model = pt.Model.from_config(config['model'])
     model = model.load_checkpoint(
