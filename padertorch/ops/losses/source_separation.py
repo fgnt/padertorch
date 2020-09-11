@@ -92,7 +92,7 @@ def pit_loss(
         >>> pit_loss(estimate, target, axis=-3)
         tensor(1.)
     """
-    axis = axis % estimate.ndimension()
+    # axis = axis % estimate.ndimension()
     sources = estimate.size()[axis]
     assert sources < 30, f'Are you sure? sources={sources}'
     if loss_fn in [torch.nn.functional.cross_entropy]:
@@ -105,15 +105,16 @@ def pit_loss(
         assert estimate.size() == target.size(), (
             f'{estimate.size()} != {target.size()}'
         )
+
     candidates = []
-    filler = (slice(None),) * axis
+    indexer = [slice(None),] * estimate.ndim
     permutations = list(itertools.permutations(range(sources)))
     for permutation in permutations:
+        indexer[axis] = permutation
         candidates.append(loss_fn(
-            estimate[filler + (permutation, )],
+            estimate[tuple(indexer)],
             target
         ))
-
     min_loss, idx = torch.min(torch.stack(candidates), dim=0)
 
     if return_permutation:
