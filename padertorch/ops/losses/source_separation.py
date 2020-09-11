@@ -200,19 +200,32 @@ def pair_wise_loss(
     sources = estimate.size()[axis]
     assert sources < 30, f'Are you sure? sources={sources}'
     if loss_fn in [torch.nn.functional.cross_entropy]:
+        import einops
+
+        assert axis % estimate.ndimension() == 1, axis
         estimate_shape = list(estimate.shape)
         del estimate_shape[1]
         assert estimate_shape == list(target.shape), (
             f'{estimate.shape} (N, K, ...) does not match {target.shape} (N, ...)'
         )
+
+        assert loss_fn == torch.nn.functional.cross_entropy, loss_fn
+        assert axis == 1, axis
+
+        # torch.einsum does not support reduction of ...
+        return einops.reduce(torch.einsum(
+            'nc...,n...k->n...ck',
+            -torch.nn.LogSoftmax(dim=1)(estimate),
+            torch.nn.functional.one_hot(target, num_classes=sources).to(estimate.dtype)
+        ), 'n ... c k -> c k', reduction='mean')
+
     else:
         assert estimate.size() == target.size(), (
             f'{estimate.size()} != {target.size()}'
         )
 
-    pair_wise_loss = []
+        assert estimate.shape == target.shape, (estimate.shape, target.shape)
 
-    if estimate.ndim == target.ndim:
         indexer_e = [slice(None), ] * estimate.ndim
         indexer_t = [slice(None), ] * target.ndim
         for i in range(sources):
@@ -223,23 +236,11 @@ def pair_wise_loss(
                     estimate[tuple(indexer_e)],
                     target[tuple(indexer_t)],
                 ))
-        pair_wise_loss = torch.stack(pair_wise_loss, 0).reshape(sources, sources)
-    else:
-        assert loss_fn == torch.nn.functional.cross_entropy, loss_fn
-        assert axis == 1, axis
-        import einops
-
-        pair_wise_loss = einops.reduce(torch.einsum(
-            'nc...,n...k->n...ck',
-            -torch.nn.LogSoftmax(dim=1)(estimate),
-            torch.nn.functional.one_hot(target, num_classes=sources).to(estimate.dtype)
-        ), 'n ... c k -> c k', reduction='mean')
-
-    return pair_wise_loss
+        return torch.stack(pair_wise_loss, 0).reshape(sources, sources)
 
 
 def pit_loss_from_pair_wise(
-        pair_wise_loss,
+        pair_wise_loss_matrix,
         *,
         reduction='mean',
         algorithm: ['optimal', 'greedy'] = 'optimal',
@@ -247,9 +248,14 @@ def pit_loss_from_pair_wise(
 ):
     """
     Calculates the PIT loss given a pair_wise_loss matrix.
+    
+    Args:
+        pair_wise_loss_matrix: shape: (K, K)
+        reduction: 'mean' or 'sum'
+        algorithm:
+        return_permutation:
 
     Returns:
-        
         
     >>> import numpy as np
     >>> score_matrix = np.array([[11., 10, 0],[4, 5, 10],[6, 0, 5]])
@@ -257,21 +263,21 @@ def pit_loss_from_pair_wise(
     array([[11., 10.,  0.],
            [ 4.,  5., 10.],
            [ 6.,  0.,  5.]])
-    >>> pair_wise_loss = torch.tensor(-score_matrix)
-    >>> pit_loss_from_pair_wise(pair_wise_loss, reduction='sum', algorithm='optimal')
+    >>> pair_wise_loss_matrix = torch.tensor(-score_matrix)
+    >>> pit_loss_from_pair_wise(pair_wise_loss_matrix, reduction='sum', algorithm='optimal')
     tensor(-26., dtype=torch.float64)
-    >>> pit_loss_from_pair_wise(pair_wise_loss, reduction='sum', algorithm='greedy')
+    >>> pit_loss_from_pair_wise(pair_wise_loss_matrix, reduction='sum', algorithm='greedy')
     tensor(-21., dtype=torch.float64)
 
     """
     import scipy.optimize
     from padertorch.utils import to_numpy
 
-    assert len(pair_wise_loss.shape) == 2, pair_wise_loss.shape
-    assert pair_wise_loss.shape[-2] == pair_wise_loss.shape[-1], pair_wise_loss.shape
-    sources = pair_wise_loss.shape[-1]
+    assert len(pair_wise_loss_matrix.shape) == 2, pair_wise_loss_matrix.shape
+    assert pair_wise_loss_matrix.shape[-2] == pair_wise_loss_matrix.shape[-1], pair_wise_loss_matrix.shape
+    sources = pair_wise_loss_matrix.shape[-1]
 
-    pair_wise_loss_np = to_numpy(pair_wise_loss)
+    pair_wise_loss_np = to_numpy(pair_wise_loss_matrix)
 
     if algorithm == 'optimal':
         row_ind, col_ind = scipy.optimize.linear_sum_assignment(
@@ -285,9 +291,9 @@ def pit_loss_from_pair_wise(
         raise ValueError(algorithm)
 
     if reduction == 'mean':
-        min_loss = pair_wise_loss[row_ind, col_ind].mean()
+        min_loss = pair_wise_loss_matrix[row_ind, col_ind].mean()
     elif reduction == 'sum':
-        min_loss = pair_wise_loss[row_ind, col_ind].sum()
+        min_loss = pair_wise_loss_matrix[row_ind, col_ind].sum()
     else:
         raise ValueError(reduction)
 
