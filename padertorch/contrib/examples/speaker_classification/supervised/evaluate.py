@@ -56,7 +56,7 @@ def main(model_path, load_ckpt, batch_size, device, _run):
     dataset = config['dataset']
     num_speakers = config['num_speakers']
 
-    model = get_model(num_speakers)
+    model = pt.Model.from_config(config['model'])
     model = model.load_checkpoint(
         model_path / 'checkpoints' / load_ckpt, consider_mpi=True
     )
