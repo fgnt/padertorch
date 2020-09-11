@@ -7,6 +7,7 @@ Use the following command:
 
 Other options for sacred are available, refer to the config() function.
 """
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 
@@ -20,38 +21,32 @@ import torch.nn as nn
 
 from einops import rearrange
 
+from paderbox.utils.timer import timeStamped
+
 from padertorch.data.utils import collate_fn
-from padertorch.ops.losses.kl_divergence import gaussian_kl_divergence
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 from padertorch.testing.test_db import MnistDatabase
+from padertorch.utils import to_numpy
 
-from torch.distributions import Normal
+from pathlib import Path
 
 ex = sacred.Experiment()
 
 
 def get_dataset(batch_size):
-    """
-    load MNIST train and test dataset
-
-    Args:
-        batch_size (int):
-
-    Returns:
-        train_set and test_set
-
-    """
+    """load MNIST train and test dataset"""
     db = MnistDatabase()
     train_set = db.get_dataset('train')
     test_set = db.get_dataset('test')
 
-    training_data = prepare_dataset(train_set, batch_size=batch_size, training=True)
-    test_data = prepare_dataset(test_set, batch_size=batch_size, training=False)
+    training_data = prepare_dataset(batch_size, train_set, training=True)
+    test_data = prepare_dataset(batch_size, test_set, training=False)
 
     return training_data, test_data
 
 
-def prepare_dataset(dataset, batch_size, training=False):
+def prepare_dataset(batch_size, dataset, training=False):
+    """preprocesses the dataset, shuffle the training set"""
     if training:
         dataset = dataset.shuffle(reshuffle=True)
 
@@ -72,113 +67,156 @@ class VAEModel(pt.Model):
 
     def forward(self, inputs):
         images = inputs['image'][:, None, :, :]
-        out, mu, std = self.net(images)
+        out, mu, log_var = self.net(images)
 
         return dict(
-            input=images,
+            inputs=images,
             mean=mu,
             prediction=out,
-            std=std
+            log_var=log_var
         )
 
     def review(self, inputs, outputs):
-        images = rearrange(outputs['input'], 'b c x y -> b (c x y)')
+        images = rearrange(outputs['inputs'], 'b c x y -> b (c x y)')
         prediction = rearrange(outputs['prediction'], 'b c x y -> b (c x y)')
 
-        mse = nn.functional.mse_loss(prediction, images)  # reconstruction error
+        mse = nn.functional.mse_loss(prediction, images)  # Reconstruction error
 
-        q = Normal(loc=outputs['mean'], scale=outputs['std'])  # posterior distribution
-        mean = torch.zeros(outputs['mean'].shape[-1])
-        std = torch.ones(outputs['std'].shape[-1])
-        p = Normal(loc=mean, scale=std)  # prior distribution zero mean and unit variance
-        kld = gaussian_kl_divergence(q=q, p=p)  # regularisation error
+        # Kullback leibler divergence
+        kld = -0.5 * (1 + outputs['log_var'] - outputs['mean'].pow(2) - outputs['log_var'].exp()).sum()
 
         loss = mse + torch.sum(kld)
 
         return dict(
             loss=loss,
+            images=self.add_images(outputs),
         )
+
+    def add_images(self, batch):
+        """Creates a dictionary of input and reconstructed images. The results can be seen in tensorboard"""
+        images = dict()
+        if batch['inputs'].size()[0] > 3:
+            num_images = 3
+        else:
+            num_images = 1
+
+        for name in ['inputs', 'prediction']:
+            for idx in range(num_images):
+                image = batch[name][idx, :, :, :].squeeze()
+                image = to_numpy(image, detach=True)
+
+                image = np.clip(image * 255, 0, 255)
+                image = image.astype(np.uint8)
+
+                images[name + '_example_' + str(idx)] = image[None]
+        return images
+
+    def create_mnist_data(self, logfilepath):
+        """Samples from a unit distribution and the decoder creat a new image."""
+        num_images = 3  # Number of images that should be created
+        model = self.net.double()
+        checkpoint = torch.load(logfilepath.joinpath("checkpoints/ckpt_best_loss.pth"))
+
+        try:
+            model.load_state_dict(checkpoint['model'])
+        except:
+            states = dict()
+            for keys, value in zip(checkpoint['model'].keys(), checkpoint['model'].values()):
+                states[keys[4::]] = value
+            model.load_state_dict(states)
+
+        inputs = np.random.normal(size=(num_images, 1))
+        prediction = model.decode(torch.tensor(inputs).cuda()).cpu()[:, :, :28, :28]
+
+        Path.mkdir(logfilepath.joinpath('Created_Images'))
+        for idx in range(prediction.shape[0]):
+            plt.imshow(prediction[idx].detach().numpy().squeeze())
+            plt.savefig(logfilepath.joinpath('Created_Images/example_' + str(idx) + '_.png'))
 
 
 class VAE(nn.Module):
     """ A simple Variational Autoencoder"""
-
     def __init__(self, activation_function, hidden_channels, kernel_size):
         super().__init__()
         self.n_layer = 3
         self.padding = 1
-        self.size_bottleneck = 28  # image size 28*28
+        self.latent_dimension = 28  # Image size 28*28
+        activation_function = ACTIVATION_FN_MAP[activation_function]
         stride = int(kernel_size/2)
 
         for idx in range(self.n_layer):
-            self.size_bottleneck = int(
-                (self.size_bottleneck + 2 * self.padding - (kernel_size - 1) - 1) / stride + 1)
+            self.latent_dimension = int(
+                (self.latent_dimension + 2 * self.padding - (kernel_size - 1) - 1) / stride + 1)
 
-        # encoder
-        self.conv_encoder = nn.Sequential(
-            torch.nn.Conv2d(in_channels=1, out_channels=hidden_channels, kernel_size=kernel_size, stride=stride,
+        # Encoder
+        self.encoder = nn.Sequential(
+            torch.nn.Conv2d(in_channels=1, out_channels=hidden_channels[0], kernel_size=kernel_size, stride=stride,
                             padding=self.padding),
             activation_function(),
-            torch.nn.Conv2d(in_channels=hidden_channels, out_channels=hidden_channels, kernel_size=kernel_size,
+            torch.nn.Conv2d(in_channels=hidden_channels[0], out_channels=hidden_channels[1], kernel_size=kernel_size,
                             stride=stride, padding=self.padding),
             activation_function(),
-            torch.nn.Conv2d(in_channels=hidden_channels, out_channels=1, kernel_size=kernel_size, stride=stride,
+            torch.nn.Conv2d(in_channels=hidden_channels[1], out_channels=1, kernel_size=kernel_size, stride=stride,
                             padding=self.padding),
             activation_function(),
         )
-        self.linear_1 = torch.nn.Linear(in_features=self.size_bottleneck**2, out_features=1)
-        self.linear_2 = torch.nn.Linear(in_features=self.size_bottleneck**2, out_features=1)
+        self.linear_1 = torch.nn.Linear(in_features=self.latent_dimension**2, out_features=1)
+        self.linear_2 = torch.nn.Linear(in_features=self.latent_dimension**2, out_features=1)
 
-        # decoder
-        self.transp_conv_decoder = nn.Sequential(
-            torch.nn.ConvTranspose2d(in_channels=1, out_channels=hidden_channels, kernel_size=kernel_size,
+        # Decoder
+        self.decoder = nn.Sequential(
+            torch.nn.ConvTranspose2d(in_channels=1, out_channels=hidden_channels[1], kernel_size=kernel_size,
                                      stride=stride),
             activation_function(),
-            torch.nn.ConvTranspose2d(in_channels=hidden_channels, out_channels=hidden_channels,
+            torch.nn.ConvTranspose2d(in_channels=hidden_channels[1], out_channels=hidden_channels[0],
                                      kernel_size=kernel_size, stride=stride),
             activation_function(),
-            torch.nn.ConvTranspose2d(in_channels=hidden_channels, out_channels=1, kernel_size=kernel_size,
+            torch.nn.ConvTranspose2d(in_channels=hidden_channels[0], out_channels=1, kernel_size=kernel_size,
                                      stride=stride),
         )
-        self.linear_3 = torch.nn.Linear(in_features=1, out_features=self.size_bottleneck**2)
-
-    def encode(self, x):
-        x = self.conv_encoder(x)
-        x = rearrange(x, 'b c x y -> b (c x y)')
-        mu = self.linear_1(x)  # mean value
-        std = 0.5 * self.linear_2(x)  # standard deviation
-        eps = torch.randn_like(std)
-        return mu + eps*std, mu, std
+        self.linear_3 = torch.nn.Linear(in_features=1, out_features=self.latent_dimension**2)
 
     def decode(self, x):
         x = self.linear_3(x)
-        x = rearrange(x, 'b (x y) -> b x y', y=self.size_bottleneck, x=self.size_bottleneck)
+        x = rearrange(x, 'b (x y) -> b x y', y=self.latent_dimension, x=self.latent_dimension)
         x = x[:, None, :, :]
-        return self.transp_conv_decoder(x)
+        return self.decoder(x)
 
-    def forward(self, input):
-        x, mu, std = self.encode(input)
+    def encode(self, x):
+        x = self.encoder(x)
+        x = rearrange(x, 'b c x y -> b (c x y)')
+        mu = self.linear_1(x)  # Mean value
+        log_var = self.linear_2(x)  # Variance
+        return mu, log_var
+
+    def forward(self, inputs):
+        mu, log_var = self.encode(inputs)
+        x = self.sampling(mu, log_var)
         y = self.decode(x)
-        return y[:, :, :28, :28], mu, std
+        return y[:, :, :28, :28], mu, log_var
+
+    def sampling(self, mu, log_var):
+        std = torch.exp(0.5 * log_var)  # Standard deviation
+        eps = torch.randn_like(std)
+        return mu + std * eps
 
 
 @ex.config
 def config():
-    epochs = 2          # Use resume=True to train for more epochs
+    activation_function = 'relu'  # Activation function after convolutional layers
     batch_size = 10
-    resume = False      # PT: Continue from checkpoints
-
-    assert os.environ.get('STORAGE_ROOT') is not None, 'STORAGE_ROOT is not defined in the environment variables'
-    logfilepath = os.environ['STORAGE_ROOT'] + '/vae_mnist'  # PT creates log files
-
-    activation_function = ACTIVATION_FN_MAP['relu']  # activation function after convolutional layers
-    hidden_channels = 64
+    epochs = 1  # Use resume=True to train for more epochs
+    hidden_channels = [32, 64]
     kernel_size = 2
     assert kernel_size < 6, 'maximum kernel_size is 5'
+    logfilepath = Path(os.environ['STORAGE_ROOT'] + '/vae_mnist/' + timeStamped('')[1:])  # PT creates log files
+    assert os.environ.get('STORAGE_ROOT') is not None, 'STORAGE_ROOT is not defined in the environment variables'
+    resume = False  # PT: Continue from checkpoints
+
 
 
 @ex.automain
-def main(activation_function, batch_size, epochs, hidden_channels, kernel_size, resume, logfilepath):
+def main(activation_function, batch_size, epochs, hidden_channels, kernel_size, logfilepath, resume):
     """
     Example Training for a Variational Autoencoder uses SGD for optimation
 
@@ -190,12 +228,14 @@ def main(activation_function, batch_size, epochs, hidden_channels, kernel_size, 
                     The structure of produced storage_dir is:
                     .
                     ├── checkpoints
-                    │   ├── ckpt_7122.pth
-                    │   ├── ckpt_14244.pth
-                    │   ├── ckpt_best_loss.pth -> ckpt_7122.pth
-                    │   ├── ckpt_latest.pth -> ckpt_14244.pth
-                    │   └── ckpt_ranking.json
+                    │   ├── ckpt_7122.pth
+                    │   ├── ckpt_14244.pth
+                    │   ├── ckpt_best_loss.pth -> ckpt_7122.pth
+                    │   ├── ckpt_latest.pth -> ckpt_14244.pth
+                    │   └── ckpt_ranking.json
                     ├── events.out.tfevents.1548851867.ntsim5
+                    ├── created_images
+                        ├── example_image.png
     """
     # load dataset
     train_set, test_set = get_dataset(batch_size=batch_size)
@@ -214,3 +254,5 @@ def main(activation_function, batch_size, epochs, hidden_channels, kernel_size, 
 
     trainer.register_validation_hook(validation_iterator=test_set)
     trainer.train(train_set, resume=resume)
+
+    model.create_mnist_data(logfilepath)
