@@ -26,6 +26,7 @@ sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 experiment_name = "tasnet"
 ex = Experiment(experiment_name)
 
+JSON_BASE = os.environ.get('NT_DATABASE_JSONS_DIR', None)
 
 @ex.config
 def config():
@@ -40,8 +41,8 @@ def config():
     lr_scheduler_gamma = 0.98
     load_model_from = None
     database_json = None
-    if "WSJ0_2MIX" in os.environ:
-        database_json = os.environ.get("WSJ0_2MIX")
+    if database_json is None and JSON_BASE:
+        database_json = Path(JSON_BASE) / 'wsj0_2mix_8k.json'
 
     if database_json is None:
         raise MissingConfigError(

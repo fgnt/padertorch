@@ -21,7 +21,7 @@ With the default parameters, the following numbers can be obtained:
 Pre-requisites
 --------------
 A storage root must be set with `export STORAGE_ROOT=/path/to/your/storage`.
-You can optionally set the environment variable `"WSJ0_2MIX"` to the wsj0-2mix JSON file.
+You can optionally set the environment variable `"NT_DATABASE_JSONS_DIR"` to the directory containing the WSJ0-2mix JSON file with the name `wsj0_2mix_8k.json`.
 
 
 Training
@@ -33,7 +33,7 @@ After installing `padertorch`, a training can be started with
 $ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}"
 ```
 
-If you set the environment variable "WSJ0_2MIX", you don't have to provide `database_json` in the above command.
+If you set the environment variable "NT_DATABASE_JSONS_DIR", you don't have to provide `database_json` in the above command.
 
 This creates a `Makefile` for easy re-running and evaluation. 
 You can call `...train init` to just create the `Makefile` without starting the training run.
@@ -68,7 +68,7 @@ Evaluation
 
 The evaluation requires `dlp_mpi` and `pb_bss` as additional dependencies.
 `dlp_mpi` can be installed via `pip install dlp_mpi` and `pb_bss` is available at [github.com/fgnt/pb_bss](github.com/fgnt/pb_bss).
-If the environment variable "WSJ0_2MIX" is set, the evaluation can be initialized by using the `Makefile` that was created by the training script.
+If the environment variable "NT_DATABASE_JSONS_DIR" is set, the evaluation can be initialized by using the `Makefile` that was created by the training script.
 Go into the model directory and run
 
 ```bash
@@ -78,7 +78,7 @@ make evaluation
 Then follow the instructions printed by the script.
 If you want to evaluate the model on the PC2 computing cluster, have a look at the file header of `evaluate.py` for instructions on how to utilize mpi for parallelization.
 
-If you don't want to set the "WSJ0_2MIX" environment variable, you can start an evaluation with:
+If you don't want to set the "NT_DATABASE_JSONS_DIR" environment variable, you can start an evaluation with:
 
 ```bash
 python -m padertorch.contrib.examples.source_separation.tasnet.evaluate with model_path="<path/to/the/model>" database_json="<path/to/the/database/json>"
