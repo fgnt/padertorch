@@ -12,6 +12,7 @@ mpiexec -np 8 python -m padertorch.contrib.examples.speaker_classification.super
 """
 import os
 from pathlib import Path
+import warnings
 
 from sacred import Experiment, commands
 import numpy as np
@@ -40,10 +41,11 @@ def defaults():
     load_ckpt = 'ckpt_best_loss.pth'
     batch_size = 1
     device = 'cpu'
+    store_misclassified = True
 
 
 @ex.automain
-def main(model_path, load_ckpt, batch_size, device, _run):
+def main(_run, model_path, load_ckpt, batch_size, device, store_misclassified):
     if IS_MASTER:
         commands.print_config(_run)
 
@@ -135,19 +137,26 @@ def main(model_path, load_ckpt, batch_size, device, _run):
         misclassified_examples = summary['misclassified_examples']
         correct_classified_examples = summary['correct_classified_examples']
         accuracy = np.array(hits).astype('float').mean()
-        misclassified_dir = eval_dir / 'misclassified_examples'
-        for example_id, v in misclassified_examples.items():
-            label, prediction_label, audio_path, _ = v.values()
-            predicted_speaker_audio_path = \
-                correct_classified_examples[prediction_label][0]
-            example_dir = \
-                misclassified_dir / f'{example_id}_{label}_{prediction_label}'
-            example_dir.mkdir(parents=True)
-            os.symlink(audio_path, example_dir / 'example.wav')
-            os.symlink(
-                predicted_speaker_audio_path,
-                example_dir / 'predicted_speaker_example.wav'
-            )
+        if store_misclassified:
+            misclassified_dir = eval_dir / 'misclassified_examples'
+            for example_id, v in misclassified_examples.items():
+                label, prediction_label, audio_path, _ = v.values()
+                try:
+                    predicted_speaker_audio_path = \
+                        correct_classified_examples[prediction_label][0]
+                    example_dir = \
+                        misclassified_dir / f'{example_id}_{label}_{prediction_label}'
+                    example_dir.mkdir(parents=True)
+                    os.symlink(audio_path, example_dir / 'example.wav')
+                    os.symlink(
+                        predicted_speaker_audio_path,
+                        example_dir / 'predicted_speaker_example.wav'
+                    )
+                except KeyError:
+                    warnings.warn(
+                        'There were no correctly predicted inputs from speaker '
+                        f'with speaker label {prediction_label}'
+                    )
         outputs = dict(
             accuracy=f'{accuracy:.2%} ({np.sum(hits)}/{len(hits)})',
             misclassifications=misclassified_examples,
