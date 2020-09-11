@@ -92,12 +92,12 @@ def pit_loss(
         >>> pit_loss(estimate, target, axis=-3)
         tensor(1.)
     """
-    # axis = axis % estimate.ndimension()
     sources = estimate.size()[axis]
     assert sources < 30, f'Are you sure? sources={sources}'
     if loss_fn in [torch.nn.functional.cross_entropy]:
+        assert axis % estimate.ndimension() == 1, axis
         estimate_shape = list(estimate.shape)
-        del estimate_shape[1]
+        del estimate_shape[axis]
         assert estimate_shape == list(target.shape), (
             f'{estimate.shape} (N, K, ...) does not match {target.shape} (N, ...)'
         )
@@ -197,7 +197,6 @@ def pair_wise_loss(
         >>> pit_loss_from_pair_wise(pair_wise_loss(estimate, target, axis=-3))
         tensor(1.)
     """
-    # axis = axis % estimate.ndimension()
     sources = estimate.size()[axis]
     assert sources < 30, f'Are you sure? sources={sources}'
     if loss_fn in [torch.nn.functional.cross_entropy]:
