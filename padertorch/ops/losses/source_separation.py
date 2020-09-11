@@ -123,7 +123,7 @@ def pit_loss(
         return min_loss
 
 
-def pair_wise_loss(
+def compute_pairwise_losses(
         estimate: torch.Tensor,
         target: torch.Tensor,
         axis: int,
@@ -166,35 +166,35 @@ def pair_wise_loss(
     Examples:
         >>> T, K, F = 4, 2, 5
         >>> estimate, target = torch.ones(T, K, F), torch.zeros(T, K, F)
-        >>> pit_loss_from_pair_wise(pair_wise_loss(estimate, target, 1))
+        >>> pit_loss_from_loss_matrix(compute_pairwise_losses(estimate, target, 1))
         tensor(1.)
 
         >>> T, K, F = 4, 2, 5
         >>> estimate, target = torch.ones(T, K, F), torch.zeros(T, F, dtype=torch.int64)
-        >>> pit_loss_from_pair_wise(pair_wise_loss(estimate, target, 1, loss_fn=torch.nn.functional.cross_entropy), reduction='sum')
+        >>> pit_loss_from_loss_matrix(compute_pairwise_losses(estimate, target, 1, loss_fn=torch.nn.functional.cross_entropy), reduction='sum')
         tensor(0.6931)
         >>> pit_loss(estimate, target, 1, loss_fn=torch.nn.functional.cross_entropy)
         tensor(0.6931)
 
         >>> T, K, F = 4, 2, 5
         >>> estimate, target = torch.ones(K, F, T), torch.zeros(K, F, T)
-        >>> pit_loss_from_pair_wise(pair_wise_loss(estimate, target, 0))
+        >>> pit_loss_from_loss_matrix(compute_pairwise_losses(estimate, target, 0))
         tensor(1.)
 
         >>> T, K, F = 4, 2, 5
         >>> estimate = torch.stack([torch.ones(F, T), torch.zeros(F, T)])
         >>> target = estimate[(1, 0), :, :]
-        >>> pit_loss_from_pair_wise(pair_wise_loss(estimate, target, axis=0), return_permutation=True)
+        >>> pit_loss_from_loss_matrix(compute_pairwise_losses(estimate, target, axis=0), return_permutation=True)
         (tensor(0.), array([1, 0]))
 
         >>> K = 5
         >>> estimate, target = torch.ones(K), torch.zeros(K)
-        >>> pit_loss_from_pair_wise(pair_wise_loss(estimate, target, axis=0))
+        >>> pit_loss_from_loss_matrix(compute_pairwise_losses(estimate, target, axis=0))
         tensor(1.)
 
         >>> A, B, K, C, F = 4, 5, 3, 100, 128
         >>> estimate, target = torch.ones(A, B, K, C, F), torch.zeros(A, B, K, C, F)
-        >>> pit_loss_from_pair_wise(pair_wise_loss(estimate, target, axis=-3))
+        >>> pit_loss_from_loss_matrix(compute_pairwise_losses(estimate, target, axis=-3))
         tensor(1.)
     """
     sources = estimate.size()[axis]
@@ -240,7 +240,7 @@ def pair_wise_loss(
         return torch.stack(pair_wise_loss_matrix, 0).reshape(sources, sources)
 
 
-def pit_loss_from_pair_wise(
+def pit_loss_from_loss_matrix(
         pair_wise_loss_matrix,
         *,
         reduction='mean',
@@ -265,9 +265,9 @@ def pit_loss_from_pair_wise(
            [ 4.,  5., 10.],
            [ 6.,  0.,  5.]])
     >>> pair_wise_loss_matrix = torch.tensor(-score_matrix)
-    >>> pit_loss_from_pair_wise(pair_wise_loss_matrix, reduction='sum', algorithm='optimal')
+    >>> pit_loss_from_loss_matrix(pair_wise_loss_matrix, reduction='sum', algorithm='optimal')
     tensor(-26., dtype=torch.float64)
-    >>> pit_loss_from_pair_wise(pair_wise_loss_matrix, reduction='sum', algorithm='greedy')
+    >>> pit_loss_from_loss_matrix(pair_wise_loss_matrix, reduction='sum', algorithm='greedy')
     tensor(-21., dtype=torch.float64)
 
     """
