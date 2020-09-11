@@ -291,17 +291,23 @@ def init_with_new_storage_dir(_config, _run):
     init(_config)
 
 
-@ex.capture
-def prepare_and_train(_run, _log, trainer, train_datasets, validate_datasets,
-                      lr_scheduler_step, lr_scheduler_gamma,
-                      load_model_from, database_jsons):
-    trainer = pt.Trainer.from_config(trainer)
-    checkpoint_path = trainer.checkpoint_dir / 'ckpt_latest.pth'
+def get_trainer(trainer_config, load_model_from):
+    trainer = pt.Trainer.from_config(trainer_config)
 
+    checkpoint_path = trainer.checkpoint_dir / 'ckpt_latest.pth'
     if load_model_from is not None and not checkpoint_path.is_file():
         _log.info(f'Loading model weights from {load_model_from}')
         checkpoint = torch.load(load_model_from)
         trainer.model.load_state_dict(checkpoint['model'])
+
+    return trainer
+
+
+@ex.capture
+def prepare_and_train(_run, _log, trainer, train_datasets, validate_datasets,
+                      lr_scheduler_step, lr_scheduler_gamma,
+                      load_model_from, database_jsons):
+    trainer = get_trainer(trainer, load_model_from)
 
     if isinstance(database_jsons, str):
         database_jsons = database_jsons.split(',')
@@ -330,7 +336,24 @@ def prepare_and_train(_run, _log, trainer, train_datasets, validate_datasets,
 
     trainer.train(
         prepare_iterable_captured(db, train_datasets),
-        resume=checkpoint_path.is_file()
+        resume=trainer.checkpoint_dir.exists()
+    )
+
+
+@ex.command
+def test_run(_run, _log, trainer, train_datasets, validate_datasets,
+                      load_model_from, database_jsons):
+    trainer = get_trainer(trainer, load_model_from)
+
+    if isinstance(database_jsons, str):
+        database_jsons = database_jsons.split(',')
+
+    db = JsonDatabase(database_jsons)
+
+    # Perform a test run to check if everything works
+    trainer.test_run(
+        prepare_iterable_captured(db, train_datasets),
+        prepare_iterable_captured(db, validate_datasets),
     )
 
 

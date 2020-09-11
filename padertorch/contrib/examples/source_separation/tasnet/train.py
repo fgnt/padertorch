@@ -28,6 +28,7 @@ ex = Experiment(experiment_name)
 
 JSON_BASE = os.environ.get('NT_DATABASE_JSONS_DIR', None)
 
+
 @ex.config
 def config():
     debug = False
@@ -289,13 +290,7 @@ def init(_config, _run):
 def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
                       lr_scheduler_step, lr_scheduler_gamma,
                       load_model_from, database_json):
-    trainer = pt.Trainer.from_config(trainer)
-    checkpoint_path = trainer.checkpoint_dir / 'ckpt_latest.pth'
-
-    if load_model_from is not None and not checkpoint_path.is_file():
-        _log.info(f'Loading model weights from {load_model_from}')
-        checkpoint = torch.load(load_model_from)
-        trainer.model.load_state_dict(checkpoint['model'])
+    trainer = get_trainer(trainer, load_model_from)
 
     db = JsonDatabase(database_json)
 
@@ -330,7 +325,33 @@ def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
 
     trainer.train(
         prepare_iterable_captured(db, train_dataset),
-        resume=checkpoint_path.is_file()
+        resume=trainer.checkpoint_dir.exists()
+    )
+
+
+def get_trainer(trainer_config, load_model_from):
+    trainer = pt.Trainer.from_config(trainer_config)
+
+    checkpoint_path = trainer.checkpoint_dir / 'ckpt_latest.pth'
+    if load_model_from is not None and not checkpoint_path.is_file():
+        _log.info(f'Loading model weights from {load_model_from}')
+        checkpoint = torch.load(load_model_from)
+        trainer.model.load_state_dict(checkpoint['model'])
+
+    return trainer
+
+
+@ex.command
+def test_run(_run, _log, trainer, train_dataset, validate_dataset,
+                      load_model_from, database_json):
+    trainer = get_trainer(trainer, load_model_from)
+
+    db = JsonDatabase(database_json)
+
+    # Perform a test run to check if everything works
+    trainer.test_run(
+        prepare_iterable_captured(db, train_dataset),
+        prepare_iterable_captured(db, validate_dataset),
     )
 
 
