@@ -29,13 +29,17 @@ from padertorch.contrib.examples.source_separation.pit.templates import MAKEFILE
 experiment_name = "pit"
 ex = Experiment(experiment_name)
 
+JSON_BASE = os.environ.get('NT_DATABASE_JSONS_DIR', None)
+
+
 @ex.config
 def config():
     debug = False
     batch_size = 6
     database_json = None  # Path to WSJ0_2mix .json
-    if "WSJ0_2MIX" in os.environ:
-        database_json = os.environ.get("WSJ0_2MIX")
+    if database_json is None and JSON_BASE:
+        database_json = Path(JSON_BASE) / 'wsj0_2mix_8k.json'
+
     if database_json is None:
         raise MissingConfigError(
             'You have to set the path to the database JSON!', 'database_json')

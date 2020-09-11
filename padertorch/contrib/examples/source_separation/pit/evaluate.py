@@ -34,8 +34,10 @@ import padertorch as pt
 import pb_bss
 from paderbox.transform import istft
 from lazy_dataset.database import JsonDatabase
-from padertorch.contrib.examples.source_separation.pit.data import prepare_iterable
-from padertorch.contrib.examples.source_separation.pit.templates import MAKEFILE_TEMPLATE_EVAL as MAKEFILE_TEMPLATE
+from padertorch.contrib.examples.source_separation.pit.data import \
+    prepare_iterable
+from padertorch.contrib.examples.source_separation.pit.templates import \
+    MAKEFILE_TEMPLATE_EVAL as MAKEFILE_TEMPLATE
 
 experiment_name = "pit"
 ex = Experiment(experiment_name)
@@ -46,9 +48,14 @@ def config():
     debug = False
 
     database_json = None
-    if "WSJ0_2MIX" in os.environ:
-        database_json = os.environ.get("WSJ0_2MIX")
-    assert len(database_json) > 0, 'Set path to database Json on the command line or set environment variable WSJ0_2MIX'
+    if database_json is None and 'NT_DATABASE_JSONS_DIR' in os.environ:
+        database_json = Path(
+            os.environ.get('NT_DATABASE_JSONS_DIR')) / 'wsj0_2mix_8k.json'
+
+    assert len(database_json) > 0, (
+        'Set path to database Json on the command line or set environment '
+        'variable "NT_DATABASE_JSONS_DIR"'
+    )
     model_path = ''
     checkpoint_name = 'ckpt_best_loss.pth'
     experiment_dir = None
@@ -68,6 +75,7 @@ def config():
     if not Path(database_json).exists():
         raise InvalidConfigError('The database JSON does not exist!',
                                  'database_json')
+
 
 @ex.capture
 def get_model(_run, model_path, checkpoint_name):
@@ -131,9 +139,9 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
             )
 
             for batch in dlp_mpi.split_managed(iterable, is_indexable=False,
-                                           progress_bar=True,
-                                           allow_single_worker=debug
-                                           ):
+                                               progress_bar=True,
+                                               allow_single_worker=debug
+                                               ):
                 entry = dict()
                 model_output = model(pt.data.example_to_device(batch))
 
@@ -151,7 +159,8 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
                 s = s[:, :z.shape[1]]
                 z = z[:, :s.shape[1]]
                 entry['metrics'] \
-                    = pb_bss.evaluation.OutputMetrics(speech_prediction=z, speech_source=s).as_dict()
+                    = pb_bss.evaluation.OutputMetrics(speech_prediction=z,
+                                                      speech_source=s).as_dict()
 
         summary[dataset][example_id] = entry
 
@@ -174,4 +183,3 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
 if __name__ == '__main__':
     with pb.utils.debug_utils.debug_on(Exception):
         ex.run_commandline()
-

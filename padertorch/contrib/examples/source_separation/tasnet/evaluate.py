@@ -34,6 +34,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 experiment_name = 'tasnet'
 ex = Experiment(experiment_name)
 
+JSON_BASE = os.environ.get('NT_DATABASE_JSONS_DIR', None)
 
 @ex.config
 def config():
@@ -51,8 +52,9 @@ def config():
 
     # Database config
     database_json = None
-    if "WSJ0_2MIX" in os.environ:
-        database_json = os.environ.get("WSJ0_2MIX")
+    if database_json is None and JSON_BASE:
+        database_json = Path(JSON_BASE) / 'wsj0_2mix_8k.json'
+
     sample_rate = 8000
     datasets = ['mix_2_spk_min_cv', 'mix_2_spk_min_tt']
     target = 'speech_source'

@@ -35,6 +35,7 @@ sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 experiment_name = "or-pit"
 ex = Experiment(experiment_name)
 
+JSON_BASE = os.environ.get('NT_DATABASE_JSONS_DIR', None)
 
 @ex.config
 def config():
@@ -49,6 +50,12 @@ def config():
     lr_scheduler_gamma = 0.98
     load_model_from = None
     database_jsons = []
+
+    if len(database_jsons) == 0 and JSON_BASE:
+        database_jsons = [
+            Path(JSON_BASE) / 'wsj0_2mix_8k.json',
+            Path(JSON_BASE) / 'wsj0_3mix_8k.json',
+        ]
 
     # if not database_jsons:
     #     raise MissingConfigError(
@@ -184,6 +191,7 @@ def prepare_iterable(
     def add_num_speakers(example):
         example.update(num_speakers=len(example['speaker_id']))
         return example
+
     iterator = iterator.map(add_num_speakers)
 
     # Group iterators by number of speakers so that all examples in a batch
@@ -298,9 +306,7 @@ def prepare_and_train(_run, _log, trainer, train_datasets, validate_datasets,
     if isinstance(database_jsons, str):
         database_jsons = database_jsons.split(',')
 
-    db = DictDatabase(pb.utils.nested.nested_merge(
-        {}, *(pb.io.load(td) for td in database_jsons)
-    ))
+    db = JsonDatabase(database_jsons)
 
     # Perform a test run to check if everything works
     trainer.test_run(
