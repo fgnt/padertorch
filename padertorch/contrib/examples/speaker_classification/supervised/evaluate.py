@@ -19,11 +19,12 @@ import torch
 
 from dlp_mpi import COMM, IS_MASTER, MASTER, split_managed
 
-import paderbox as pb
+from paderbox.io.new_subdir import get_new_subdir
+from paderbox.io import load_json, dump_json
 
 import padertorch as pt
-from padertorch.contrib.examples.speaker_classification.supervised.data import get_datasets
-from padertorch.contrib.examples.speaker_classification.supervised.train import get_model
+
+from .data import get_datasets
 
 ex = Experiment('speaker_clf')
 
@@ -47,11 +48,11 @@ def main(model_path, load_ckpt, batch_size, device, _run):
         commands.print_config(_run)
 
     model_path = Path(model_path)
-    eval_dir = pb.io.new_subdir.get_new_subdir(
+    eval_dir = get_new_subdir(
         model_path / 'eval', id_naming='time', consider_mpi=True
     )
     # perform evaluation on a sub-set (10%) of the dataset used for training
-    config = pb.io.load_json(model_path / 'config.json')
+    config = load_json(model_path / 'config.json')
     database_json = config['database_json']
     dataset = config['dataset']
     num_speakers = config['num_speakers']
@@ -154,4 +155,4 @@ def main(model_path, load_ckpt, batch_size, device, _run):
         )
         print(f'Speaker classification accuracy on test set: {accuracy:.2%}')
         print(f'Wrote results to {eval_dir / "results.json"}')
-        pb.io.dump_json(outputs, eval_dir / 'results.json')
+        dump_json(outputs, eval_dir / 'results.json')

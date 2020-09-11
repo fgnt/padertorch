@@ -12,13 +12,13 @@ from sacred import Experiment, commands
 
 from padertorch.io import get_new_storage_dir
 from padertorch import Trainer
-from padertorch.contrib.examples.speaker_classification.supervised.model import SpeakerClf
 from padertorch.contrib.je.modules.conv import CNN1d
 from padertorch.modules.fully_connected import fully_connected_stack
 from padertorch.train.optimizer import Adam
 from padertorch.modules.normalization import Normalization
 from padertorch.configurable import class_to_str
-from padertorch.contrib.examples.speaker_classification.supervised.data import get_datasets
+from .model import SpeakerClf
+from .data import get_datasets
 
 
 ex = Experiment('speaker_clf')
