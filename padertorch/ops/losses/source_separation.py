@@ -228,15 +228,16 @@ def pair_wise_loss(
 
         indexer_e = [slice(None), ] * estimate.ndim
         indexer_t = [slice(None), ] * target.ndim
+        pair_wise_loss_matrix = []
         for i in range(sources):
             indexer_e[axis] = i
             for j in range(0, sources):
                 indexer_t[axis] = j
-                pair_wise_loss.append(loss_fn(
+                pair_wise_loss_matrix.append(loss_fn(
                     estimate[tuple(indexer_e)],
                     target[tuple(indexer_t)],
                 ))
-        return torch.stack(pair_wise_loss, 0).reshape(sources, sources)
+        return torch.stack(pair_wise_loss_matrix, 0).reshape(sources, sources)
 
 
 def pit_loss_from_pair_wise(
