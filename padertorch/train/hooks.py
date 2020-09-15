@@ -170,6 +170,16 @@ class SummaryHook(TriggeredHook):
         self.reset_summary()
         self.summary_prefix = summary_prefix
 
+    def __reduce__(self):
+        # Summary type is MappingProxyType and this cannot be reduced.
+        # Drop the type when using pickle.
+        # MappingProxyType is just used to detect bugs in this class.
+        return (
+            self.__class__,
+            (self.trigger, self.summary_prefix),
+            {'summary': dict(self.summary)}
+        )
+
     @property
     def priority(self):
         return Priority.SUMMARY
