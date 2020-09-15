@@ -105,9 +105,18 @@ def to_numpy(array, detach: bool = False, copy: bool = False) -> np.ndarray:
     tensor([0., 0.], requires_grad=True)
     >>> to_numpy(t, detach=True), np.zeros(2, dtype=np.float32)
     (array([0., 0.], dtype=float32), array([0., 0.], dtype=float32))
+
+    >>> from torch_complex.tensor import ComplexTensor
+    >>> to_numpy(ComplexTensor(t), detach=True)
+    array([0.+0.j, 0.+0.j], dtype=complex64)
+
     """
-    if isinstance(array, torch.Tensor):
+    # if isinstance(array, torch.Tensor):
+    try:
         array = array.cpu()
+    except AttributeError:
+        pass
+    else:
         if detach:
             array = array.detach()
 
@@ -119,6 +128,8 @@ def to_numpy(array, detach: bool = False, copy: bool = False) -> np.ndarray:
             array = np.asarray(array)
             array.setflags(write=False)
             return array
+    except TypeError as e:
+        raise TypeError(type(array), array) from e
     except RuntimeError as e:
         import sys
         raise type(e)(str(e) + (
