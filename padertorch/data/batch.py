@@ -89,7 +89,7 @@ def example_to_numpy(example, detach=False):
             example_to_numpy(element, detach=detach)
             for element in example
         ])
-    elif torch.is_tensor(example):
+    elif torch.is_tensor(example) or 'ComplexTensor' in str(type(example)):
         return to_numpy(example, detach=detach)
     elif isinstance(example, np.ndarray):
         return example
