@@ -15,7 +15,6 @@ import numpy as np
 import torch
 import torch.nn
 from torch.nn.parallel import gather, parallel_apply, replicate
-import tensorboardX
 import warnings
 
 from paderbox.utils.nested import deflatten
@@ -141,6 +140,8 @@ class Trainer(Configurable):
         ]
         self._stop_trigger = stop_trigger
         self._checkpoint_trigger = checkpoint_trigger
+
+        import tensorboardX  # The import is slow -> lazy import
         self.writer_cls = tensorboardX.SummaryWriter
 
     def test_run(
