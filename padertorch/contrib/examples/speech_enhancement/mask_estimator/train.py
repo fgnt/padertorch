@@ -74,10 +74,10 @@ def get_validation_dataset(database: JsonDatabase):
 
 
 @ex.command
-def test_run(storage_dir, chime3_json_path):
+def test_run(storage_dir, database_json):
     model = SimpleMaskEstimator(513)
     print(f'Simple training for the following model: {model}')
-    database = JsonDatabase(chime3_json_path)
+    database = JsonDatabase(database_json)
     train_dataset = get_train_dataset(database)
     validation_dataset = get_validation_dataset(database)
     trainer = pt.train.trainer.Trainer(
