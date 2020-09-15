@@ -597,6 +597,7 @@ class Trainer(Configurable):
             # not each object is serializable with `torch.save`.
             log_path_pattern = self.log_error_state({
                 'model': self.model,
+                'state_dict': self.state_dict(),
                 'review': review,
             })
             raise RuntimeError(
@@ -706,7 +707,9 @@ class Trainer(Configurable):
                 # not each object is serializable with `torch.save`.
                 log_path_pattern = self.log_error_state({
                     'model': self.model,
-                    'review': summary,
+                    'state_dict': self.state_dict(),
+                    'optimizer_summary': summary,
+                    'grad': {k: v.grad for k, v in self.model.named_parameters()},
                 })
                 raise RuntimeError(
                     f"The grad_norm ({grad_norm}) is not finite.\n"
