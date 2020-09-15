@@ -1,12 +1,7 @@
 import numpy as np
 import torch
 from einops import rearrange
-from paderbox.transform.module_stft import _get_window
-from paderbox.transform.module_stft import _samples_to_stft_frames
-from paderbox.transform.module_stft import _stft_frames_to_samples
-from paderbox.transform.module_stft import sample_index_to_stft_frame_index
-from paderbox.transform.module_stft import _biorthogonal_window_fastest
-from scipy.signal.windows import blackman
+import paderbox as pb
 import typing
 from math import ceil
 
@@ -29,7 +24,8 @@ def get_stft_kernel(size, window):
 
 
 def get_istft_kernel(size, shift, window):
-    window = _biorthogonal_window_fastest(window, shift) / size
+    window = pb.transform.module_stft._biorthogonal_window_fastest(
+        window, shift) / size
     length = len(window)
     kernel_numpy = np.array([
         [np.cos(1 * f * 2 * np.pi / size * n) * window[n]
@@ -53,7 +49,7 @@ class STFT:
             size: int = 1024,
             shift: int = 256,
             *,
-            window: [str, typing.Callable] = blackman,
+            window: [str, typing.Callable] = 'blackman',
             window_length: int = None,
             fading: typing.Optional[typing.Union[bool, str]] = 'full',
             pad: bool = True,
@@ -95,7 +91,7 @@ class STFT:
         self.window_length = window_length if window_length is not None \
             else size
 
-        window = _get_window(
+        window = pb.transform.module_stft._get_window(
             window=window,
             symmetric_window=symmetric_window,
             window_length=self.window_length,
@@ -241,7 +237,7 @@ class STFT:
             Number of STFT frames.
 
         """
-        return _samples_to_stft_frames(
+        return pb.transform.module_stft._samples_to_stft_frames(
             samples, self.window_length, self.shift,
             pad=self.pad, fading=self.fading
         )
@@ -256,7 +252,7 @@ class STFT:
         Returns:
 
         """
-        return sample_index_to_stft_frame_index(
+        return pb.transform.module_stft.sample_index_to_stft_frame_index(
             sample_index, self.window_length, self.shift, fading=self.fading
         )
 
@@ -270,6 +266,6 @@ class STFT:
         Returns: number of samples in time signal
 
         """
-        return _stft_frames_to_samples(
+        return pb.transform.module_stft._stft_frames_to_samples(
             frames, self.window_length, self.shift, fading=self.fading
         )
