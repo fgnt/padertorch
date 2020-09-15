@@ -148,7 +148,11 @@ class Trainer(Configurable):
             train_iterator,
             validation_iterator,
             device=0 if torch.cuda.is_available() else 'cpu',
+            *,
             test_with_known_iterator_length=False,
+            temporary_directory=None,
+            deterministic_atol=1e-5,
+            deterministic_rtol=1e-5,
     ):
         """
         Run a test on the trainer instance (i.e. model test).
@@ -162,6 +166,20 @@ class Trainer(Configurable):
          - deterministic output in eval
          - simple review dict test
 
+        
+        Args:
+            train_iterator:
+            validation_iterator:
+            device:
+            test_with_known_iterator_length:
+            temporary_directory:
+                Specify a path as alternative to tempfile.TemporaryDirectory().
+                Note: This directory will not be deleted and it is expected that
+                it is empty.
+                Usecase: Fast debugging of the reports to tensorboard.
+                         After the test run you can start tensorboard and inspect
+                         the reported values.
+
         """
         test_run(
             self,
@@ -169,6 +187,9 @@ class Trainer(Configurable):
             validation_iterator,
             device=device,
             test_with_known_iterator_length=test_with_known_iterator_length,
+            temporary_directory=temporary_directory,
+            deterministic_atol=deterministic_atol,
+            deterministic_rtol=deterministic_rtol,
         )
 
     def train(

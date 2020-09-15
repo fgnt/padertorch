@@ -10,7 +10,6 @@ import logging
 
 import numpy as np
 import torch
-import tensorboardX
 
 import lazy_dataset
 
@@ -78,8 +77,13 @@ def test_run(
         validation_iterator,
         device=0 if torch.cuda.is_available() else 'cpu',
         test_with_known_iterator_length=False,
+        temporary_directory=None,
+        *,
+        deterministic_atol=1e-5,
+        deterministic_rtol=1e-5,
 ):
     """
+
     Run a test on the trainer instance (i.e. model test).
 
     Does not work with layers updating their state such as BatchNorm
@@ -88,6 +92,22 @@ def test_run(
      - forward (train and validate)
      - deterministic output in eval
      - simple review dict test
+
+    Args:
+        trainer:
+        train_iterator:
+        validation_iterator:
+        device:
+        test_with_known_iterator_length:
+        temporary_directory:
+            Specify a path as alternative to tempfile.TemporaryDirectory().
+            Note: This directory will not be deleted and it is expected that
+            it is empty.
+            Usecase: Fast debugging of the reports to tensorboard.
+                     After the test run you can start tensorboard and inspect
+                     the reported values.
+
+    Returns:
 
     """
     print('Start test run')
@@ -102,9 +122,13 @@ def test_run(
             trainer.load_state_dict(state_dict)
 
     with contextlib.ExitStack() as exit_stack:
-        storage_dir = Path(
-            exit_stack.enter_context(tempfile.TemporaryDirectory())
-        ).expanduser().resolve()
+        if temporary_directory is None:
+            storage_dir = Path(
+                exit_stack.enter_context(tempfile.TemporaryDirectory())
+            ).expanduser().resolve()
+        else:
+            storage_dir = temporary_directory.expanduser().resolve()
+            assert list(storage_dir.glob('*')) == [], list(storage_dir.glob('*'))
         exit_stack.enter_context(mock.patch.object(
             trainer,
             'iteration',
@@ -280,10 +304,10 @@ def test_run(
             dt5, dt6 = step_returns_2[:2]
             dt7, dt8 = step_returns_2[-2:]
 
-        nested_test_assert_allclose(dt1['output'], dt5['output'])
-        nested_test_assert_allclose(dt2['output'], dt6['output'])
-        nested_test_assert_allclose(dt1['review'], dt5['review'])
-        nested_test_assert_allclose(dt2['review'], dt6['review'])
+        nested_test_assert_allclose(dt1['output'], dt5['output'], atol=deterministic_atol, rtol=deterministic_rtol)
+        nested_test_assert_allclose(dt2['output'], dt6['output'], atol=deterministic_atol, rtol=deterministic_rtol)
+        nested_test_assert_allclose(dt1['review'], dt5['review'], atol=deterministic_atol, rtol=deterministic_rtol)
+        nested_test_assert_allclose(dt2['review'], dt6['review'], atol=deterministic_atol, rtol=deterministic_rtol)
 
         # Can not test these, because dropout makes them unequal
         # nested_test_assert_allclose(dt3['output'], dt7['output'])
