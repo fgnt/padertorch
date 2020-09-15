@@ -32,7 +32,7 @@ test = [
     'protobuf3_to_dict',
     'torchvision',
     'matplotlib',  # padertorch.summary.tbx_utils use mpl for colorize
-    'pb_bss',
+    'pb_bss @ git+http://github.com/fgnt/pb_bss',
 ]
 
 setup(
