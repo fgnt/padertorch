@@ -607,7 +607,7 @@ class Trainer(Configurable):
 
         return loss, review
 
-    def log_error_state(self, data_dict):
+    def log_error_state(self, data_dict, folder='log'):
         """
 
         Args:
@@ -617,19 +617,33 @@ class Trainer(Configurable):
             log_path_pattern that describes the successfully written files.
 
         """
+        import paderbox as pb
+
+        import pickle
+
+        class MyPickleModule:
+            class MyPickler(pickle._Pickler):
+                def save(self, obj, save_persistent_id=True):
+                    try:
+                        super().save(obj, save_persistent_id=save_persistent_id)
+                    except Exception as e:
+                        print(f'Cannot pickle {obj!r}, replace it with a str.')
+                        super().save(repr(obj), save_persistent_id=save_persistent_id)
+
         written = []
         for k, v in data_dict.items():
-            p = self.storage_dir / 'log' / f'error_state_{k}.pth'
+            p = self.storage_dir / folder / f'error_state_{k}.pth'
             p.parent.mkdir(exist_ok=True)
             try:
                 # Not every object can be serialized.
-                torch.save(v, str(p))
+                with pb.io.atomic.open_atomic(p, 'wb') as fd:
+                    torch.save(v, fd, pickle_module=MyPickleModule())
                 written.append(k)
             except Exception as e:
-                print(f'Cannot save {k}. {e}')
+                print(f'Cannot save {k}. {type(e)}: {e}')
 
         written = ','.join(written)
-        return str(self.storage_dir / 'log' / f'error_state_{{{written}}}.pth')
+        return str(self.storage_dir / folder / f'error_state_{{{written}}}.pth')
 
     def register_hook(self, hook):
         if isinstance(hook, (tuple, list)):
