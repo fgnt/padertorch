@@ -111,8 +111,8 @@ setup(
     # for example:
     # $ pip install -e .[dev,test]
     extras_require={
-        'dev': ['check-manifest'],
         'test': test,
+        'all': test,
     },
 
     ext_modules=cythonize(
