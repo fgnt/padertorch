@@ -140,6 +140,20 @@ def prepare_and_train(_config, _run, train_dataset, validate_dataset, database_j
     )
 
 
+@ex.command
+def test_run(_config, _run, train_dataset, validate_dataset,
+             database_json):
+    sacred.commands.print_config(_run)
+    trainer = pt.Trainer.from_config(_config["trainer"])
+
+    db = JsonDatabase(json_path=database_json)
+
+    trainer.test_run(
+        prepare_iterable_captured(db, train_dataset),
+        prepare_iterable_captured(db, validate_dataset),
+    )
+
+
 @ex.main
 def main(_config, _run):
     """Main does resume directly.
