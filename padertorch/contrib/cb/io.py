@@ -102,6 +102,92 @@ def get_new_folder(
                 raise
 
 
+class SimpleMakefile:
+    """
+    >>> m = SimpleMakefile(tab=' '*4)
+    >>> m += 'SHELL := /bin/bash'
+    >>> m['a'] = 'cmd to generate a'
+    >>> m['b'] = ['cmd1', 'cmd2']
+    >>> m['c'] = [['multi', 'line', 'cmd']]
+    >>> m.phony['d'] = 'cmd to generate d phony'
+    >>> print(m.text)
+    SHELL := /bin/bash
+    <BLANKLINE>
+    a
+    	cmd to generate a
+    <BLANKLINE>
+    b
+    	cmd1
+    	cmd2
+    <BLANKLINE>
+    c
+    	multi \\
+            line \\
+            cmd
+    <BLANKLINE>
+    .PHONY: d
+    d:
+    	cmd to generate d phony
+    <BLANKLINE>
+    """
+    def __init__(self, data: dict=None, tab='\t'):
+        self.globals = []
+        self.tab = tab
+
+        if data is None:
+            self.data = {}
+        else:
+            self.data = {**data}
+
+        class Phony:
+            def __init__(self, m):
+                self.m = m
+
+            def __setitem__(self, alias, value):
+                if ':' not in alias:
+                    alias = f'{alias}:'
+                alias = f'.PHONY: {alias.split(":")[0]}\n{alias}'
+                self.m[alias] = value
+        self.phony = Phony(self)
+
+    def __setitem__(self, alias, value):
+        assert isinstance(alias, str), (type(alias), alias)
+        assert alias not in self.data, (alias, self.data.keys())
+        if ':' not in alias:
+            k = f'{alias}:'
+        self.data[alias] = value
+
+    def __iadd__(self, value):
+        self.data[object()] = value
+        return self
+
+    @property
+    def text(self):
+        text = []
+
+        for k, v in self.data.items():
+            if type(k) == object:
+                if isinstance(v, str):
+                    text.append(f'{v}')
+                elif isinstance(v, (tuple, list)):
+                    text.append('\n'.join(v))
+                    # for e in v:
+                    #     assert isinstance(e, str), (type(e), e, v)
+                    #     text.append(f'{e}')
+            else:
+                if isinstance(v, (tuple, list)):
+                    v = [*v]
+                    for i, e in enumerate(v):
+                        if isinstance(e, (tuple, list)):
+                            v[i] = f' \\\n{self.tab}'.join(e)
+                    v = '\n'.join(v)
+                v = textwrap.indent(v, f'{self.tab}')
+
+                text.append(f'{k}\n{v}')
+
+        return '\n\n'.join(text) + '\n'
+
+
 class Makefile:
     def __init__(self, data: dict=None):
         """
