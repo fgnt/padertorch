@@ -520,7 +520,7 @@ def fix_doctext_import_class(locals_dict):
         >>> abc = 1
         >>> class Foo: pass
         >>> def foo(): pass
-        >>> import_class(class_to_str(Foo))  # doctest: +ELLIPSIS
+        >>> import_class(class_to_str(Foo))  # doctest: +ELLIPSIS +NORMALIZE_WHITESPACE
         Traceback (most recent call last):
         ...
         ImportError: Could not import 'Foo' from '...configurable',
