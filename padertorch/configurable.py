@@ -594,7 +594,7 @@ def fix_doctext_import_class(locals_dict):
     globals()['class_to_str'] = class_to_str_fix
 
 
-def import_class(name: str):
+def import_class(name: [str, callable]):
     """Import the str and return the imported object.
 
     Opposite of class_to_str.
@@ -602,36 +602,92 @@ def import_class(name: str):
     >>> import padertorch
     >>> import_class(padertorch.Model)
     <class 'padertorch.base.Model'>
-    >>> import_class('padertorch.Model')
+    >>> import_class('padertorch.base.Model')
     <class 'padertorch.base.Model'>
+    >>> import_class(padertorch.Model.from_file)
+    <bound method Configurable.from_file of <class 'padertorch.base.Model'>>
+    >>> import_class('padertorch.Model.from_file')
+    <bound method Configurable.from_file of <class 'padertorch.base.Model'>>
+    >>> import_class('padertorch.Model.typo')  # doctest: +NORMALIZE_WHITESPACE
+    Traceback (most recent call last):
+    ...
+    ImportError: Could not import 'Model.typo' from 'padertorch',
+    because type object 'Model' has no attribute 'typo'
+    <BLANKLINE>
+    Make sure that
+    	1. This is the class you want to import.
+    	2. You activated the right environment.
+    	3. The module exists and has been installed with pip.
+    	4. You can import the module (and class) in ipython.
+    <BLANKLINE>
+    >>> import_class('padertorch.base.typo')  # doctest: +NORMALIZE_WHITESPACE
+    Traceback (most recent call last):
+    ...
+    ImportError: Could not import 'typo' from 'padertorch.base',
+    because module 'padertorch.base' has no attribute 'typo'
+    <BLANKLINE>
+    Make sure that
+    	1. This is the class you want to import.
+    	2. You activated the right environment.
+    	3. The module exists and has been installed with pip.
+    	4. You can import the module (and class) in ipython.
+    <BLANKLINE>
+    >>> import_class('typo.in.pkg.name')  # doctest: +NORMALIZE_WHITESPACE
+    Traceback (most recent call last):
+    ...
+    ImportError: Could not import 'typo.in.pkg.name'.
+    <BLANKLINE>
+    Make sure that
+    	1. This is the class you want to import.
+    	2. You activated the right environment.
+    	3. The module exists and has been installed with pip.
+    	4. You can import the module (and class) in ipython.
+    <BLANKLINE>
 
     """
     if not isinstance(name, str):
+        assert callable(name), name
         return name
+
+    if '.' not in name:
+        name = '__main__.' + name
+
     splitted = name.split('.')
-    module_name = '.'.join(splitted[:-1])
-    if module_name == '':
-        module_name = '__main__'
-    try:
-        module = importlib.import_module(module_name)
-    except ModuleNotFoundError:
-        print(
-            f'Tried to import module {module_name} to import class '
-            f'{splitted[-1]}. During import an error happened. '
-            f'Make sure that\n'
-            f'\t1. This is the class you want to import.\n'
-            f'\t2. You activated the right environment.\n'
-            f'\t3. The module exists and has been installed with pip.\n'
-            f'\t4. You can import the module (and class) in ipython.\n'
-        )
-        raise
-    try:
-        return getattr(module, splitted[-1])
-    except AttributeError as ex:
-        raise AttributeError(
-            f'Module {module} has no attribute {splitted[-1]}.'
-            f' Original: {ex!r}'
-        )
+
+    for i in reversed(range(1, len(splitted))):
+        module_name = '.'.join(splitted[:i])
+        try:
+            module = importlib.import_module(module_name)
+        except ModuleNotFoundError:
+            continue
+
+        qualname = splitted[i:]
+        cls = module
+        for part in qualname:
+            try:
+                cls = getattr(cls, part)
+            except AttributeError as e:
+                qualname = '.'.join(qualname)
+                raise ImportError(
+                    f'Could not import {qualname!r} from {module_name!r},\n'
+                    f'because {e}\n\n'
+                    f'Make sure that\n'
+                    f'\t1. This is the class you want to import.\n'
+                    f'\t2. You activated the right environment.\n'
+                    f'\t3. The module exists and has been installed with pip.\n'
+                    f'\t4. You can import the module (and class) in ipython.\n'
+                ) from None
+
+        return cls
+
+    raise ImportError(
+        f'Could not import {name!r}.\n\n'
+        f'Make sure that\n'
+        f'\t1. This is the class you want to import.\n'
+        f'\t2. You activated the right environment.\n'
+        f'\t3. The module exists and has been installed with pip.\n'
+        f'\t4. You can import the module (and class) in ipython.\n'
+    )
 
 
 def get_module_name_from_file(file):
