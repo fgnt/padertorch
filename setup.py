@@ -33,6 +33,7 @@ test = [
     'torchvision',
     'matplotlib',  # padertorch.summary.tbx_utils use mpl for colorize
     'pb_bss @ git+http://github.com/fgnt/pb_bss',
+    'torch_complex',  # https://github.com/kamo-naoyuki/pytorch_complex
 ]
 
 setup(
@@ -111,8 +112,8 @@ setup(
     # for example:
     # $ pip install -e .[dev,test]
     extras_require={
-        'dev': ['check-manifest'],
         'test': test,
+        'all': test,
     },
 
     ext_modules=cythonize(

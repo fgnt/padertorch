@@ -1,6 +1,11 @@
 
 import collections
 
+import torch
+
+import einops
+from typing import re
+
 import padertorch as pt
 
 # loss: torch.Tenso r =None,
@@ -22,13 +27,15 @@ class ReviewSummary(collections.Mapping):
         'loss', 'losses'
     }
 
-    def __init__(self, prefix='', _data=None):
+    def __init__(self, prefix='', _data=None, sampling_rate=None):
         if _data is None:
             _data = {}
         self.data = _data
         self.prefix = prefix
+        self.sampling_rate = sampling_rate
 
     def add_to_loss(self, value):
+        assert torch.isfinite(value), value
         if 'loss' in self.data:
             self.data['loss'] = self.data['loss'] + value
         else:
@@ -45,12 +52,32 @@ class ReviewSummary(collections.Mapping):
             []
         ).extend(value)
 
+    def add_audio(self, name, signal, sampling_rate=None, batch_first=None,
+                  normalize=True):
+        if sampling_rate is None:
+            sampling_rate = self.sampling_rate
+        assert sampling_rate is not None, sampling_rate
+        audio = pt.summary.audio(
+            signal=signal, sampling_rate=sampling_rate,
+            batch_first=batch_first, normalize=normalize
+        )
+        self.data.setdefault(
+            'audios',
+            {}
+        )[f'{self.prefix}{name}'] = audio
+        
     def add_text(self, name, text):
         assert isinstance(text, str), (type(text), text)
         self.data.setdefault(
             'texts',
             {}
         )[f'{self.prefix}{name}'] = text
+
+    def _rearrange(self, array, rearrange):
+        if rearrange is not None:
+            return einops.rearrange(array, rearrange)
+        else:
+            return array
 
     def add_image(self, name, image):
         # Save the last added value
@@ -65,16 +92,23 @@ class ReviewSummary(collections.Mapping):
             {}
         )[f'{self.prefix}{name}'] = image
 
-    def add_stft_image(self, name, signal, batch_first=False, color='viridis'):
+    def add_stft_image(
+            self, name, signal,
+            *, batch_first=None, color='viridis', rearrange=None):
+        signal = self._rearrange(signal, rearrange)
         image = pt.summary.stft_to_image(signal, batch_first=batch_first, color=color)
         self.add_image(name, image)
 
-    def add_spectrogram_image(self, name, signal, batch_first=False, color='viridis'):
+    def add_spectrogram_image(
+            self, name, signal,
+            *, batch_first=None, color='viridis', rearrange=None):
+        signal = self._rearrange(signal, rearrange)
         image = pt.summary.spectrogram_to_image(signal, batch_first=batch_first, color=color)
         self.add_image(name, image)
 
-    def add_mask_image(self, name, mask, batch_first=False):
-        image = pt.summary.mask_to_image(mask, batch_first=batch_first)
+    def add_mask_image(self, name, mask, *, batch_first=None, color='viridis', rearrange=None):
+        mask = self._rearrange(mask, rearrange)
+        image = pt.summary.mask_to_image(mask, batch_first=batch_first, color=color)
         self.add_image(name, image)
 
     def add_histogram(self, name, values):
@@ -103,6 +137,10 @@ class ReviewSummary(collections.Mapping):
             return self.data[item]
         else:
             return default
+
+    def pop(self, *args, **kwargs):
+        """pop(key[, default])"""
+        return self.data.pop(*args, **kwargs)
 
     def setdefault(self, key, default):
         self.data.setdefault(key, default)
