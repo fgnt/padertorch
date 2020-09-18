@@ -520,17 +520,17 @@ def fix_doctext_import_class(locals_dict):
         >>> abc = 1
         >>> class Foo: pass
         >>> def foo(): pass
-        >>> import_class(class_to_str(Foo))  # doctest: +ELLIPSIS +NORMALIZE_WHITESPACE
+        >>> import_class(class_to_str(Foo))  # doctest: +ELLIPSIS
         Traceback (most recent call last):
         ...
         ImportError: Could not import 'Foo' from '...configurable',
         because module 'configurable' has no attribute 'Foo'
         <BLANKLINE>
         Make sure that
-            1. This is the class you want to import.
-            2. You activated the right environment.
-            3. The module exists and has been installed with pip.
-            4. You can import the module (and class) in ipython.
+         1. This is the class you want to import.
+         2. You activated the right environment.
+         3. The module exists and has been installed with pip.
+         4. You can import the module (and class) in ipython.
         <BLANKLINE>
         >>> fix_doctext_import_class(locals())
         >>> class_to_str(Foo)
@@ -616,40 +616,40 @@ def import_class(name: [str, callable]):
     <bound method Configurable.from_file of <class 'padertorch.base.Model'>>
     >>> import_class('padertorch.Model.from_file')
     <bound method Configurable.from_file of <class 'padertorch.base.Model'>>
-    >>> import_class('padertorch.Model.typo')  # doctest: +NORMALIZE_WHITESPACE
+    >>> import_class('padertorch.Model.typo')
     Traceback (most recent call last):
     ...
     ImportError: Could not import 'Model.typo' from 'padertorch',
     because type object 'Model' has no attribute 'typo'
     <BLANKLINE>
     Make sure that
-    	1. This is the class you want to import.
-    	2. You activated the right environment.
-    	3. The module exists and has been installed with pip.
-    	4. You can import the module (and class) in ipython.
+     1. This is the class you want to import.
+     2. You activated the right environment.
+     3. The module exists and has been installed with pip.
+     4. You can import the module (and class) in ipython.
     <BLANKLINE>
-    >>> import_class('padertorch.base.typo')  # doctest: +NORMALIZE_WHITESPACE
+    >>> import_class('padertorch.base.typo')
     Traceback (most recent call last):
     ...
     ImportError: Could not import 'typo' from 'padertorch.base',
     because module 'padertorch.base' has no attribute 'typo'
     <BLANKLINE>
     Make sure that
-    	1. This is the class you want to import.
-    	2. You activated the right environment.
-    	3. The module exists and has been installed with pip.
-    	4. You can import the module (and class) in ipython.
+     1. This is the class you want to import.
+     2. You activated the right environment.
+     3. The module exists and has been installed with pip.
+     4. You can import the module (and class) in ipython.
     <BLANKLINE>
-    >>> import_class('typo.in.pkg.name')  # doctest: +NORMALIZE_WHITESPACE
+    >>> import_class('typo.in.pkg.name')
     Traceback (most recent call last):
     ...
     ImportError: Could not import 'typo.in.pkg.name'.
     <BLANKLINE>
     Make sure that
-    	1. This is the class you want to import.
-    	2. You activated the right environment.
-    	3. The module exists and has been installed with pip.
-    	4. You can import the module (and class) in ipython.
+     1. This is the class you want to import.
+     2. You activated the right environment.
+     3. The module exists and has been installed with pip.
+     4. You can import the module (and class) in ipython.
     <BLANKLINE>
 
     """
@@ -680,10 +680,10 @@ def import_class(name: [str, callable]):
                     f'Could not import {qualname!r} from {module_name!r},\n'
                     f'because {e}\n\n'
                     f'Make sure that\n'
-                    f'\t1. This is the class you want to import.\n'
-                    f'\t2. You activated the right environment.\n'
-                    f'\t3. The module exists and has been installed with pip.\n'
-                    f'\t4. You can import the module (and class) in ipython.\n'
+                    f' 1. This is the class you want to import.\n'
+                    f' 2. You activated the right environment.\n'
+                    f' 3. The module exists and has been installed with pip.\n'
+                    f' 4. You can import the module (and class) in ipython.\n'
                 ) from None
 
         return cls
@@ -691,10 +691,10 @@ def import_class(name: [str, callable]):
     raise ImportError(
         f'Could not import {name!r}.\n\n'
         f'Make sure that\n'
-        f'\t1. This is the class you want to import.\n'
-        f'\t2. You activated the right environment.\n'
-        f'\t3. The module exists and has been installed with pip.\n'
-        f'\t4. You can import the module (and class) in ipython.\n'
+        f' 1. This is the class you want to import.\n'
+        f' 2. You activated the right environment.\n'
+        f' 3. The module exists and has been installed with pip.\n'
+        f' 4. You can import the module (and class) in ipython.\n'
     )
 
 
@@ -926,7 +926,7 @@ def config_to_instance(config, strict=False):
     Tried to instantiate/call <class 'torch.nn.modules.activation.ReLU'> with
     `torch.nn.modules.activation.ReLU(**{})` in strict mode.
     Strict means ignore defaults from the signature.
-    Signature: (inplace:bool)
+    Signature: (inplace)
     >>> config = {
     ...     'factory': 'torch.nn.modules.activation.ReLU',
     ...     'inplace_typo': False}
@@ -936,14 +936,14 @@ def config_to_instance(config, strict=False):
     TypeError: got an unexpected keyword argument 'inplace_typo'
     Tried to instantiate/call <class 'torch.nn.modules.activation.ReLU'> with
     `torch.nn.modules.activation.ReLU(**{'inplace_typo': False})`.
-    Signature: (inplace:bool=False)
+    Signature: (inplace=False)
     >>> config_to_instance(config, strict=True)
     Traceback (most recent call last):
     ...
     TypeError: got an unexpected keyword argument 'inplace_typo'
     Tried to instantiate/call <class 'torch.nn.modules.activation.ReLU'> with
     `torch.nn.modules.activation.ReLU(**{'inplace_typo': False})`.
-    Signature: (inplace:bool=False)
+    Signature: (inplace=False)
 
     """
     if isinstance(config, dict):
@@ -953,6 +953,15 @@ def config_to_instance(config, strict=False):
             kwargs = config_to_instance(kwargs, strict)
 
             sig = inspect.signature(factory)
+            # Remove annotation, sometimes they are to verbose and in python
+            # 3.7 they changed the `__str__` function, when an annotation is
+            # known (e.g. '(inplace:bool)' -> '(inplace: bool)').
+            # This breaks doctests across python versions.
+            sig = sig.replace(
+                parameters=[p.replace(
+                    annotation=inspect.Parameter.empty
+                ) for p in sig.parameters.values()]
+            )
             try:
                 # With sig.bind we ensure, that the "bind" here raises the
                 # exception. Using the factory(**kwargs) may raise TypeError
