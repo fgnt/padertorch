@@ -523,7 +523,15 @@ def fix_doctext_import_class(locals_dict):
         >>> import_class(class_to_str(Foo))  # doctest: +ELLIPSIS
         Traceback (most recent call last):
         ...
-        AttributeError: Module ...configurable... has no attribute Foo. ...
+        ImportError: Could not import 'Foo' from '...configurable',
+        because module 'configurable' has no attribute 'Foo'
+        <BLANKLINE>
+        Make sure that
+            1. This is the class you want to import.
+            2. You activated the right environment.
+            3. The module exists and has been installed with pip.
+            4. You can import the module (and class) in ipython.
+        <BLANKLINE>
         >>> fix_doctext_import_class(locals())
         >>> class_to_str(Foo)
         'padertorch.configurable.Foo'
