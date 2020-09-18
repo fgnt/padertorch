@@ -832,7 +832,7 @@ def class_to_str(cls, fix_module=False):
         return f'{cls.__qualname__}'
 
 
-def recursive_class_to_str(config):
+def recursive_class_to_str(config, sort=False):
     """
     Ensures that all factory values are strings.
 
@@ -846,11 +846,30 @@ def recursive_class_to_str(config):
 
     Returns: config where each factory value is a str.
 
+    >>> import torch.nn
+    >>> cfg = {'factory': torch.nn.Linear, 'in_features': 1, 'out_features': 2}
+    >>> recursive_class_to_str(cfg, sort=True)
+    {'factory': 'torch.nn.modules.linear.Linear', 'in_features': 1, 'out_features': 2}
+    >>> cfg = {'factory': torch.nn.Linear, 'out_features': 2, 'in_features': 1}
+    >>> recursive_class_to_str(cfg, sort=True)
+    {'factory': 'torch.nn.modules.linear.Linear', 'in_features': 1, 'out_features': 2}
+    >>> cfg = {'out_features': 2, 'in_features': 1, 'factory': torch.nn.Linear}
+    >>> recursive_class_to_str(cfg, sort=True)
+    {'factory': 'torch.nn.modules.linear.Linear', 'in_features': 1, 'out_features': 2}
+
     """
     # ToDo: Support tuple and list?
     if isinstance(config, dict):
-
         d = config.__class__()
+        if sort and 'factory' in config:
+            # Force factory to be the first key
+            d['factory'] = None  # will be set later
+            factory = import_class(config['factory'])
+            arg_names = inspect.signature(factory).parameters.keys()
+            for k in arg_names:
+                if k in config:
+                    d[k] = None  # will be set later
+    
         for k, v in config.items():
             if k == 'factory':
                 d[k] = class_to_str(v)
