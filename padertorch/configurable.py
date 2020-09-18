@@ -871,21 +871,93 @@ def _split_factory_kwargs(config):
     return factory, kwargs
 
 
-def config_to_instance(config):
+def config_to_instance(config, strict=False):
     """Is called by `Module.from_config()`. If possible, use that directly.
 
     Args:
         config:
+        strict:
 
     Returns:
+
+    >>> import torch.nn
+    >>> config = {
+    ...     'factory': 'torch.nn.modules.activation.ReLU',
+    ...     'inplace': False}
+    >>> config_to_instance(config)
+    ReLU()
+    >>> config_to_instance(config, strict=True)
+    ReLU()
+    >>> config = {
+    ...     'factory': 'torch.nn.modules.activation.ReLU'}
+    >>> config_to_instance(config)
+    ReLU()
+    >>> config_to_instance(config, strict=True)
+    Traceback (most recent call last):
+    ...
+    TypeError: missing a required argument: 'inplace'
+    Tried to instantiate/call <class 'torch.nn.modules.activation.ReLU'> with
+    `torch.nn.modules.activation.ReLU(**{})` in strict mode.
+    Strict means ignore defaults from the signature.
+    Signature: (inplace:bool)
+    >>> config = {
+    ...     'factory': 'torch.nn.modules.activation.ReLU',
+    ...     'inplace_typo': False}
+    >>> config_to_instance(config)
+    Traceback (most recent call last):
+    ...
+    TypeError: got an unexpected keyword argument 'inplace_typo'
+    Tried to instantiate/call <class 'torch.nn.modules.activation.ReLU'> with
+    `torch.nn.modules.activation.ReLU(**{'inplace_typo': False})`.
+    Signature: (inplace:bool=False)
+    >>> config_to_instance(config, strict=True)
+    Traceback (most recent call last):
+    ...
+    TypeError: got an unexpected keyword argument 'inplace_typo'
+    Tried to instantiate/call <class 'torch.nn.modules.activation.ReLU'> with
+    `torch.nn.modules.activation.ReLU(**{'inplace_typo': False})`.
+    Signature: (inplace:bool=False)
 
     """
     if isinstance(config, dict):
         if 'factory' in config:
             factory, kwargs = _split_factory_kwargs(config)
-            new = import_class(factory)(
-                **config_to_instance(kwargs)
-            )
+            factory = import_class(factory)
+            kwargs = config_to_instance(kwargs, strict)
+
+            sig = inspect.signature(factory)
+            try:
+                # With sig.bind we ensure, that the "bind" here raises the
+                # exception. Using the factory(**kwargs) may raise TypeError
+                # with another cause. The overhead doesn't matter here.
+                bound_arguments: inspect.BoundArguments = sig.bind(**kwargs)
+            except TypeError as e:
+                raise TypeError(
+                    f'{e}\n'
+                    f'Tried to instantiate/call {factory} with\n'
+                    f'`{class_to_str(factory)}(**{kwargs})`.\n'
+                    f'Signature: {sig}'
+                ) from e
+
+            if strict:
+                sig = sig.replace(
+                    parameters=[p.replace(
+                        default=inspect.Parameter.empty
+                    ) for p in sig.parameters.values()]
+                )
+                try:
+                    bound_arguments: inspect.BoundArguments = sig.bind(**kwargs)
+                except TypeError as e:
+                    raise TypeError(
+                        f'{e}\n'
+                        f'Tried to instantiate/call {factory} with\n'
+                        f'`{class_to_str(factory)}(**{kwargs})` '
+                        f'in strict mode.\n'
+                        f'Strict means ignore defaults from the signature.\n'
+                        f'Signature: {sig}'
+                    ) from e
+
+            new = factory(**kwargs)
             try:
                 new.config = config
             except AttributeError:
@@ -894,11 +966,11 @@ def config_to_instance(config):
         else:
             d = copy.copy(config)  # config.__class__() not possible in sacred>=0.8 because of ReadOnlyDict.
             for k, v in config.items():
-                d[k] = config_to_instance(v)
+                d[k] = config_to_instance(v, strict)
             return d
     elif isinstance(config, (tuple, list)):
         return config.__class__([
-            config_to_instance(l) for l in config
+            config_to_instance(l, strict) for l in config
         ])
     else:
         return config
