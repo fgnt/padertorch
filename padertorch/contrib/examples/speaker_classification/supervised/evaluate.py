@@ -40,7 +40,7 @@ def defaults():
     )
     load_ckpt = 'ckpt_best_loss.pth'
     batch_size = 1
-    device = 'cpu'
+    device = 0 if torch.cuda.is_available() else 'cpu'
     store_misclassified = True
 
 
