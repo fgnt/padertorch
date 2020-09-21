@@ -2,13 +2,13 @@
 Example calls:
 
 On single CPU (slow):
-python -m padertorch.contrib.examples.speaker_classification.supervised.evaluate with model_path=<path/to/trained/model>
+python -m padertorch.contrib.examples.speaker_classification.supervised.evaluate with model_path=<path/to/trained/model> device=cpu
 
 On GPU:
 python -m padertorch.contrib.examples.speaker_classification.supervised.evaluate with model_path=<path/to/trained/model> device=0 batch_size=16
 
 On multiple CPUs:
-mpiexec -np 8 python -m padertorch.contrib.examples.speaker_classification.supervised.evaluate with model_path=<path/to/trained/model>
+mpiexec -np 8 python -m padertorch.contrib.examples.speaker_classification.supervised.evaluate with model_path=<path/to/trained/model> device=cpu
 """
 import os
 from pathlib import Path
@@ -68,7 +68,7 @@ def main(_run, model_path, load_ckpt, batch_size, device, store_misclassified):
 
     _, _, test_set = get_datasets(
         model_path, database_json, dataset, batch_size,
-        prefetch=device != 'cpu'
+        return_indexable=device == 'cpu'
     )
     with torch.no_grad():
         summary = dict(
@@ -77,7 +77,7 @@ def main(_run, model_path, load_ckpt, batch_size, device, store_misclassified):
             hits=list()
         )
         for batch in split_managed(
-            test_set, is_indexable=batch_size == 1 and device == 'cpu',
+            test_set, is_indexable=device == 'cpu',
             progress_bar=True, allow_single_worker=True
         ):
             output = model(pt.data.example_to_device(batch, device))
