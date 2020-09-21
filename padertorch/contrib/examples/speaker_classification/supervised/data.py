@@ -1,3 +1,5 @@
+from functools import partial
+
 import numpy as np
 import torch
 
@@ -10,7 +12,7 @@ from padertorch.contrib.je.data.transforms import LabelEncoder
 
 
 def get_datasets(
-    storage_dir, database_json, dataset, batch_size=16, prefetch=True
+    storage_dir, database_json, dataset, batch_size=16, return_indexable=False
 ):
     db = JsonDatabase(database_json)
     ds = db.get_dataset(dataset)
@@ -38,7 +40,7 @@ def get_datasets(
     training_data = prepare_dataset(train_set, batch_size, training=True)
     validation_data = prepare_dataset(validate_set, batch_size, training=False)
     test_data = prepare_dataset(
-        test_set, batch_size, training=False, prefetch=prefetch
+        test_set, batch_size, training=False, return_indexable=return_indexable
     )
     return training_data, validation_data, test_data
 
@@ -67,7 +69,7 @@ def train_test_split(dataset, dev_split=0.1,  test_split=0.1, seed=0):
     )
 
 
-def _prepare_features(example):
+def _prepare_features(example, training=False):
     audio_data = pb.io.load_audio(
         example['audio_path'], expected_sample_rate=16000
     )
@@ -78,45 +80,41 @@ def _prepare_features(example):
     mel_transform = pb.transform.module_fbank.MelTransform(
         sample_rate=16000, fft_length=512, n_mels=64, fmin=50
     )
-    example['mel_transform'] = mel_transform(np.abs(stft) ** 2)
-    return example
+    mel_spec = mel_transform(np.abs(stft) ** 2)
+
+    _example = {
+        'example_id': example['example_id'],
+        'features': torch.from_numpy(
+            mel_spec.astype(np.float32)
+        ),
+        'seq_len': mel_spec.shape[-2],
+        'speaker_id': example['speaker_id'].astype(np.int)
+    }
+    if not training:
+        _example['audio_path'] = example['audio_path']
+    return _example
 
 
 def _collate_example(example):
     example = pt.data.utils.collate_fn(example)
-    example['features'] = pad_sequence(
-        example['features'], batch_first=True
-    ).transpose(-1, -2)
+    example['features'] = pad_sequence(example['features'], batch_first=True)\
+        .transpose(-1, -2)
     example['speaker_id'] = np.stack(example['speaker_id'])
     return example
 
 
-def prepare_dataset(dataset, batch_size=16, training=False, prefetch=True):
-    dataset = dataset.map(_prepare_features)
-
-    def finalize(example):
-        _example = {
-            'example_id': example['example_id'],
-            'features': torch.from_numpy(
-                example['mel_transform'].astype(np.float32)
-            ),
-            'seq_len': example['mel_transform'].shape[-2],
-            'speaker_id': example['speaker_id'].astype(np.int)
-        }
-        if not training:
-            _example['audio_path'] = example['audio_path']
-        return _example
-
-    dataset = dataset.map(finalize)
+def prepare_dataset(
+    dataset, batch_size=16, training=False, return_indexable=False
+):
+    dataset = dataset.map(partial(_prepare_features, training=training))
 
     if training:
         dataset = dataset.shuffle(reshuffle=True)
-    if prefetch:
-        dataset = dataset.prefetch(
-            num_workers=8, buffer_size=10*batch_size
-        )
-    if batch_size == 1:
-        return dataset.batch(1).map(_collate_example)
+    if return_indexable:
+        return dataset.batch(batch_size).map(_collate_example)
+    dataset = dataset.prefetch(
+        num_workers=8, buffer_size=10*batch_size
+    )
     return dataset.batch_dynamic_time_series_bucket(
         batch_size=batch_size, len_key='seq_len', max_padding_rate=0.1,
         expiration=1000*batch_size, drop_incomplete=training,
