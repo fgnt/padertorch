@@ -58,9 +58,8 @@ def main(_run, model_path, load_ckpt, batch_size, device, store_misclassified):
     database_json = config['database_json']
     dataset = config['dataset']
 
-    model = pt.Model.from_config(config['model'])
-    model = model.load_checkpoint(
-        model_path / 'checkpoints' / load_ckpt, consider_mpi=True
+    model = pt.Model.from_storage_dir(
+        model_path, checkpoint_name=load_ckpt, consider_mpi=True
     )
     model.to(device)
     # Turn on evaluation mode for, e.g., BatchNorm and Dropout modules
