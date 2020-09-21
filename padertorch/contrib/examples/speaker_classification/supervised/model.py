@@ -14,7 +14,7 @@ class SpeakerClf(Model):
         self.fcn = fcn
 
     def forward(self, inputs):
-        x = inputs['features'][:, 0]
+        x = inputs['features']
         seq_len = inputs['seq_len']
 
         x = self.feature_extractor(x, seq_len)

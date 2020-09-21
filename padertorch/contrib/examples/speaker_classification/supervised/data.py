@@ -1,10 +1,12 @@
 import numpy as np
+import torch
 
 from lazy_dataset.database import JsonDatabase
 
-from padertorch.contrib.je.data.transforms import (
-    LabelEncoder, AudioReader, STFT, MelTransform, Collate
-)
+import paderbox as pb
+import padertorch as pt
+from padertorch.ops.sequence.pack_module import pad_sequence
+from padertorch.contrib.je.data.transforms import LabelEncoder
 
 
 def get_datasets(
@@ -59,24 +61,39 @@ def train_test_split(dataset, dev_split=0.1,  test_split=0.1, seed=0):
     )
 
 
-def prepare_dataset(dataset, batch_size=16, training=False, prefetch=True):
-    audio_reader = AudioReader(
-        source_sample_rate=16000, target_sample_rate=16000
+def _prepare_features(example):
+    audio_data = pb.io.load_audio(
+        example['audio_path'], expected_sample_rate=16000
     )
-    dataset = dataset.map(audio_reader)
-    stft = STFT(
+    stft_transform = pb.transform.STFT(
         shift=160, window_length=400, size=512, fading=None, pad=False
     )
-    dataset = dataset.map(stft)
-    mel_transform = MelTransform(
+    stft = stft_transform(audio_data)
+    mel_transform = pb.transform.module_fbank.MelTransform(
         sample_rate=16000, fft_length=512, n_mels=64, fmin=50
     )
-    dataset = dataset.map(mel_transform)
+    example['mel_transform'] = mel_transform(np.abs(stft) ** 2)
+    return example
+
+
+def _collate_example(example):
+    example = pt.data.utils.collate_fn(example)
+    example['features'] = pad_sequence(
+        example['features'], batch_first=True
+    ).transpose(-1, -2)
+    example['speaker_id'] = np.stack(example['speaker_id'])
+    return example
+
+
+def prepare_dataset(dataset, batch_size=16, training=False, prefetch=True):
+    dataset = dataset.map(_prepare_features)
 
     def finalize(example):
         _example = {
             'example_id': example['example_id'],
-            'features': np.moveaxis(example['mel_transform'], 1, 2).astype(np.float32),
+            'features': torch.from_numpy(
+                example['mel_transform'].astype(np.float32)
+            ),
             'seq_len': example['mel_transform'].shape[-2],
             'speaker_id': example['speaker_id'].astype(np.int)
         }
@@ -93,9 +110,9 @@ def prepare_dataset(dataset, batch_size=16, training=False, prefetch=True):
             num_workers=8, buffer_size=10*batch_size
         )
     if batch_size == 1:
-        return dataset.batch(1).map(Collate())
+        return dataset.batch(1).map(_collate_example)
     return dataset.batch_dynamic_time_series_bucket(
         batch_size=batch_size, len_key='seq_len', max_padding_rate=0.1,
         expiration=1000*batch_size, drop_incomplete=training,
         sort_key='seq_len', reverse_sort=True
-    ).map(Collate())
+    ).map(_collate_example)
