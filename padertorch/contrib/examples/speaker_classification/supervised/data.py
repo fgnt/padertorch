@@ -28,7 +28,13 @@ def get_datasets(
     speaker_encoder.initialize_labels(dataset=ds, verbose=True)
     ds = ds.map(speaker_encoder)
 
+    # LibriSpeech (the default database) does not share speakers across
+    # different datasets, i.e., the datasets, e.g. clean_100 and dev_clean, have
+    # a different set of non-overlapping speakers. To guarantee the same set of
+    # speakers during training, validation and evaluation, we perform a split of
+    # the train set, e.g., clean_100 or clean_360.
     train_set, validate_set, test_set = train_test_split(ds)
+
     training_data = prepare_dataset(train_set, batch_size, training=True)
     validation_data = prepare_dataset(validate_set, batch_size, training=False)
     test_data = prepare_dataset(
