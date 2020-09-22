@@ -34,6 +34,7 @@ test = [
     'matplotlib',  # padertorch.summary.tbx_utils use mpl for colorize
     'pb_bss @ git+http://github.com/fgnt/pb_bss',
     'torch_complex',  # https://github.com/kamo-naoyuki/pytorch_complex
+    'pyyaml',
 ]
 
 setup(

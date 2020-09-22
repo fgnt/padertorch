@@ -1,4 +1,5 @@
 import os
+import io
 from pathlib import Path
 
 from paderbox.io.new_subdir import get_new_subdir
@@ -79,3 +80,97 @@ def get_new_storage_dir(
     basedir = Path(os.environ['STORAGE_ROOT']) / experiment_name
     del experiment_name
     return get_new_subdir(**locals())
+
+
+def dump_config(
+        config,
+        path,
+):
+    """
+    This functions dumps a config as json or yaml.
+
+     - Convert factory values to str if necessary
+     - Move factory to be the first key in the dict
+     - Sort the order of the kwargs based on the signature of the factory.
+
+    """
+    path = Path(path)
+    path.write_text(dumps_config(config, path.suffix))
+
+
+def dumps_config(
+        config,
+        format='.yaml'  # '.json' or '.yaml'
+):
+    """
+    >>> print(dumps_config({'a': 1, 'b': 2}, '.yaml'))
+    a: 1
+    b: 2
+    <BLANKLINE>
+    >>> print(dumps_config({'b': 2, 'a': 1}, '.yaml'))
+    b: 2
+    a: 1
+    <BLANKLINE>
+    >>> print(dumps_config({'a': 1, 'b': 2}, '.json'))
+    {
+      "a": 1,
+      "b": 2
+    }
+    >>> print(dumps_config({'b': 2, 'a': 1}, '.json'))
+    {
+      "b": 2,
+      "a": 1
+    }
+
+    >>> import torch
+    >>> print(dumps_config({'factory': torch.nn.ReLU, 'b': 2}, '.yaml'))
+    factory: torch.nn.modules.activation.ReLU
+    b: 2
+    <BLANKLINE>
+    >>> print(dumps_config({'b': 2, 'factory': torch.nn.ReLU}, '.yaml'))
+    factory: torch.nn.modules.activation.ReLU
+    b: 2
+    <BLANKLINE>
+
+    """
+    import padertorch as pt
+    config = pt.configurable.recursive_class_to_str(config, sort=True)
+    if format == ".json":
+        from paderbox.io import dumps_json
+        return dumps_json(config, sort_keys=False)
+    elif format == ".yaml":
+        from paderbox.io.yaml_module import dumps_yaml
+        return dumps_yaml(config, sort_keys=False)
+    else:
+        raise NotImplementedError(format)
+
+
+def load_config(
+        path
+):
+    import paderbox as pb
+    return pb.io.load(path)
+
+
+def loads_config(
+        content,
+        format='.yaml',  # '.yaml' or '.json'
+):
+    """
+    >>> print(loads_config(dumps_config({'a': 1, 'b': 2}, '.yaml'), '.yaml'))
+    {'a': 1, 'b': 2}
+    >>> print(loads_config(dumps_config({'b': 2, 'a': 1}, '.yaml'), '.yaml'))
+    {'b': 2, 'a': 1}
+    >>> print(loads_config(dumps_config({'a': 1, 'b': 2}, '.json'), '.json'))
+    {'a': 1, 'b': 2}
+    >>> print(loads_config(dumps_config({'b': 2, 'a': 1}, '.json'), '.json'))
+    {'b': 2, 'a': 1}
+    """
+    if format == ".json":
+        from paderbox.io import loads_json
+        return loads_json(content)
+    elif format == ".yaml":
+        from paderbox.io import loads_yaml
+        return loads_yaml(content)
+    else:
+        raise NotImplementedError(format)

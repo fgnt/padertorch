@@ -523,18 +523,26 @@ def fix_doctext_import_class(locals_dict):
         >>> import_class(class_to_str(Foo))  # doctest: +ELLIPSIS
         Traceback (most recent call last):
         ...
-        AttributeError: Module ...configurable... has no attribute Foo. ...
+        ImportError: Could not import 'Foo' from '...configurable',
+        because module '...configurable' has no attribute 'Foo'
+        <BLANKLINE>
+        Make sure that
+         1. This is the class you want to import.
+         2. You activated the right environment.
+         3. The module exists and has been installed with pip.
+         4. You can import the module (and class) in ipython.
+        <BLANKLINE>
         >>> fix_doctext_import_class(locals())
-        >>> class_to_str(Foo)
-        'padertorch.configurable.Foo'
-        >>> class_to_str(foo)
-        'padertorch.configurable.foo'
-        >>> Foo
-        <class 'padertorch.configurable.Foo'>
+        >>> class_to_str(Foo)  # doctest: +ELLIPSIS
+        '...configurable.Foo'
+        >>> class_to_str(foo)  # doctest: +ELLIPSIS
+        '...configurable.foo'
+        >>> Foo  # doctest: +ELLIPSIS
+        <class '...configurable.Foo'>
         >>> import_class(class_to_str(foo)) == foo
         True
-        >>> import_class(class_to_str(Foo))
-        <class 'padertorch.configurable.Foo'>
+        >>> import_class(class_to_str(Foo))  # doctest: +ELLIPSIS
+        <class '...configurable.Foo'>
     """
     cache = {}
     cls_cache = {}
@@ -594,7 +602,7 @@ def fix_doctext_import_class(locals_dict):
     globals()['class_to_str'] = class_to_str_fix
 
 
-def import_class(name: str):
+def import_class(name: [str, callable]):
     """Import the str and return the imported object.
 
     Opposite of class_to_str.
@@ -602,36 +610,92 @@ def import_class(name: str):
     >>> import padertorch
     >>> import_class(padertorch.Model)
     <class 'padertorch.base.Model'>
-    >>> import_class('padertorch.Model')
+    >>> import_class('padertorch.base.Model')
     <class 'padertorch.base.Model'>
+    >>> import_class(padertorch.Model.from_file)
+    <bound method Configurable.from_file of <class 'padertorch.base.Model'>>
+    >>> import_class('padertorch.Model.from_file')
+    <bound method Configurable.from_file of <class 'padertorch.base.Model'>>
+    >>> import_class('padertorch.Model.typo')
+    Traceback (most recent call last):
+    ...
+    ImportError: Could not import 'Model.typo' from 'padertorch',
+    because type object 'Model' has no attribute 'typo'
+    <BLANKLINE>
+    Make sure that
+     1. This is the class you want to import.
+     2. You activated the right environment.
+     3. The module exists and has been installed with pip.
+     4. You can import the module (and class) in ipython.
+    <BLANKLINE>
+    >>> import_class('padertorch.base.typo')
+    Traceback (most recent call last):
+    ...
+    ImportError: Could not import 'typo' from 'padertorch.base',
+    because module 'padertorch.base' has no attribute 'typo'
+    <BLANKLINE>
+    Make sure that
+     1. This is the class you want to import.
+     2. You activated the right environment.
+     3. The module exists and has been installed with pip.
+     4. You can import the module (and class) in ipython.
+    <BLANKLINE>
+    >>> import_class('typo.in.pkg.name')
+    Traceback (most recent call last):
+    ...
+    ImportError: Could not import 'typo.in.pkg.name'.
+    <BLANKLINE>
+    Make sure that
+     1. This is the class you want to import.
+     2. You activated the right environment.
+     3. The module exists and has been installed with pip.
+     4. You can import the module (and class) in ipython.
+    <BLANKLINE>
 
     """
     if not isinstance(name, str):
+        assert callable(name), name
         return name
+
+    if '.' not in name:
+        name = '__main__.' + name
+
     splitted = name.split('.')
-    module_name = '.'.join(splitted[:-1])
-    if module_name == '':
-        module_name = '__main__'
-    try:
-        module = importlib.import_module(module_name)
-    except ModuleNotFoundError:
-        print(
-            f'Tried to import module {module_name} to import class '
-            f'{splitted[-1]}. During import an error happened. '
-            f'Make sure that\n'
-            f'\t1. This is the class you want to import.\n'
-            f'\t2. You activated the right environment.\n'
-            f'\t3. The module exists and has been installed with pip.\n'
-            f'\t4. You can import the module (and class) in ipython.\n'
-        )
-        raise
-    try:
-        return getattr(module, splitted[-1])
-    except AttributeError as ex:
-        raise AttributeError(
-            f'Module {module} has no attribute {splitted[-1]}.'
-            f' Original: {ex!r}'
-        )
+
+    for i in reversed(range(1, len(splitted))):
+        module_name = '.'.join(splitted[:i])
+        try:
+            module = importlib.import_module(module_name)
+        except ModuleNotFoundError:
+            continue
+
+        qualname = splitted[i:]
+        cls = module
+        for part in qualname:
+            try:
+                cls = getattr(cls, part)
+            except AttributeError as e:
+                qualname = '.'.join(qualname)
+                raise ImportError(
+                    f'Could not import {qualname!r} from {module_name!r},\n'
+                    f'because {e}\n\n'
+                    f'Make sure that\n'
+                    f' 1. This is the class you want to import.\n'
+                    f' 2. You activated the right environment.\n'
+                    f' 3. The module exists and has been installed with pip.\n'
+                    f' 4. You can import the module (and class) in ipython.\n'
+                ) from None
+
+        return cls
+
+    raise ImportError(
+        f'Could not import {name!r}.\n\n'
+        f'Make sure that\n'
+        f' 1. This is the class you want to import.\n'
+        f' 2. You activated the right environment.\n'
+        f' 3. The module exists and has been installed with pip.\n'
+        f' 4. You can import the module (and class) in ipython.\n'
+    )
 
 
 def get_module_name_from_file(file):
@@ -776,7 +840,7 @@ def class_to_str(cls, fix_module=False):
         return f'{cls.__qualname__}'
 
 
-def recursive_class_to_str(config):
+def recursive_class_to_str(config, sort=False):
     """
     Ensures that all factory values are strings.
 
@@ -790,11 +854,30 @@ def recursive_class_to_str(config):
 
     Returns: config where each factory value is a str.
 
+    >>> import torch.nn
+    >>> cfg = {'factory': torch.nn.Linear, 'in_features': 1, 'out_features': 2}
+    >>> recursive_class_to_str(cfg, sort=True)
+    {'factory': 'torch.nn.modules.linear.Linear', 'in_features': 1, 'out_features': 2}
+    >>> cfg = {'factory': torch.nn.Linear, 'out_features': 2, 'in_features': 1}
+    >>> recursive_class_to_str(cfg, sort=True)
+    {'factory': 'torch.nn.modules.linear.Linear', 'in_features': 1, 'out_features': 2}
+    >>> cfg = {'out_features': 2, 'in_features': 1, 'factory': torch.nn.Linear}
+    >>> recursive_class_to_str(cfg, sort=True)
+    {'factory': 'torch.nn.modules.linear.Linear', 'in_features': 1, 'out_features': 2}
+
     """
     # ToDo: Support tuple and list?
     if isinstance(config, dict):
-
         d = config.__class__()
+        if sort and 'factory' in config:
+            # Force factory to be the first key
+            d['factory'] = None  # will be set later
+            factory = import_class(config['factory'])
+            arg_names = inspect.signature(factory).parameters.keys()
+            for k in arg_names:
+                if k in config:
+                    d[k] = None  # will be set later
+    
         for k, v in config.items():
             if k == 'factory':
                 d[k] = class_to_str(v)
@@ -815,21 +898,114 @@ def _split_factory_kwargs(config):
     return factory, kwargs
 
 
-def config_to_instance(config):
+def _check_factory_signature_and_kwargs(factory, kwargs, strict):
+    sig = inspect.signature(factory)
+    # Remove annotation, sometimes they are to verbose and in python
+    # 3.7 they changed the `__str__` function, when an annotation is
+    # known (e.g. '(inplace:bool)' -> '(inplace: bool)').
+    # This breaks doctests across python versions.
+    sig = sig.replace(
+        parameters=[p.replace(
+            annotation=inspect.Parameter.empty
+        ) for p in sig.parameters.values()]
+    )
+    try:
+        # With sig.bind we ensure, that the "bind" here raises the
+        # exception. Using the factory(**kwargs) may raise TypeError
+        # with another cause. The overhead doesn't matter here.
+        bound_arguments: inspect.BoundArguments = sig.bind(**kwargs)
+    except TypeError as e:
+        raise TypeError(
+            f'{e}\n'
+            f'Tried to instantiate/call {factory} with\n'
+            f'`{class_to_str(factory)}(**{kwargs})`.\n'
+            f'Signature: {sig}'
+        ) from e
+
+    if strict:
+        sig = sig.replace(
+            parameters=[p.replace(
+                default=inspect.Parameter.empty
+            ) for p in sig.parameters.values()]
+        )
+        try:
+            bound_arguments: inspect.BoundArguments = sig.bind(**kwargs)
+        except TypeError as e:
+            raise TypeError(
+                f'{e}\n'
+                f'Tried to instantiate/call {factory} with\n'
+                f'`{class_to_str(factory)}(**{kwargs})` '
+                f'in strict mode.\n'
+                f'Strict means ignore defaults from the signature.\n'
+                f'Signature: {sig}'
+            ) from e
+
+
+def config_to_instance(config, strict=False):
     """Is called by `Module.from_config()`. If possible, use that directly.
 
     Args:
         config:
+        strict:
+            If True, checks, that the instansiations doesn't use the default
+            values of the signature of the factory. That means, the config must
+            contains all arguments for the factory.
+
+            Usecase: While doing experiment, you add new arguments to your
+            factory and these don't reflect the old behaviour.
+            The strict arguments allows you to detect when you use an old
+            config that has to be adjusted.
 
     Returns:
+
+    >>> import torch.nn
+    >>> config = {
+    ...     'factory': 'torch.nn.modules.activation.ReLU',
+    ...     'inplace': False}
+    >>> config_to_instance(config)
+    ReLU()
+    >>> config_to_instance(config, strict=True)
+    ReLU()
+    >>> config = {
+    ...     'factory': 'torch.nn.modules.activation.ReLU'}
+    >>> config_to_instance(config)
+    ReLU()
+    >>> config_to_instance(config, strict=True)
+    Traceback (most recent call last):
+    ...
+    TypeError: missing a required argument: 'inplace'
+    Tried to instantiate/call <class 'torch.nn.modules.activation.ReLU'> with
+    `torch.nn.modules.activation.ReLU(**{})` in strict mode.
+    Strict means ignore defaults from the signature.
+    Signature: (inplace)
+    >>> config = {
+    ...     'factory': 'torch.nn.modules.activation.ReLU',
+    ...     'inplace_typo': False}
+    >>> config_to_instance(config)
+    Traceback (most recent call last):
+    ...
+    TypeError: got an unexpected keyword argument 'inplace_typo'
+    Tried to instantiate/call <class 'torch.nn.modules.activation.ReLU'> with
+    `torch.nn.modules.activation.ReLU(**{'inplace_typo': False})`.
+    Signature: (inplace=False)
+    >>> config_to_instance(config, strict=True)
+    Traceback (most recent call last):
+    ...
+    TypeError: got an unexpected keyword argument 'inplace_typo'
+    Tried to instantiate/call <class 'torch.nn.modules.activation.ReLU'> with
+    `torch.nn.modules.activation.ReLU(**{'inplace_typo': False})`.
+    Signature: (inplace=False)
 
     """
     if isinstance(config, dict):
         if 'factory' in config:
             factory, kwargs = _split_factory_kwargs(config)
-            new = import_class(factory)(
-                **config_to_instance(kwargs)
-            )
+            factory = import_class(factory)
+            kwargs = config_to_instance(kwargs, strict)
+
+            _check_factory_signature_and_kwargs(factory, kwargs, strict)
+
+            new = factory(**kwargs)
             try:
                 new.config = config
             except AttributeError:
@@ -838,11 +1014,11 @@ def config_to_instance(config):
         else:
             d = copy.copy(config)  # config.__class__() not possible in sacred>=0.8 because of ReadOnlyDict.
             for k, v in config.items():
-                d[k] = config_to_instance(v)
+                d[k] = config_to_instance(v, strict)
             return d
     elif isinstance(config, (tuple, list)):
         return config.__class__([
-            config_to_instance(l) for l in config
+            config_to_instance(l, strict) for l in config
         ])
     else:
         return config
