@@ -898,12 +898,63 @@ def _split_factory_kwargs(config):
     return factory, kwargs
 
 
+def _check_factory_signature_and_kwargs(factory, kwargs, strict):
+    sig = inspect.signature(factory)
+    # Remove annotation, sometimes they are to verbose and in python
+    # 3.7 they changed the `__str__` function, when an annotation is
+    # known (e.g. '(inplace:bool)' -> '(inplace: bool)').
+    # This breaks doctests across python versions.
+    sig = sig.replace(
+        parameters=[p.replace(
+            annotation=inspect.Parameter.empty
+        ) for p in sig.parameters.values()]
+    )
+    try:
+        # With sig.bind we ensure, that the "bind" here raises the
+        # exception. Using the factory(**kwargs) may raise TypeError
+        # with another cause. The overhead doesn't matter here.
+        bound_arguments: inspect.BoundArguments = sig.bind(**kwargs)
+    except TypeError as e:
+        raise TypeError(
+            f'{e}\n'
+            f'Tried to instantiate/call {factory} with\n'
+            f'`{class_to_str(factory)}(**{kwargs})`.\n'
+            f'Signature: {sig}'
+        ) from e
+
+    if strict:
+        sig = sig.replace(
+            parameters=[p.replace(
+                default=inspect.Parameter.empty
+            ) for p in sig.parameters.values()]
+        )
+        try:
+            bound_arguments: inspect.BoundArguments = sig.bind(**kwargs)
+        except TypeError as e:
+            raise TypeError(
+                f'{e}\n'
+                f'Tried to instantiate/call {factory} with\n'
+                f'`{class_to_str(factory)}(**{kwargs})` '
+                f'in strict mode.\n'
+                f'Strict means ignore defaults from the signature.\n'
+                f'Signature: {sig}'
+            ) from e
+
+
 def config_to_instance(config, strict=False):
     """Is called by `Module.from_config()`. If possible, use that directly.
 
     Args:
         config:
         strict:
+            If True, checks, that the instansiations doesn't use the default
+            values of the signature of the factory. That means, the config must
+            contains all arguments for the factory.
+
+            Usecase: While doing experiment, you add new arguments to your
+            factory and these don't reflect the old behaviour.
+            The strict arguments allows you to detect when you use an old
+            config that has to be adjusted.
 
     Returns:
 
@@ -952,46 +1003,7 @@ def config_to_instance(config, strict=False):
             factory = import_class(factory)
             kwargs = config_to_instance(kwargs, strict)
 
-            sig = inspect.signature(factory)
-            # Remove annotation, sometimes they are to verbose and in python
-            # 3.7 they changed the `__str__` function, when an annotation is
-            # known (e.g. '(inplace:bool)' -> '(inplace: bool)').
-            # This breaks doctests across python versions.
-            sig = sig.replace(
-                parameters=[p.replace(
-                    annotation=inspect.Parameter.empty
-                ) for p in sig.parameters.values()]
-            )
-            try:
-                # With sig.bind we ensure, that the "bind" here raises the
-                # exception. Using the factory(**kwargs) may raise TypeError
-                # with another cause. The overhead doesn't matter here.
-                bound_arguments: inspect.BoundArguments = sig.bind(**kwargs)
-            except TypeError as e:
-                raise TypeError(
-                    f'{e}\n'
-                    f'Tried to instantiate/call {factory} with\n'
-                    f'`{class_to_str(factory)}(**{kwargs})`.\n'
-                    f'Signature: {sig}'
-                ) from e
-
-            if strict:
-                sig = sig.replace(
-                    parameters=[p.replace(
-                        default=inspect.Parameter.empty
-                    ) for p in sig.parameters.values()]
-                )
-                try:
-                    bound_arguments: inspect.BoundArguments = sig.bind(**kwargs)
-                except TypeError as e:
-                    raise TypeError(
-                        f'{e}\n'
-                        f'Tried to instantiate/call {factory} with\n'
-                        f'`{class_to_str(factory)}(**{kwargs})` '
-                        f'in strict mode.\n'
-                        f'Strict means ignore defaults from the signature.\n'
-                        f'Signature: {sig}'
-                    ) from e
+            _check_factory_signature_and_kwargs(factory, kwargs, strict)
 
             new = factory(**kwargs)
             try:
