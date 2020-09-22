@@ -31,6 +31,12 @@ steps:
   displayName: 'Use Python $(python.version)'
 
 - script: |
+    # Print cmd before executing
+    trap 'echo -e "$ $BASH_COMMAND"' DEBUG
+    lsb_release -a
+    python --version
+  displayName: 'Show versions'
+- script: |
     sudo apt-get install libsndfile1
     python -m pip install --upgrade pip
     # pip install -r requirements.txt
@@ -42,10 +48,7 @@ steps:
     pip install pytest pytest-azurepipelines
     pip install pytest-cov
     python -m coverage xml --include="padertorch*"
-    pytest --junitxml='test_results.xml' --cov=padertorch  \
-      --doctest-modules --doctest-continue-on-failure --cov-report=html \
-      --ignore "padertorch/modules/wavenet/nv_wavenet" --ignore "padertorch/contrib" \
-       -v "tests/" "padertorch/"
+    pytest -v "tests/" "padertorch/"
   displayName: 'pytest'
 
 - task: PublishTestResults@2

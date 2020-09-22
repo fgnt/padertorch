@@ -17,8 +17,7 @@ pip install --user -e .[test]
 # It seems, that jenkins currentliy does not work with matlab: Error: Segmentation violation
 
 # nosetests --with-xunit --with-coverage --cover-package=padertorch -v -w "tests" # --processes=-1
-pytest --junitxml='test_results.xml' --cov=padertorch  \
-  --doctest-modules --doctest-continue-on-failure --cov-report term -v "tests/" # --processes=-1
+pytest -v "tests/" "padertorch/"
 # Use as many processes as you have cores: --processes=-1
 # Acording to https://gist.github.com/hangtwenty/1aeb36ee85f4bdce0899
 # `--cov-report term` solves the problem that doctests are not included
