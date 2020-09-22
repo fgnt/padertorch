@@ -154,24 +154,18 @@ def load_config(
 
 def loads_config(
         content,
-        format=None,  # '.yaml' or '.json'
+        format='.yaml',  # '.yaml' or '.json'
 ):
     """
-    >>> print(loads_config(dumps_config({'a': 1, 'b': 2}, '.yaml')))
+    >>> print(loads_config(dumps_config({'a': 1, 'b': 2}, '.yaml'), '.yaml'))
     {'a': 1, 'b': 2}
-    >>> print(loads_config(dumps_config({'b': 2, 'a': 1}, '.yaml')))
+    >>> print(loads_config(dumps_config({'b': 2, 'a': 1}, '.yaml'), '.yaml'))
     {'b': 2, 'a': 1}
-    >>> print(loads_config(dumps_config({'a': 1, 'b': 2}, '.json')))
+    >>> print(loads_config(dumps_config({'a': 1, 'b': 2}, '.json'), '.json'))
     {'a': 1, 'b': 2}
-    >>> print(loads_config(dumps_config({'b': 2, 'a': 1}, '.json')))
+    >>> print(loads_config(dumps_config({'b': 2, 'a': 1}, '.json'), '.json'))
     {'b': 2, 'a': 1}
     """
-    if format is None:
-        if content.strip()[0] == '{':
-            format = '.json'
-        else:
-            format = '.yaml'
-
     if format == ".json":
         from paderbox.io import loads_json
         return loads_json(content)
