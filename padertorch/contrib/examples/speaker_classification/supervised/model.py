@@ -2,24 +2,25 @@ import numpy as np
 import torch
 from einops import rearrange
 from padertorch.base import Model
-from torch import nn
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torchvision.utils import make_grid
 
 
 class SpeakerClf(Model):
-    def __init__(self, cnn, enc, fcn):
+    def __init__(self, feature_extractor, cnn, enc, fcn):
         super().__init__()
+        self.feature_extractor = feature_extractor
         self.cnn = cnn
         self.enc = enc
         self.fcn = fcn
 
     def forward(self, inputs):
-        x = inputs['features'][:, 0]
+        x = inputs['features']
         seq_len = inputs['seq_len']
 
+        x = self.feature_extractor(x, seq_len)
+
         # cnn
-        x, seq_len = self.cnn(x, seq_len=seq_len)
+        x, seq_len = self.cnn(x, sequence_lengths=seq_len)
 
         # rnn
         if self.enc.batch_first:
