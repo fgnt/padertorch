@@ -191,31 +191,43 @@ class STFT:
         >>> complex_signal = signal_np[..., :257] + 1j* signal_np[..., 257:]
         >>> time_signal = istft(complex_signal, 512, 20, window_length=40)
         >>> np.testing.assert_allclose(torch_signal, time_signal, atol=1e-5)
+
+        >>> stft_signal = torch.rand((2, 4, 10, 257, 2))
+        >>> torch_stft = STFT(512, 20, window_length=40, \
+                              complex_representation='stacked')
+        >>> torch_signal = torch_stft.inverse(stft_signal)
+        >>> torch_signal.shape
+        torch.Size([2, 4, 180])
+        >>> from paderbox.transform import istft
+        >>> signal_np = stft_signal.numpy()
+        >>> complex_signal = signal_np[..., 0] + 1j* signal_np[..., 1]
+        >>> time_signal = istft(complex_signal, 512, 20, window_length=40)
+        >>> np.testing.assert_allclose(torch_signal, time_signal, atol=1e-5)
         """
 
-        org_shape = stft_signal.shape
-        x = stft_signal.view(-1, *org_shape[-2:])
-
-        x = rearrange(x, '... frames feat -> ... feat frames')
         if self.complex_representation == 'stacked':
-            signal_real, signal_imag = torch.chunk(stft_signal, 2, dim=-1)
+            signal_real, signal_imag = rearrange(stft_signal, '... s -> s ...')
         elif self.complex_representation == 'concat':
-            signal_real, signal_imag = torch.chunk(x, 2, dim=-2)
+            signal_real, signal_imag = torch.chunk(stft_signal, 2, dim=-1)
         else:
             raise ValueError(
                 f'Please choose one of the predefined output_types'
                 f'{self.possible_out_types} not {self.complex_representation}'
             )
-        signal_real = torch.cat(
-            [signal_real, signal_real[:, 1:-1].flip(1)], dim=1)
-        signal_imag = torch.cat(
-            [signal_imag, -signal_imag[:, 1:-1].flip(1)], dim=1)
-        kernel_real = self.istft_kernel_real.to(signal_real)
-        decoded_real = F.conv_transpose1d(signal_real, weight=kernel_real,
-                                          stride=self.shift)
-        kernel_imag = self.istft_kernel_imag.to(signal_imag)
-        decoded_imag = F.conv_transpose1d(signal_imag, kernel_imag,
-                                          stride=self.shift)
+        org_shape = signal_real.shape
+
+        def _apply_kernel(signal, kernel, symmetry):
+            signal = signal.view(-1, *org_shape[-2:])
+            signal = rearrange(signal, '... frames feat -> ... feat frames')
+            signal = torch.cat([
+                signal, symmetry * signal[:, 1:-1].flip(1)], dim=1)
+            return F.conv_transpose1d(signal, weight=kernel, stride=self.shift)
+
+        decoded_real = _apply_kernel(
+            signal_real, self.istft_kernel_real.to(signal_real), symmetry=1)
+        decoded_imag = _apply_kernel(
+            signal_imag, self.istft_kernel_imag.to(signal_imag), symmetry=-1)
+
         time_signal = decoded_real + decoded_imag
         time_signal = time_signal.view(*org_shape[:-2], time_signal.shape[-1])
         if self.fading not in [None, False]:
