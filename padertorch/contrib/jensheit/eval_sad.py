@@ -1,6 +1,7 @@
 import numpy as np
 import dlp_mpi
 
+
 def adjust_annotation_fn(annotation, sample_rate, buffer_zone=1.):
     '''
 
@@ -90,14 +91,16 @@ def get_tp_fp_tn_fn(
     return tp, fp, tn, fn
 
 
-def evaluate_model(dataset, model, get_sad_fn, get_target_fn=lambda x: x['activation'],
-                   is_indexable=True, num_thresholds=201, buffer_zone=0.5,
+def evaluate_model(dataset, model, get_sad_fn,
+                   get_target_fn=lambda x: x['activation'],
+                   num_thresholds=201, buffer_zone=0.5,
+                   is_indexable=True, allow_single_worker=True,
                    sample_rate=8000):
 
     tp_fp_tn_fn = np.zeros((num_thresholds, 4), dtype=int)
     for example in dlp_mpi.split_managed(
         dataset, is_indexable=is_indexable,
-        allow_single_worker=False,
+        allow_single_worker=allow_single_worker,
     ):
         target = get_target_fn(example)
         adjusted_target = adjust_annotation_fn(
@@ -107,7 +110,7 @@ def evaluate_model(dataset, model, get_sad_fn, get_target_fn=lambda x: x['activa
         model_out = model(example)
         for idx, th in enumerate(np.linspace(0, 1, num_thresholds)):
             th = np.round(th, 2)
-            sad = get_sad_fn(model_out, th)
+            sad = get_sad_fn(model_out, th, example)
             out = get_tp_fp_tn_fn(
                 adjusted_target, sad,
                 sample_rate=sample_rate, adjust_annotation=False

@@ -238,6 +238,8 @@ class SequenceProvider(Parameterized):
             .map(self.database.add_num_samples)
         exclude_keys = None
         iterator = iterator.map(self.to_train_structure)
+
+
         unbatch = False
         if self.opts.shuffle:
             iterator = iterator.shuffle(reshuffle=True)
