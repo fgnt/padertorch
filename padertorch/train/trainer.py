@@ -623,7 +623,10 @@ class Trainer(Configurable):
         import pickle
 
         class MyPickleModule:
-            class MyPickler(pickle._Pickler):
+            __name__ = 'MyPickleModule'  # Pytorch tests if name is dill
+
+            class Pickler(pickle._Pickler):
+
                 def save(self, obj, save_persistent_id=True):
                     try:
                         super().save(obj, save_persistent_id=save_persistent_id)
@@ -641,7 +644,11 @@ class Trainer(Configurable):
                     torch.save(v, fd, pickle_module=MyPickleModule())
                 written.append(k)
             except Exception as e:
-                print(f'Cannot save {k}. {type(e)}: {e}')
+                import traceback
+                log_file = (self.storage_dir / folder / f'{k}.log')
+                with log_file.open('w') as fd:
+                    traceback.print_exc(file=fd)
+                print(f'Cannot save {k}. {type(e)}: {e}. See {log_file}')
 
         written = ','.join(written)
         return str(self.storage_dir / folder / f'error_state_{{{written}}}.pth')
