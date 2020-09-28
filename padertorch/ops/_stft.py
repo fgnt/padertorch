@@ -191,21 +191,34 @@ class STFT:
         >>> complex_signal = signal_np[..., :257] + 1j* signal_np[..., 257:]
         >>> time_signal = istft(complex_signal, 512, 20, window_length=40)
         >>> np.testing.assert_allclose(torch_signal, time_signal, atol=1e-5)
+
+        >>> stft_signal = torch.rand((2, 4, 10, 257, 2))
+        >>> torch_stft = STFT(512, 20, window_length=40, \
+                              complex_representation='stacked')
+        >>> torch_signal = torch_stft.inverse(stft_signal)
+        >>> torch_signal.shape
+        torch.Size([2, 4, 180])
+        >>> from paderbox.transform import istft
+        >>> signal_np = stft_signal.numpy()
+        >>> complex_signal = signal_np[..., 0] + 1j* signal_np[..., 1]
+        >>> time_signal = istft(complex_signal, 512, 20, window_length=40)
+        >>> np.testing.assert_allclose(torch_signal, time_signal, atol=1e-5)
         """
+
+        assert self.complex_representation in ['stacked', 'concat'], (
+            f'Please choose one of the predefined output_types'
+            f'{self.possible_out_types} not {self.complex_representation}'
+        )
+        if self.complex_representation == 'stacked':
+            stft_signal = torch.cat(
+                (stft_signal[..., 0], stft_signal[..., 1]), dim=-1)
 
         org_shape = stft_signal.shape
         x = stft_signal.view(-1, *org_shape[-2:])
-
         x = rearrange(x, '... frames feat -> ... feat frames')
-        if self.complex_representation == 'stacked':
-            signal_real, signal_imag = torch.chunk(stft_signal, 2, dim=-1)
-        elif self.complex_representation == 'concat':
-            signal_real, signal_imag = torch.chunk(x, 2, dim=-2)
-        else:
-            raise ValueError(
-                f'Please choose one of the predefined output_types'
-                f'{self.possible_out_types} not {self.complex_representation}'
-            )
+
+        signal_real, signal_imag = torch.chunk(x, 2, dim=-2)
+
         signal_real = torch.cat(
             [signal_real, signal_real[:, 1:-1].flip(1)], dim=1)
         signal_imag = torch.cat(
