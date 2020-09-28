@@ -216,17 +216,21 @@ class STFT:
             )
         org_shape = signal_real.shape
 
-        def _apply_kernel(signal, kernel, symmetry):
+        def _apply_kernel(signal, kernel, reflect):
             signal = signal.view(-1, *org_shape[-2:])
             signal = rearrange(signal, '... frames feat -> ... feat frames')
-            signal = torch.cat([
-                signal, symmetry * signal[:, 1:-1].flip(1)], dim=1)
+            if reflect:
+                signal = torch.cat([
+                    signal, -signal[:, 1:-1].flip(1)], dim=1)
+            else:
+                signal = torch.cat([
+                    signal, signal[:, 1:-1].flip(1)], dim=1)
             return F.conv_transpose1d(signal, weight=kernel, stride=self.shift)
 
         decoded_real = _apply_kernel(
-            signal_real, self.istft_kernel_real.to(signal_real), symmetry=1)
+            signal_real, self.istft_kernel_real.to(signal_real), reflect=False)
         decoded_imag = _apply_kernel(
-            signal_imag, self.istft_kernel_imag.to(signal_imag), symmetry=-1)
+            signal_imag, self.istft_kernel_imag.to(signal_imag), reflect=True)
 
         time_signal = decoded_real + decoded_imag
         time_signal = time_signal.view(*org_shape[:-2], time_signal.shape[-1])
