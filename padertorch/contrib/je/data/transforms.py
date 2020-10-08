@@ -326,83 +326,87 @@ class Collate:
         return batch
 
 
-def fragment_signal(
-        *signals, axis, step, max_length, min_length=1, random_start=False
-):
+def fragment_signal(*signals, axis, step, fragment_length, onset_mode='center'):
     """
 
     Args:
         signals:
         axis:
         step:
-        max_length:
-        min_length:
-        random_start:
+        fragment_length:
 
     Returns:
 
     >>> signals = [np.arange(20).reshape((2, 10)), np.arange(10).reshape((2, 5))]
     >>> from pprint import pprint
-    >>> pprint(fragment_signal(signals, axis=1, step=[4, 2], max_length=[4, 2]))
-    [[array([[ 0,  1,  2,  3],
-           [10, 11, 12, 13]]),
-      array([[ 4,  5,  6,  7],
-           [14, 15, 16, 17]]),
-      array([[ 8,  9],
-           [18, 19]])],
-     [array([[0, 1],
-           [5, 6]]),
-      array([[2, 3],
-           [7, 8]]),
-      array([[4],
-           [9]])]]
-    >>> pprint(fragment_signal(\
-        signals, axis=1, step=[4, 2], max_length=[4, 2], min_length=[4, 2]\
-    ))
-    [[array([[ 0,  1,  2,  3],
+    >>> pprint(fragment_signal(*signals, axis=1, step=[4, 2], fragment_length=[4, 2]))
+    ([array([[ 0,  1,  2,  3],
            [10, 11, 12, 13]]),
       array([[ 4,  5,  6,  7],
            [14, 15, 16, 17]])],
      [array([[0, 1],
            [5, 6]]), array([[2, 3],
-           [7, 8]])]]
+           [7, 8]])])
+    >>> signal = np.arange(20).reshape((2, 10))
+    >>> pprint(fragment_signal(signal, axis=1, step=4, fragment_length=4, onset_mode='front'))
+    [array([[ 0,  1,  2,  3],
+           [10, 11, 12, 13]]),
+     array([[ 4,  5,  6,  7],
+           [14, 15, 16, 17]])]
+    >>> pprint(fragment_signal(signal, axis=1, step=4, fragment_length=4, onset_mode='center'))
+    [array([[ 1,  2,  3,  4],
+           [11, 12, 13, 14]]),
+     array([[ 5,  6,  7,  8],
+           [15, 16, 17, 18]])]
+    >>> pprint(fragment_signal(signal, axis=1, step=4, fragment_length=4, onset_mode='end'))
+    [array([[ 2,  3,  4,  5],
+           [12, 13, 14, 15]]),
+     array([[ 6,  7,  8,  9],
+           [16, 17, 18, 19]])]
+    >>> pprint(fragment_signal(signal, axis=1, step=4, fragment_length=4, onset_mode='random'))
+    [array([[ 0,  1,  2,  3],
+           [10, 11, 12, 13]]),
+     array([[ 4,  5,  6,  7],
+           [14, 15, 16, 17]])]
     """
     axis = to_list(axis, len(signals))
     step = to_list(step, len(signals))
-    max_length = to_list(max_length, len(signals))
-    min_length = to_list(min_length, len(signals))
+    fragment_length = to_list(fragment_length, len(signals))
 
     # get random start
-    if random_start:
-        start = np.random.rand()
-
+    if onset_mode == 'front':
+        start = 0.
+    elif onset_mode == 'random':
         # find max start such that at least one segment is obtained
         max_start = 1.
         for i in range(len(signals)):
-            # get nested structure and cast to dict
             max_start = max(
                 min(
                     max_start,
-                    (signals[i].shape[axis[i]] - max_length[i]) / step[i]
+                    (signals[i].shape[axis[i]] - fragment_length[i]) / step[i]
                 ),
                 0.
             )
+        start = np.random.rand()
         start *= max_start
-
-        # adjust start to match an integer index for all keys
+    elif onset_mode in ['center', 'end']:
+        start = 1.
         for i in range(len(signals)):
-            start = int(start*step[i]) / step[i]
-    else:
-        start = 0.
+            tail = (signals[i].shape[axis[i]] - fragment_length[i]) % step[i]
+            start = min(start, tail / step[i])
+        if onset_mode == 'center':
+            start = start / 2
+
+    # adjust start to match an integer index for all keys
+    for i in range(len(signals)):
+        start = int(start*step[i]) / step[i]
 
     fragmented_signals = []
     for i in range(len(signals)):
         x = signals[i]
         ax = axis[i]
         assert ax < x.ndim, (ax, x.ndim)
-        min_len = min_length[i]
-        max_len = max_length[i]
-        assert max_len >= min_len
+        frag_len = fragment_length[i]
 
         def get_slice(start, stop):
             slc = [slice(None)] * x.ndim
@@ -412,15 +416,15 @@ def fragment_signal(
         start_idx = round(start * step[i])
         assert abs(start_idx - start * step[i]) < 1e-6, (start_idx, start*step[i])
         fragments = [
-            x[get_slice(idx, idx + max_len)]
+            x[get_slice(idx, idx + frag_len)]
             for idx in np.arange(
-                start_idx, x.shape[ax] - min_len + 1, step[i]
+                start_idx, x.shape[ax] - frag_len + 1, step[i]
             )
         ]
         fragmented_signals.append(fragments)
     if len(signals) == 1:
-        return signals[0]
+        return fragmented_signals[0]
     assert len(set([len(sig) for sig in fragmented_signals])) == 1, (
-        [sig.shape for sig in signals], [len(sig) for sig in fragmented_signals]
+        [sig.shape for sig in signals], step, fragment_length, [len(sig) for sig in fragmented_signals]
     )
     return (*fragmented_signals, )
