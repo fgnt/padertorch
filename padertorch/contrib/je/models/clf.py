@@ -10,16 +10,19 @@ from einops import rearrange
 
 class Classifier(Model):
     def __init__(
-            self, net: CNN1d, target_key, feature_extractor=None
+            self, net: CNN1d, feature_extractor=None, *,
+            input_key='stft', input_seq_len_key='seq_len', target_key,
     ):
         super().__init__()
         self.net = net
-        self.target_key = target_key
         self.feature_extractor = feature_extractor
+        self.input_key = input_key
+        self.input_seq_len_key = input_seq_len_key
+        self.target_key = target_key
 
     def forward(self, inputs):
-        x = inputs['stft']
-        seq_len = inputs['seq_len']
+        x = inputs[self.input_key]
+        seq_len = inputs[self.input_seq_len_key]
         if self.feature_extractor is not None:
             x = self.feature_extractor(x, seq_len)
             if x.dim() == 4 and isinstance(self.net, CNN1d):
