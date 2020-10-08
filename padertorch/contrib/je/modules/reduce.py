@@ -10,16 +10,17 @@ class Sum(nn.Module):
     >>> x = torch.cumsum(torch.ones((3,7,4)), dim=seq_axis)
     >>> x = Sum(axis=seq_axis)(x, seq_len=[4,5,6])
     """
-    def __init__(self, axis=-1):
+    def __init__(self, axis=-1, keepdims=False):
         self.axis = axis
+        self.keepdims = keepdims
         super().__init__()
 
     def __call__(self, x, seq_len=None):
         if seq_len is None:
-            x = x.sum(self.axis)
+            x = x.sum(self.axis, keepdim=self.keepdims)
         else:
             mask = compute_mask(x, seq_len, 0, self.axis)
-            x = (x * mask).sum(dim=self.axis)
+            x = (x * mask).sum(dim=self.axis, keepdim=self.keepdims)
         return x
 
 
@@ -28,13 +29,17 @@ class Mean(Sum):
     >>> seq_axis = 1
     >>> x = torch.cumsum(torch.ones((3,7,4)), dim=seq_axis)
     >>> x = Mean(axis=seq_axis)(x, seq_len=[4,5,6])
+    >>> x.shape
+    >>> x = torch.cumsum(torch.ones((3,7,4)), dim=seq_axis)
+    >>> x = Mean(axis=seq_axis, keepdims=True)(x, seq_len=[4,5,6])
+    >>> x.shape
     """
     def __call__(self, x, seq_len=None):
         if seq_len is None:
-            x = x.mean(self.axis)
+            x = x.mean(self.axis, keepdim=self.keepdims)
         else:
             mask = compute_mask(x, seq_len, 0, self.axis)
-            x = (x * mask).sum(dim=self.axis) / (mask.sum(self.axis) + 1e-6)
+            x = (x * mask).sum(dim=self.axis, keepdim=self.keepdims) / (mask.sum(dim=self.axis, keepdim=self.keepdims) + 1e-6)
         return x
 
 
@@ -44,15 +49,16 @@ class Max(nn.Module):
     >>> x = torch.cumsum(torch.ones((3,7,4)), dim=seq_axis)
     >>> Max(axis=seq_axis)(x, seq_len=[4,5,6])
     """
-    def __init__(self, axis=-1):
+    def __init__(self, axis=-1, keepdims=False):
         self.axis = axis
+        self.keepdims = keepdims
         super().__init__()
 
     def __call__(self, x, seq_len=None):
         if seq_len is not None:
             mask = compute_mask(x, seq_len, 0, self.axis)
             x = (x + torch.log(mask))
-        x = x.max(self.axis)
+        x = x.max(self.axis, keepdim=self.keepdims)
         return x
 
 
@@ -63,8 +69,9 @@ class TakeLast(nn.Module):
     tensor([[2.],
             [6.]])
     """
-    def __init__(self, axis=-1):
+    def __init__(self, axis=-1, keepdims=False):
         self.axis = axis
+        self.keepdims = keepdims
         super().__init__()
 
     def __call__(self, x, seq_len=None):
@@ -78,6 +85,8 @@ class TakeLast(nn.Module):
             x = x[:, -1]
         else:
             x = x[torch.arange(x.shape[0]), np.array(seq_len) - 1]
+        if self.keepdims:
+            x = x.unsqueeze(self.axis)
         return x
 
 
