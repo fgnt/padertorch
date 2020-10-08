@@ -70,11 +70,8 @@ def run_conv_sweep(x, enc_cls, dec_cls, kwargs_sweep):
             norm='batch',
             **kwargs
         )
-        x_hat, seq_len = dec(
-            z, sequence_lengths=seq_len,
-            output_shape=x.shape, output_sequence_lengths=seq_len_in
-        )
-        assert x_hat.shape == x.shape, (x_hat.shape, x.shape)
+        x_hat, seq_len = dec(z, sequence_lengths=seq_len)
+        assert all(np.array(x_hat.shape) >= x.shape), (x_hat.shape, x.shape)
 
 
 def test_conv_1d():
@@ -85,7 +82,7 @@ def test_conv_1d():
             ConvTranspose1d,
             [
                 ('stride', [1, 2]),
-                ('pad_side', ['both', None]),
+                ('pad_type', ['both']),
                 ('out_channels', [10]),
             ]
         )
@@ -102,7 +99,7 @@ def test_conv_2d():
             ConvTranspose2d,
             [
                 ('stride', [1, 2]),
-                ('pad_side', ['both', None, (None, 'both')]),
+                ('pad_type', ['both']),#, None, (None, 'both')]),
                 ('out_channels', [10]),
             ]
         )
@@ -127,7 +124,7 @@ def run_cnn_sweep(x, enc_cls, kwargs_sweep, *, decode=True):
                 z[..., z.shape[-2]//2, z.shape[-1]//2].sum().backward()
             else:
                 z[..., z.shape[-1]//2].sum().backward()
-            expected_rf = np.abs(x.grad.data.numpy().sum((0,1))) > 1e-6
+            expected_rf = np.abs(x.grad.data.numpy().sum((0, 1))) > 1e-6
             expected_rf = [expected_rf.sum(ax).max() for ax in range(1+enc.is_2d())]
             rf = enc.get_receptive_field()
             assert all(rf == expected_rf), (rf, expected_rf, kwargs)
@@ -160,7 +157,7 @@ def run_cnn_sweep(x, enc_cls, kwargs_sweep, *, decode=True):
 
 
 def test_cnn_1d():
-    for num_frames in [129, 140]:
+    for num_frames in [1025]:
         x = get_input_1d(num_frames)
         run_cnn_sweep(
             x,
@@ -169,13 +166,13 @@ def test_cnn_1d():
                 ('in_channels', [x.shape[1]]),
                 ('out_channels', [2*[16] + [10]]),
                 ('norm', ['batch', None]),
-                ('kernel_size', [3]),
-                ('stride', [1, 2]),
+                ('kernel_size', [5]),
+                ('stride', [1, 2, 3]),
                 ('pool_type', ['max', 'avg']),
                 ('pool_size', [1, 2]),
-                ('pad_side', ['both', None]),
-                ('activation_fn', ['relu', 'prelu']),
-                ('pre_activation', [False, True]),
+                ('pad_type', ['front','both','end']),
+                # ('activation_fn', ['relu']),
+                # ('pre_activation', [False]),
                 # ('input_layer', [False]),
                 # ('output_layer', [False]),
             ]
@@ -183,10 +180,9 @@ def test_cnn_1d():
 
 
 def test_cnn_2d():
-    for num_frames, num_features in zip(
-            [129, 140],
-            [140, 129]
-    ):
+    for num_frames, num_features in [
+            [513, 129]
+    ]:
         x = get_input_2d(num_frames, num_features)
         run_cnn_sweep(
             x,
@@ -194,14 +190,14 @@ def test_cnn_2d():
             [
                 ('in_channels', [x.shape[1]]),
                 ('out_channels', [2*[16] + [10]]),
-                ('norm', ['batch', None]),
-                ('kernel_size', [3]),
-                ('stride', [1, 2]),
+                ('norm', [None]),
+                ('kernel_size', [3*[(3, 5)]]),
+                ('stride', [1, [(2, 3),1,(2, 3)]]),
                 ('pool_type', ['max', 'avg']),
-                ('pool_size', [1, 2]),
-                ('pad_side', ['both', None, 3*[(None, 'both')]]),
-                ('activation_fn', ['relu', 'prelu']),
-                ('pre_activation', [False, True]),
+                ('pool_size', [1, [(2, 3),(2, 3),1]]),
+                ('pad_type', ['front','both','end']),
+                # ('activation_fn', ['relu', 'prelu']),
+                # ('pre_activation', [False, True]),
                 # ('input_layer', [False]),
                 # ('output_layer', [False]),
             ]
@@ -209,7 +205,7 @@ def test_cnn_2d():
 
 
 def test_resnet_1d():
-    for num_frames in [129, 140]:
+    for num_frames in [1025]:
         x = get_input_1d(num_frames)
         run_cnn_sweep(
             x,
@@ -218,22 +214,24 @@ def test_resnet_1d():
                 ('in_channels', [x.shape[1]]),
                 ('out_channels', [2*[16] + [10]]),
                 ('norm', ['batch', None]),
-                ('kernel_size', [3]),
-                ('stride', [1, 2]),
+                ('kernel_size', [5]),
+                ('stride', [1, 2, 3]),
                 ('pool_type', ['max', 'avg']),
                 ('pool_size', [1, 2]),
-                ('pad_side', ['both', None]),
-                ('pre_activation', [False, True]),
-                ('residual_connections', [[[1], [2], None]]),
+                ('pad_type', ['front','both','end']),
+                # ('activation_fn', ['relu']),
+                # ('pre_activation', [False]),
+                # ('input_layer', [False]),
+                # ('output_layer', [False]),
+                ('residual_connections', [[[1, 2], [2], None]]),
             ]
         )
 
 
 def test_resnet_2d():
-    for num_frames, num_features in zip(
-            [129, 140],
-            [140, 129]
-    ):
+    for num_frames, num_features in [
+            [513, 129]
+    ]:
         x = get_input_2d(num_frames, num_features)
         run_cnn_sweep(
             x,
@@ -241,20 +239,23 @@ def test_resnet_2d():
             [
                 ('in_channels', [x.shape[1]]),
                 ('out_channels', [2*[16] + [10]]),
-                ('norm', ['batch', None]),
-                ('kernel_size', [3]),
-                ('stride', [1, 2]),
+                ('norm', [None]),
+                ('kernel_size', [3*[(3, 5)]]),
+                ('stride', [1, [(2, 3),1,(2, 3)]]),
                 ('pool_type', ['max', 'avg']),
-                ('pool_size', [1, 2]),
-                ('pad_side', ['both', None, 3*[(None, 'both')]]),
-                ('pre_activation', [False, True]),
-                ('residual_connections', [[[1], [2], None]]),
+                ('pool_size', [1, [(2, 3),(2, 3),1]]),
+                ('pad_type', ['front','both','end']),
+                # ('activation_fn', ['relu', 'prelu']),
+                # ('pre_activation', [False, True]),
+                # ('input_layer', [False]),
+                # ('output_layer', [False]),
+                ('residual_connections', [[[1, 3], [2], None]]),
             ]
         )
 
 
 def test_densenet_1d():
-    for num_frames in [129, 140]:
+    for num_frames in [1025]:
         x = get_input_1d(num_frames)
         run_cnn_sweep(
             x,
@@ -263,23 +264,25 @@ def test_densenet_1d():
                 ('in_channels', [x.shape[1]]),
                 ('out_channels', [2*[16] + [10]]),
                 ('norm', ['batch', None]),
-                ('kernel_size', [3]),
-                ('stride', [1, 2]),
-                ('pool_type', ['avg', 'max']),
+                ('kernel_size', [5]),
+                ('stride', [1, 2, 3]),
+                ('pool_type', ['max', 'avg']),
                 ('pool_size', [1, 2]),
-                ('pad_side', ['both', None]),
-                ('pre_activation', [False, True]),
-                ('dense_connections', [[[1], [2], None]]),
+                ('pad_type', ['front','both','end']),
+                # ('activation_fn', ['relu']),
+                # ('pre_activation', [False]),
+                # ('input_layer', [False]),
+                # ('output_layer', [False]),
+                ('dense_connections', [[[1, 2], [2], None]]),
             ],
             decode=False
         )
 
 
 def test_densenet_2d():
-    for num_frames, num_features in zip(
-            [129, 140],
-            [140, 129]
-    ):
+    for num_frames, num_features in [
+            [513, 129]
+    ]:
         x = get_input_2d(num_frames, num_features)
         run_cnn_sweep(
             x,
@@ -287,21 +290,24 @@ def test_densenet_2d():
             [
                 ('in_channels', [x.shape[1]]),
                 ('out_channels', [2*[16] + [10]]),
-                ('norm', ['batch', None]),
-                ('kernel_size', [3]),
-                ('stride', [1, 2]),
-                ('pool_type', ['avg', 'max']),
-                ('pool_size', [1, 2]),
-                ('pad_side', ['both', None, 3*[(None, 'both')]]),
-                ('pre_activation', [False, True]),
-                ('dense_connections', [[[1], [2], None]]),
+                ('norm', [None]),
+                ('kernel_size', [3*[(3, 5)]]),
+                ('stride', [1, [(2, 3),1,(2, 3)]]),
+                ('pool_type', ['max', 'avg']),
+                ('pool_size', [1, [(2, 3),(2, 3),1]]),
+                ('pad_type', ['front','both','end']),
+                # ('activation_fn', ['relu', 'prelu']),
+                # ('pre_activation', [False, True]),
+                # ('input_layer', [False]),
+                # ('output_layer', [False]),
+                ('dense_connections', [[[1, 2], [2], None]]),
             ],
             decode=False
         )
 
 
 def test_denseresnet_1d():
-    for num_frames in [129, 140]:
+    for num_frames in [1025]:
         x = get_input_1d(num_frames)
         run_cnn_sweep(
             x,
@@ -310,24 +316,26 @@ def test_denseresnet_1d():
                 ('in_channels', [x.shape[1]]),
                 ('out_channels', [2*[16] + [10]]),
                 ('norm', ['batch', None]),
-                ('kernel_size', [3]),
-                ('stride', [1, 2]),
-                ('pool_type', ['avg', 'max']),
+                ('kernel_size', [5]),
+                ('stride', [1, 2, 3]),
+                ('pool_type', ['max', 'avg']),
                 ('pool_size', [1, 2]),
-                ('pad_side', ['both', None]),
-                ('pre_activation', [False, True]),
-                ('residual_connections', [[[1], [2], None]]),
-                ('dense_connections', [[[1], [2], None]]),
+                ('pad_type', ['front','both','end']),
+                # ('activation_fn', ['relu']),
+                # ('pre_activation', [False]),
+                # ('input_layer', [False]),
+                # ('output_layer', [False]),
+                ('residual_connections', [[[1, 2], [2], None]]),
+                ('dense_connections', [[[1, 2], [2], None]]),
             ],
             decode=False
         )
 
 
 def test_denseresnet_2d():
-    for num_frames, num_features in zip(
-            [129, 140],
-            [140, 129]
-    ):
+    for num_frames, num_features in [
+            [513, 129]
+    ]:
         x = get_input_2d(num_frames, num_features)
         run_cnn_sweep(
             x,
@@ -335,15 +343,18 @@ def test_denseresnet_2d():
             [
                 ('in_channels', [x.shape[1]]),
                 ('out_channels', [2*[16] + [10]]),
-                ('norm', ['batch', None]),
-                ('kernel_size', [3]),
-                ('stride', [1, 2]),
-                ('pool_type', ['avg', 'max']),
-                ('pool_size', [1, 2]),
-                ('pad_side', ['both', None, 3*[(None, 'both')]]),
-                ('pre_activation', [False, True]),
-                ('residual_connections', [[[1], [2], None]]),
-                ('dense_connections', [[[1], [2], None]]),
+                ('norm', [None]),
+                ('kernel_size', [3*[(3, 5)]]),
+                ('stride', [1, [(2, 3),1,(2, 3)]]),
+                ('pool_type', ['max', 'avg']),
+                ('pool_size', [1, [(2, 3),(2, 3),1]]),
+                ('pad_type', ['front','both','end']),
+                # ('activation_fn', ['relu', 'prelu']),
+                # ('pre_activation', [False, True]),
+                # ('input_layer', [False]),
+                # ('output_layer', [False]),
+                ('residual_connections', [[[1, 2], [2], None]]),
+                ('dense_connections', [[[1, 2], [2], None]]),
             ],
             decode=False
         )

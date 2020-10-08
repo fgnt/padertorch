@@ -10,7 +10,7 @@ from padertorch.contrib.je.modules.conv_utils import (
     to_pair, _finalize_norm_kwargs, Pad, Trim,
     Pool1d, Pool2d, Unpool1d, Unpool2d, map_activation_fn,
     compute_conv_output_shape, compute_conv_output_sequence_lengths,
-    compute_pool_output_shape, compute_pool_output_sequence_lengths,
+    compute_pad_size
 )
 from padertorch.modules.normalization import Normalization
 from padertorch.utils import to_list
@@ -40,7 +40,7 @@ class _Conv(Module):
             out_channels,
             kernel_size,
             dropout=0.,
-            pad_side='both',
+            pad_type='both',
             dilation=1,
             stride=1,
             bias=True,
@@ -71,13 +71,13 @@ class _Conv(Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         if self.is_2d():
-            pad_side = to_pair(pad_side)
+            pad_type = to_pair(pad_type)
             kernel_size = to_pair(kernel_size)
             dilation = to_pair(dilation)
             stride = to_pair(stride)
         self.bias = bias
         self.dropout = dropout
-        self.pad_side = pad_side
+        self.pad_type = pad_type
         self.kernel_size = kernel_size
         self.dilation = dilation
         self.stride = stride
@@ -143,17 +143,12 @@ class _Conv(Module):
             if self.gated:
                 torch.nn.init.zeros_(self.gate_conv.bias)
 
-    def forward(
-            self, x, sequence_lengths=None,
-            output_shape=None, output_sequence_lengths=None,
-    ):
+    def forward(self, x, sequence_lengths=None):
         """
 
         Args:
             x: input tensor of shape b,c,(f,)t
             sequence_lengths: input sequence lengths for each sequence in the mini-batch
-            output_shape: desired output shape relevant for transposed convs
-            output_sequence_lengths: desired output sequence lengths relevant for transposed convs
 
         Returns:
 
@@ -168,12 +163,10 @@ class _Conv(Module):
             x = self.activation_fn(x)
 
         if not self.is_transpose():
-            x = self.pad_or_trim(x)
+            x = self.pad(x)
 
         y = self.conv(x)
-        if output_sequence_lengths is not None:
-            sequence_lengths = output_sequence_lengths
-        elif sequence_lengths is not None:
+        if sequence_lengths is not None:
             sequence_lengths = self.get_output_sequence_lengths(sequence_lengths)
 
         if not self.pre_activation:
@@ -184,13 +177,14 @@ class _Conv(Module):
             g = self.gate_conv(x)
             y = y * torch.sigmoid(g)
 
-        if output_shape is not None:
-            y = self.trim_padded_or_pad_trimmed(y, output_shape)
+        if self.is_transpose():
+            y = self.trim_padding(y)
+
         return y, sequence_lengths
 
-    def pad_or_trim(self, x):
+    def pad(self, x):
         """
-        Either adds padding or trims parts of the signal not being processed (due to striding).
+        adds padding
         Args:
             x: input tensor of shape b,c,(f,)t
 
@@ -198,53 +192,47 @@ class _Conv(Module):
 
         """
         assert not self.is_transpose()
-        pad_dims = np.array([side is not None for side in to_list(self.pad_side)])
-        if any(pad_dims):
-            max_pad_size = np.array(self.dilation) * (np.array(self.kernel_size) - 1)
-            # prevent excessive padding, e.g., padding at the front while
-            # striding results in the end of the signal not being processed.
-            excess_pad_size = (np.array(x.shape[2:]) - 1) % np.array(self.stride)
-            pad_size = max_pad_size - excess_pad_size
-            pad_size *= pad_dims
-            x = Pad(side=self.pad_side)(x, size=pad_size.tolist())
-        if not all(pad_dims):
-            # for those axis not being padded: trim size (at both sides)
-            # which is not going to be processed anyway
-            trim_size = (
-                (np.array(x.shape[2:]) - np.array(self.kernel_size))
-                % np.array(self.stride)
+        front_pad, end_pad = list(zip(*[
+            compute_pad_size(k, d, s, t)
+            for k, d, s, t in zip(
+                to_list(self.kernel_size, 1+self.is_2d()),
+                to_list(self.dilation, 1+self.is_2d()),
+                to_list(self.stride, 1+self.is_2d()),
+                to_list(self.pad_type, 1+self.is_2d()),
             )
-            trim_size *= (1 - pad_dims)
-            x = Trim(side='both')(x, trim_size.tolist())
+        ]))
+        if any(np.array(front_pad) > 0):
+            x = Pad(side='front')(x, size=front_pad)
+        if any(np.array(end_pad) > 0):
+            x = Pad(side='end')(x, size=end_pad)
         return x
 
-    def trim_padded_or_pad_trimmed(self, x, out_shape=None):
+    def trim_padding(self, x):
         """
         counter part to pad_or_trim used in transposed convolutions.
         Only implemented if out_shape is not None!
         Args:
             x: input tensor of shape b,c,(f,)t
-            out_shape: target output shape
 
         Returns:
 
         """
         assert self.is_transpose()
-        if out_shape is not None:
-            # assert matching batch and channels dims
-            assert x.shape[:2] == tuple(out_shape)[:2], (x.shape, out_shape)
-            pad_side = [
-                'both' if side is None else side  # if no padding has been used both sides have been trimmed
-                for side in to_list(self.pad_side)
-            ]
-            size = np.array(x.shape[2:]) - np.array(out_shape[2:])
-            if any(size > 0):
-                x = Trim(side=pad_side)(x, size=size*(size > 0))
-            if any(size < 0):
-                x = Pad(side=pad_side, mode='constant')(x, size=-size*(size < 0))
-        elif any([side is not None for side in to_list(self.pad_side)]):
-            # pad_size cannot be inferred
-            raise NotImplementedError
+        front_pad, end_pad = list(zip(*[
+            compute_pad_size(k, d, s, t)
+            for k, d, s, t in zip(
+                to_list(self.kernel_size, 1+self.is_2d()),
+                to_list(self.dilation, 1+self.is_2d()),
+                to_list(self.stride, 1+self.is_2d()),
+                to_list(self.pad_type, 1+self.is_2d()),
+            )
+        ]))
+        end_pad = np.maximum(np.array(end_pad)-np.array(self.stride)+1, 0)
+
+        if any(front_pad):
+            x = Trim(side='front')(x, size=front_pad)
+        if any(end_pad):
+            x = Trim(side='end')(x, size=end_pad)
         return x
 
     def get_output_shape(self, input_shape):
@@ -256,12 +244,12 @@ class _Conv(Module):
 
         Returns:
 
-        >>> cnn = Conv1d(4, 20, 5, stride=2, pad_side=None)
+        >>> cnn = Conv1d(4, 20, 5, stride=2, pad_type=None)
         >>> signal = torch.rand((5, 4, 103))
         >>> out, seq_len = cnn(signal)
         >>> cnn.get_output_shape(signal.shape)
         array([ 5, 20, 50])
-        >>> cnn = Conv1d(4, 20, 5, stride=2, pad_side='both')
+        >>> cnn = Conv1d(4, 20, 5, stride=2, pad_type='both')
         >>> signal = torch.rand((5, 4, 103))
         >>> out, seq_len = cnn(signal)
         >>> cnn.get_output_shape(signal.shape)
@@ -273,15 +261,13 @@ class _Conv(Module):
         assert input_shape[1] == self.in_channels, (
             input_shape[1], self.in_channels
         )
-        if self.is_transpose():
-            raise NotImplementedError
-        else:
-            return compute_conv_output_shape(
-                input_shape,
-                out_channels=self.out_channels,
-                kernel_size=self.kernel_size, dilation=self.dilation,
-                pad_side=self.pad_side, stride=self.stride
-            )
+        return compute_conv_output_shape(
+            input_shape,
+            out_channels=self.out_channels,
+            kernel_size=self.kernel_size, dilation=self.dilation,
+            pad_type=self.pad_type, stride=self.stride,
+            transpose=self.is_transpose()
+        )
 
     def get_input_shape(self, output_shape):
         """
@@ -292,11 +278,11 @@ class _Conv(Module):
 
         Returns:
 
-        >>> cnn = ConvTranspose1d(20, 4, 5, stride=2, pad_side=None)
+        >>> cnn = ConvTranspose1d(20, 4, 5, stride=2, pad_type=None)
         >>> output_shape = (5, 4, 103)
         >>> cnn.get_input_shape(output_shape)
         array([ 5, 20, 50])
-        >>> cnn = ConvTranspose1d(20, 4, 5, stride=2, pad_side='both')
+        >>> cnn = ConvTranspose1d(20, 4, 5, stride=2, pad_type='both')
         >>> output_shape = (5, 4, 103)
         >>> cnn.get_input_shape(output_shape)
         array([ 5, 20, 52])
@@ -307,15 +293,13 @@ class _Conv(Module):
         assert output_shape[1] == self.out_channels, (
             output_shape[1], self.out_channels
         )
-        if self.is_transpose():
-            return compute_conv_output_shape(
-                output_shape,
-                out_channels=self.in_channels,
-                kernel_size=self.kernel_size, dilation=self.dilation,
-                pad_side=self.pad_side, stride=self.stride
-            )
-        else:
-            raise NotImplementedError
+        return compute_conv_output_shape(
+            output_shape,
+            out_channels=self.in_channels,
+            kernel_size=self.kernel_size, dilation=self.dilation,
+            pad_type=self.pad_type, stride=self.stride,
+            transpose=not self.is_transpose()
+        )
 
     def get_output_sequence_lengths(self, input_sequence_lengths):
         """
@@ -329,13 +313,12 @@ class _Conv(Module):
         """
         input_sequence_lengths = np.array(input_sequence_lengths)
         assert input_sequence_lengths.ndim == 1, input_sequence_lengths.ndim
-        if self.is_transpose():
-            raise NotImplementedError
-        else:
-            return compute_conv_output_sequence_lengths(
-                input_sequence_lengths, self.kernel_size, self.dilation,
-                self.pad_side, self.stride
-            )
+        return compute_conv_output_sequence_lengths(
+            input_sequence_lengths,
+            kernel_size=self.kernel_size, dilation=self.dilation,
+            stride=self.stride, pad_type=self.pad_type,
+            transpose=self.is_transpose()
+        )
 
     def get_input_sequence_lengths(self, output_sequence_lengths):
         """
@@ -349,13 +332,12 @@ class _Conv(Module):
         """
         output_sequence_lengths = np.array(output_sequence_lengths)
         assert output_sequence_lengths.ndim == 1, output_sequence_lengths.ndim
-        if self.is_transpose():
-            return compute_conv_output_sequence_lengths(
-                output_sequence_lengths, self.kernel_size, self.dilation,
-                self.pad_side, self.stride
-            )
-        else:
-            raise NotImplementedError
+        return compute_conv_output_sequence_lengths(
+            output_sequence_lengths,
+            kernel_size=self.kernel_size, dilation=self.dilation,
+            stride=self.stride, pad_type=self.pad_type,
+            transpose=not self.is_transpose()
+        )
 
 
 class Conv1d(_Conv):
@@ -389,6 +371,14 @@ class _CNN(Module):
     def is_2d(cls):
         return cls.conv_cls.is_2d()
 
+    @classmethod
+    def pool_cls(cls, *args, **kwargs):
+        return Pool2d(*args, **kwargs) if cls.is_2d() else Pool1d(*args, **kwargs)
+
+    @classmethod
+    def unpool_cls(cls, *args, **kwargs):
+        return Unpool2d(*args, **kwargs) if cls.is_2d() else Unpool1d(*args, **kwargs)
+
     def __init__(
             self,
             in_channels,
@@ -399,7 +389,7 @@ class _CNN(Module):
             residual_connections=None,
             dense_connections=None,
             dropout=0.,
-            pad_side='both',
+            pad_type='both',
             dilation=1,
             stride=1,
             norm=None,
@@ -437,7 +427,7 @@ class _CNN(Module):
                 dense_connections = [None, 3, None, None] there is a single
                 dense_connection connection skipping the second and third layer.
             dropout:
-            pad_side:
+            pad_type:
             dilation:
             stride:
             norm:
@@ -454,20 +444,20 @@ class _CNN(Module):
         self.in_channels = in_channels
         self.out_channels = copy(out_channels)
         num_layers = len(out_channels)
-        assert num_layers >= input_layer + output_layer, (num_layers, input_layer, output_layer)
+        # assert num_layers >= input_layer + output_layer, (num_layers, input_layer, output_layer)
         self.num_layers = num_layers
         self.kernel_sizes = to_list(kernel_size, num_layers)
         residual_connections = to_list(residual_connections, num_layers)
         self.residual_connections = [
-            None if destination_idx is None else to_list(destination_idx)
+            [] if destination_idx is None else to_list(destination_idx)
             for destination_idx in residual_connections
         ]
         dense_connections = to_list(dense_connections, num_layers)
         self.dense_connections = [
-            None if destination_idx is None else to_list(destination_idx)
+            [] if destination_idx is None else to_list(destination_idx)
             for destination_idx in dense_connections
         ]
-        self.pad_sides = to_list(pad_side, num_layers)
+        self.pad_types = to_list(pad_type, num_layers)
         self.dilations = to_list(dilation, num_layers)
         self.strides = to_list(stride, num_layers)
         self.pool_types = to_list(pool_type, num_layers)
@@ -506,6 +496,7 @@ class _CNN(Module):
         convs = list()
         layer_in_channels = [in_channels] + copy(out_channels)
         for i in range(num_layers):
+            norm = self.norm[i + (not pre_activation)]
             if self.dense_connections[i] is not None:
                 for dst_idx in self.dense_connections[i]:
                     assert dst_idx > i, (i, dst_idx)
@@ -517,37 +508,38 @@ class _CNN(Module):
                 dropout=dropout,
                 dilation=self.dilations[i],
                 stride=self.strides[i],
-                pad_side=self.pad_sides[i],
-                norm=self.norm[i + (not pre_activation)],
-                norm_kwargs=norm_kwargs,
+                pad_type=self.pad_types[i],
+                norm=norm,
+                norm_kwargs=None if norm is None else norm_kwargs,
                 activation_fn=self.activation_fn[i + (not pre_activation)],
                 pre_activation=pre_activation,
                 gated=self.gated[i],
             ))
         self.convs = nn.ModuleList(convs)
 
-        residual_convs = dict()
-        for source_idx, destination_indices in enumerate(self.residual_connections):
+        residual_skip_convs = dict()
+        for src_idx, destination_indices in enumerate(self.residual_connections):
             if destination_indices is None:
                 continue
             assert len(set(destination_indices)) == len(destination_indices), destination_indices
             for dst_idx in destination_indices:
-                assert dst_idx > source_idx, (source_idx, dst_idx)
-                if layer_in_channels[dst_idx] != layer_in_channels[source_idx]:
-                    residual_convs[f'{source_idx}->{dst_idx}'] = self.conv_cls(
-                        in_channels=layer_in_channels[source_idx],
+                assert dst_idx > src_idx, (src_idx, dst_idx)
+                if layer_in_channels[dst_idx] != layer_in_channels[src_idx]:
+                    residual_skip_convs[f'{src_idx}->{dst_idx}'] = self.conv_cls(
+                        in_channels=layer_in_channels[src_idx],
                         out_channels=layer_in_channels[dst_idx],
                         kernel_size=1,
                         dropout=dropout,
                         dilation=1,
                         stride=1,
-                        pad_side=None,
+                        pad_type=None,
                         norm=None,
                         activation_fn='identity',
                         pre_activation=False,
                         gated=False,
                     )
-        self.residual_convs = nn.ModuleDict(residual_convs)
+        self.residual_skip_convs = nn.ModuleDict(residual_skip_convs)
+
         self.layer_in_channels = layer_in_channels
 
         if self.norm[0] is not None and not pre_activation:
@@ -584,7 +576,7 @@ class _CNN(Module):
                 if i == self.num_layers - 1 and self.pre_activation \
                 else self.convs[i+self.pre_activation].activation_fn
             self.convs[i].reset_parameters(output_activation_fn)
-        for conv in self.residual_convs.values():
+        for conv in self.residual_skip_convs.values():
             conv.reset_parameters('linear')
 
     def forward(
@@ -612,7 +604,7 @@ class _CNN(Module):
             expected_input_shape, *output_shapes = self.get_shapes(target_shape=target_shape)
             assert (np.array(x.shape) == expected_input_shape).all(), (x.shape, expected_input_shape)
         else:
-            output_shapes = self.num_layers * [None]
+            output_shapes = None
         if target_sequence_lengths is not None:
             expected_sequence_lengths, *output_sequence_lengths = self.get_sequence_lengths(
                 target_sequence_lengths=target_sequence_lengths
@@ -621,78 +613,106 @@ class _CNN(Module):
                 np.array(sequence_lengths) == np.array(expected_sequence_lengths)
             ).all(), (sequence_lengths, expected_sequence_lengths)
         else:
-            output_sequence_lengths = self.num_layers * [None]
+            output_sequence_lengths = None
         pool_indices = to_list(copy(pool_indices), self.num_layers)[::-1]
-        residual_skip_signals = defaultdict(list)
-        dense_skip_signals = defaultdict(list)
+        skip_signals = []
         for i, conv in enumerate(self.convs):
-            x, sequence_lengths = self.maybe_unpool(
-                x,
-                pool_type=self.pool_types[i],
-                pool_size=self.pool_sizes[i],
-                sequence_lengths=sequence_lengths,
-                pool_indices=pool_indices[i],
-            )
+            if self.is_transpose() and any(np.array(to_list(self.pool_sizes[i])) > 1):
+                x, sequence_lengths = self.unpool_cls(
+                    pool_size=self.pool_sizes[i], pad_type=self.pad_types[i]
+                )(
+                    x, sequence_lengths=sequence_lengths, indices=pool_indices[i]
+                )
+
+                for src_idx, x_ in enumerate(skip_signals):
+                    if x_ is not None:
+                        skip_signals[src_idx], _ = self.unpool_cls(
+                            pool_size=self.pool_sizes[i],
+                            pad_type=self.pad_types[i],
+                        )(x_)
+
             if i == 0 and self.input_norm is not None:
                 x = self.input_norm(x, sequence_lengths=sequence_lengths)
                 x = self.input_activation_fn(x)
-            if self.residual_connections[i] is not None:
-                for dst_idx in self.residual_connections[i]:
-                    residual_skip_signals[dst_idx].append((i, x))
-            if self.dense_connections[i] is not None:
-                assert not self.is_transpose()
-                for dst_idx in sorted(self.dense_connections[i]):
-                    dense_skip_signals[dst_idx].append((i, x))
-            x, sequence_lengths = conv(
-                x, sequence_lengths=sequence_lengths,
-                output_shape=output_shapes[i],
-                output_sequence_lengths=output_sequence_lengths[i],
-            )
-            for src_idx, x_ in dense_skip_signals[i + 1]:
-                x_ = F.interpolate(x_, size=x.shape[2:])
-                x = torch.cat((x, x_), dim=1)
-            for src_idx, x_ in residual_skip_signals[i + 1]:
-                x_ = F.interpolate(x_, size=x.shape[2:])
-                if f'{src_idx}->{i+1}' in self.residual_convs:
-                    x_, _ = self.residual_convs[f'{src_idx}->{i + 1}'](x_)
-                x = x + x_
+            skip_signals.append(None if not (self.residual_connections[i]+self.dense_connections[i]) else x)
+
+            x, sequence_lengths = conv(x, sequence_lengths=sequence_lengths)
+            for src_idx, x_ in enumerate(skip_signals):
+                if x_ is None:
+                    continue
+                if any(np.array(to_list(self.strides[i])) > 1):
+                    if self.is_transpose():
+                        x_, _ = self.unpool_cls(
+                            pool_size=self.strides[i],
+                            pad_type=self.pad_types[i],
+                        )(x_)
+                    else:
+                        x_, *_ = self.pool_cls(
+                            pool_type='avg',
+                            pool_size=self.strides[i],
+                            pad_type=self.pad_types[i],
+                        )(x_)
+                    skip_signals[src_idx] = x_
+
+                if i+1 in self.dense_connections[src_idx]:
+                    size = np.array(x_.shape[2:]) - np.array(x.shape[2:])
+                    assert all(size >= 0), size
+                    if any(size > 0):
+                        x_ = Trim(side='end')(x_, size=size)
+                    x = torch.cat((x, x_), dim=1)
+            for src_idx, x_ in enumerate(skip_signals):
+                if x_ is not None and i+1 in self.residual_connections[src_idx]:
+                    size = np.array(x_.shape[2:]) - np.array(x.shape[2:])
+                    assert all(size >= 0), size
+                    if any(size > 0):
+                        assert self.is_transpose() and output_shapes is not None
+                        x_ = Trim(side='end')(x_, size=size)
+                    if f'{src_idx}->{i+1}' in self.residual_skip_convs:
+                        x_, _ = self.residual_skip_convs[f'{src_idx}->{i + 1}'](x_)
+                    x = x + x_
+                destinations = self.dense_connections[src_idx] + self.residual_connections[src_idx]
+                if destinations and max(destinations) <= i+1:
+                    skip_signals[src_idx] = None
+
             if i == self.num_layers - 1 and self.output_norm is not None:
                 x = self.output_norm(x, sequence_lengths=sequence_lengths)
                 x = self.output_activation_fn(x)
-            x, sequence_lengths, pool_indices[i] = self.maybe_pool(
-                x,
-                pool_type=self.pool_types[i],
-                pool_size=self.pool_sizes[i],
-                pad_side=self.pad_sides[i],
-                sequence_lengths=sequence_lengths
-            )
+
+            if not self.is_transpose() and any(np.array(to_list(self.pool_sizes[i])) > 1):
+                assert self.pool_types[i] is not None
+                x, sequence_lengths, pool_indices[i] = self.pool_cls(
+                    pool_type=self.pool_types[i],
+                    pool_size=self.pool_sizes[i],
+                    pad_type=self.pad_types[i],
+                )(x, sequence_lengths=sequence_lengths)
+
+                for src_idx, x_ in enumerate(skip_signals):
+                    if x_ is not None:
+                        skip_signals[src_idx], *_ = self.pool_cls(
+                            pool_type='avg',
+                            pool_size=self.pool_sizes[i],
+                            pad_type=self.pad_types[i],
+                        )(x_)
+
+            if output_shapes is not None:
+                assert self.is_transpose()
+                # assert matching batch and channels dims
+                assert x.shape[:2] == tuple(output_shapes[i])[:2], (x.shape, output_shapes[i])
+                size = np.array(x.shape[2:]) - np.array(output_shapes[i][2:])
+                assert all((size >= 0)), (
+                    f'Desired output_shape {np.abs(size)} bins greater than actual output shape. '
+                    f'Maybe you did not use padding.'
+                )
+                if any(size > 0):
+                    x = Trim(side='end')(x, size=size*(size > 0))
+
+            if output_sequence_lengths is not None:
+                assert self.is_transpose()
+                sequence_lengths = output_sequence_lengths[i]
+
         if self.return_pool_indices:
             return x, sequence_lengths, pool_indices
         return x, sequence_lengths
-
-    def maybe_pool(self, x, pool_type, pool_size, pad_side, sequence_lengths=None):
-        if self.is_transpose() or pool_type is None or pool_size == 1:
-            return x, sequence_lengths, None
-
-        pool_cls = Pool2d if self.is_2d() else Pool1d
-        x, sequence_lengths, pool_indices = pool_cls(
-            pool_type=pool_type,
-            pool_size=pool_size,
-            pad_side=pad_side,
-        )(x, sequence_lengths=sequence_lengths)
-        return x, sequence_lengths, pool_indices
-
-    def maybe_unpool(self, x, pool_type, pool_size, sequence_lengths=None, pool_indices=None):
-        if not self.is_transpose() or not pool_type or pool_size == 1:
-            assert pool_indices is None, (
-                self.is_transpose(), pool_type, pool_size, pool_indices is None
-            )
-            return x, sequence_lengths
-        unpool_cls = Unpool2d if self.is_2d() else Unpool1d
-        x, seq_len = unpool_cls(pool_size=pool_size)(
-            x, sequence_lengths=sequence_lengths, indices=pool_indices
-        )
-        return x, seq_len
 
     @classmethod
     def get_transpose_config(cls, config, transpose_config=None):
@@ -738,7 +758,7 @@ class _CNN(Module):
                 transpose_config['residual_connections'] = [
                     None if i not in skip_connections
                     else skip_connections[i][0] if len(skip_connections) == 1
-                    else skip_connections[i]
+                    else sorted(skip_connections[i])
                     for i in range(num_layers)
                 ]
             else:
@@ -750,7 +770,7 @@ class _CNN(Module):
         transpose_config['in_channels'] = channels[-1]
         transpose_config['out_channels'] = channels[:-1][::-1]
         for kw in [
-            'kernel_size', 'pad_side', 'dilation', 'stride', 'pool_type', 'pool_size', 'norm'
+            'kernel_size', 'pad_type', 'dilation', 'stride', 'pool_type', 'pool_size', 'norm'
         ]:
             if kw not in config.keys():
                 continue
@@ -775,15 +795,15 @@ class _CNN(Module):
                 cur_shape = conv.get_output_shape(cur_shape)
                 cur_shape[1] = self.layer_in_channels[i + 1]  # layer channels differ from conv channels with dense skip connections
                 if self.pool_types[i] is not None:
-                    if self.is_transpose():
-                        raise NotImplementedError
-                    else:
-                        cur_shape = compute_pool_output_shape(
-                            cur_shape,
-                            pool_type=self.pool_types[i],
-                            pool_size=self.pool_sizes[i],
-                            pad_side=self.pad_sides[i]
-                        )
+                    cur_shape = compute_conv_output_shape(
+                        cur_shape,
+                        out_channels=cur_shape[1],
+                        kernel_size=self.pool_sizes[i],
+                        dilation=1,
+                        stride=self.pool_sizes[i],
+                        pad_type=self.pad_types[i],
+                        transpose=self.is_transpose()
+                    )
                 shapes.append(cur_shape)
         else:
             shapes = [target_shape]
@@ -793,15 +813,15 @@ class _CNN(Module):
                 cur_shape[1] = conv.out_channels  # conv channels differ from layer channels with dense skip connections
                 cur_shape = conv.get_input_shape(cur_shape)
                 if self.pool_types[i] is not None:
-                    if self.is_transpose():
-                        cur_shape = compute_pool_output_shape(
-                            cur_shape,
-                            pool_type=self.pool_types[i],
-                            pool_size=self.pool_sizes[i],
-                            pad_side=self.pad_sides[i]
-                        )
-                    else:
-                        raise NotImplementedError
+                    cur_shape = compute_conv_output_shape(
+                        cur_shape,
+                        out_channels=cur_shape[1],
+                        kernel_size=self.pool_sizes[i],
+                        dilation=1,
+                        stride=self.pool_sizes[i],
+                        pad_type=self.pad_types[i],
+                        transpose=not self.is_transpose()
+                    )
                 shapes.append(cur_shape)
             shapes = shapes[::-1]
         return shapes
@@ -818,15 +838,14 @@ class _CNN(Module):
             for i, conv in enumerate(self.convs):
                 cur_seq_len = conv.get_output_sequence_lengths(cur_seq_len)
                 if self.pool_types[i] is not None:
-                    if self.is_transpose():
-                        raise NotImplementedError
-                    else:
-                        cur_seq_len = compute_pool_output_sequence_lengths(
-                            cur_seq_len,
-                            pool_type=self.pool_types[i],
-                            pool_size=self.pool_sizes[i],
-                            pad_side=self.pad_sides[i]
-                        )
+                    cur_seq_len = compute_conv_output_sequence_lengths(
+                        cur_seq_len,
+                        kernel_size=self.pool_sizes[i],
+                        dilation=1,
+                        stride=self.pool_sizes[i],
+                        pad_type=self.pad_types[i],
+                        transpose=self.is_transpose()
+                    )
                 seq_lens.append(cur_seq_len)
         else:
             seq_lens = [target_sequence_lengths]
@@ -834,15 +853,14 @@ class _CNN(Module):
             for i, conv in reversed(list(enumerate(self.convs))):
                 cur_seq_len = conv.get_input_sequence_lengths(cur_seq_len)
                 if self.pool_types[i] is not None:
-                    if self.is_transpose():
-                        cur_seq_len = compute_pool_output_sequence_lengths(
-                            cur_seq_len,
-                            pool_type=self.pool_types[i],
-                            pool_size=self.pool_sizes[i],
-                            pad_side=self.pad_sides[i]
-                        )
-                    else:
-                        raise NotImplementedError
+                    cur_seq_len = compute_conv_output_sequence_lengths(
+                        cur_seq_len,
+                        kernel_size=self.pool_sizes[i],
+                        dilation=1,
+                        stride=self.pool_sizes[i],
+                        pad_type=self.pad_types[i],
+                        transpose=not self.is_transpose()
+                    )
                 seq_lens.append(cur_seq_len)
             seq_lens = seq_lens[::-1]
         return seq_lens
