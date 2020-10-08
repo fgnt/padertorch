@@ -127,7 +127,7 @@ class Normalization(Module):
             self.beta = None
 
     @property
-    def runnning_var(self):
+    def running_var(self):
         n = torch.max(
             self.num_tracked_values,
             2. * torch.ones_like(self.num_tracked_values)
@@ -181,7 +181,7 @@ class Normalization(Module):
             if self.shift:
                 x = x - self.running_mean.detach()
             if self.scale:
-                x = x / torch.sqrt(self.runnning_var.detach())
+                x = x / torch.sqrt(self.running_var.detach() + self.eps)
             if self.gamma is not None:
                 x = x * self.gamma
             if self.beta is not None:
@@ -191,7 +191,7 @@ class Normalization(Module):
             )
         return x
 
-    def inverse(self, x):
+    def inverse(self, x, sequence_lengths=None):
         if not self.track_running_stats:
             raise NotImplementedError
         if self.beta is not None:
@@ -199,9 +199,12 @@ class Normalization(Module):
         if self.gamma is not None:
             x = x / self.gamma
         if self.scale:
-            x = torch.sqrt(self.running_var) * x
+            x = torch.sqrt(self.running_var.detach() + self.eps) * x
         if self.shift:
-            x = x + self.running_mean
+            x = x + self.running_mean.detach()
+        x = x * compute_mask(
+            x, sequence_lengths, self.batch_axis, self.sequence_axis
+        )
         return x
 
 
