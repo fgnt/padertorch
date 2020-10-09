@@ -22,7 +22,7 @@ class NormalizedLogMelExtractor(nn.Module):
     def __init__(
             self, n_mels, sample_rate, fft_length, fmin=50, fmax=None,
             add_deltas=False, add_delta_deltas=False,
-            mel_norm_statistics_axis='bt', mel_norm_eps=1e-5,
+            mel_norm_statistics_axis='bt', mel_norm_eps=1e-5, clamp=None,
             # augmentation
             warping_fn=None,
             max_resample_rate=1.,
@@ -48,6 +48,7 @@ class NormalizedLogMelExtractor(nn.Module):
             independent_axis=None,
             momentum=None,
         )
+        self.clamp = clamp
 
         # augmentation
         if max_resample_rate > 1.:
@@ -109,6 +110,8 @@ class NormalizedLogMelExtractor(nn.Module):
                     x = torch.cat((x, delta_deltas), dim=1)
 
             x = self.norm(x, sequence_lengths=seq_len)
+            if self.clamp is not None:
+                x = torch.clamp(x, -self.clamp, self.clamp)
 
             if self.time_masking is not None:
                 x = self.time_masking(x, seq_len=seq_len)
