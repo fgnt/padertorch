@@ -80,15 +80,9 @@ class SuperposeEvents:
     >>> example2 = {'example_id': '1', 'dataset': '1', 'stft': -np.ones((1, 8, 9, 2)), 'events': np.array([0,0,1,0,0]), 'events_alignment': np.array([0,0,1,0,0])[:,None].repeat(8,axis=1)}
     >>> mixup_fn([example1, example2])
     """
-    def __init__(
-            self, min_overlap=1., max_length=None,
-            join_example_ids_fn=lambda ids: '+'.join(ids),
-            join_dataset_names_fn=lambda names: '+'.join(names),
-    ):
+    def __init__(self, min_overlap=1., max_length=None):
         self.min_overlap = min_overlap
         self.max_length = max_length
-        self.join_example_ids_fn = join_example_ids_fn
-        self.join_dataset_names_fn = join_dataset_names_fn
 
     def __call__(self, components):
         assert len(components) > 0
@@ -132,8 +126,8 @@ class SuperposeEvents:
                 mixed_alignment[:, start:stop] += comp['events_alignment']
 
         mix = {
-            'example_id': self.join_example_ids_fn([comp['example_id'] for comp in components]),
-            'dataset': self.join_dataset_names_fn(sorted(set([comp['dataset'] for comp in components]))),
+            'example_id': '+'.join([comp['example_id'] for comp in components]),
+            'dataset': '+'.join(sorted(set([comp['dataset'] for comp in components]))),
             'stft': mixed_stft,
             'seq_len': mixed_stft.shape[1],
             'events': (np.sum([comp['events'] for comp in components], axis=0) > .5).astype(components[0]['events'].dtype),
