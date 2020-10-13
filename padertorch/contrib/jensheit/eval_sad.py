@@ -1,5 +1,31 @@
 import numpy as np
 import dlp_mpi
+from paderbox.array import segment_axis
+
+
+def smooth_vad(vad_pred, threshold=0.1, window=25, divisor=1):
+    """
+    >>> vad_pred = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.2, 0.1])
+    >>> smooth_vad(vad_pred, window=3, divisor=1, threshold=0.3)
+    array([0., 0., 1., 1., 1., 1., 1., 1., 0.])
+    >>> smooth_vad(vad_pred, window=5, divisor=1, threshold=0.5)
+    array([0., 0., 0., 0., 1., 1., 1., 1., 0.])
+    >>> smooth_vad(vad_pred, window=5, divisor=2, threshold=0.5)
+    array([0., 0., 0., 1., 1., 1., 1., 1., 1.])
+    >>> smooth_vad(vad_pred[None, None], window=5, divisor=2, threshold=0.5)
+    array([[[0., 0., 0., 1., 1., 1., 1., 1., 1.]]])
+    """
+    vad_pred = vad_pred.copy()
+    vad_pred[vad_pred > threshold] = 1.
+    vad_pred[vad_pred < 1] = 0.
+    shift = window // 2
+    padding = [(0, 0)] * (vad_pred.ndim - 1) + [(shift, shift)]
+    vad_padded = np.pad(vad_pred, padding, 'edge')
+    vad_segmented = segment_axis(vad_padded, window, 1, end='pad')
+    vad_segmented = np.sum(vad_segmented, axis=-1)
+    vad_pred[vad_segmented >= shift // divisor] = 1
+    vad_pred[vad_segmented < shift // divisor] = 0
+    return vad_pred
 
 
 def adjust_annotation_fn(annotation, sample_rate, buffer_zone=1.):
