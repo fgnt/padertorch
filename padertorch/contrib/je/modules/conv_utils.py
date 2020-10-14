@@ -290,9 +290,9 @@ def compute_pad_size(kernel_size, dilation, stride, pad_type):
     if pad_type is None:
         return 0, 0
     if pad_type == 'front':
-        return ks - stride, stride - 1
+        return max(ks - stride, 0), min(stride - 1, ks - 1)
     if pad_type == 'both':
-        return (ks - stride) // 2, stride - 1 + math.ceil((ks - stride)/2)
+        return max(ks - stride, 0) // 2, min(stride - 1, ks - 1) + math.ceil(max(ks - stride, 0)/2)
     if pad_type == 'end':
         return 0,  ks - 1
 

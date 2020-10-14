@@ -887,3 +887,47 @@ class CNN2d(_CNN):
 
 class CNNTranspose2d(_CNN):
     conv_cls = ConvTranspose2d
+
+
+def resnet50(in_channels, out_channels, out_pool_size=1, activation_fn='relu', pre_activation=False, norm='batch'):
+    """
+
+    Args:
+        in_channels:
+        out_channels:
+        activation_fn:
+        pre_activation:
+        norm:
+
+    Returns:
+
+    >>> resnet = resnet50(3,1000, out_pool_size=8)
+    >>> y, _ = resnet(torch.randn(1, 3, 256, 256))
+    >>> y.shape
+
+    """
+    out_channels = [64] + 3*3*[64] + 4*3*[128] + 6*3*[256] + 3*3*[512] + [out_channels]
+    assert len(out_channels) == 50
+    for i in range(3, 50, 3):
+        out_channels[i] *= 4
+    kernel_size = [7]+49*[1]
+    for i in range(2, 50, 3):
+        kernel_size[i] *= 3
+    stride = [2] + 3*3*[1] + [2] + (4*3-1)*[1] + [2] + (6*3-1)*[1] + [2] + 3*3*[1]
+    pool_size = [2] + 47*[1] + [out_pool_size] + [1]
+    pool_type = ['max'] + 47 * [None] + ['avg'] + [None]
+    residual_connections = 50*[None]
+    for i in range(1, 48, 3):
+        residual_connections[i] = i+3
+    return CNN2d(
+        in_channels=in_channels,
+        out_channels=out_channels,
+        kernel_size=kernel_size,
+        stride=stride,
+        pool_size=pool_size,
+        pool_type=pool_type,
+        residual_connections=residual_connections,
+        activation_fn=activation_fn,
+        pre_activation=pre_activation,
+        norm=norm,
+    )
