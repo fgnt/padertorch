@@ -12,7 +12,7 @@ def fully_connected_stack(
         output_size: int,
         activation: str = 'relu',
         dropout: float = 0.5,
-        output_activation: str = None
+        output_activation: str = None,
 ):
     """
 
