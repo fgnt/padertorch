@@ -11,7 +11,8 @@ def fully_connected_stack(
         hidden_size: List[int],
         output_size: int,
         activation: str = 'relu',
-        dropout: float = 0.5
+        dropout: float = 0.5,
+        output_activation: str = None,
 ):
     """
 
@@ -27,6 +28,7 @@ def fully_connected_stack(
             dropout: Dropout forget ratio (opposite to TensorFlow)
                 default take from:
                     https://www.reddit.com/r/MachineLearning/comments/3oztvk/why_50_when_using_dropout/
+            output_activation: applied after the last layer
 
         >>> fully_connected_stack(513, [1024, 1024], 1024)
         Sequential(
@@ -53,7 +55,7 @@ def fully_connected_stack(
     else:
         raise TypeError(hidden_size)
 
-    activation = [activation] * (len(l_n_units) - 2) + [None]
+    activation = [activation] * (len(l_n_units) - 2) + [output_activation]
 
     for l_idx, n_units in enumerate(l_n_units[:-1]):
         layers[f'dropout_{l_idx}'] = nn.Dropout(dropout)
