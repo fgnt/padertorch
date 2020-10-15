@@ -399,6 +399,7 @@ class _CNN(Module):
             gated=False,
             pool_type='max',
             pool_size=1,
+            pool_stride=None,
             return_pool_indices=False,
     ):
         """
@@ -462,6 +463,7 @@ class _CNN(Module):
         self.strides = to_list(stride, num_layers)
         self.pool_types = to_list(pool_type, num_layers)
         self.pool_sizes = to_list(pool_size, num_layers)
+        self.pool_strides = self.pool_sizes if pool_stride is None else to_list(pool_stride, num_layers)
         self.return_pool_indices = return_pool_indices
         self.activation_fn = to_list(activation_fn, num_layers+1)
         self.norm = to_list(norm, num_layers+1)
@@ -619,7 +621,9 @@ class _CNN(Module):
         for i, conv in enumerate(self.convs):
             if self.is_transpose() and any(np.array(to_list(self.pool_sizes[i])) > 1):
                 x, sequence_lengths = self.unpool_cls(
-                    pool_size=self.pool_sizes[i], pad_type=self.pad_types[i]
+                    pool_size=self.pool_sizes[i],
+                    stride=self.pool_strides[i],
+                    pad_type=self.pad_types[i]
                 )(
                     x, sequence_lengths=sequence_lengths, indices=pool_indices[i]
                 )
@@ -627,7 +631,7 @@ class _CNN(Module):
                 for src_idx, x_ in enumerate(skip_signals):
                     if x_ is not None:
                         skip_signals[src_idx], _ = self.unpool_cls(
-                            pool_size=self.pool_sizes[i],
+                            pool_size=self.pool_strides[i],
                             pad_type=self.pad_types[i],
                         )(x_)
 
@@ -683,6 +687,7 @@ class _CNN(Module):
                 x, sequence_lengths, pool_indices[i] = self.pool_cls(
                     pool_type=self.pool_types[i],
                     pool_size=self.pool_sizes[i],
+                    stride=self.pool_strides[i],
                     pad_type=self.pad_types[i],
                 )(x, sequence_lengths=sequence_lengths)
 
@@ -690,7 +695,7 @@ class _CNN(Module):
                     if x_ is not None:
                         skip_signals[src_idx], *_ = self.pool_cls(
                             pool_type='avg',
-                            pool_size=self.pool_sizes[i],
+                            pool_size=self.pool_strides[i],
                             pad_type=self.pad_types[i],
                         )(x_)
 
@@ -770,7 +775,7 @@ class _CNN(Module):
         transpose_config['in_channels'] = channels[-1]
         transpose_config['out_channels'] = channels[:-1][::-1]
         for kw in [
-            'kernel_size', 'pad_type', 'dilation', 'stride', 'pool_type', 'pool_size', 'norm'
+            'kernel_size', 'pad_type', 'dilation', 'stride', 'pool_type', 'pool_size', 'pool_stride', 'norm'
         ]:
             if kw not in config.keys():
                 continue
@@ -800,7 +805,7 @@ class _CNN(Module):
                         out_channels=cur_shape[1],
                         kernel_size=self.pool_sizes[i],
                         dilation=1,
-                        stride=self.pool_sizes[i],
+                        stride=self.pool_strides[i],
                         pad_type=self.pad_types[i],
                         transpose=self.is_transpose()
                     )
@@ -818,7 +823,7 @@ class _CNN(Module):
                         out_channels=cur_shape[1],
                         kernel_size=self.pool_sizes[i],
                         dilation=1,
-                        stride=self.pool_sizes[i],
+                        stride=self.pool_strides[i],
                         pad_type=self.pad_types[i],
                         transpose=not self.is_transpose()
                     )
@@ -842,7 +847,7 @@ class _CNN(Module):
                         cur_seq_len,
                         kernel_size=self.pool_sizes[i],
                         dilation=1,
-                        stride=self.pool_sizes[i],
+                        stride=self.pool_strides[i],
                         pad_type=self.pad_types[i],
                         transpose=self.is_transpose()
                     )
@@ -857,7 +862,7 @@ class _CNN(Module):
                         cur_seq_len,
                         kernel_size=self.pool_sizes[i],
                         dilation=1,
-                        stride=self.pool_sizes[i],
+                        stride=self.pool_strides[i],
                         pad_type=self.pad_types[i],
                         transpose=not self.is_transpose()
                     )
@@ -868,7 +873,9 @@ class _CNN(Module):
     def get_receptive_field(self):
         receptive_field = np.ones(1+self.is_2d()).astype(np.int)
         for i in reversed(range(self.num_layers)):
-            receptive_field *= np.array(self.strides[i])*np.array(self.pool_sizes[i])
+            receptive_field *= np.array(self.pool_strides[i])
+            receptive_field += np.array(self.pool_sizes[i]) - np.array(self.pool_strides[i])
+            receptive_field *= np.array(self.strides[i])
             receptive_field += np.array(self.kernel_sizes[i]) - np.array(self.strides[i])
         return receptive_field
 
@@ -914,7 +921,8 @@ def resnet50(in_channels, out_channels, out_pool_size=1, activation_fn='relu', p
     for i in range(2, 50, 3):
         kernel_size[i] *= 3
     stride = [2] + 3*3*[1] + [2] + (4*3-1)*[1] + [2] + (6*3-1)*[1] + [2] + 3*3*[1]
-    pool_size = [2] + 47*[1] + [out_pool_size] + [1]
+    pool_size = [3] + 47*[1] + [out_pool_size] + [1]
+    pool_stride = [2] + 47*[1] + [out_pool_size] + [1]
     pool_type = ['max'] + 47 * [None] + ['avg'] + [None]
     residual_connections = 50*[None]
     for i in range(1, 48, 3):
@@ -925,6 +933,7 @@ def resnet50(in_channels, out_channels, out_pool_size=1, activation_fn='relu', p
         kernel_size=kernel_size,
         stride=stride,
         pool_size=pool_size,
+        pool_stride=pool_stride,
         pool_type=pool_type,
         residual_connections=residual_connections,
         activation_fn=activation_fn,

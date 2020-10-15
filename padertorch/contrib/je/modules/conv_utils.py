@@ -100,12 +100,13 @@ class Pool1d(Module):
     """
     Wrapper for nn.{Max,Avg}Pool1d including padding
     """
-    def __init__(self, pool_type, pool_size, pad_type=None):
+    def __init__(self, pool_type, pool_size, stride=None, pad_type=None):
         super().__init__()
         assert np.isscalar(pool_size)
         assert pad_type is None or np.isscalar(pad_type)
         self.pool_type = pool_type
         self.pool_size = pool_size
+        self.stride = pool_size if stride is None else stride
         self.pad_type = pad_type
 
     def forward(self, x, sequence_lengths=None):
@@ -115,24 +116,25 @@ class Pool1d(Module):
         assert self.pool_type is not None, (
             'pool_size > 1 not allowed when pool_type is None'
         )
-        front_pad, end_pad = compute_pad_size(self.pool_size, 1, self.pool_size, self.pad_type)
+        front_pad, end_pad = compute_pad_size(self.pool_size, 1, self.stride, self.pad_type)
         if front_pad > 0:
             x = Pad(side='front')(x, size=front_pad)
         if end_pad > 0:
             x = Pad(side='end')(x, size=end_pad)
-        x = Trim(side='end')(x, size=np.array(x.shape[2:]) % self.pool_size)
+        trim_size = np.maximum(np.array(x.shape[2:])-self.pool_size, 0) % self.stride
+        x = Trim(side='end')(x, size=trim_size)
         if self.pool_type == 'max':
             x, pool_indices = nn.MaxPool1d(
-                kernel_size=self.pool_size, return_indices=True
+                kernel_size=self.pool_size, stride=self.stride, return_indices=True
             )(x)
         elif self.pool_type == 'avg':
-            x = nn.AvgPool1d(kernel_size=self.pool_size)(x)
+            x = nn.AvgPool1d(kernel_size=self.pool_size, stride=self.stride)(x)
             pool_indices = None
         else:
             raise ValueError(f'{self.pool_type} pooling unknown.')
 
         if sequence_lengths is not None:
-            sequence_lengths = _compute_conv_out_size(sequence_lengths, self.pool_size, 1, self.pool_size, self.pad_type)
+            sequence_lengths = _compute_conv_out_size(sequence_lengths, self.pool_size, 1, self.stride, self.pad_type)
             assert all(sequence_lengths > 0), sequence_lengths
         return x, sequence_lengths, pool_indices
 
@@ -141,27 +143,31 @@ class Unpool1d(Module):
     """
     1d MaxUnpooling if indices are provided else upsampling
     """
-    def __init__(self, pool_size, pad_type=None):
+    def __init__(self, pool_size, stride=None, pad_type=None):
         super().__init__()
         assert np.isscalar(pool_size)
         assert pad_type is None or np.isscalar(pad_type)
         self.pool_size = pool_size
+        self.stride = pool_size if stride is None else stride
         self.pad_type = pad_type
 
     def forward(self, x, sequence_lengths=None, indices=None):
         if self.pool_size < 2:
             return x, sequence_lengths
         if indices is None:
-            x = F.interpolate(x, scale_factor=self.pool_size)
+            x = F.interpolate(x, scale_factor=self.stride)
         else:
-            x = nn.MaxUnpool1d(kernel_size=self.pool_size)(
+            x = nn.MaxUnpool1d(kernel_size=self.pool_size, stride=self.stride)(
                 x, indices=indices
             )
-        front_pad, end_pad = compute_pad_size(self.pool_size, 1, self.pool_size, self.pad_type)
-        if front_pad > 0:
-            x = Trim(side='front')(x, size=front_pad)
+            front_pad, end_pad = compute_pad_size(self.pool_size, 1, self.stride, self.pad_type)
+            end_pad = np.maximum(np.array(end_pad)-np.array(self.stride)+1, 0)
+            if front_pad > 0:
+                x = Trim(side='front')(x, size=front_pad)
+            if end_pad > 0:
+                x = Trim(side='end')(x, size=end_pad)
         if sequence_lengths is not None:
-            sequence_lengths = sequence_lengths * self.pool_size - front_pad
+            sequence_lengths = _compute_transpose_out_size(sequence_lengths, self.pool_size, 1, self.stride, self.pad_type)
             # sequence_lengths = np.maximum(sequence_lengths, x.shape[-1])
         return x, sequence_lengths
 
@@ -170,10 +176,11 @@ class Pool2d(Module):
     """
     Wrapper for nn.{Max,Avg}Pool2d including padding
     """
-    def __init__(self, pool_type, pool_size, pad_type=None):
+    def __init__(self, pool_type, pool_size, stride=None, pad_type=None):
         super().__init__()
         self.pool_type = pool_type
         self.pool_size = to_pair(pool_size)
+        self.stride = self.pool_size if stride is None else to_pair(stride)
         self.pad_type = to_pair(pad_type)
 
     def forward(self, x, sequence_lengths=None):
@@ -190,20 +197,21 @@ class Pool2d(Module):
             x = Pad(side='front')(x, size=front_pad)
         if any(np.array(end_pad) > 0):
             x = Pad(side='end')(x, size=end_pad)
-        x = Trim(side='end')(x, size=np.array(x.shape[2:]) % self.pool_size)
+        trim_size = np.maximum(np.array(x.shape[2:])-self.pool_size, 0) % self.stride
+        x = Trim(side='end')(x, size=trim_size)
         if self.pool_type == 'max':
             x, pool_indices = nn.MaxPool2d(
-                kernel_size=self.pool_size, return_indices=True
+                kernel_size=self.pool_size, stride=self.stride, return_indices=True
             )(x)
         elif self.pool_type == 'avg':
-            x = nn.AvgPool2d(kernel_size=self.pool_size)(x)
+            x = nn.AvgPool2d(kernel_size=self.pool_size, stride=self.stride)(x)
             pool_indices = None
         else:
             raise ValueError(f'{self.pool_type} pooling unknown.')
 
         if sequence_lengths is not None:
             sequence_lengths = _compute_conv_out_size(
-                sequence_lengths, self.pool_size[-1], 1, self.pool_size[-1],
+                sequence_lengths, self.pool_size[-1], 1, self.stride[-1],
                 self.pad_type[-1]
             )
             assert all(sequence_lengths > 0), sequence_lengths
@@ -214,28 +222,34 @@ class Unpool2d(Module):
     """
     2d MaxUnpooling if indices are provided else upsampling
     """
-    def __init__(self, pool_size, pad_type=None):
+    def __init__(self, pool_size, stride=None, pad_type=None):
         super().__init__()
         self.pool_size = to_pair(pool_size)
+        self.stride = self.pool_size if stride is None else to_pair(stride)
         self.pad_type = to_pair(pad_type)
 
     def forward(self, x, sequence_lengths=None, indices=None):
         if all(np.array(self.pool_size) < 2):
             return x, sequence_lengths
         if indices is None:
-            x = F.interpolate(x, scale_factor=self.pool_size)
+            x = F.interpolate(x, scale_factor=self.stride)
         else:
-            x = nn.MaxUnpool2d(kernel_size=self.pool_size)(x, indices=indices)
-
-        front_pad, end_pad = list(zip(*[
-            compute_pad_size(k, 1, k, t)
-            for k,t in zip(self.pool_size, self.pad_type)
-        ]))
-        if any(np.array(front_pad) > 0):
-            x = Trim(side='front')(x, size=front_pad)
+            x = nn.MaxUnpool2d(kernel_size=self.pool_size, stride=self.stride)(x, indices=indices)
+            front_pad, end_pad = list(zip(*[
+                compute_pad_size(k, 1, s, t)
+                for k,s,t in zip(self.pool_size, self.stride, self.pad_type)
+            ]))
+            end_pad = np.maximum(np.array(end_pad)-np.array(self.stride)+1, 0)
+            if any(np.array(front_pad) > 0):
+                x = Trim(side='front')(x, size=front_pad)
+            if any(np.array(end_pad) > 0):
+                x = Trim(side='end')(x, size=end_pad)
 
         if sequence_lengths is not None:
-            sequence_lengths = sequence_lengths * self.pool_size[-1] - front_pad[-1]
+            sequence_lengths = _compute_transpose_out_size(
+                sequence_lengths, self.pool_size[-1], 1, self.stride[-1],
+                self.pad_type[-1]
+            )
             # sequence_lengths = np.maximum(sequence_lengths, x.shape[-1])
         return x, sequence_lengths
 
@@ -298,6 +312,7 @@ def compute_pad_size(kernel_size, dilation, stride, pad_type):
 
 
 def _compute_conv_out_size(in_size, kernel_size, dilation, stride, pad_type):
+    stride = kernel_size if stride is None else stride
     pad_size = sum(compute_pad_size(kernel_size, dilation, stride, pad_type))
     ks = 1 + dilation * (kernel_size - 1)
     out_size = in_size - (ks - 1) + pad_size
@@ -305,6 +320,7 @@ def _compute_conv_out_size(in_size, kernel_size, dilation, stride, pad_type):
 
 
 def _compute_transpose_out_size(in_size, kernel_size, dilation, stride, pad_type):
+    stride = kernel_size if stride is None else stride
     out_size = (1 + (in_size - 1) * stride) + (dilation * (kernel_size - 1))
     front_pad, end_pad = compute_pad_size(kernel_size, dilation, stride, pad_type)
     end_pad = max(end_pad-stride+1, 0)
