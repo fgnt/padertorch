@@ -48,14 +48,14 @@ ACTIVATION_FN_MAP = _CallableDispatcher(
 # but the naming convention shuld be updated.
 # NP_REDUCE_MAP = _CallableDispatcher(
 #     median=np.median,
-#     average=np.mean,
+#     mean=np.mean,
 #     min=np.min,
 #     max=np.max,
 # )
 #
 # REDUCE_MAP = _CallableDispatcher(
 #     median=torch.median,
-#     average=torch.mean,
+#     mean=torch.mean,
 #     min=torch.min,
 #     max=torch.max,
 # )

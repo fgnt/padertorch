@@ -10,7 +10,7 @@ from paderbox.utils.mapping import Dispatcher
 
 TORCH_POOLING_FN_MAP = Dispatcher(
     median=torch.median,
-    average=torch.mean,
+    mean=torch.mean,
     min=torch.min,
     max=torch.max,
 )
