@@ -43,6 +43,9 @@ ACTIVATION_FN_MAP = Dispatcher(
     identity=torch.nn.Sequential,  # https://github.com/pytorch/pytorch/issues/9160
 )
 
+
+# These mappings are not used at the moment if required they can be added again
+# but the naming convention shuld be updated.
 # POOLING_FN_MAP = CallableDispatcher(
 #     median=np.median,
 #     average=np.mean,
