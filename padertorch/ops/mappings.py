@@ -32,7 +32,7 @@ class CallableDispatcher(Dispatcher):
             return super().__getitem__(item)
 
 
-ACTIVATION_FN_MAP = Dispatcher(
+ACTIVATION_FN_MAP = CallableDispatcher(
     relu=torch.nn.ReLU,
     prelu=torch.nn.PReLU,
     leaky_relu=torch.nn.LeakyReLU,
