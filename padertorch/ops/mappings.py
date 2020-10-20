@@ -46,14 +46,14 @@ ACTIVATION_FN_MAP = CallableDispatcher(
 
 # These mappings are not used at the moment if required they can be added again
 # but the naming convention shuld be updated.
-# POOLING_FN_MAP = CallableDispatcher(
+# NP_REDUCE_MAP = CallableDispatcher(
 #     median=np.median,
 #     average=np.mean,
 #     min=np.min,
 #     max=np.max,
 # )
 #
-# TORCH_POOLING_FN_MAP = CallableDispatcher(
+# REDUCE_MAP = CallableDispatcher(
 #     median=torch.median,
 #     average=torch.mean,
 #     min=torch.min,
