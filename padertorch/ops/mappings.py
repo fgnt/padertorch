@@ -7,20 +7,20 @@ __all__ = [
     'ACTIVATION_FN_MAP',
 ]
 
-class CallableDispatcher(Dispatcher):
+class _CallableDispatcher(Dispatcher):
     """
        If the input is a callable it is returned.
        Otherwise, it is basically a dict
        with a better error message on key error.
-       >>> from padertorch.ops.mappings import CallableDispatcher
-       >>> d = CallableDispatcher(abc=1, bcd=2)
+       >>> from padertorch.ops.mappings import _CallableDispatcher
+       >>> d = _CallableDispatcher(abc=1, bcd=2)
        >>> d['acd']  #doctest: +ELLIPSIS
        Traceback (most recent call last):
        ...
        paderbox.utils.mapping.DispatchError: Invalid option 'acd'.
        Close matches: ['bcd', 'abc'].
-       >>> from padertorch.ops.mappings import CallableDispatcher
-       >>> d = CallableDispatcher(abc=1, bcd=2)
+       >>> from padertorch.ops.mappings import _CallableDispatcher
+       >>> d = _CallableDispatcher(abc=1, bcd=2)
        >>> d[np.median]  #doctest: +ELLIPSIS
        <function median at ...
        """
@@ -32,7 +32,7 @@ class CallableDispatcher(Dispatcher):
             return super().__getitem__(item)
 
 
-ACTIVATION_FN_MAP = CallableDispatcher(
+ACTIVATION_FN_MAP = _CallableDispatcher(
     relu=torch.nn.ReLU,
     prelu=torch.nn.PReLU,
     leaky_relu=torch.nn.LeakyReLU,
@@ -46,14 +46,14 @@ ACTIVATION_FN_MAP = CallableDispatcher(
 
 # These mappings are not used at the moment if required they can be added again
 # but the naming convention shuld be updated.
-# NP_REDUCE_MAP = CallableDispatcher(
+# NP_REDUCE_MAP = _CallableDispatcher(
 #     median=np.median,
 #     average=np.mean,
 #     min=np.min,
 #     max=np.max,
 # )
 #
-# REDUCE_MAP = CallableDispatcher(
+# REDUCE_MAP = _CallableDispatcher(
 #     median=torch.median,
 #     average=torch.mean,
 #     min=torch.min,
@@ -67,7 +67,7 @@ ACTIVATION_FN_MAP = CallableDispatcher(
 #     complex128=np.complex128,
 # )
 #
-# OPTIMIZER_MAP = CallableDispatcher(
+# OPTIMIZER_MAP = _CallableDispatcher(
 #     sgd=optim.SGD,
 #     adam=optim.Adam,
 #     adagrad=optim.Adagrad
