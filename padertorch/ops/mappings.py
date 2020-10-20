@@ -9,9 +9,9 @@ __all__ = [
 
 class CallableDispatcher(Dispatcher):
     """
-       Is basically a dict for non-callable inputs
-       with a better error message on key error.
        If the input is a callable it is returned.
+       Otherwise, it is basically a dict
+       with a better error message on key error.
        >>> from padertorch.ops.mappings import CallableDispatcher
        >>> d = CallableDispatcher(abc=1, bcd=2)
        >>> d['acd']  #doctest: +ELLIPSIS
