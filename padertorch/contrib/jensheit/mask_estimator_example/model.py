@@ -4,9 +4,16 @@ import torch
 import torch.nn.functional as F
 from padertorch.contrib.jensheit.mask_estimator_example.modul import MaskEstimator
 from padertorch.contrib.jensheit.mask_estimator_example.modul import MaskKeys as K
-from padertorch.ops.mappings import TORCH_POOLING_FN_MAP
 
 from padertorch.summary import mask_to_image, stft_to_image
+from paderbox.utils.mapping import Dispatcher
+
+TORCH_POOLING_FN_MAP = Dispatcher(
+    median=torch.median,
+    average=torch.mean,
+    min=torch.min,
+    max=torch.max,
+)
 
 class MaskLossKeys:
     NOISE_MASK = 'noise_mask_loss'
