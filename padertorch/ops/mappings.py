@@ -9,6 +9,31 @@ __all__ = [
     'DTYPE_MAP',
 ]
 
+class CallableDispatcher(Dispatcher):
+    """
+       Is basically a dict for non-callable inputs
+       with a better error message on key error.
+       If the input is a callable it is returned.
+       >>> from padertorch.ops.mappings import CallableDispatcher
+       >>> d = CallableDispatcher(abc=1, bcd=2)
+       >>> d['acd']  #doctest: +ELLIPSIS
+       Traceback (most recent call last):
+       ...
+       paderbox.utils.mapping.DispatchError: Invalid option 'acd'.
+       Close matches: ['bcd', 'abc'].
+       >>> from padertorch.ops.mappings import CallableDispatcher
+       >>> d = CallableDispatcher(abc=1, bcd=2)
+       >>> d[np.median]  #doctest: +ELLIPSIS
+       <function median at ...
+       """
+
+    def __getitem__(self, item):
+        if callable(item):
+            return item
+        else:
+            return super().__getitem__(item)
+
+
 ACTIVATION_FN_MAP = Dispatcher(
     relu=torch.nn.ReLU,
     prelu=torch.nn.PReLU,
