@@ -1,12 +1,18 @@
+"""
+This code is inspired by https://github.com/funcwj/conv-tasnet
+"""
+
 import padertorch as pt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 import numpy as np
-from padertorch.contrib.je.modules.conv import Pad, compute_pad_size, to_list
+from padertorch.utils import to_list
+from padertorch.contrib.je.modules.conv import Pad, compute_pad_size
 from padertorch.contrib.jensheit.norm import build_norm #ToDo move to norm
 from typing import Optional
+
 
 class Conv1d(pt.Module):
     """
@@ -105,19 +111,17 @@ class Conv1d(pt.Module):
         return x
 
 
-
-class _ConvBlock(pt.Module):
+class _Conv1DBlock(pt.Module):
     """
 
     1D convolutional block:
-        consists of Conv1x1 - PReLU - Norm - depthwise conv - PReLU -
-        Norm -  cross-channel conv
+        consists of Conv1D - PReLU - Norm - Conv1D - PReLU - Norm -  Conv1D
     input: B x F x T
 
-    >>> conv = _ConvBlock()
+    >>> conv = _Conv1DBlock()
     >>> conv(torch.rand(5, 256, 343)).shape
     torch.Size([5, 256, 343])
-    >>> conv = _ConvBlock(norm='gLN')
+    >>> conv = _Conv1DBlock(norm='gLN')
     >>> conv(torch.rand(5, 256, 343)).shape
     torch.Size([5, 256, 343])
     """
@@ -129,30 +133,30 @@ class _ConvBlock(pt.Module):
                  norm="cLN"):
         super().__init__()
 
-        # 1x1 conv
-        input_lnorm = build_norm(norm, in_channels)
-        self.input_conv = Conv1d(in_channels, out_channels, 1, pad_type=None,
-                                 norm=input_lnorm, activation_fn='prelu')
+        # ToDo: this can be replaced by a CNN1D from JE
 
-        self.lnorm2 = build_norm(norm, out_channels)
-        # depthwise conv
-        self.depthwise_conv = Conv1d(
+        self.input_norm = build_norm(norm, in_channels)
+        self.input_conv = Conv1d(in_channels, out_channels, 1, pad_type=None,
+                                 norm=self.input_norm, activation_fn='prelu')
+
+        self.conv = Conv1d(
             out_channels,
             out_channels,
             kernel_size,
             groups=out_channels,
             activation_fn='prelu',
             pad_type='both',
-            dilation=dilation,
-            bias=True)
+            dilation=dilation
+        )
 
-        # 1x1 conv cross channel
-        self.sconv = nn.Conv1d(out_channels, in_channels, 1, bias=True)
+        self.norm = build_norm(norm, out_channels)
+        self.output_conv = Conv1d(out_channels, in_channels, 1, norm=self.norm,
+                                  activation_fn='identity')
 
     def forward(self, x):
         y = self.input_conv(x)
-        y = self.depthwise_conv(y)
-        y = self.sconv(y)
+        y = self.conv(y)
+        y = self.output_conv(y)
         x = x + y
         return x
 
@@ -175,63 +179,54 @@ class ConvNet(pt.Module):
     def __init__(
             self,
             input_size=256,
-            X=8,
-            R=4,
-            B=256,
-            H=512,
-            P=3,
+            num_blocks=8,
+            num_repeats=4,
+            in_channels=256,
+            out_channels=512,
+            kernel_size=3,
             norm="gLN",
             activation="relu",
     ):
         """
 
         Args:
-            feat_size:
-            X:
-            R:
-            B:
-            H:
-            P:
+            input_size:
+            num_blocks: number of _Conv1DBlock with dilation between
+                        1 and 2**(num_blocks-1) per repitition
+            num_repeats: number of repitition of num_blocks
+            in_channels:
+            out_channels:
+            kernel_size:
             norm:
-            num_spks:
             activation:
         """
         super().__init__()
         self.input_size = input_size
         self.activation = pt.mappings.ACTIVATION_FN_MAP[activation]()
-        # before repeat blocks, always cLN
+
         self.layer_norm = build_norm('cLN', input_size)
-        # input convolution could be replaced by feed forward
-        # n x N x T => n x B x T
-        self.projection = Conv1d(input_size, B, 1, pad_type=None)
+        self.projection = Conv1d(input_size, in_channels, 1, pad_type=None)
         # repeat blocks
-        # n x B x T => n x B x T
         self.conv_blocks = self._build_repeats(
-            R,
-            X,
-            in_channels=B,
-            out_channels=H,
-            kernel_size=P,
-            norm=norm, )
-        self.hidden_size = B
+            num_repeats,
+            num_blocks,
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            norm=norm)
+        self.hidden_size = in_channels
 
     def _build_blocks(self, num_blocks, **block_kwargs):
-        """
-        Build Conv1D block
-        """
         blocks = [
-            Conv1DBlock(**block_kwargs, dilation=(2 ** b))
+            _Conv1DBlock(**block_kwargs, dilation=(2 ** b))
             for b in range(num_blocks)
         ]
         return nn.Sequential(*blocks)
 
     def _build_repeats(self, num_repeats, num_blocks, **block_kwargs):
-        """
-        Build Conv1D block repeats
-        """
         repeats = [
             self._build_blocks(num_blocks, **block_kwargs)
-            for r in range(num_repeats)
+            for _ in range(num_repeats)
         ]
         return nn.Sequential(*repeats)
 
