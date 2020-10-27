@@ -5,12 +5,13 @@ import torch.nn.functional as F
 from einops import rearrange
 import numpy as np
 from padertorch.contrib.je.modules.conv import Pad, compute_pad_size, to_list
-from enh_plath.module.norm import build_norm
+from padertorch.contrib.jensheit.norm import build_norm #ToDo move to norm
 from typing import Optional
 
 class Conv1d(pt.Module):
     """
     simplified version of padertorch.contrib.je.modules.Conv1d
+    #ToDo: replace with JE version when published
     """
     conv_cls = nn.Conv1d
 
@@ -105,16 +106,18 @@ class Conv1d(pt.Module):
 
 
 
-class Conv1DBlock(pt.Module):
+class _ConvBlock(pt.Module):
     """
-    1D convolutional block:
-        Conv1x1 - PReLU - Norm - DConv - PReLU - Norm - SConv
-    input: N x F x T
 
-    >>> conv = Conv1DBlock()
+    1D convolutional block:
+        consists of Conv1x1 - PReLU - Norm - depthwise conv - PReLU -
+        Norm -  cross-channel conv
+    input: B x F x T
+
+    >>> conv = _ConvBlock()
     >>> conv(torch.rand(5, 256, 343)).shape
     torch.Size([5, 256, 343])
-    >>> conv = Conv1DBlock(norm='gLN')
+    >>> conv = _ConvBlock(norm='gLN')
     >>> conv(torch.rand(5, 256, 343)).shape
     torch.Size([5, 256, 343])
     """
@@ -125,15 +128,15 @@ class Conv1DBlock(pt.Module):
                  dilation=1,
                  norm="cLN"):
         super().__init__()
-        # 1x1 conv
 
+        # 1x1 conv
         input_lnorm = build_norm(norm, in_channels)
         self.input_conv = Conv1d(in_channels, out_channels, 1, pad_type=None,
                                  norm=input_lnorm, activation_fn='prelu')
-        # depthwise conv
 
         self.lnorm2 = build_norm(norm, out_channels)
-        self.dconv = Conv1d(
+        # depthwise conv
+        self.depthwise_conv = Conv1d(
             out_channels,
             out_channels,
             kernel_size,
@@ -142,12 +145,13 @@ class Conv1DBlock(pt.Module):
             pad_type='both',
             dilation=dilation,
             bias=True)
+
         # 1x1 conv cross channel
         self.sconv = nn.Conv1d(out_channels, in_channels, 1, bias=True)
 
     def forward(self, x):
         y = self.input_conv(x)
-        y = self.dconv(y)
+        y = self.depthwise_conv(y)
         y = self.sconv(y)
         x = x + y
         return x
