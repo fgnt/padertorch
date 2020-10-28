@@ -56,22 +56,22 @@ $ python -m padertorch.contrib.examples.source_separation.tasnet.train with data
 Different loss functions can be selected by adjusting the loss weights with for example
 
 ```bash
-$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" trainer.loss_weights.log-mse=1 trainer.loss_weights.si-sdr=0
+$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" dprnn trainer.loss_weights.log-mse=1 trainer.loss_weights.si-sdr=0
 ```
 
 There is a named config for simple access to `log-mse`:
 
 ```bash
-$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" log_mse
+$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" dprnn log_mse
 ```
 
 Available loss functions are: `log-mse`, `si-sdr` and `log1p-mse`.
 
-The configuration that has the best performance in the paper (window size of 2) can be selected with the named config `with win2`.
+The configuration that has the best performance in the paper (window size of 2) can be selected with the named config `with dprnn win2`.
 
 To use the STFTEncoder and/or ISTFT Decoder use the named config stft and/or istft:
 ```bash
-$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" stft istft
+$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" dprnn stft istft
 ```
 
 Evaluation
