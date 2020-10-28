@@ -149,12 +149,17 @@ def dprnn():
 @ex.named_config
 def convnet():
     feat_size = 256
-    trainer = {'model': {'separator': dict(
-        factory='padertorch.contrib.jensheit.convnet.ConvNet',
-        input_size=feat_size,
-        X=8, R=4, B=256, H=512, P=3,
-        norm="gLN", activation="relu",
-    )}}
+    trainer = {'model': {'separator': {
+        'factory': 'padertorch.contrib.jensheit.convnet.ConvNet',
+        'input_size': feat_size,
+        'num_blocks': 8,
+        'num_repeats': 4,
+        'in_channels': 256,
+        'hidden_channels': 512,
+        'kernel_size': 3,
+        'norm': "gLN",
+        'activation': "relu",
+    }}}
 
 
 @ex.named_config
