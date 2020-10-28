@@ -127,7 +127,7 @@ class _Conv1DBlock(pt.Module):
     """
     def __init__(self,
                  in_channels=256,
-                 out_channels=512,
+                 hidden_channels=512,
                  kernel_size=3,
                  dilation=1,
                  norm="cLN"):
@@ -136,22 +136,22 @@ class _Conv1DBlock(pt.Module):
         # ToDo: this can be replaced by a CNN1D from JE
 
         self.input_norm = build_norm(norm, in_channels)
-        self.input_conv = Conv1d(in_channels, out_channels, 1, pad_type=None,
+        self.input_conv = Conv1d(in_channels, hidden_channels, 1, pad_type=None,
                                  norm=self.input_norm, activation_fn='prelu')
 
         self.conv = Conv1d(
-            out_channels,
-            out_channels,
+            hidden_channels,
+            hidden_channels,
             kernel_size,
-            groups=out_channels,
+            groups=hidden_channels,
             activation_fn='prelu',
             pad_type='both',
             dilation=dilation
         )
 
-        self.norm = build_norm(norm, out_channels)
-        self.output_conv = Conv1d(out_channels, in_channels, 1, norm=self.norm,
-                                  activation_fn='identity')
+        self.norm = build_norm(norm, hidden_channels)
+        self.output_conv = Conv1d(hidden_channels, in_channels, 1,
+                                  norm=self.norm, activation_fn='identity')
 
     def forward(self, x):
         y = self.input_conv(x)
@@ -168,12 +168,8 @@ class ConvNet(pt.Module):
         https://arxiv.org/abs/1809.07454
 
     >>> module = ConvNet()
-    >>> module(torch.rand(4, 3, 323, 256), None).shape
-    torch.Size([4, 3, 2, 323, 256])
-    >>> module = ConvNet(514)
-    >>> tensor = [torch.zeros((1, 2500, 514)), torch.zeros((1, 3501, 514))]
-    >>> module(tensor, None).shape
-    torch.Size([2, 1, 2, 3501, 514])
+    >>> module(torch.rand(4, 323, 256), None).shape
+    torch.Size([4, 323, 256])
     """
 
     def __init__(
@@ -182,7 +178,7 @@ class ConvNet(pt.Module):
             num_blocks=8,
             num_repeats=4,
             in_channels=256,
-            out_channels=512,
+            hidden_channels=512,
             kernel_size=3,
             norm="gLN",
             activation="relu",
@@ -195,7 +191,7 @@ class ConvNet(pt.Module):
                         1 and 2**(num_blocks-1) per repitition
             num_repeats: number of repitition of num_blocks
             in_channels:
-            out_channels:
+            hidden_channels:
             kernel_size:
             norm:
             activation:
@@ -211,7 +207,7 @@ class ConvNet(pt.Module):
             num_repeats,
             num_blocks,
             in_channels=in_channels,
-            out_channels=out_channels,
+            hidden_channels=hidden_channels,
             kernel_size=kernel_size,
             norm=norm)
         self.hidden_size = in_channels
