@@ -130,8 +130,9 @@ class SuperposeEvents:
             'dataset': '+'.join(sorted(set([comp['dataset'] for comp in components]))),
             'stft': mixed_stft,
             'seq_len': mixed_stft.shape[1],
-            'events': (np.sum([comp['events'] for comp in components], axis=0) > .5).astype(components[0]['events'].dtype),
         }
+        if all(['events' in comp for comp in components]):
+            mix['events'] = (np.sum([comp['events'] for comp in components], axis=0) > .5).astype(components[0]['events'].dtype)
         if mixed_alignment is not None:
             mix['events_alignment'] = (mixed_alignment > .5).astype(components[0]['events_alignment'].dtype)
         return mix
