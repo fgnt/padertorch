@@ -17,8 +17,8 @@ def _reduce(array, reduction):
     elif reduction == 'mean':
         return torch.mean(array)
     else:
-        raise ValueError(f'Unknown reduce: {reduction}. Choose from "sum", '
-                         f'"mean".')
+        raise ValueError(
+            f'Unknown reduction: {reduction}. Choose from "sum", "mean".')
 
 
 def log_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
@@ -36,9 +36,9 @@ def log_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
 
 
     Args:
-        estimate (K x T): The estimated signal
-        target (K x T, same as estimate): The target signal
-        reduce:
+        estimate (... x T): The estimated signal
+        target (... x T, same as estimate): The target signal
+        reduction: 'mean', 'sum' or 'none'/None for batch dimensions
 
     Returns:
         The log-mse error between `estimate` and `target`
@@ -64,14 +64,15 @@ def log_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
     )
 
 
-def sdr_loss(estimates: torch.Tensor, targets: torch.Tensor,
-             reduction: str = 'mean', axis=-1):
+def sdr_loss(estimate: torch.Tensor, target: torch.Tensor,
+             reduction: str = 'mean'):
     """
     The (scale dependent) SDR or SNR loss.
 
     Args:
-        estimates (KxT):
-        targets (KxT, same as estimates):
+        estimate (... x T): The estimated signal
+        target (... x T, same as estimate): The target signal
+        reduction: 'mean', 'sum' or 'none'/None for batch dimensions
 
     Returns:
 
@@ -98,10 +99,9 @@ def si_sdr_loss(estimates, targets, reduction='mean', offset_invariant=False,
     Scale Invariant SDR (SI-SDR) or Scale Invariant SNR (SI-SNR) loss as defined in [1], section 2.2.4.
 
     Args:
-        estimates: shape ...xT
-        targets: shape ...xT, same as estimates
-        reduce: If `True`, the mean is computed over all inputs. If `False`,
-            the output has shape ...
+        estimate (... x T): The estimated signal
+        target (... x T, same as estimate): The target signal
+        reduction: 'mean', 'sum' or 'none'/None for batch dimensions
         offset_invariant: If `True`, mean-normalize before loss calculation.
             This makes the loss shift- and scale-invariant.
         grad_stop: If `True`, the gradient is not propagated through the
@@ -215,7 +215,7 @@ def log1p_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
     Args:
         estimate (... x T): The estimated signal
         target (... x T, same as estimate): The target signal
-        reduce:
+        reduction: 'mean', 'sum' or 'none'/None for batch dimensions
 
     Returns:
         The log1p-mse error between `estimate` and `target`
