@@ -3,10 +3,10 @@ import torch
 from torch.nn import functional as F
 
 
-def _get_scaling_factor(targets, estimates):
+def _get_scaling_factor(target, estimate):
     return torch.unsqueeze(torch.einsum(
-        '...t,...t->...', estimates, targets
-    ), -1) / torch.norm(targets, dim=-1, keepdim=True) ** 2
+        '...t,...t->...', estimate, target
+    ), -1) / torch.norm(target, dim=-1, keepdim=True) ** 2
 
 
 def _reduce(array, reduction):
@@ -150,9 +150,9 @@ def si_sdr_loss(estimate, target, reduction='mean', offset_invariant=False,
     >>> np.random.seed(0)
     >>> reference = torch.tensor(np.random.randn(100))
 
-    >>> def calculate(estimates, targets):
-    ...     print('Torch loss:', si_sdr_loss(estimates, targets))
-    ...     print('Numpy metric:', si_sdr(estimates.numpy(), targets.numpy()))
+    >>> def calculate(estimate, target):
+    ...     print('Torch loss:', si_sdr_loss(estimate, target))
+    ...     print('Numpy metric:', si_sdr(estimate.numpy(), target.numpy()))
 
     Perfect estimation
     >>> calculate(reference, reference)
