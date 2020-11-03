@@ -271,14 +271,3 @@ def log1p_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
 
 # TODO: Add log1p_mse loss from interspeech paper
 # TODO: remove _reduce
-
-
-time_domain_loss_functions = {
-    'log-mse': log_mse_loss,
-    'si-sdr': si_sdr_loss,
-    'si-sdr-grad-stop': partial(si_sdr_loss, grad_stop=True),
-    'mse': F.mse_loss,
-    'sdr': sdr_loss,
-}
-
-
