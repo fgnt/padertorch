@@ -38,12 +38,12 @@ def mse_loss(estimate: torch.Tensor, target: torch.Tensor,
     >>> estimate = [[1., 2, 3], [4, 5, 6]]
     >>> target = [[2., 3, 4], [4, 0, 6]]
     >>> mse_loss(torch.tensor(estimate), torch.tensor(target))
-    tensor(0.9208)
+    tensor(9.3333)
     >>> mse_loss(torch.tensor(estimate), torch.tensor(target), reduction=None)
-    tensor([0.0000, 0.9208])
+    tensor([1.0000, 8.3333])
     """
     return _reduce(
-        F.mse_loss(estimate, target, reduction='none').mean(dim=-1).log10(),
+        F.mse_loss(estimate, target, reduction='none').mean(dim=-1),
         reduction=reduction
     )
 
