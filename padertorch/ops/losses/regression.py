@@ -21,6 +21,33 @@ def _reduce(array, reduction):
             f'Unknown reduction: {reduction}. Choose from "sum", "mean".')
 
 
+def mse_loss(estimate: torch.Tensor, target: torch.Tensor,
+             reduction: str = 'sum'):
+    """
+    Computes the mse loss.
+    The `reduction` only affects the speaker dimension; the time dimension is always
+    reduced by a mean operation as in [1].
+
+    Args:
+        estimate (... x T): The estimated signal
+        target (... x T, same as estimate): The target signal
+        reduction: 'mean', 'sum' or 'none'/None for batch dimensions
+
+    Returns:
+
+    >>> estimate = [[1., 2, 3], [4, 5, 6]]
+    >>> target = [[2., 3, 4], [4, 0, 6]]
+    >>> mse_loss(torch.tensor(estimate), torch.tensor(target))
+    tensor(0.9208)
+    >>> mse_loss(torch.tensor(estimate), torch.tensor(target), reduction=None)
+    tensor([0.0000, 0.9208])
+    """
+    return _reduce(
+        F.mse_loss(estimate, target, reduction='none').mean(dim=-1).log10(),
+        reduction=reduction
+    )
+
+
 def log_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
                  reduction: str = 'sum'):
     """
@@ -87,13 +114,13 @@ def sdr_loss(estimate: torch.Tensor, target: torch.Tensor,
     # Calculate the SNR. The square in the power computation is moved to the
     # front, thus the 20 in front of the log
     snr = 20 * torch.log10(
-        torch.norm(targets, dim=axis) / torch.norm(estimates - targets, dim=axis)
+        torch.norm(target, dim=-1) / torch.norm(estimate - target, dim=-1)
     )
 
     return -_reduce(snr, reduction=reduction)
 
 
-def si_sdr_loss(estimates, targets, reduction='mean', offset_invariant=False,
+def si_sdr_loss(estimate, target, reduction='mean', offset_invariant=False,
                 grad_stop=False):
     """
     Scale Invariant SDR (SI-SDR) or Scale Invariant SNR (SI-SNR) loss as defined in [1], section 2.2.4.
@@ -172,28 +199,28 @@ def si_sdr_loss(estimates, targets, reduction='mean', offset_invariant=False,
     Torch loss: tensor(nan, dtype=torch.float64)
     Numpy metric: nan
     """
-    assert estimates.shape == targets.shape, (estimates.shape, targets.shape)
-    assert len(estimates.shape) >= 1, estimates.shape
-    assert len(estimates.shape) == 1 or estimates.shape[-2] < 10, (
-        f'Number of speakers should be small (<10, not {estimates.shape[-2]})!'
+    assert estimate.shape == target.shape, (estimate.shape, target.shape)
+    assert len(estimate.shape) >= 1, estimate.shape
+    assert len(estimate.shape) == 1 or estimate.shape[-2] < 10, (
+        f'Number of speakers should be small (<10, not {estimate.shape[-2]})!'
     )
 
     # Remove mean to ensure scale-invariance
     if offset_invariant:
-        estimates = estimates - torch.mean(estimates, dim=(-1,), keepdim=True)
-        targets = targets - torch.mean(targets, dim=(-1,), keepdim=True)
+        estimate = estimate - torch.mean(estimate, dim=(-1,), keepdim=True)
+        target = target - torch.mean(target, dim=(-1,), keepdim=True)
 
     # Compute the scaling factor (alpha)
-    scaling_factor = _get_scaling_factor(targets, estimates)
+    scaling_factor = _get_scaling_factor(target, estimate)
     if grad_stop:
         scaling_factor = scaling_factor.detach()
 
     # Compute s_target ([1] eq. 13)
-    s_target = scaling_factor * targets
+    s_target = scaling_factor * target
 
     # The SNR loss computes e_noise ([1] eq. 14) and the ratio, here the
     # SI-SNR ([1] eq. 15)
-    return sdr_loss(estimates, s_target, reduction=reduction)
+    return sdr_loss(estimate, s_target, reduction=reduction)
 
 
 def log1p_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
@@ -253,4 +280,5 @@ time_domain_loss_functions = {
     'mse': F.mse_loss,
     'sdr': sdr_loss,
 }
+
 
