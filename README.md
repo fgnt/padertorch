@@ -68,6 +68,56 @@ $ cd padertorch && pip install -e .
 ```
 
 # Getting Started
+
+## A Short Explanation of `padertorch.Module` and `padertorch.Model`
+
+You can build your models upon `padertorch.Module` and `padertorch.Model`.
+Both expect a `forward` method which has the same functionality as the `forward` call of  `torch.nn.Module`: It takes data as input, applies some transformations and returns the network output:
+
+```python
+def forward(self, example):
+    x = example['x']
+    out = transform(x)
+    return out
+```
+
+Additionally, `padertorch.Model` expects a `review` method to be implemented which takes the data and output of the `forward` call as inputs from which it computes losses and metrics for logging:
+
+```python
+import torch
+
+def review(self, example, output):
+    # loss computation
+    ce_loss = torch.nn.CrossEntropyLoss()(output, example['x'])
+    # compute additional metrics
+    with torch.no_grad():
+        prediction = torch.argmax(output, dim=1)
+        accuracy = (prediction == example['label']).float().mean()
+    return {
+        'loss': ce_loss,
+        'scalars': {'accuracy': accuracy}
+    }
+```
+
+See [padertorch.summary.tbx_utils.review_dict](padertorch/summary/tbx_utils.py#L213) for how the review dictionary should be constructed.
+For each training step, the trainer calls `forward`, passes its output to `review` and performs an backpropagation step on the loss.
+Typically, the input to the `forward` of a `Module` is a Tensor, while for a `Model`, it is a dictionary which contains additional entries, e.g., labels, which are needed in the `review`.
+This is only a recommendation and there is no restriction for the input type.
+
+While these two methods are mandatory, you are free to add any further methods to your models.
+Since a `Module` does not need a `review` method, it can be used as a component of a `Model`.
+
+## How to Integrate your Data and Model with the Trainer
+
+The trainer works with any kind of iterable data loader, e.g., `torch.utils.data.DataLoader` or `lazy_dataset.Dataset`.
+The `train` method expects a data iterator as input which yields the training data.
+Optionally, you can add a validation iterator with `Trainer.register_validation_hook`.
+The data iterator can yield batched features of type `numpy.ndarray` or `torch.Tensor` or dictionaries with entries of different types.
+The trainer calls `padertorch.data.example_to_device` which recursively converts numpy arrays to Tensors and moves all Tensors to the available device.
+The device can either be provided to the call of `Trainer.train` or is set according to `torch.cuda.is_available` by the trainer.
+
+A simple sketch for the trainer setup is given below:
+
 ```python
 import torch
 import padertorch as pt
@@ -115,6 +165,4 @@ trainer.register_validation_hook(validation_dataset)
 trainer.train(train_dataset)
 ```
 
-## padertorch.Configurable
-
-ToDo
+See the [trainer](padertorch/train.trainer.py) for an explanation of its signature and the [examples](padertorch/contrib/examples) for further usages of Padertorch with actual data and models.
