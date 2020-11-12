@@ -34,21 +34,27 @@ This repository is currently under construction.
 - **Multi-GPU training**: Easily deploy your model onto multiple GPUs to increase the total batch size and speed up the training. See [here](doc/virtual_batch_size_multi_gpu.md) for implementation details and the [example](padertorch/contrib/examples/multi_gpu) for how to enable it.
 - **Support for lazy data preparation**: Ever tired of pre-computing features, taking up time and space on the hard disk? Padertorch works with lazy dataloaders (e.g., [lazy_dataset](https://github.com/fgnt/lazy_dataset)) which extract the features on the fly!
 
-# Implemented Network Architectures
+# Features for Application in Deep Learning
 
-Padertorch provides a selection of frequently used network architectures, ready for you to integrate into your own models.
+Padertorch provides a selection of frequently used network architectures and functionalities such as activation and normalization, ready for you to integrate into your own models.
 
 - [Multi-layer Feed-Forward](padertorch/modules/fully_connected): Multiple fully-connected layers with non-linearity and dropout.
 - [CNN](padertorch/contrib/je/modules/conv.py) (currently subject to breaking changes and hardly any documentation): 1d- and 2d-CNNs with residual connections, dropout, gated activations, batch and sequence norm and correct handling of down- and upsampling.
 - [Normalization](paderotrch/modules/normalization.py): Perform normalization of arbitrary axes/dimensions of your features, keep track of running statistics and apply learnable affine transformation.
-- [Dual-Path RNN (DPRNN)](padertorch/modules/dual_path_rnn.py): See the [paper](https://arxiv.org/abs/1910.06379).
 - [Collection of activation functions](padertorch/ops/mappings.py): Fast access of various activation functions with just a string.
+- [Losses](padertorch/ops/losses): We provide an implementation of the [Kullback-Leibler divergence](padertorch/ops/losses/kl_divergence.py) and different [regression](padertorch/ops/losses/regression.py) objectives.
+
+## Advanced Architectures
+
+- [Dual-Path RNN (DPRNN)](padertorch/modules/dual_path_rnn.py): See the [paper](https://arxiv.org/abs/1910.06379).
 
 ## Support for sequential and speech data
 
-Padertorch offers extensive support for sequential data such as:
+Padertorch especially offers support for training with [sequential data](padertorch/ops/sequence) such as:
 - [Masking](padertorch/ops/sequence/mask.py): Calculate a mask which has non-zero entries for non-padded positions in the sequence.
+- [Fragmenting](padertorch/data/fragmenter.py): Fragment a sequence into smaller chunks of same length.
 - [Visualization in tensorboard](padertorch/summary/tbx_utils.py): Prepare spectrograms and speech masks for visualization and audio for playback in tensorboard.
+- [Source separation objectives](padertorch/ops/losses/source_separation.py): Commonly used objectives for speech source separation such as PIT or deep clustering.
 
 # Installation
 
