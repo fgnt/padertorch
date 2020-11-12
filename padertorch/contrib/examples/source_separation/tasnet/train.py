@@ -62,14 +62,6 @@ def config():
                 'window_length': encoder_window_size,
                 'feature_size': feat_size,
             },
-            'separator': {
-                'factory': pt.modules.dual_path_rnn.DPRNN,
-                'input_size': 64,
-                'rnn_size': 128,
-                'window_length': 100,
-                'hop_size': 50,
-                'num_blocks': 6,
-            },
             'decoder': {
                 'factory': padertorch.contrib.examples.source_separation.tasnet.tas_coders.TasDecoder,
                 'window_length': encoder_window_size,
@@ -140,6 +132,34 @@ def stft():
             },
         }
     }
+
+
+@ex.named_config
+def dprnn():
+    trainer = {'model': {'separator': {
+        'factory': pt.modules.dual_path_rnn.DPRNN,
+        'input_size': 64,
+        'rnn_size': 128,
+        'window_length': 100,
+        'hop_size': 50,
+        'num_blocks': 6,
+    }}}
+
+
+@ex.named_config
+def convnet():
+    feat_size = 256
+    trainer = {'model': {'separator': {
+        'factory': 'padertorch.contrib.jensheit.convnet.ConvNet',
+        'input_size': feat_size,
+        'num_blocks': 8,
+        'num_repeats': 4,
+        'in_channels': 256,
+        'hidden_channels': 512,
+        'kernel_size': 3,
+        'norm': "gLN",
+        'activation': "relu",
+    }}}
 
 
 @ex.named_config

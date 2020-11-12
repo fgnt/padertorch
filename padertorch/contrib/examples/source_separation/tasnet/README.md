@@ -3,7 +3,7 @@ TasNet (Currently DPRNN-TasNet only)
 
 This directory contains scripts to train and evaluate different TasNet models:
  - TasNet (BLSTM-based) [2] (TODO),
- - ConvTasNet [3] (TODO), and
+ - ConvTasNet [3], and
  - TasNet with STFT-Encoder and/or ISTFT-Decoder [4]
  - Dual-Path RNN TasNet [1].
 
@@ -15,6 +15,7 @@ With the default parameters, the following numbers can be obtained:
 
 | trained with  | SI-SDRi  | SDRi  |
 |---|---|---|
+| ConvNet        | 15.4       |   15.7   |
 | DPRNN default  | 16.4  | 16.7  |
 | DPRNN `with log_mse`  | 16.7  | 17.0  |
 
@@ -30,7 +31,7 @@ Training
 After installing `padertorch`, a training can be started with
 
 ```bash
-$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}"
+$ python -m padertorch.contrib.examples.source_separation.tasnet.train with dprnn database_json="${PATH_TO_YOUR_DATABASE_JSON}"
 ```
 
 If you set the environment variable "NT_DATABASE_JSONS_DIR", you don't have to provide `database_json` in the above command.
@@ -42,25 +43,35 @@ Please have a look at the the header of `train.py` for information on how to run
 Different Configurations
 ------------------------
 
+For each run the user has to chose a separator configuration. At the moment you can choose between the `DPRNN` and `ConvNet` architectures:
+```bash
+$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" dprnn
+```
+
+```bash
+$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" convnet
+```
+
+
 Different loss functions can be selected by adjusting the loss weights with for example
 
 ```bash
-$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" trainer.loss_weights.log-mse=1 trainer.loss_weights.si-sdr=0
+$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" dprnn trainer.loss_weights.log-mse=1 trainer.loss_weights.si-sdr=0
 ```
 
 There is a named config for simple access to `log-mse`:
 
 ```bash
-$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" log_mse
+$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" dprnn log_mse
 ```
 
 Available loss functions are: `log-mse`, `si-sdr` and `log1p-mse`.
 
-The configuration that has the best performance in the paper (window size of 2) can be selected with the named config `with win2`.
+The configuration that has the best performance in the paper (window size of 2) can be selected with the named config `with dprnn win2`.
 
 To use the STFTEncoder and/or ISTFT Decoder use the named config stft and/or istft:
 ```bash
-$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" stft istft
+$ python -m padertorch.contrib.examples.source_separation.tasnet.train with database_json="${PATH_TO_YOUR_DATABASE_JSON}" dprnn stft istft
 ```
 
 Evaluation
