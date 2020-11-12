@@ -38,9 +38,9 @@ This repository is currently under construction.
 
 Padertorch provides a selection of frequently used network architectures and functionalities such as activation and normalization, ready for you to integrate into your own models.
 
-- [Multi-layer Feed-Forward](padertorch/modules/fully_connected): Multiple fully-connected layers with non-linearity and dropout.
+- [Multi-layer Feed-Forward](padertorch/modules/fully_connected.py): Multiple fully-connected layers with non-linearity and dropout.
 - [CNN](padertorch/contrib/je/modules/conv.py) (currently subject to breaking changes and hardly any documentation): 1d- and 2d-CNNs with residual connections, dropout, gated activations, batch and sequence norm and correct handling of down- and upsampling.
-- [Normalization](paderotrch/modules/normalization.py): Perform normalization of arbitrary axes/dimensions of your features, keep track of running statistics and apply learnable affine transformation.
+- [Normalization](padertorch/modules/normalization.py): Perform normalization of arbitrary axes/dimensions of your features, keep track of running statistics and apply learnable affine transformation.
 - [Collection of activation functions](padertorch/ops/mappings.py): Fast access of various activation functions with just a string.
 - [Losses](padertorch/ops/losses): We provide an implementation of the [Kullback-Leibler divergence](padertorch/ops/losses/kl_divergence.py) and different [regression](padertorch/ops/losses/regression.py) objectives.
 
@@ -165,4 +165,4 @@ trainer.register_validation_hook(validation_dataset)
 trainer.train(train_dataset)
 ```
 
-See the [trainer](padertorch/train.trainer.py) for an explanation of its signature and the [examples](padertorch/contrib/examples) for further usages of Padertorch with actual data and models.
+See the [trainer](padertorch/train/trainer.py) for an explanation of its signature and the [examples](padertorch/contrib/examples) for further usages of Padertorch with actual data and models.
