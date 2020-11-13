@@ -168,3 +168,6 @@ trainer.train(train_dataset)
 See the [trainer](padertorch/train/trainer.py#L40) for an explanation of its signature.
 If you want to use `pt.io.get_new_storage_dir` to manage your experiments, you have to define an environment variable `STORAGE_ROOT` which points to the path where all your experiments will be stored, i.e., in the example above, a new directory under `$STORAGE_ROOT/my_experiment_1` will be created.
 
+## Further Reading
+
+Have a look at our [examples](padertorch/contrib/examples) for advanced usage of padertorch with actual data and models.
