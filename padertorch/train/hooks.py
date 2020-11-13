@@ -593,7 +593,10 @@ class ValidationHook(SummaryHook):
         try:
             best_ckpt_path.symlink_to(self.ckpt_ranking[0][0])
         except FileExistsError:
-            raise FileExistsError('Best checkpoint needs to be a symlink to a checkpoint, not a file!')
+            raise FileExistsError(
+                f'Best checkpoint {best_ckpt_path} needs to be a symlink to a checkpoint, not a file!'
+            ) from None
+
     def close(self, trainer: 'pt.Trainer'):
         if trainer.checkpoint_dir.exists():
             # When checkpoint_dir does not exist, your training failed, before
