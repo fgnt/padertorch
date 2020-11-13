@@ -152,7 +152,7 @@ class MyModel(pt.Model):
 
 trainer = padertorch.Trainer(
     model=MyModel(),
-    storage_dir='path/where/to/save/the/trained/model',
+    storage_dir=pt.io.get_new_storage_dir('my_experiment'),  # checkpoints of the trained model are stored here
     optimizer=pt.train.optimizer.Adam(),
     loss_weights=None,
     summary_trigger=(1, 'epoch'),
@@ -165,4 +165,6 @@ trainer.register_validation_hook(validation_dataset)
 trainer.train(train_dataset)
 ```
 
-See the [trainer](padertorch/train/trainer.py) for an explanation of its signature and the [examples](padertorch/contrib/examples) for further usages of Padertorch with actual data and models.
+See the [trainer](padertorch/train/trainer.py#L40) for an explanation of its signature.
+If you want to use `pt.io.get_new_storage_dir` to manage your experiments, you have to define an environment variable `STORAGE_ROOT` which points to the path where all your experiments will be stored, i.e., in the example above, a new directory under `$STORAGE_ROOT/my_experiment_1` will be created.
+
