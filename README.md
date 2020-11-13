@@ -100,7 +100,7 @@ def review(self, example, output):
 ```
 
 See [padertorch.summary.tbx_utils.review_dict](padertorch/summary/tbx_utils.py#L213) for how the review dictionary should be constructed.
-For each training step, the trainer calls `forward`, passes its output to `review` and performs an backpropagation step on the loss.
+For each training step, the trainer calls `forward`, passes its output to `review` and performs a backpropagation step on the loss.
 Typically, the input to the `forward` of a `Module` is a Tensor, while for a `Model`, it is a dictionary which contains additional entries, e.g., labels, which are needed in the `review`.
 This is only a recommendation and there is no restriction for the input type.
 
