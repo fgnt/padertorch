@@ -19,9 +19,11 @@ def normalize_ref(x, gamma, beta, statistics_axis, batch_axis, sequence_axis, se
         y = x
         if shift:
             y = y - mean
-            power = power - mean**2
+            power_scale = power - mean**2
+        else:
+            power_scale = power
         if scale:
-            y = y / torch.sqrt(power + eps)
+            y = y / torch.sqrt(power_scale + eps)
 
         if gamma is not None:
             assert gamma.dim() == x.dim(), gamma.shape
@@ -54,12 +56,15 @@ def test_grads():
                 gamma_ref.grad.zero_()
                 beta.grad.zero_()
                 beta_ref.grad.zero_()
-            y, *_ = normalize(x, gamma, beta, [0, 2], 0, 2, seq_len, shift, scale, 1e-3)
+            outs = normalize(x, gamma, beta, [0, 2], 0, 2, seq_len, shift, scale, 1e-3)
+            y = outs[0]
             (y[0, [0, 1]] - y[0, 2]).sum().backward()
-            y_ref, *_ = normalize_ref(x_ref, gamma_ref, beta_ref, [0, 2], 0, 2, seq_len, shift, scale, 1e-3)
+            outs_ref = normalize_ref(x_ref, gamma_ref, beta_ref, [0, 2], 0, 2, seq_len, shift, scale, 1e-3)
+            y_ref = outs_ref[0]
             (y_ref[0, [0, 1]] - y_ref[0, 2]).sum().backward()
 
-            tc.assert_array_almost_equal(y.detach().numpy(), y_ref.detach().numpy())
+            for out, out_ref in zip(outs, outs_ref):
+                tc.assert_array_almost_equal(out.detach().numpy(), out_ref.detach().numpy())
             tc.assert_array_almost_equal(x.grad.numpy(), x_ref.grad.numpy())
             tc.assert_array_almost_equal(gamma.grad.numpy(), gamma_ref.grad.numpy())
             tc.assert_array_almost_equal(beta.grad.numpy(), beta_ref.grad.numpy())
