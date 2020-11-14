@@ -88,7 +88,8 @@ class Normalization(Module):
             scale: Whether to normalize input to unit power (and add a
                 learnable scale if independents_axis is not None)
             eps: epsilon added to the argument of sqrt to prevent inf grads
-            momentum: momentum when updating running statistics
+            momentum: momentum when updating running statistics. Can be set to
+                ``None`` for cumulative moving average (i.e. simple average).
         """
         super().__init__()
         self.data_format = data_format.lower()
@@ -193,12 +194,16 @@ class Normalization(Module):
 
     def _update_running_stats(self, mean, power, n_values):
         self.num_tracked_values += n_values.detach()
+        if self.momentum is None:
+            momentum = 1 - n_values / self.num_tracked_values.detach()
+        else:
+            momentum = self.momentum
         if self.shift:
-            self.running_mean *= self.momentum
-            self.running_mean += (1 - self.momentum) * mean.detach()
+            self.running_mean *= momentum
+            self.running_mean += (1 - momentum) * mean.detach()
         if self.scale:
-            self.running_power *= self.momentum
-            self.running_power += (1 - self.momentum) * power.detach()
+            self.running_power *= momentum
+            self.running_power += (1 - momentum) * power.detach()
 
     def _running_norm(self, x, sequence_lengths):
         if self.shift:
@@ -231,8 +236,14 @@ class Normalization(Module):
 
 
 class InputNormalization(Normalization):
-    """
-    >>> norm = Normalization(data_format='bct', shape=(None, 10, None), statistics_axis='bt', momentum=0.5)
+    """Always normalizes input using running statistics. This requires
+    batch_axis to be in statistics_axis.
+
+    Note that gradients cannot backprop through running statistics.
+    Therefore, this module is
+    !NOT SUITED TO BE APPLIED IN HIDDEN LAYERS!
+
+    >>> norm = Normalization(data_format='bct', shape=(None, 10, None), statistics_axis='bt', momentum=.5)
     >>> x, seq_len = 2*torch.ones((3,10,4)), [1, 2, 3]
     >>> norm.running_mean
     tensor([[[0.],
@@ -280,69 +291,15 @@ class InputNormalization(Normalization):
              [2.5000],
              [2.5000]]])
     """
-    def __init__(
-            self,
-            data_format='bcft',
-            shape=None,
-            *,
-            statistics_axis='bft',
-            independent_axis='c',
-            batch_axis='b',
-            sequence_axis='t',
-            shift=True,
-            scale=True,
-            eps: float = 1e-5,
-            momentum=None,
-    ):
-        """Always normalizes input using running statistics. This requires
-        batch_axis to be in statistics_axis.
-
-        Note that gradients cannot backprop through running statistics.
-        Therefore, this module is
-        !NOT SUITED TO BE APPLIED IN HIDDEN LAYERS!
-
-        Args:
-            data_format: string giving each axis a character
-            shape: tuple providing the shape of the input. This is required to
-                infer the shape of running statistics and the params of an
-                affine transformation. Varying dims such as a sequence axis may
-                be set to None.
-            statistics_axis: string indicating axes over which to compute
-                statistics.
-            independent_axis: string indicating axes over which to apply an
-                affine transformation. If None no affine transformation is applied.
-            batch_axis: batch axis character
-            sequence_axis: sequence axis character
-            shift: Whether to normalize input to zero mean (and add a learnable
-                bias if independents_axis is not None)
-            scale: Whether to normalize input to unit power (and add a
-                learnable scale if independents_axis is not None)
-            eps: epsilon added to the argument of sqrt to prevent inf grads
-            momentum: momentum when updating running statistics. If None the
-                momentum is adapted such that all previous input examples have
-                equal weight.
-        """
-        super().__init__(
-            data_format=data_format, shape=shape,
-            statistics_axis=statistics_axis, independent_axis=independent_axis,
-            batch_axis=batch_axis, sequence_axis=sequence_axis,
-            shift=shift, scale=scale,
-            eps=eps, momentum=momentum
-        )
-        assert self.track_running_stats
-        self.adaptive_momentum = momentum is None
 
     def forward(self, x, sequence_lengths=None):
+        assert self.track_running_stats
         if self.training:
             with torch.no_grad():
                 _, _, mean, power, n_values = mask_and_compute_stats(
                     x, sequence_lengths,
                     self.statistics_axis, self.batch_axis, self.sequence_axis
                 )
-                if self.adaptive_momentum:
-                    self.momentum = 1. - n_values.detach() / (
-                        self.num_tracked_values.detach() + n_values.detach()
-                    )
                 self._update_running_stats(mean, power, n_values)
         x = self._running_norm(x, sequence_lengths)
         return x
