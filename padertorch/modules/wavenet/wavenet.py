@@ -254,21 +254,39 @@ class WaveNet(Module):
         from .nv_wavenet.nv_wavenet import NVWaveNet
         return NVWaveNet(**(self.export_weights()))
 
-    def infer_gpu(self, x, device=0):
-        self.cuda(device)
-        from .nv_wavenet.nv_wavenet import Impl
+    def infer(self, x, chunk_length=None, chunk_overlap=0):
         with torch.no_grad():
-            cond_input = self.get_cond_input(x.cuda(device))
-            audio = self.nv_wavenet.infer(cond_input, Impl.AUTO)
-            audio = mu_law_decode(audio, self.n_out_channels)
-        self.cpu()
-        if self.fading is not None:
-            assert self.fading in ['half', 'full']
-            pad_width = self.upsamp_window - self.upsamp_stride
-            if self.fading == 'half':
-                pad_width //= 2
-            audio = audio[..., pad_width:]
-        return audio
-
-    def infer_cpu(self, x):
-        raise NotImplementedError
+            x = self.get_cond_input(x)
+            length = x.shape[-1]
+            if chunk_length is None or length <= chunk_length:
+                chunks = [x]
+            else:
+                n = math.ceil(
+                    (length - chunk_overlap) / (chunk_length - chunk_overlap)
+                )
+                chunk_length = math.ceil(length/n) + chunk_overlap
+                chunks = [
+                    x[..., onset:onset+chunk_length]
+                    for onset in range(
+                        0, length - chunk_overlap, chunk_length - chunk_overlap
+                    )
+                ]
+            audio = []
+            for i, xi in enumerate(chunks):
+                if xi.device == 'cpu':
+                    raise NotImplementedError
+                else:
+                    from .nv_wavenet.nv_wavenet import Impl
+                    xi = self.nv_wavenet.infer(xi, Impl.AUTO)
+                    xi = mu_law_decode(xi, self.n_out_channels)
+                if i > 0:
+                    xi = xi[..., chunk_overlap:]
+                audio.append(xi)
+            audio = torch.cat(tuple(audio), dim=-1)
+            if self.fading is not None:
+                assert self.fading in ['half', 'full']
+                pad_width = self.upsamp_window - self.upsamp_stride
+                if self.fading == 'half':
+                    pad_width //= 2
+                audio = audio[..., pad_width:]
+            return audio
