@@ -3,7 +3,7 @@ from einops import rearrange
 from padertorch import modules
 from padertorch.base import Model
 from padertorch.contrib.je.modules.features import MelTransform
-from padertorch.modules.normalization import Normalization
+from padertorch.modules.normalization import InputNormalization
 from padertorch.ops import mu_law_decode
 
 
@@ -18,27 +18,24 @@ class WaveNet(Model):
             n_mels=n_mels, sample_rate=sample_rate, fft_length=fft_length,
             fmin=fmin, fmax=fmax,
         )
-        self.in_norm = Normalization(
+        self.in_norm = InputNormalization(
             data_format='bcft',
             shape=(None, 1, n_mels, None),
             statistics_axis='bt',
-            scale=True,
             independent_axis=None,
-            momentum=None,
-            interpolation_factor=1.
         )
 
     def feature_extraction(self, x, seq_len=None):
         x = self.mel_transform(torch.sum(x**2, dim=(-1,))).transpose(-2, -1)
-        x = self.in_norm(x, seq_len=seq_len)
+        x = self.in_norm(x, sequence_lengths=seq_len)
         x = rearrange(x, 'b c f t -> b (c f) t')
         return x
 
     def forward(self, inputs):
-        x_target = inputs['stft']
+        x = inputs['stft']
         seq_len = inputs['seq_len']
-        x_target = self.feature_extraction(x_target, seq_len)
-        return self.wavenet(x_target.squeeze(1), inputs['audio_data'].squeeze(1))
+        x = self.feature_extraction(x, seq_len)
+        return self.wavenet(x.squeeze(1), inputs['audio_data'].squeeze(1))
 
     def review(self, inputs, outputs):
         predictions, targets = outputs
