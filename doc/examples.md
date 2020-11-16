@@ -30,9 +30,7 @@ In its most basic form this step looks as simple as:
 ``` python
 import os
 
-storage_dir = str(
-    Path(os.environ['STORAGE_ROOT']) / 'my_task' / 'training_id'
-)
+storage_dir = pt.io.get_new_storage_dir('my_experiment')
 ```
 For more information regarding the usage of Configurable or Sacred 
 see [Configurable Introduction]() and [Sacred Introduction]()
@@ -104,7 +102,7 @@ For most purposes, the structure of the examples should also serve as a good tem
   - Acoustic Model:
   - Audio Tagging:
   - Wavenet: See <>
-  - MNIST: 
+  - MNIST: Small toy example showing the application of Padertorch to image data
   - Functions:
     - Multi-GPU: Basic description and code example of Padertorch's Multi-GPU support
     - Configurable: Introduction into the usage of the Configurable class to setup trainings
