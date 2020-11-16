@@ -381,12 +381,13 @@ class SummaryHook(TriggeredHook):
         # a snapshot (i.e., set_last got invoked). Because of this, we have a
         # flag that is set in reset_summary to determine when to compute
         # snapshots
-        trainer.model.create_snapshot = self.create_snapshot
-        self.create_snapshot = False
+        if self.create_snapshot:
+            trainer.model.create_snapshot = True
 
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
         self.update_summary(review)
-        trainer.model.create_snapshot = False
+        if self.create_snapshot:
+            trainer.model.create_snapshot = self.create_snapshot = False
 
     def post_optimize(self, trainer: 'pt.Trainer', summary):
         self.post_step(trainer, None, None, summary)
