@@ -23,15 +23,15 @@ This repository is currently under construction.
   - Backoff: Restore the best checkpoint and change the learning rate if the loss is not decreasing.
   - [Averaging multiple checkpoints]():
   - [Hooks](padertorch/train/hooks.py): Extend the basic features of the trainer with your own functionality.
-- **Logging**: As logging backend, we use `TensorboardX` to generate a `tfevents` file that can be visualized from a `tensorboard`. Custom values to be logged can be defined in subclasses of `padertorch.Model`.
+- **Logging**: As logging backend, we use [tensorboardX](https://github.com/lanpa/tensorboardX) to generate a `tfevents` file that can be visualized from a [tensorboard](https://github.com/tensorflow/tensorboard). Custom values to be logged can be defined in subclasses of `padertorch.Model`.
 - **Test run**: The trainer has a `test_run` function to train the model for few iterations and test if
     - the model is executable (burn test)
     - the validation is deterministic/reproducable
     - the model changes the parameter in the training
 - **Virtual minibatch**:
   - The `Trainer` usually does not know if the model is trained with a single example or multiple examples (minibatch), because the examples that are yielded from the dataset are directly forwarded to the model.
-  - When the `virtual_minibatch_size` option is larger than one, the trainer calls the forward and backward step `virtual_minibatch_size` times before applying the gradients. This increases the minibatch size, while the memory consumption stays similar.
-- **Multi-GPU training**: Easily deploy your model onto multiple GPUs to increase the total batch size and speed up the training. See [here](doc/virtual_batch_size_multi_gpu.md) for implementation details and the [example](padertorch/contrib/examples/multi_gpu) for how to enable it.
+  - When the `virtual_minibatch_size` option is larger than one, the trainer calls the forward and backward step `virtual_minibatch_size` times before applying the gradients. This increases the minibatch size, while the memory consumption stays similar. See [here](doc/virtual_batch_size_multi_gpu.md) for a more thorough explanation.
+- **Multi-GPU training**: Easily deploy your model onto multiple GPUs to increase the total batch size and speed up the training. See [here](doc/virtual_batch_size_multi_gpu.md#L68) for implementation details and the [example](padertorch/contrib/examples/multi_gpu) for how to enable it.
 - **Support for lazy data preparation**: Ever tired of pre-computing features, taking up time and space on the hard disk? Padertorch works with lazy dataloaders (e.g., [lazy_dataset](https://github.com/fgnt/lazy_dataset)) which extract the features on the fly!
 
 # Features for Application in Deep Learning
