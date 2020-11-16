@@ -19,6 +19,7 @@ This repository is currently under construction.
 - **Forget the training loop**: Our `padertorch.Trainer` takes care of the repetitive training loop and allows you to focus on network tuning. Included are features such as:
   - Periodically executed validation runs
   - Automatic checkpointing: The parameters of the model and the state of the trainer are periodically saved. The checkpoint interval and number of total checkpoints are customizable: Keep one, some or all checkpoints. We also keep track of the best checkpoint on the validation data given some metric.
+  - Resume from the latest checkpoint if the training was interrupted.
   - Learning rate scheduling
   - Backoff: Restore the best checkpoint and change the learning rate if the loss is not decreasing.
   - [Averaging multiple checkpoints]():
