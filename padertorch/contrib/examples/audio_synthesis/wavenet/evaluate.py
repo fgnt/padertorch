@@ -3,21 +3,20 @@ Example call:
 
 python -m padertorch.contrib.examples.audio_synthesis.wavenet.evaluate with exp_dir=/path/to/exp_dir
 """
-import os
 from pathlib import Path
+
 import numpy as np
 import torch
-from padertorch import Model
-from padercontrib.database.librispeech import LibriSpeech
-from padertorch.contrib.examples.audio_synthesis.wavenet.data import prepare_dataset
-from sacred import Experiment, commands
-from scipy.io import wavfile
-
 from dlp_mpi import COMM, IS_MASTER, MASTER, split_managed
-
-from paderbox.io.new_subdir import get_new_subdir
+from lazy_dataset.database import JsonDatabase
 from paderbox.io import load_json, dump_json
-
+from paderbox.io.new_subdir import get_new_subdir
+from padertorch import Model
+from padertorch.contrib.examples.audio_synthesis.wavenet.data import \
+    prepare_dataset
+from sacred import Experiment, commands
+from sacred.observers import FileStorageObserver
+from scipy.io import wavfile
 
 ex = Experiment('wavenet-eval')
 
@@ -25,23 +24,26 @@ ex = Experiment('wavenet-eval')
 @ex.config
 def config():
     exp_dir = ''
-    assert len(exp_dir) > 0, 'Set the model path on the command line.'
+    assert len(exp_dir) > 0, 'Set the exp_dir on the command line.'
+    storage_dir = get_new_subdir(
+        Path(exp_dir) / 'eval', id_naming='time', consider_mpi=True
+    )
+    database_json = load_json(Path(exp_dir) / 'config.json')["database_json"]
+    test_set = 'test_clean'
     max_examples = None
     device = 0
-    test_set = 'test_clean'
+    ex.observers.append(FileStorageObserver.create(storage_dir))
 
 
 @ex.automain
-def main(_run, exp_dir, test_set, max_examples, device):
+def main(_run, exp_dir, storage_dir, database_json, test_set, max_examples, device):
     if IS_MASTER:
         commands.print_config(_run)
 
     exp_dir = Path(exp_dir)
-    eval_dir = get_new_subdir(
-        exp_dir / 'eval', id_naming='time', consider_mpi=True
-    )
-    audio_dir = eval_dir / 'audio'
-    os.makedirs(audio_dir)
+    storage_dir = Path(storage_dir)
+    audio_dir = storage_dir / 'audio'
+    audio_dir.mkdir(parents=True)
 
     config = load_json(exp_dir / 'config.json')
 
@@ -49,7 +51,7 @@ def main(_run, exp_dir, test_set, max_examples, device):
     model.to(device)
     model.eval()
 
-    db = LibriSpeech()
+    db = JsonDatabase(database_json)
     test_data = db.get_dataset(test_set)
     if max_examples is not None:
         test_data = test_data.shuffle(rng=np.random.RandomState(0))[:max_examples]
@@ -92,7 +94,7 @@ def main(_run, exp_dir, test_set, max_examples, device):
             [(ex_id, np.sqrt(err/t)) for ex_id, err, t in squared_err],
             key=lambda x: x[1]
         )
-        dump_json(rmse, eval_dir/'rmse.json', indent=4, sort_keys=False)
+        dump_json(rmse, storage_dir / 'rmse.json', indent=4, sort_keys=False)
         ex_ids_ordered = [x[0] for x in rmse]
         test_data = db.get_dataset('test_clean').shuffle(
             rng=np.random.RandomState(0))[:max_examples].filter(

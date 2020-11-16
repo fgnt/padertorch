@@ -4,6 +4,35 @@ This example trains and evaluates a WaveNet vocoder synthesising waveforms
 from log mel spectrograms. The WaveNet is trained on the LibriSpeech corpus.
 
 ## Training
+
+The training script needs a JSON file that describes the structure of your
+database in the following format:
+```
+{
+    "datasets": {
+        <dataset_A>: {
+            <example_id_A0>: {
+                "audio_path": {
+                    "observation": <path/to/wav>
+                },
+                "num_samples": <num_samples>
+            },
+            <example_id_A1>: {
+                ...
+            },
+            ...
+        },
+        <dataset_B>: {
+            <example_id_B0>: {
+                ...
+            },
+            ...
+        },
+        ...
+    }
+}
+```
+
 To start the training, first define a path to where the trained models should
 be saved:
 ```bash
@@ -19,9 +48,9 @@ extraction and normalization is done in the model.
 The evaluation script loads the best checkpoint (lowest achieved loss on the 
 validation set) and performs autoregressive waveform synthesis.
 For test-time synthesis nv-wavenet needs to be installed.
-Do note that nv-wavenet requires Compute Capability 6.0 or later 
-(https://developer.nvidia.com/cuda-gpus), i.e., you can not, e.g., run the 
-evaluation on a GTX 980.
+Do note that nv-wavenet requires a GPU with Compute Capability 6.0 or later
+(https://developer.nvidia.com/cuda-gpus), i.e., you can neither run the
+evaluation on a CPU nor, e.g., on a GTX 980.
 If nv-wavenet is not installed yet run
 ```bash
 cd /path/to/padertorch/padertorch/modules/wavenet/nv_wavenet

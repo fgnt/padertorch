@@ -1,28 +1,6 @@
 import numpy as np
-from padercontrib.database.librispeech import LibriSpeech
 from padertorch.contrib.je.data.transforms import AudioReader, STFT, \
     fragment_signal, Collate
-
-
-def get_datasets(audio_reader, stft, max_length, batch_size, shuffle_test=False):
-    db = LibriSpeech()
-    train_clean_100 = db.get_dataset('train_clean_100')
-    dev_clean = db.get_dataset('dev_clean')
-    test_set = db.get_dataset('test_clean')
-
-    training_data = prepare_dataset(
-        train_clean_100, audio_reader=audio_reader, stft=stft,
-        max_length=max_length, batch_size=batch_size, shuffle=True
-    )
-    validation_data = prepare_dataset(
-        dev_clean, audio_reader=audio_reader, stft=stft,
-        max_length=max_length, batch_size=batch_size, shuffle=shuffle_test
-    )
-    test_data = prepare_dataset(
-        test_set, audio_reader=audio_reader, stft=stft,
-        max_length=max_length, batch_size=batch_size, shuffle=shuffle_test
-    )
-    return training_data, validation_data, test_data
 
 
 def prepare_dataset(
