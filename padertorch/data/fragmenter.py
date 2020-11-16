@@ -1,7 +1,7 @@
 from copy import deepcopy
 import numpy as np
 from paderbox.utils.nested import nested_op, flatten, deflatten
-
+from paderbox.array import segment_axis
 
 class Fragmenter(object):
     """
@@ -176,7 +176,7 @@ def segment(x, length, offsets=None, shift=None, axis=-1,
 
     Returns:
 
-    >>> segment(np.arange(0, 15), 10, 3, -1)
+    >>> segment(np.arange(0, 15), 10, None, 3, -1)
     array([[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9],
            [ 3,  4,  5,  6,  7,  8,  9, 10, 11, 12]])
     """
