@@ -1,8 +1,11 @@
 # Examples: Getting Started using Padertorch
 
-Padertorch's main purpose is to provide an open interface that simplifies tedious work and works with as many different 
-workflows as possible. Due to the open design of Padertorch, there is no "right" or "wrong" way to train a neural network.
-However, to make getting started easier, we have provided several examples with our recommended workflow when using Padertorch. 
+Padertorch's main purpose is the simplification of neural network training.
+To ensure this goal for a multitude of applications it has a modular structure and the single components are easily exchangeable.
+In this examples section we have provided several examples with our recommended workflow for using Padertorch.
+These examples are meant to convey the inherent logic and structure of a training and serve as a blueprint for new trainings at the same time.
+Due to the modular structure of Padertorch, there are many more workflows that are compatible with Padertorch as well.
+However, getting started will likely become easier by basing your trainings on the examples provided, here.
 
 We recommend the usage of the following components when using Padertorch:
   - [sacred](): Experiment Organization / Ensuring reproducability
@@ -14,7 +17,7 @@ The examples mostly use all of these components, whereas the simple examples  (S
 
 ## Basic Structure of a Training:
 
-Each example several has several steps:
+Each example has several steps:
   - Experiment setup (directory creation, reproducability, logging)
   - Data preprocessing
   - Training
@@ -28,7 +31,7 @@ changes over multiple starts of the same training.
 
 In its most basic form this step looks as simple as:
 ``` python
-import os
+import padertorch as pt
 
 storage_dir = pt.io.get_new_storage_dir('my_experiment')
 ```
