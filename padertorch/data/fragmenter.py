@@ -109,13 +109,14 @@ class Fragmenter(object):
         return fragments
 
 
-def get_segment_offsets(num_samples, length, step=None,
+
+def get_segment_offsets(num_samples, length, shift=None,
                         offset_mode='start', num_segments=None):
     """
 
     Args:
         num_samples:
-        segment_length:
+        length:
         shift:
         offset_mode:
         num_segments:
@@ -137,31 +138,31 @@ def get_segment_offsets(num_samples, length, step=None,
     array([1])
     """
     assert num_samples >= length, (num_samples, length)
-    if step is None:
-        step = length
-    assert step > 0, step
+    if shift is None:
+        shift = length
+    assert shift > 0, shift
 
     if offset_mode == 'start':
         start = 0
     elif offset_mode == 'random':
         start = np.random.randint(num_samples - length)
     elif offset_mode in ['end', 'center']:
-        remainder = (num_samples - length) % step
+        remainder = (num_samples - length) % shift
         if offset_mode == 'end':
             start = remainder
         else:
             start = remainder // 2
     else:
         raise ValueError('Unknown offset mode', offset_mode)
-    offsets = np.arange(start, num_samples - length + 1, step)
+    offsets = np.arange(start, num_samples - length + 1, shift)
     if num_segments:
-        max_segments = (num_samples - length) // step + 1
+        max_segments = (num_samples - length) // shift + 1
         assert num_segments <= max_segments, (num_segments, max_segments)
         offsets = offsets[:num_segments]
-    return offsets
+    return  offsets
 
 
-def segment(x, length, step=None, axis=-1,
+def segment(x, length, offsets=None, shift=None, axis=-1,
             offset_mode='start', num_segments=None):
     """
 
@@ -179,15 +180,14 @@ def segment(x, length, step=None, axis=-1,
     array([[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9],
            [ 3,  4,  5,  6,  7,  8,  9, 10, 11, 12]])
     """
-    ndim = x.ndim
-    axis = axis % ndim
 
-    offsets = get_segment_offsets(x.shape[axis], length, step,
-                                  offset_mode, num_segments)
+    if offsets is None:
+        offsets = get_segment_offsets(x.shape[axis], length, shift,
+                                      offset_mode, num_segments)
     # slice the array to remove samples not addressed with
     # this offsets-segment_length combination
-    slc = [slice(None)] * ndim
+    slc = [slice(None)] * x.ndim
     slc[axis] = slice(offsets[0], offsets[-1] + length)
     x = x[tuple(slc)]
 
-    return segment_axis(x, length, step, end='cut')
+    return segment_axis(x, length, shift, end='cut')
