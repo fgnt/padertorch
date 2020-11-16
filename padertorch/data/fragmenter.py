@@ -107,3 +107,54 @@ class Fragmenter(object):
             fragment = deflatten(fragment)
             fragments.append(fragment)
         return fragments
+
+
+def get_segment_offsets(num_samples, segment_length, step=None,
+                        offset_mode='start', num_segments=None):
+    """
+
+    Args:
+        num_samples:
+        segment_length:
+        shift:
+        offset_mode:
+        num_segments:
+
+    Returns:
+    >>> get_segment_offsets(25, 10, None, offset_mode='start')
+    array([ 0, 10])
+    >>> get_segment_offsets(25, 10, 3, offset_mode='start')
+    array([ 0,  3,  6,  9, 12, 15])
+    >>> get_segment_offsets(24, 10, 3, offset_mode='start')
+    array([ 0,  3,  6,  9, 12])
+    >>> get_segment_offsets(24, 10, 3, offset_mode='end')
+    array([ 2,  5,  8, 11, 14])
+    >>> get_segment_offsets(24, 10, 3, offset_mode='center')
+    array([ 1,  4,  7, 10, 13])
+    >>> get_segment_offsets(24, 10, 3, offset_mode='center', num_segments=2)
+    array([1, 4])
+    >>> get_segment_offsets(24, 10, 3, offset_mode='center', num_segments=1)
+    array([1])
+    """
+    assert num_samples >= segment_length, (num_samples, segment_length)
+    assert step > 0, step
+    if step is None:
+        step = segment_length
+    if offset_mode == 'start':
+        start = 0
+    elif offset_mode == 'random':
+        start = np.random.randint(num_samples - segment_length)
+    elif offset_mode in ['end', 'center']:
+        remainder = (num_samples - segment_length) % step
+        if offset_mode == 'end':
+            start = remainder
+        else:
+            start = remainder // 2
+    else:
+        raise ValueError('Unknown offset mode', offset_mode)
+    offsets = np.arange(start, num_samples - segment_length + 1, step)
+    if num_segments:
+        max_segments = (num_samples - segment_length) // step + 1
+        assert num_segments <= max_segments, (num_segments, max_segments)
+        offsets = offsets[:num_segments]
+    return  offsets
