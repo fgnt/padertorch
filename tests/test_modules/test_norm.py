@@ -34,7 +34,7 @@ def normalize_ref(x, gamma, beta, statistics_axis, batch_axis, sequence_axis, se
         return y*mask, mean, power, n_values
 
 
-def test_grads():
+def test_outputs_and_grads():
     x = torch.randn((2, 3, 5), requires_grad=True)
     gamma = 1+torch.randn((1, 3, 1))
     gamma.requires_grad = True
@@ -65,6 +65,6 @@ def test_grads():
 
             for out, out_ref in zip(outs, outs_ref):
                 tc.assert_array_almost_equal(out.detach().numpy(), out_ref.detach().numpy())
-            tc.assert_array_almost_equal(x.grad.numpy(), x_ref.grad.numpy())
-            tc.assert_array_almost_equal(gamma.grad.numpy(), gamma_ref.grad.numpy())
-            tc.assert_array_almost_equal(beta.grad.numpy(), beta_ref.grad.numpy())
+            tc.assert_array_almost_equal(x.grad.numpy(), x_ref.grad.numpy(), decimal=4)
+            tc.assert_array_almost_equal(gamma.grad.numpy(), gamma_ref.grad.numpy(), decimal=4)
+            tc.assert_array_almost_equal(beta.grad.numpy(), beta_ref.grad.numpy(), decimal=4)
