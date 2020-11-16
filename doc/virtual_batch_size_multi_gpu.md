@@ -1,8 +1,8 @@
-# Virual minibatch size and multiple GPUs
+# Virtual minibatch size and multiple GPUs
 
 Note: The code examples here should be interpreted as pseudo code, i.e. they should demonstrate what the code does. The actual implementation is more complicated, but a general understanding of the operating principle should be enough for most use cases.
 
-## What is (Virual) minibatch size?
+## What is (Virtual) minibatch size?
 
 In `padertorch` you have two options to use a minibatch size for your model.
 
@@ -47,7 +47,7 @@ for example in dataset:
 ```
 
 Both options for the minibatch size can be combined.
-The effective minibatch size for the optimizer will be the dataset minibatch size times the `virtual_minibatch_size`. 
+The effective minibatch size for the optimizer will be the dataset minibatch size times the `virtual_minibatch_size`.
 Since the virtual minibatch size handles each fetched example from the iterator independently, the batch size will be the minibatch that is used to produce the dataset for operations that work over the minibatch axis (e.g., batch normalization) , *NOT* the virtual batch size.
 
 ## Why use (Virtual) minibatch size?
@@ -67,7 +67,7 @@ In practice you increase the minibatch size in your dataset to the maximum value
 
 ## Multiple GPUs
 
-Your first question to this document may be: why is this document about virual minibatch size and multiple GPUs?
+Your first question to this document may be: why is this document about virtual minibatch size and multiple GPUs?
 The answer is: we combined the `virtual_minibatch_size` and multiple GPUs in the trainer.
 With this, you can use the same model (i.e., without wrapping in `torch.nn.DataParallel`) for single- and multi-GPU training.
 
