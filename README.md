@@ -89,7 +89,7 @@ import torch
 
 def review(self, example, output):
     # loss computation
-    ce_loss = torch.nn.CrossEntropyLoss()(output, example['x'])
+    ce_loss = torch.nn.CrossEntropyLoss()(output, example['label'])
     # compute additional metrics
     with torch.no_grad():
         prediction = torch.argmax(output, dim=1)
