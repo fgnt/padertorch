@@ -8,9 +8,8 @@ Due to the modular structure of Padertorch, there are many more workflows that a
 However, getting started will likely become easier by basing your trainings on the examples provided, here.
 
 We recommend the usage of the following components when using Padertorch:
-  - [sacred](): Experiment Organization / Ensuring reproducability
+  - [sacred]() / [Padertorch Configurable](): Experiment organization / Ensuring reproducability / Adjustment of training hyperparameters
   - [lazy_dataset](https://github.com/fgnt/lazy_dataset): Data preparation and on-the-fly data generation
-  - [Padertorch Configurable](): Adjustment of training hyperparameters
   
 The examples mostly use all of these components, whereas the simple examples  (See [Getting Started]()) omit some of these components to reduce the overall complexity of the example as much as possible.
 
@@ -21,7 +20,7 @@ Each example has several steps:
   - Experiment setup (directory creation, reproducability, logging)
   - Data preprocessing
   - Training
-  - (Optional:) Evaluation
+  - Evaluation
 
 ### Experiment setup
 During the experiment setup, the experiment directory is created. We recommend using [Sacred]() to monitor each training.
@@ -44,6 +43,7 @@ In our examples, we use [lazy_dataset](https://github.com/fgnt/lazy_dataset) to 
 
 ``` python
 import lazy_dataset.database
+import padertorch as pt
 
 def mapping_function(example):
     example['new_keys'] = some_transform_function(example)
@@ -53,6 +53,8 @@ iterable = lazy_dataset.database.DictDatabase(data)
 iterable = iterable.map(mapping_function)
 ...
 iterable = iterable.batch(batch_size)
+iterable = iterable.map(pt.data.utils.collate_fn)
+
 ```
 
 However, all other approaches that create an iterable object can be used for this step as well.
@@ -77,11 +79,14 @@ trainer.train(iterable)
 ```
 
 Optionally, many different hooks can be registered before starting the training to use e.g. learning rate scheduling.
-For more information how to use, register and write hooks, See [hooks: customizing your training]()  
+For more information how to use, register and write hooks, See [Hooks: customizing your training]()  
 
 ### Evaluation
-In essence, the evaluation can be done in the same way as the training. Nevertheless, some examples
-also have a dedicated evaluation file. In these evaluation examples, concepts like parallelization with MPI
+Usually, a "light" evaluation (i.e. validation) is included in the training.
+Often the actual evaluation requires more computation power or the 
+trained model should be tested with varying evaluation hyperparameters.
+To allow this, these examples have a dedicated evaluation file. 
+In these evaluation examples, concepts like parallelization with MPI
 are used to speed up the time necessary for an evaluation.
 
 
