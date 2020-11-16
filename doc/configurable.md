@@ -1,10 +1,10 @@
 # Configurable: What is it good for?
 
-The main idea of the configurable object is to simplyfy the initialization
+The main idea of the `Configurable` object is to simplyfy the initialization
 of a neural network model from a config dictionary.
 A neural network usually consists of multiple modules with inter-dependent
 configurations which are combined in the main model.
-An example model taken from the
+An simple model inspired by the model in
 [pytorch tutorial](https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html#sphx-glr-beginner-blitz-cifar10-tutorial-py)
 looks like this:
 ```python
@@ -14,20 +14,13 @@ import torch.nn.functional as F
 class Net(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.fc1 = nn.Linear(16 * 5 * 5, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 10)
+        self.fc1 = nn.Linear(120, 84)
+        self.fc2 = nn.Linear(84, 10)
+
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = x.view(-1, 16 * 5 * 5)
         x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
+        x = self.fc2(x)
         return x
 
 net = Net()
@@ -42,89 +35,35 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class Net(nn.Module):
-    def __init__(self, conv1, pool, conv2, fc1, fc2, fc3):
+    def __init__(self, fc1, fc2):
         super().__init__()
-        self.conv1 = conv1
-        self.pool = pool
-        self.conv2 = conv2
         self.fc1 = fc1
         self.fc2 = fc2
-        self.fc3 = fc3
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = x.view(-1, 16 * 5 * 5)
         x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
+        x = self.fc2(x)
         return x
 
-net = Net(nn.Conv2d(3, 6, 5), nn.MaxPool2d(2, 2), nn.Conv2d(6, 16, 5),
-          nn.Linear(16 * 5 * 5, 120), nn.Linear(120, 84), nn.Linear(84, 10))
+net = Net(nn.Linear(120, 84), nn.Linear(84, 10))
 ```
-Using Configurable we can initialize Net from a dictionary:
+Using`Configurable` we can initialize `Net` from a dictionary:
  
 ```python
-import torch.nn as nn
-import torch.nn.functional as F
-import padertorch as pt
-
-class Net(nn.Module):
-    def __init__(self, conv1, pool, conv2, fc1, fc2, fc3):
-        super().__init__()
-        self.conv1 = conv1
-        self.pool = pool
-        self.conv2 = conv2
-        self.fc1 = fc1
-        self.fc2 = fc2
-        self.fc3 = fc3
-
-    def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = x.view(-1, 16 * 5 * 5)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
 config = dict(
     factory=Net,
-    conv1=dict(
-        factory=nn.Conv2d,
-        in_channels=3,
-        out_channels=6,
-        kernel_size=5
-    ),
-    pool=dict(
-        factory=nn.MaxPool2d,
-        kernel_size=2,
-        stride=2
-    ),
-    conv2=dict(
-        factory=nn.Conv2d,
-        in_channels=6,
-        out_channels=16,
-        kernel_size=5
-    ),
     fc1=dict(
-        factory=nn.Linear,
-        in_features=16*5*5,
-        out_features=120
-    ),
-    fc2=dict(
         factory=nn.Linear,
         in_features=120,
         out_features=84
     ),
-    fc3=dict(
+    fc2=dict(
         factory=nn.Linear,
         in_features=84,
         out_features=10
     ),
 )
-net = pt.Configurable.from_config(config)
+net = pt.Configurable.from_config(update)
 ```
 This initialization looks more complicated than the two possiblities above,
 but it has major upsites.
@@ -134,73 +73,39 @@ Another benefit is, that this initialization allows to easily save the used
 configuration for example by writting the config dictionary to a json file.
 However, the current config does not include all parameters used in the model
 since there are some default values in the modules which are not specified in
-the config dict.
-If Net is a sub-class of Configurable (for example by replacing nn.Module with
-padertorch.Module) we can get a config with all parameters in the model by
-calling ```Net.get_config(config)```:
+the config dictionary.
+We can get a config with all parameters in the model by
+calling `pt.Configurable.get_config`:
 ```python
-import torch.nn as nn
-import torch.nn.functional as F
-import padertorch as pt
-
-class Net(pt.Module):
-    def __init__(self, conv1, pool, conv2, fc1, fc2, fc3):
-        super().__init__()
-        self.conv1 = conv1
-        self.pool = pool
-        self.conv2 = conv2
-        self.fc1 = fc1
-        self.fc2 = fc2
-        self.fc3 = fc3
-
-    def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = x.view(-1, 16 * 5 * 5)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
-config = dict(
+update = dict(
     factory=Net,
-    conv1=dict(
-        factory=nn.Conv2d,
-        in_channels=3,
-        out_channels=6,
-        kernel_size=5
-    ),
-    pool=dict(
-        factory=nn.MaxPool2d,
-        kernel_size=2,
-        stride=2
-    ),
-    conv2=dict(
-        factory=nn.Conv2d,
-        in_channels=6,
-        out_channels=16,
-        kernel_size=5
-    ),
     fc1=dict(
-        factory=nn.Linear,
-        in_features=16*5*5,
-        out_features=120
-    ),
-    fc2=dict(
         factory=nn.Linear,
         in_features=120,
         out_features=84
     ),
-    fc3=dict(
+    fc2=dict(
         factory=nn.Linear,
         in_features=84,
         out_features=10
     ),
 )
-full_config = Net.get_config(config)
+full_config = pt.Configurable.get_config(update)
 ```
+The full config now includes all input parameters to the sub-modules:
+```
+{'factory': 'Net',
+ 'fc1': {'factory': 'torch.nn.modules.linear.Linear',
+  'in_features': 120,
+  'out_features': 84,
+  'bias': True},
+ 'fc2': {'factory': 'torch.nn.modules.linear.Linear',
+  'in_features': 84,
+  'out_features': 10,
+  'bias': True}}
+```
+The key ```factory``` is a fixed signifier for a class representer and should
+ not be used as a parameter name in combination with `Configurable`. 
 
 
-
-
-## Configurable examples
+## Additonal perks of using Configurable 
