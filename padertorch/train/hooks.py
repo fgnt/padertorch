@@ -535,9 +535,15 @@ class ValidationHook(SummaryHook):
         assert len(trainer.validate_timer.timings) == 0, trainer.validate_timer
         print('Starting Validation')
         at_least_one_value = False
+
+        # Save and restore the value of create_snapshot
+        create_snapshot = trainer.model.create_snapshot
+        trainer.model.create_snapshot = True
         for example, model_out, review in trainer.validate(self.iterator):
             at_least_one_value = True
+            trainer.model.create_snapshot = False
             self.update_summary(review)
+        trainer.model.create_snapshot = create_snapshot
         if not at_least_one_value:
             raise Exception(
                 f'Got an empty validation iterator: {self.iterator}'
