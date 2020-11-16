@@ -15,7 +15,7 @@ This repository is currently under construction.
 
 - **Fast prototyping**: The trainer and models are all compatible with [sacred](https://github.com/IDSIA/sacred) and easily allow hyperparameter changes over the command line. Check out the [configurable](padertorch/configurable.py) module and the [examples](padertorch/contrib/examples) for how it works.
 - **Easily extensible**: Write your own network modules and models based on `padertorch.Module` and `padertorch.Model`.
-- **Seamless integration**: You provide your own data and model. We provide the trainer to wrap around your model and data. One simple command starts the training: `padertorch.Trainer.train`.
+- **Seamless integration**: You provide your own data and model. We provide the trainer to wrap around your model and data. Calling `train` starts the training.
 - **Forget the training loop**: Our `padertorch.Trainer` takes care of the repetitive training loop and allows you to focus on network tuning. Included are features such as:
   - Periodically executed validation runs
   - Automatic checkpointing: The parameters of the model and the state of the trainer are periodically saved. The checkpoint interval and number of total checkpoints are customizable: Keep one, some or all checkpoints. We also keep track of the best checkpoint on the validation data given some metric.
@@ -25,12 +25,12 @@ This repository is currently under construction.
   - [Hooks](padertorch/train/hooks.py): Extend the basic features of the trainer with your own functionality.
 - **Logging**: As logging backend, we use [tensorboardX](https://github.com/lanpa/tensorboardX) to generate a `tfevents` file that can be visualized from a [tensorboard](https://github.com/tensorflow/tensorboard). Custom values to be logged can be defined in subclasses of `padertorch.Model`.
 - **Test run**: The trainer has a `test_run` function to train the model for few iterations and test if
-    - the model is executable (burn test)
-    - the validation is deterministic/reproducable
-    - the model changes the parameter in the training
+    - the model is executable (burn test),
+    - the validation is deterministic/reproducible, and
+    - the model changes the parameter during training.
 - **Virtual minibatch**:
   - The `Trainer` usually does not know if the model is trained with a single example or multiple examples (minibatch), because the examples that are yielded from the dataset are directly forwarded to the model.
-  - When the `virtual_minibatch_size` option is larger than one, the trainer calls the forward and backward step `virtual_minibatch_size` times before applying the gradients. This increases the minibatch size, while the memory consumption stays similar. See [here](doc/virtual_batch_size_multi_gpu.md) for a more thorough explanation.
+  - When the `virtual_minibatch_size` option is larger than one, the trainer calls the forward and backward step `virtual_minibatch_size` times before applying the gradients. This increases the number of examples over which the gradient is calculated while the memory consumption stays similar. See [here](doc/virtual_batch_size_multi_gpu.md) for a more thorough explanation.
 - **Multi-GPU training**: Easily deploy your model onto multiple GPUs to increase the total batch size and speed up the training. See [here](doc/virtual_batch_size_multi_gpu.md#L68) for implementation details and the [example](padertorch/contrib/examples/multi_gpu) for how to enable it.
 - **Support for lazy data preparation**: Ever tired of pre-computing features, taking up time and space on the hard disk? Padertorch works with lazy dataloaders (e.g., [lazy_dataset](https://github.com/fgnt/lazy_dataset)) which extract the features on the fly!
 
