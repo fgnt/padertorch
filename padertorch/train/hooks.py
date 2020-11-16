@@ -160,6 +160,7 @@ class SummaryHook(TriggeredHook):
 
     To save results of the validation refer to ValidationHook.
     """
+    create_snapshot = True
 
     def __init__(
             self,
@@ -204,6 +205,7 @@ class SummaryHook(TriggeredHook):
     def reset_summary(self):
         # Todo: add figures
         self.summary = self.empty_summary_dict()
+        self.create_snapshot = True
 
     def update_summary(self, review):
         allowed_keys = {
@@ -375,10 +377,18 @@ class SummaryHook(TriggeredHook):
             self.finalize_summary(trainer)
             self.dump_summary(trainer)
 
+        # The check using the trigger doesn't work when the hook is loaded from
+        # a snapshot (i.e., set_last got invoked). Because of this, we have a
+        # flag that is set in reset_summary to determine when to compute
+        # snapshots
+        trainer.model.create_snapshot = self.create_snapshot
+        self.create_snapshot = False
+
     def post_step(self, trainer: 'pt.Trainer', example, model_out, review):
         self.update_summary(review)
+        trainer.model.create_snapshot = False
 
-    def post_optimize(self, trainer : 'pt.Trainer', summary):
+    def post_optimize(self, trainer: 'pt.Trainer', summary):
         self.post_step(trainer, None, None, summary)
         # self.update_summary(summary)
         # Call post_step, so subclasses (e.g. ValidationHook) only need to
@@ -767,13 +777,14 @@ class ProgressBarHook(TriggeredHook):
     """ Adds a progress bar to the console output. """
     def __init__(self, stop_trigger, max_it_len=None, update_interval=100):
         """
-        :param stop_trigger: has to be defined if max_trigger unit is session
-            integer with the length of the iterator
-        :param max_it_len (int): length of iterator, only used if max_trigger
-            uses unit epoch
-        :param update_interval (int): Number of iterations to skip printing the
-            progress bar.
-        :param bar_length (int): Length of the progress bar in characters.
+        Args:
+            stop_trigger: has to be defined if max_trigger unit is session
+                integer with the length of the iterator
+            max_it_len (int): length of iterator, only used if max_trigger
+                uses unit epoch
+            update_interval (int): Number of iterations to skip printing the
+                progress bar.
+            bar_length (int): Length of the progress bar in characters.
         """
         super().__init__((update_interval, 'iteration'))
         if isinstance(stop_trigger, EndTrigger):
