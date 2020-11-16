@@ -154,15 +154,16 @@ def get_segment_offsets(num_samples, length, shift=None,
             start = remainder // 2
     else:
         raise ValueError('Unknown offset mode', offset_mode)
-    offsets = np.arange(start, num_samples - length + 1, shift)
+    offset = np.arange(start, num_samples - length + 1, shift)
+
     if num_segments:
         max_segments = (num_samples - length) // shift + 1
         assert num_segments <= max_segments, (num_segments, max_segments)
-        offsets = offsets[:num_segments]
-    return  offsets
+        offset = offset[:num_segments]
+    return offset
 
 
-def segment(x, length, offsets=None, shift=None, axis=-1,
+def segment(x, length, offset=None, shift=None, axis=-1,
             offset_mode='start', num_segments=None):
     """
 
@@ -181,13 +182,13 @@ def segment(x, length, offsets=None, shift=None, axis=-1,
            [ 3,  4,  5,  6,  7,  8,  9, 10, 11, 12]])
     """
 
-    if offsets is None:
-        offsets = get_segment_offsets(x.shape[axis], length, shift,
+    if offset is None:
+        offset = get_segment_offsets(x.shape[axis], length, shift,
                                       offset_mode, num_segments)
     # slice the array to remove samples not addressed with
     # this offsets-segment_length combination
     slc = [slice(None)] * x.ndim
-    slc[axis] = slice(offsets[0], offsets[-1] + length)
+    slc[axis] = slice(offset[0], offset[-1] + length)
     x = x[tuple(slc)]
 
     return segment_axis(x, length, shift, end='cut')
