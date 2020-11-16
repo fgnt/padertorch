@@ -158,3 +158,44 @@ def get_segment_offsets(num_samples, segment_length, step=None,
         assert num_segments <= max_segments, (num_segments, max_segments)
         offsets = offsets[:num_segments]
     return  offsets
+
+
+def segment(x, segment_length, step=None, axis=-1,
+            offset_mode='start', num_segments=None):
+    """
+
+    Args:
+        x:
+        segment_length:
+        step:
+        axis:
+        offset_mode:
+        num_segments:
+
+    Returns:
+
+    >>> segment(np.arange(0, 15), 10, 3, -1)
+    array([[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9],
+           [ 3,  4,  5,  6,  7,  8,  9, 10, 11, 12]])
+    """
+    ndim = x.ndim
+    axis = axis % ndim
+
+    offsets = get_segment_offsets(x.shape[axis], segment_length, step,
+                                  offset_mode, num_segments)
+    # slice the array to remove samples not addressed with
+    # this offsets-segment_length combination
+    slc = [slice(None)] * ndim
+    slc[axis] = slice(offsets[0], offsets[-1] + segment_length)
+    x = x[tuple(slc)]
+
+    # Calculate desired shape and strides
+    shape = list(x.shape)
+    del shape[axis]
+    shape.insert(axis, len(offsets))
+    shape.insert(axis + 1, segment_length)
+    strides = list(x.strides)
+    strides.insert(axis, step * strides[axis])
+
+    x = np.lib.stride_tricks.as_strided(x, strides=strides, shape=shape)
+    return x
