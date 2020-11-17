@@ -39,8 +39,7 @@ see [Configurable Introduction]() and [Sacred Introduction]()
 
 ### Data preprocessing
 Data preprocessing describes the creation of an iterable object (e.g. a list of examples)for the Padertorch Trainer.
-In our examples, we use [lazy_dataset](https://github.com/fgnt/lazy_dataset) to obtain an iterable object and map all necessary transformations onto this iterable.
-
+In our examples, we use [lazy_dataset](https://github.com/fgnt/lazy_dataset) to obtain an iterable object and map all necessary transformations onto this iterable. A lazy_dataset database allows for several additional helper functions like combining multiple datasets. The specifics of the Database object can be found at https://github.com/fgnt/lazy_dataset/blob/master/lazy_dataset/database.py.
 ``` python
 import lazy_dataset.database
 import padertorch as pt
