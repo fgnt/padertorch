@@ -22,7 +22,6 @@ This repository is currently under construction.
   - Resume from the latest checkpoint if the training was interrupted.
   - Learning rate scheduling
   - Backoff: Restore the best checkpoint and change the learning rate if the loss is not decreasing.
-  - [Averaging multiple checkpoints]():
   - [Hooks](padertorch/train/hooks.py): Extend the basic features of the trainer with your own functionality.
 - **Logging**: As logging backend, we use [tensorboardX](https://github.com/lanpa/tensorboardX) to generate a `tfevents` file that can be visualized from a [tensorboard](https://github.com/tensorflow/tensorboard). Custom values to be logged can be defined in subclasses of `padertorch.Model`.
 - **Test run**: The trainer has a `test_run` function to train the model for few iterations and test if
