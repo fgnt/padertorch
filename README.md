@@ -52,8 +52,8 @@ Padertorch provides a selection of frequently used network architectures and fun
 ## Support for sequential and speech data
 
 Padertorch especially offers support for training with [sequential data](padertorch/ops/sequence) such as:
-- [Masking](padertorch/ops/sequence/mask.py): Calculate a mask which has non-zero entries for non-padded positions in the sequence.
-- [Fragmenting](padertorch/data/fragmenter.py): Fragment a sequence into smaller chunks of same length.
+- [Masking](padertorch/ops/sequence/mask.py): Calculate a mask which has non-zero entries for non-padded positions and zero entries for padded positions in the sequence.
+- [Fragmenting](padertorch/data/fragmenter.py): Fragment a sequence into smaller chunks of the same length.
 - [Visualization in tensorboard](padertorch/summary/tbx_utils.py): Prepare spectrograms and speech masks for visualization and audio for playback in tensorboard.
 - [Source separation objectives](padertorch/ops/losses/source_separation.py): Commonly used objectives for speech source separation such as PIT or deep clustering.
 
@@ -82,7 +82,7 @@ def forward(self, example):
     return out
 ```
 
-Additionally, `padertorch.Model` expects a `review` method to be implemented which takes the data and output of the `forward` call as inputs from which it computes losses and metrics for logging:
+Additionally, `padertorch.Model` expects a `review` method to be implemented which takes the data and output of the `forward` call as inputs from which it computes the training loss and metrics for logging in tensorboard:
 
 ```python
 import torch
