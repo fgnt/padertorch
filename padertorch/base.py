@@ -216,6 +216,7 @@ class Model(Module, Configurable, abc.ABC):
 
         In particular, this method usually calculates the loss function
         and adds the result to the review dict.
+
         Args:
             inputs:
                 Same as `inputs` argument of `self.forward`.
@@ -254,12 +255,15 @@ class Model(Module, Configurable, abc.ABC):
 
         Hints:
          - The contextmanager `torch.no_grad()` disables backpropagation for
-           metric computations (i.e. scalars in tensorboard)
+            metric computations (i.e. scalars in tensorboard)
          - `self.training` (bool) indicate training or validation mode
-         - `self.create_snapshot` (bool) indicates when to create a snapshot.
-            Useful for reporting of things that need many computational
-            resources (e.g., istft)
-
+         - `self.create_snapshot` (bool) indicates when a snapshot is created
+            for reporting.
+            Motivation: Only one snapshot per summary interval is reported by
+            the summary hook for each snapshot type (e.g., images, audios, ...).
+            You can use this flag to avoid unnecessary computations
+            by only computing a snapshot if it will be reported instead of
+            computing a snapshot in every iteration.
 
         """
         ...  # calculate loss
