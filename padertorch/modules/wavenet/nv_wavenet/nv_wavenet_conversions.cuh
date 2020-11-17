@@ -38,7 +38,7 @@ __global__ void convert_float2half_kernel(half* dst, float* src, size_t size) {
 bool isDevicePtr(const void* ptr) {
     cudaPointerAttributes attributes;
     cudaError_t result = cudaPointerGetAttributes(&attributes, ptr);
-    return (result == cudaSuccess) && (attributes.memoryType == cudaMemoryTypeDevice);
+    return (result == cudaSuccess) && (attributes.type == cudaMemoryTypeDevice);
 }
 
 
