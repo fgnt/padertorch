@@ -44,6 +44,7 @@ Consider the following example for a trainings script using sacred:
 ```python
 from sacred import Experiment
 from sacred.observers import FileStorageObserver
+from sacred.commands import print_config
 import padertorch as pt
 from pathlib import Path
 
@@ -73,13 +74,18 @@ def config():
         # The 'factory' key tells the Configurable which class to instantiate
         'factory': pt.Trainer,
         # The next line creates a new experiment folder for this experiment
-        'storage_dir': pt.io.get_new_storage_dir(ex.path),
+        'storage_dir': None,
         'model': {
             'factory': MyModel, # <-- insert your model class here
             # You can put additional configuration of your model here
         },
         # Here goes additional configuration of the trainer
     }   
+    if not trainer['storage_dir'] is None:
+        # This finds and creates an unused storage dir relative to the 
+        # environment variable $STORAGE_ROOT. It is enclosed in the if statement
+        # because otherwise it would create unused folders on resume
+        trainer['storage_dir'] = pt.io.get_new_storage_dir(ex.path)
     
     # The following line fills the trainer config with the default arguments of
     # the configurable classes. In this example, it will, for example, insert 
@@ -96,10 +102,13 @@ def config():
 
 
 @ex.automain
-def main(trainer, _config):
+def main(trainer, _config, _run):
     """This is the main function of your experiment. It receives all 
     configuration values set in `config` as parameters. `_config` contains the  
     whole configuration as a dictionary."""
+
+    # Print the configuration with marked modifications
+    print_config(_run)
 
     # The following line creates the trainer from the configuration using 
     # classmethods provided by the Configurable class
@@ -110,11 +119,20 @@ def main(trainer, _config):
     pt.io.dump_config(_config, trainer.storage_dir / 'config.json')
     
     # Run your experiment, start the training or do whatever you want here...
+    # For example, start training
+    train_dataset = ...
+    trainer.train(
+        train_dataset,
+        # If the checkpoint directory already exists, we probably want to resume
+        # instead of starting a new training 
+        resume=(trainer.storage_dir / 'checkpoints').exists()
+    )
 ```
 
 You can run the script with the argument `print_config` to print the configuration it is going to use.
 Note how `pt.io.get_new_storage_dir` created a new unused experiment dir and how `pt.Trainer.get_config` filled in the
- configuration values that we didn't specify. 
+ configuration values that we didn't specify. In a colored terminal you can also see which values were added and
+  modified compared to the default configuration (i.e., defined by the config scope).
 
 ```bash
 $ python experiment.py print_config
@@ -156,6 +174,10 @@ The `FileStorageObserver` stores experiment information in the storage dir with 
 ```
 .                       # The storage dir
 ├── config.json         # Config saved by ourselves for pt.Model.from_storage_dir
+├── checkpoints         # This directory contains the model and trainer checkpoints
+│   ├── ckpt_<iteration_number>.pth
+│   ├── ckpt_best_loss.pth  # Symlink to best checkpoint judged by validation loss
+│   └── ckpt_latest.pth     # Symlink to latest checkpoint 
 └── sacred              # Sub-folder for the FileStorageObserver
     ├── 1               # A Unique ID created by the observer to handle multipe runs in the same storage dir (e.g., resume)
     │   ├── config.json     # Configuration of this run
