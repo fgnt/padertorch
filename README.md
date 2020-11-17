@@ -110,13 +110,17 @@ Since a `Module` does not need a `review` method, it can be used as a component 
 
 ## How to Integrate your Data and Model with the Trainer
 
-The trainer works with any kind of iterable data loader, e.g., `torch.utils.data.DataLoader` or `lazy_dataset.Dataset`.
-The `train` method expects a data iterator as input which yields the training data.
-Optionally, you can add a validation iterator with `Trainer.register_validation_hook`.
-The data iterator can yield batched features of type `numpy.ndarray` or `torch.Tensor` or dictionaries with entries of different types.
+The trainer works with any kind of iterable, e.g., `list`, `torch.utils.data.DataLoader` or `lazy_dataset.Dataset`.
+The `train` method expects an iterable as input which yields training examples or minibatches of examples that are forwarded to the model without being interpreted by the trainer, i.e., the yielded entries can have any data type and only the model has to be designed to work with them.
+In our [examples](padertorch/contrib/examples), the iterables always yield a `dict`.
+
 The `Model` implements an `example_to_device` which is called by the trainer to move the data to a CPU or GPU.
 Per default, `example_to_device` uses `padertorch.data.example_to_device` which recursively converts numpy arrays to Tensors and moves all Tensors to the available device.
-The device can either be provided to the call of `Trainer.train` or is set according to `torch.cuda.is_available` by the trainer.
+The training device can be directly provided to the call of `Trainer.train`.
+Otherwise, it is automatically set by the trainer according to `torch.cuda.is_available`.
+
+Optionally, you can add an iterable with validation examples by using `Trainer.register_validation_hook`.
+Some functionalities (e.g., keeping track of the best checkpoint) are then performed on the validation data.
 
 A simple sketch for the trainer setup is given below:
 
