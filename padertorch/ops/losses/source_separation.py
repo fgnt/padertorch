@@ -278,7 +278,8 @@ def pit_loss_from_loss_matrix(
     assert pair_wise_loss_matrix.shape[-2] == pair_wise_loss_matrix.shape[-1], pair_wise_loss_matrix.shape
     sources = pair_wise_loss_matrix.shape[-1]
 
-    pair_wise_loss_np = to_numpy(pair_wise_loss_matrix)
+    # We have to detach here because pair_wise_loss_matrix should require grads
+    pair_wise_loss_np = to_numpy(pair_wise_loss_matrix, detach=True)
 
     if algorithm == 'optimal':
         row_ind, col_ind = scipy.optimize.linear_sum_assignment(
