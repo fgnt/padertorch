@@ -1,4 +1,3 @@
-import unittest
 import types
 import tempfile
 from pathlib import Path
@@ -242,6 +241,60 @@ class DummyModel(pt.Model):
             return {
                 'loss': l.sum()
             }
+
+
+def test_summary_hook_create_snapshot_flag():
+    class Model(DummyModel):
+
+        def __init__(self, validation_losses, exp_dir, optimizer):
+            super().__init__(validation_losses, exp_dir, optimizer)
+            self.create_snapshot_log = []
+
+        def review(self, example, output):
+            self.create_snapshot_log.append(self.create_snapshot)
+            return super().review(example, output)
+
+    ds = [0., 1., 2.]
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        optimizer = pt.optimizer.Adam()
+        model = Model([1, 2, 3] * 10, tmp_dir, optimizer)
+        trainer = pt.Trainer(
+            model, tmp_dir, optimizer, stop_trigger=(10, 'epoch'),
+            summary_trigger=(1, 'epoch')
+        )
+        trainer.train(ds)
+    assert model.create_snapshot_log == [True, False, False] * 10
+
+
+def test_validation_hook_create_snapshot_flag():
+    class Model(DummyModel):
+
+        def __init__(self, validation_losses, exp_dir, optimizer):
+            super().__init__(validation_losses, exp_dir, optimizer)
+            self.train_create_snapshot_log = []
+            self.validation_create_snapshot_log = []
+
+        def review(self, example, output):
+            if self.training:
+                self.train_create_snapshot_log.append(self.create_snapshot)
+            else:
+                self.validation_create_snapshot_log.append(self.create_snapshot)
+            return super().review(example, output)
+
+    ds_train = [0., 1., 2.]
+    ds_valid = [0., 1.]
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        optimizer = pt.optimizer.Adam()
+        model = Model([1, 2, 3, 4, 5] * 10, tmp_dir, optimizer)
+        trainer = pt.Trainer(
+            model, tmp_dir, optimizer, stop_trigger=(10, 'epoch'),
+            summary_trigger=(1, 'epoch')
+        )
+        trainer.register_validation_hook(ds_valid)
+        trainer.train(ds_train)
+    assert model.train_create_snapshot_log == [True, False, False] * 10
+    # The validation is executed num_epochs + 1 times, so 11
+    assert model.validation_create_snapshot_log == [True, False] * 11
 
 
 def test_backoff():
