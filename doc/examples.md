@@ -36,7 +36,7 @@ import os
 # This function requires the environment variable STORAGE_ROOT to be set.
 storage_dir = pt.io.get_new_storage_dir('my_experiment')
 # You can also directly use the following function to get a unique experiment folder for each training without specifying STORAGE ROOT: 
-# storage_dir = pt.io.get_new_subdir('my_experiment_path')
+# storage_dir = pt.io.get_new_subdir('my/experiment/path')
 ```
 For more information regarding the usage of Configurable or Sacred 
 see [Configurable Introduction]() and [Sacred Introduction]()
