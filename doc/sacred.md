@@ -9,6 +9,8 @@
 
 The documentation for sacred can be found on [readthedocs](https://sacred.readthedocs.io/en/stable/).
 The [quickstart section](https://sacred.readthedocs.io/en/stable/quickstart.html) gives a good introduction into sacred.
+For real-world examples of how to use sacred in a deep-learning context with `padertorch` you can have a look at our
+ [examples](padertorch/contrib/examples).
 
 ## Sacred, the Configuration and Configurable
 
@@ -35,11 +37,28 @@ The configuration in sacred can be set and modified in different ways:
   You can call your script with the arguments `with configuration_key=value` and
   it automatically updates all configuration values that depend on `configuration_key` and stores information about
   what was modified.
+ 
+The main class in sacred is the `sacred.Experiment` that is used to define the configuration and main function of the
+ experiment.
+It contains various methods to add configuration values and to wrap functions to provide them with a configuration.
+
+ 
 For more information about how sacred handles configuration, have a look at the documentation about 
 [the config](https://sacred.readthedocs.io/en/stable/configuration.html) and 
 [the command line interface](https://sacred.readthedocs.io/en/stable/command_line.html).
- 
-Consider the following example for a trainings script using sacred:
+
+## Storing experiment information with sacred
+
+A core part of sacred are the so called ["Observers"](https://sacred.readthedocs.io/en/stable/observers.html) in `sacred.observers`.
+Observers keep track of important information and store them in a database (e.g., `sacred.observers.MongoObserver
+`) or on the disk (`sacred.observers.FileStorageObserver`).
+We recommend to use the `FileStorageObserver` because it does not depend on an external server and the data can
+ easily be viewed on the command line.
+
+## Example
+
+Consider the following example for a trainings script using sacred.
+This might seem a bit lengthy at the beginning, but the added functionality really pays off.
 
 ```python
 from sacred import Experiment
@@ -100,19 +119,58 @@ def config():
         Path(trainer['storage_dir']) / 'sacred')
     )
 
+@ex.named_config
+def large():
+    """This is a named config for a large model. This configuration can be 
+    activated by calling the script `with large` and it overwrites the default 
+    values in the `config` function above."""
+    trainer = {
+        'model': {
+            'num_layers': 5   
+        }
+    }
+
+
+@ex.capture
+def get_trainer(trainer):
+    """This is a captured function. Its arguments are filles with the 
+    configuration values by sacred. It can be called without providing arguments
+    within a sacred experiment.
+    """
+    # The following line creates the trainer from the configuration using 
+    # classmethods provided by the Configurable class
+    return pt.Trainer.from_config(trainer)
+
+
+@ex.command(unobserved=True)
+def init(_config, _run):
+    """Custom commands can be defined with the `command` decorator.
+    This custom command can be run with `python experiment.py init`. 
+
+    This command creates a storage directory and saves all information required 
+    to run the experiment (i.e., the configuration).
+    """
+    # Print the configuration with marked modifications
+    print_config(_run)
+
+    # Save the configuration so that we can easily run the experiment
+    pt.io.dump_config(
+        _config, Path(_config['trainer']['storage_dir']) / 'config.json'
+    )
+
 
 @ex.automain
-def main(trainer, _config, _run):
+def main(_config, _run):
     """This is the main function of your experiment. It receives all 
     configuration values set in `config` as parameters. `_config` contains the  
     whole configuration as a dictionary."""
 
     # Print the configuration with marked modifications
     print_config(_run)
-
-    # The following line creates the trainer from the configuration using 
-    # classmethods provided by the Configurable class
-    trainer = pt.Trainer.from_config(trainer)
+    
+    # Construct the trainer with a captured function. Note that we don't pass 
+    # arguments to the function, they are automatically filled by sacred.
+    trainer = get_trainer()
 
     # This stores the configuration in the way it is expected by the model 
     # loading functions in padertorch (pt.Model.from_storage_dir)
@@ -129,14 +187,16 @@ def main(trainer, _config, _run):
     )
 ```
 
-You can run the script with the argument `print_config` to print the configuration it is going to use.
+You can initialize your experiment directory by calling `python experiment.py init`.
+This additionally prints the configuration.
 Note how `pt.io.get_new_storage_dir` created a new unused experiment dir and how `pt.Trainer.get_config` filled in the
- configuration values that we didn't specify. In a colored terminal you can also see which values were added and
+ configuration values that we didn't specify.
+In a colored terminal you can see which values were added and
   modified compared to the default configuration (i.e., defined by the config scope).
 
 ```bash
-$ python experiment.py print_config
-INFO - my-experiment-name - Running command 'print_config'
+$ python experiment.py init
+INFO - my-experiment-name - Running command 'init'
 INFO - my-experiment-name - Started
 Configuration (modified, added, typechanged, doc):
   """
@@ -167,6 +227,13 @@ Configuration (modified, added, typechanged, doc):
 INFO - my-experiment-name - Completed after 0:00:00
 ```
 
+Once you initialized the experiment's storage directory with the `init` command, you can start the experiment by
+ calling:
+
+```
+$ python experiment.py with /path/to/the/experiment/storage/dir/config.json
+```
+
 ## Accessing information stored by sacred
 
 The `FileStorageObserver` stores experiment information in the storage dir with the following structure:
@@ -187,6 +254,8 @@ The `FileStorageObserver` stores experiment information in the storage dir with 
     └── _sources                  # The _sources folder can contain source files that are not checked into git
         └── experiment_544d3ddcc21032c781ad70f6aa728f18.py
 ```
+
+You can use the loading functions in `paderbox.io` to look at the stored information.
 
 Once you created and trained a model with a script similar to the above example, you can easily access the trained
  model with:
