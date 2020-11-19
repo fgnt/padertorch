@@ -23,7 +23,7 @@ Each example has several steps:
   - Evaluation
 
 ### Experiment setup
-During the experiment setup, the experiment directory is created. We recommend using [Sacred]() to monitor each training.
+During the experiment setup, the experiment directory is created. We recommend using [Sacred](https://github.com/IDSIA/sacred) to monitor each training.
 Inside this directory, the checkpoints of the training as well as the event files for visualization are saved. 
 The examples using Padertorch Configurable and Sacred also save the model hyperparameters in this folder and log the 
 changes over multiple starts of the same training.
@@ -39,7 +39,7 @@ storage_dir = pt.io.get_new_storage_dir('my_experiment')
 # storage_dir = pt.io.get_new_subdir('/my/experiment/path')
 ```
 For more information regarding the usage of Configurable or Sacred 
-see [Configurable Introduction]() and [Sacred Introduction]()
+see [Configurable Introduction](configurable) and [Sacred Introduction](sacred)
 
 ### Data preprocessing
 Data preprocessing describes the creation of an iterable object (e.g. a list of examples)for the Padertorch Trainer.
@@ -82,7 +82,7 @@ trainer.train(iterable)
 ```
 
 Optionally, many different hooks can be registered before starting the training to use e.g. learning rate scheduling.
-For more information how to use, register and write hooks, See [Hooks: customizing your training]()  
+For more information how to use, register and write hooks, See [Hooks: customizing your training](hooks)  
 
 ### Evaluation
 Usually, a "light" evaluation (i.e. validation) is included in the training.
@@ -105,9 +105,9 @@ For most purposes, the structure of the examples should also serve as a good tem
     
 ## List of current examples:
   - Source Separation:
-    - PIT: Implementation of <>
-    - OR-PIT:
-    - TasNet/ConvTasNet: See <>
+    - PIT: Implementation of https://arxiv.org/abs/1703.06284
+    - OR-PIT: Implementation of https://arxiv.org/abs/1904.03065
+    - TasNet/ConvTasNet: Implementation of https://arxiv.org/abs/1711.00541
   - Speech Enhancement:
     - Mask Estimator: 
   - Acoustic Model:
