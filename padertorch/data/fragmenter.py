@@ -234,38 +234,66 @@ def segment(
 
     Returns:
 
-    >>> segment(np.arange(0, 15), -1, None, 10, 3)
+    >>> segment(np.arange(0, 15), None, 10, -1, 3)
     array([[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9],
            [ 3,  4,  5,  6,  7,  8,  9, 10, 11, 12]])
+    >>> segment(np.arange(0, 15), [[0, 3], [10, 13]])
+    array([[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9],
+           [ 3,  4,  5,  6,  7,  8,  9, 10, 11, 12]])
+    >>> segment(np.arange(0, 15), (0, 10))
+    array([[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]])
+    >>> segment(np.arange(0, 15), [[0, 6], [4, 13]])
+    [array([0, 1, 2, 3, 4, 5]), array([ 4,  5,  6,  7,  8,  9, 10, 11, 12])]
     """
+    if x.__class__.__module__ == 'numpy':
+        ndim = x.ndim
+    elif x.__class__.__module__ == 'torch':
+        ndim = x.dim()
+    elif isinstance(x, list):
+        x = np.array(x)
+        ndim = x.ndim
+    else:
+        raise TypeError('Unknown type for input signal x', type(x))
+    axis = axis % ndim
 
     if boundary is None:
-        boundary = get_segment_boundaries(x.shape[axis], length, shift,
-                                            mode, choose_one, rng)
-    else:
-        assert length is None, (
-            'Either use predefined boundaries or set a segment length'
-            'because only one of these information can be used.'
+        boundary = get_segment_boundaries(
+            x.shape[axis], length, shift=shift, mode=mode,
+            choose_one=choose_one, rng=rng
         )
+    else:
         if isinstance(boundary, (list, tuple)):
             boundary = np.array(boundary)
-            if boundary.ndim == 1:
-                boundary = boundary[..., None]
-            assert boundary.ndim == 2, boundary.shape
-        elif x.__class__.__module__ == 'numpy':
-            assert x.ndim == 2, x.shape
-        elif x.__class__.__module__ == 'torch':
-            assert x.dim() == 2, x.shape
-        else:
-            raise TypeError('The signal x has an unknown type', type(x))
+        if boundary.ndim == 1:
+            # This might be necessary if only one start and stop point is given
+            boundary = boundary[..., None]
 
-        assert boundary.shape[0] == 2, 'The first dimension has to be 2 to' \
-                                       ' describe start and stop of a segment'
+    assert boundary.shape[0] == 2, 'The first dimension has to be 2 to ' \
+                                   'describe start and stop of a segment'
+    assert boundary.ndim == 2, 'Expects an two dimensional boundary array'
 
+    if boundary.shape[1] == 1:
+        return x.take(np.arange(boundary[0], boundary[1]), axis=axis)[None]
+
+    if length is None:
+        lengths = (boundary[1] - boundary[0]).tolist()
+        shifts = (boundary[0, 1:] - boundary[0, :-1]).tolist()
+        if not (len(set(lengths)) == 1 and len(set(shifts)) == 1):
+            # if no fixed length and shift are used the segmentation has to be
+            # done in a for loop
+            assert x.__class__.__module__ == 'numpy', 'Not implemented yet for torch'
+            segmented = list()
+            for start, end in boundary:
+                segmented.append(x.take(np.arange(start, end), axis=axis))
+            return segmented
+        length = lengths[0]
+        shift = shifts[0]
     # slice the array to remove samples not addressed with
     # this offsets-segment_length combination
-    slc = [slice(None)] * x.ndim
-    slc[axis] = slice(boundary[0, 0], boundary[1, -1])
+    slc = [slice(None)] * ndim
+    slc[axis] = slice(np.min(boundary[0]), np.max(boundary[1]))
     x = x[tuple(slc)]
-
-    return segment_axis(x, length, shift, end='cut')
+    if shift is None:
+        shift = length
+    return np.moveaxis(segment_axis(
+        x, length, shift, end='cut', axis=axis), axis, 0)
