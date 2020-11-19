@@ -212,9 +212,9 @@ def segment(
 
     Args:
         x: signal to be segmented
-        boundary: 2xB numpy array or list with start and end values
-            for B pre calculated boundaries, which may be used to segment
-            multiple audios in the same way.
+        boundary: 1xB or 2xB `numpy array`, `tuple` or `list` containing start
+            (and end) values for B pre calculated boundaries.
+            If only start values are given the segment length has to be set.
         length: segment length
         axis: axis which is segmented
         shift: shift between segments, defaults to length
@@ -268,8 +268,13 @@ def segment(
             # This might be necessary if only one start and stop point is given
             boundary = boundary[..., None]
 
-    assert boundary.shape[0] == 2, 'The first dimension has to be 2 to ' \
-                                   'describe start and stop of a segment'
+    if boundary.shape[0] == 1 and length is not None:
+        boundary = np.concatenate((boundary, boundary + length), axis=0)
+
+    assert boundary.shape[0] == 2, ('The first dimension of boundary has to ' \
+                                    'be  2 to describe start and stop of a ' \
+                                    'segment or can be 1 if a fixed length ' \
+                                    'is defined', boundary.shape, length)
     assert boundary.ndim == 2, 'Expects an two dimensional boundary array'
 
     if boundary.shape[1] == 1:
