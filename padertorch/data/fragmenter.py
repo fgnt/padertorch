@@ -1,8 +1,9 @@
 from copy import deepcopy
-import numpy as np
-from paderbox.utils.nested import nested_op, flatten, deflatten
-from paderbox.array import segment_axis
+from typing import Union
 
+import numpy as np
+from paderbox.array import segment_axis
+from paderbox.utils.nested import nested_op, flatten, deflatten
 
 possible_boundary_modes = [
     'begin',
@@ -119,27 +120,31 @@ class Fragmenter(object):
         return fragments
 
 
-def get_segment_boundaries(num_samples, length, shift=None,
-                           mode='begin', choose_one=False, rng=np.random):
+def get_segment_boundaries(
+        num_samples: int, length: int, shift: int=None,
+        mode: str='begin', choose_one: bool=False, rng=np.random
+):
     """
+    Calculates boundaries for segmentation of a signal with length
+    `num_sammples` in case of a fixed segment length `length` and shift `shift`
 
     Args:
         num_samples: num samples of signal for which boundaries are caclulated
         length: segment length
-        shift: shift between segments
+        shift: shift between segments, defaults to length
         mode: Defines the position of the boundaries in the signal:
             begin: boundaries start at sample zero
                 so that only values at the end are cut
-            end: boundaries end at num_samples
+            end: boundaries end at `num_samples`
                 so that only values at the beginning are cut
             center: boundaries are chosen such that the same number of samples
                 are discarded at the end and the beginning of the signal
             random: Starts the first segment randomly at a value
-                between 0 and shift. This may reduce the number of segments.
+                between 0 and `shift`. This may reduce the number of segments.
             random_max_segments: Randomly chooses the first segment such that
                 the maximum number of segments are created
         choose_one: If True only outputs one segment boundary
-        rng: random number generator (numpy.random)
+        rng: random number generator (`numpy.random`)
 
     Returns:
         2xB numpy array with start and end values for B boundaries
@@ -195,34 +200,37 @@ def get_segment_boundaries(num_samples, length, shift=None,
     return boundaries
 
 
-def segment(x, axis=-1, boundary=None, length: int=None, shift=None,
-            mode='begin', choose_one=False, rng=np.random):
+def segment(
+        x, boundary: Union[tuple, list, np.array]=None, length: int=None,
+        axis: int=-1, shift: int=None, mode: str='begin',
+        choose_one: bool=False, rng=np.random
+):
     """
-    Segments a signal x along an axis. Either with predefined segment
+    Segments a signal `x` along an axis. Either with predefined segment
     boundaries if boundary is set or with internally calculated boundaries if
     length is set.
 
     Args:
         x: signal to be segmented
-        axis: axis which is segmented
-        boundary: 2xB numpy array with start and end values
+        boundary: 2xB numpy array or list with start and end values
             for B pre calculated boundaries, which may be used to segment
             multiple audios in the same way.
         length: segment length
-        shift: shift between segments
+        axis: axis which is segmented
+        shift: shift between segments, defaults to length
         mode: Defines the position of the boundaries in the signal:
             begin: boundaries start at sample zero
                 so that only values at the end are cut
-            end: boundaries end at num_samples
+            end: boundaries end at `x.shape[axis]`
                 so that only values at the beginning are cut
             center: boundaries are chosen such that the same number of samples
                 are discarded at the end and the beginning of the signal
             random: Starts the first segment randomly at a value
-                between 0 and shift
+                between 0 and `shift`
             random_max_segments: Randomly chooses the first segment such that
                 the maximum number of segments are created
         choose_one: If True only outputs one segment boundary
-        rng: random number generator (numpy.random)
+        rng: random number generator (`numpy.random`)
 
     Returns:
 
