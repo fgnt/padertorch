@@ -1,7 +1,7 @@
 """
 Example call:
 
-python -m padertorch.contrib.examples.audio_synthesis.wavenet.evaluate with exp_dir=/path/to/exp_dir
+python -m padertorch.contrib.examples.sound_recognition.audio_tagging.evaluate with exp_dir=/path/to/exp_dir
 """
 from pathlib import Path
 import numpy as np
