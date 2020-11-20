@@ -284,39 +284,85 @@ class Crop(nn.Module):
         return (*tensors, seq_len)
 
 
-class Resample(nn.Module):
+class TimeWarping(nn.Module):
     """
-    >>> x = torch.cumsum(torch.ones((3, 4, 5)), -1)
-    >>> Resample(rate_sampling_fn=LogUniformSampler(scale=.5))(x, seq_len=[3,4,5])
+    >>> x = torch.cumsum(torch.ones((3, 1, 4, 5)), -1) - 1
+    >>> resampling_factors = np.array([1,2,3])
+    >>> warping_fn=lambda seq_len: (\
+            np.arange(max(seq_len))/resampling_factors[:, None],\
+            np.minimum(resampling_factors*np.array(seq_len), max(seq_len))\
+        )
+    >>> TimeWarping(warping_fn=warping_fn)(x, seq_len=[3,4,5])
+    (tensor([[[[0.0000, 1.0000, 2.0000, 3.0000, 4.0000],
+              [0.0000, 1.0000, 2.0000, 3.0000, 4.0000],
+              [0.0000, 1.0000, 2.0000, 3.0000, 4.0000],
+              [0.0000, 1.0000, 2.0000, 3.0000, 4.0000]]],
+    <BLANKLINE>
+    <BLANKLINE>
+            [[[0.0000, 0.5000, 1.0000, 1.5000, 2.0000],
+              [0.0000, 0.5000, 1.0000, 1.5000, 2.0000],
+              [0.0000, 0.5000, 1.0000, 1.5000, 2.0000],
+              [0.0000, 0.5000, 1.0000, 1.5000, 2.0000]]],
+    <BLANKLINE>
+    <BLANKLINE>
+            [[[0.0000, 0.3333, 0.6667, 1.0000, 1.3333],
+              [0.0000, 0.3333, 0.6667, 1.0000, 1.3333],
+              [0.0000, 0.3333, 0.6667, 1.0000, 1.3333],
+              [0.0000, 0.3333, 0.6667, 1.0000, 1.3333]]]]), array([3, 5, 5]))
     """
-    def __init__(self, rate_sampling_fn):
+    def __init__(self, warping_fn, batch_axis=0, sequence_axis=-1):
         super().__init__()
-        self.rate_sampling_fn = rate_sampling_fn
+        self.warping_fn = warping_fn
+        self.batch_axis = batch_axis
+        self.sequence_axis = sequence_axis
 
-    def forward(self, *tensors, seq_len=None, interpolation_mode='linear'):
+    def forward(self, *tensors, seq_len):
         """
 
         Args:
-            tensors: features (BxFxT)
+            tensors:
             seq_len:
-            interpolation_mode:
 
         Returns:
 
         """
         if self.training:
-            rate = self.rate_sampling_fn(1)[0]
-            seq_len = (rate * np.array(seq_len)).astype(np.int)
+            assert seq_len is not None
+            time_indices, seq_len = self.warping_fn(seq_len)
+            time_indices_ceil = np.ceil(time_indices).astype(np.int)
+            time_indices_floor = np.floor(time_indices).astype(np.int)
+            batch_indices = np.arange(len(seq_len)).astype(np.int)[:, None]
             tensors = list(tensors)
             for i, tensor in enumerate(tensors):
-                if tensor.dim() == 4:
-                    tensor = rearrange(tensor, 'b c f t -> b (c f) t')
-                assert tensor.dim() == 3, tensor.shape
-                tensor = interpolate(tensor, scale_factor=rate, mode=interpolation_mode)
-                if tensors[i].dim() == 4:
-                    b, c, f, _ = tensors[i].shape
-                    t = tensor.shape[-1]
-                    tensor = tensor.view((b, c, f, t))
+                batch_axis = self.batch_axis
+                seq_axis = self.sequence_axis
+                if batch_axis < 0:
+                    batch_axis = tensor.dim() + batch_axis
+                if seq_axis < 0:
+                    seq_axis = tensor.dim() + seq_axis
+                if batch_axis != 0:
+                    tensor = tensor.transpose(0, batch_axis)
+                    if seq_axis == 0:
+                        seq_axis = batch_axis
+                if seq_axis != 1:
+                    tensor = tensor.transpose(1, seq_axis)
+                ceil_weights = \
+                    torch.Tensor(1 - time_indices_ceil + time_indices).to(tensor.device)
+                floor_weights = (
+                    torch.Tensor(1 - time_indices + time_indices_floor)
+                    * torch.Tensor(time_indices_floor != time_indices_ceil)
+                ).to(tensor.device)
+                for _ in range(tensor.dim() - 2):
+                    ceil_weights = ceil_weights.unsqueeze(-1)
+                    floor_weights = floor_weights.unsqueeze(-1)
+                tensor = (
+                    tensor[batch_indices, time_indices_ceil] * ceil_weights
+                    + tensor[batch_indices, time_indices_floor] * floor_weights
+                )
+                if seq_axis != 1:
+                    tensor = tensor.transpose(1, seq_axis)
+                if batch_axis != 0:
+                    tensor = tensor.transpose(0, batch_axis)
                 tensors[i] = tensor
         return (*tensors, seq_len)
 

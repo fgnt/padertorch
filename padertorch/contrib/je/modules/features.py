@@ -5,10 +5,10 @@ import numpy as np
 import torch
 from padertorch.base import Module
 from padertorch.contrib.je.modules.augment import (
-    Scale, Resample, GaussianBlur2d, Mask, Noise,
+    Scale, TimeWarping, GaussianBlur2d, Mask, Noise,
     LogUniformSampler, TruncExponentialSampler, LogTruncNormalSampler
 )
-from padertorch.modules.normalization import Normalization
+from padertorch.modules.normalization import Normalization, InputNormalization
 from torch import nn
 from paderbox.transform.module_fbank import get_fbanks
 
@@ -22,10 +22,10 @@ class NormalizedLogMelExtractor(nn.Module):
     def __init__(
             self, n_mels, sample_rate, fft_length, fmin=50, fmax=None,
             add_deltas=False, add_delta_deltas=False,
-            mel_norm_statistics_axis='bt', mel_norm_eps=1e-5, clamp=None,
+            norm_statistics_axis='bt', norm_eps=1e-5, batch_norm=False,
+            clamp=None,
             # augmentation
-            warping_fn=None,
-            max_resample_rate=1.,
+            frequency_warping_fn=None, time_warping_fn=None,
             blur_sigma=0, blur_kernel_size=5,
             n_time_masks=0, max_masked_time_steps=70, max_masked_time_rate=.2,
             n_mel_masks=0, max_masked_mel_steps=20, max_masked_mel_rate=.2,
@@ -34,31 +34,28 @@ class NormalizedLogMelExtractor(nn.Module):
         super().__init__()
         self.mel_transform = MelTransform(
             n_mels=n_mels, sample_rate=sample_rate, fft_length=fft_length,
-            fmin=fmin, fmax=fmax, log=True, warping_fn=warping_fn,
+            fmin=fmin, fmax=fmax, log=True, warping_fn=frequency_warping_fn,
         )
         self.add_deltas = add_deltas
         self.add_delta_deltas = add_delta_deltas
-        self.norm = Normalization(
+        norm_cls = Normalization if batch_norm else InputNormalization
+        self.norm = norm_cls(
             data_format='bcft',
             shape=(None, 1 + add_deltas + add_delta_deltas, n_mels, None),
-            statistics_axis=mel_norm_statistics_axis,
+            statistics_axis=norm_statistics_axis,
             shift=True,
             scale=True,
-            eps=mel_norm_eps,
+            eps=norm_eps,
             independent_axis=None,
             momentum=None,
         )
         self.clamp = clamp
 
         # augmentation
-        if max_resample_rate > 1.:
-            self.resampler = Resample(
-                rate_sampling_fn=LogUniformSampler(
-                    scale=2*np.log(max_resample_rate)
-                )
-            )
+        if time_warping_fn is not None:
+            self.time_warping = TimeWarping(warping_fn=time_warping_fn)
         else:
-            self.resampler = None
+            self.time_warping = None
 
         if blur_sigma > 0:
             self.blur = GaussianBlur2d(
@@ -97,6 +94,9 @@ class NormalizedLogMelExtractor(nn.Module):
         with torch.no_grad():
 
             x = self.mel_transform(torch.sum(x**2, dim=(-1,))).transpose(-2, -1)
+
+            if self.time_warping is not None:
+                x, seq_len = self.time_warping(x, seq_len=seq_len)
 
             if self.blur is not None:
                 x = self.blur(x)
