@@ -122,7 +122,7 @@ class Fragmenter(object):
 
 
 def get_anchor(
-        num_samples: int, length: int, shift: int=None,
+        num_samples: int, length: int, shift: int = None,
         mode: str = 'left', rng=np.random
 ):
     """
@@ -192,42 +192,43 @@ def get_anchor(
 
 
 def get_segment_boundaries(
-        anchor: Union[str, int], num_samples: int, length: int,
-        shift: int = None, rng=np.random
+        num_samples: int, length: int, shift: int = None,
+        anchor: Union[str, int] = 'left', rng=np.random
 ):
     """
     Calculates boundaries for segmentation of a signal with length
-    `num_sammples` in case of a fixed segment length `length` and shift `shift`
+    `num_samples` in case of a fixed segment length `length` and shift `shift`
 
     Args:
-        anchor: anchor from which the segmentation boundaries are calculated.
-            if it is a string `get_anchor` is called to calculate an integer
-            using `anchor` as anchor mode definition.
-        num_samples: num samples of signal for which boundaries are caclulated
+        num_samples: number of samples of signal for which
+            boundaries are calculated.
         length: segment length
         shift: shift between segments, defaults to length
+        anchor: anchor from which the segmentation boundaries are calculated.
+            If it is a string `get_anchor` is called to calculate an integer
+            using `anchor` as anchor mode definition.
         rng: random number generator (`numpy.random`)
 
     Returns:
         Bx2 numpy array with start and end values for B boundaries
 
     >>> np.random.seed(3)
-    >>> get_segment_boundaries('left', 24, 10, 3).T
+    >>> get_segment_boundaries(24, 10, 3, anchor='left').T
     array([[ 0,  3,  6,  9, 12],
            [10, 13, 16, 19, 22]])
-    >>> get_segment_boundaries('right', 24, 10, 3).T
+    >>> get_segment_boundaries(24, 10, 3, anchor='right').T
     array([[ 2,  5,  8, 11, 14],
            [12, 15, 18, 21, 24]])
-    >>> get_segment_boundaries('center', 24, 10, 3).T
+    >>> get_segment_boundaries(24, 10, 3, anchor='center').T
     array([[ 0,  3,  6,  9, 12],
            [10, 13, 16, 19, 22]])
-    >>> get_segment_boundaries('centered_cutout', 24, 10, 3).T
+    >>> get_segment_boundaries(24, 10, 3, anchor='centered_cutout').T
     array([[ 1,  4,  7, 10, 13],
            [11, 14, 17, 20, 23]])
-    >>> get_segment_boundaries('random', 24, 10, 3).T
+    >>> get_segment_boundaries(24, 10, 3, anchor='random').T
     array([[ 1,  4,  7, 10, 13],
            [11, 14, 17, 20, 23]])
-    >>> get_segment_boundaries('random_max_segments', 24, 10, 3).T
+    >>> get_segment_boundaries(24, 10, 3, anchor='random_max_segments').T
     array([[ 0,  3,  6,  9, 12],
            [10, 13, 16, 19, 22]])
     """
@@ -247,7 +248,7 @@ def get_segment_boundaries(
 
 
 def segment(
-        x, anchor: Union[str, int], length: int, shift: int = None,
+        x, length: int, shift: int = None, anchor: Union[str, int] = 'left',
         axis: int = -1, rng=np.random
 ):
     """
@@ -268,13 +269,13 @@ def segment(
     Returns:
 
     >>> np.random.seed(3)
-    >>> segment(np.arange(0, 15), 'left', 10, 3)
+    >>> segment(np.arange(0, 15), 10, 3, anchor='left')
     array([[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9],
            [ 3,  4,  5,  6,  7,  8,  9, 10, 11, 12]])
-    >>> segment(np.arange(0, 15), 'random', 10, 3)
+    >>> segment(np.arange(0, 15), 10, 3, anchor='random')
     array([[ 2,  3,  4,  5,  6,  7,  8,  9, 10, 11],
            [ 5,  6,  7,  8,  9, 10, 11, 12, 13, 14]])
-    >>> segment(np.arange(0, 15), 5, 10, 3)
+    >>> segment(np.arange(0, 15), 10, 3, anchor=5)
     array([[ 2,  3,  4,  5,  6,  7,  8,  9, 10, 11],
            [ 5,  6,  7,  8,  9, 10, 11, 12, 13, 14]])
     """
