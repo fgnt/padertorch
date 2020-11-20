@@ -236,8 +236,9 @@ class Normalization(Module):
 
 
 class InputNormalization(Normalization):
-    """Always normalizes input using running statistics. This requires
-    batch_axis to be in statistics_axis.
+    """Always normalizes input using running statistics if running statistics
+    are tracked (i.e. if batch_axis is in statistics_axis) else it falls back
+    to Normalization.
 
     Note that gradients cannot backprop through running statistics.
     Therefore, this module is
@@ -293,15 +294,18 @@ class InputNormalization(Normalization):
     """
 
     def forward(self, x, sequence_lengths=None):
-        assert self.track_running_stats
-        if self.training:
-            with torch.no_grad():
-                _, _, mean, power, n_values = mask_and_compute_stats(
-                    x, sequence_lengths,
-                    self.statistics_axis, self.batch_axis, self.sequence_axis
-                )
-                self._update_running_stats(mean, power, n_values)
-        x = self._running_norm(x, sequence_lengths)
+        if self.track_running_stats:
+            if self.training:
+                with torch.no_grad():
+                    _, _, mean, power, n_values = mask_and_compute_stats(
+                        x, sequence_lengths,
+                        self.statistics_axis, self.batch_axis,
+                        self.sequence_axis
+                    )
+                    self._update_running_stats(mean, power, n_values)
+            x = self._running_norm(x, sequence_lengths)
+        else:
+            x = super().forward(x, sequence_lengths)
         return x
 
 
