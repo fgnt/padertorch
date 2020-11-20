@@ -6,9 +6,10 @@ from paderbox.array import segment_axis
 from paderbox.utils.nested import nested_op, flatten, deflatten
 
 possible_boundary_modes = [
-    'begin',
-    'end',
+    'left',
+    'right',
     'center',
+    'centered_cutout',
     'random',
     'random_max_segments',
 ]
@@ -120,130 +121,161 @@ class Fragmenter(object):
         return fragments
 
 
-def get_segment_boundaries(
+def get_anchor(
         num_samples: int, length: int, shift: int=None,
-        mode: str='begin', choose_one: bool=False, rng=np.random
+        mode: str = 'left', rng=np.random
 ):
     """
-    Calculates boundaries for segmentation of a signal with length
-    `num_sammples` in case of a fixed segment length `length` and shift `shift`
+    Calculates anchor for the boundaries for segmentation of a signal
+    with length `num_sammples` in case of a fixed segment length
+    `length` and shift `shift`
 
     Args:
         num_samples: num samples of signal for which boundaries are caclulated
         length: segment length
         shift: shift between segments, defaults to length
         mode: Defines the position of the boundaries in the signal:
-            begin: boundaries start at sample zero
+            left: anchor is set to zero
                 so that only values at the end are cut
-            end: boundaries end at `num_samples`
+            right: anchor is set to `num_samples`
                 so that only values at the beginning are cut
-            center: boundaries are chosen such that the same number of samples
-                are discarded at the end and the beginning of the signal
-            random: Starts the first segment randomly at a value
-                between 0 and `shift`. This may reduce the number of segments.
-            random_max_segments: Randomly chooses the first segment such that
+            center: anchor is set to `num_samples // 2`
+            centered_cutout: the anchor is chosen such that the same number
+                of samples are discarded at the end and the beginning
+            random: anchor is set to a random value between
+                `0` and `num_samples`.
+                 This may reduce the number of possible segments.
+            random_max_segments: Randomly chooses the anchor such that
                 the maximum number of segments are created
-        choose_one: If True only outputs one segment boundary
         rng: random number generator (`numpy.random`)
 
     Returns:
-        2xB numpy array with start and end values for B boundaries
-
-    >>> np.random.seed(0)
-    >>> get_segment_boundaries(25, 10, None, mode='begin')
-    array([[ 0, 10],
-           [10, 20]])
-    >>> get_segment_boundaries(25, 10, 3, mode='begin')
-    array([[ 0,  3,  6,  9, 12, 15],
-           [10, 13, 16, 19, 22, 25]])
-    >>> get_segment_boundaries(24, 10, 3, mode='begin')
-    array([[ 0,  3,  6,  9, 12],
-           [10, 13, 16, 19, 22]])
-    >>> get_segment_boundaries(24, 10, 3, mode='random')
-    array([[ 0,  3,  6,  9, 12],
-           [10, 13, 16, 19, 22]])
-    >>> get_segment_boundaries(24, 10, 3, mode='random_max_segments')
-    array([[ 1,  4,  7, 10, 13],
-           [11, 14, 17, 20, 23]])
-    >>> get_segment_boundaries(24, 10, 3, mode='center')
-    array([[ 1,  4,  7, 10, 13],
-           [11, 14, 17, 20, 23]])
-    >>> get_segment_boundaries(24, 10, 3, mode='center', choose_one=True)
-    array([[ 1],
-           [11]])
+       integer value describing the anchor
+    >>> np.random.seed(3)
+    >>> get_anchor(24, 10, 3, mode='left')
+    0
+    >>> get_anchor(24, 10, 3, mode='right')
+    14
+    >>> get_anchor(24, 10, 3, mode='center')
+    12
+    >>> get_anchor(24, 10, 3, mode='centered_cutout')
+    1
+    >>> get_anchor(24, 10, 3, mode='random')
+    10
+    >>> get_anchor(24, 10, 3, mode='random_max_segments')
+    3
     """
     assert num_samples >= length, (num_samples, length)
     if shift is None:
         shift = length
     assert shift > 0, shift
 
-    if mode == 'begin':
-        start = 0
-    elif mode == 'random':
-        start = rng.randint(shift)
-    elif mode == 'random_max_segments':
-        start = rng.randint((num_samples - length) % shift)
-    elif mode in ['end', 'center']:
+    if mode == 'left':
+        return 0
+    elif mode == 'right':
+        return num_samples - length
+    elif mode == 'center':
+        return num_samples // 2
+    elif mode == 'centered_cutout':
         remainder = (num_samples - length) % shift
-        if mode == 'end':
-            start = remainder
-        else:
-            start = remainder // 2
+        return remainder // 2
+    elif mode == 'random':
+        return rng.randint(num_samples - length)
+    elif mode == 'random_max_segments':
+        start = rng.randint((num_samples - length) % shift + 1)
+        anchors = np.arange(start, num_samples - length + 1, shift)
+        return int(np.random.choice(anchors))
     else:
         raise ValueError('Unknown offset mode', mode,
                          'choose on of', possible_boundary_modes)
+
+
+def get_segment_boundaries(
+        anchor: Union[str, int], num_samples: int, length: int,
+        shift: int = None, rng=np.random
+):
+    """
+    Calculates boundaries for segmentation of a signal with length
+    `num_sammples` in case of a fixed segment length `length` and shift `shift`
+
+    Args:
+        anchor: anchor from which the segmentation boundaries are calculated.
+            if it is a string `get_anchor` is called to calculate an integer
+            using `anchor` as anchor mode definition.
+        num_samples: num samples of signal for which boundaries are caclulated
+        length: segment length
+        shift: shift between segments, defaults to length
+        rng: random number generator (`numpy.random`)
+
+    Returns:
+        Bx2 numpy array with start and end values for B boundaries
+
+    >>> np.random.seed(3)
+    >>> get_segment_boundaries('left', 24, 10, 3).T
+    array([[ 0,  3,  6,  9, 12],
+           [10, 13, 16, 19, 22]])
+    >>> get_segment_boundaries('right', 24, 10, 3).T
+    array([[ 2,  5,  8, 11, 14],
+           [12, 15, 18, 21, 24]])
+    >>> get_segment_boundaries('center', 24, 10, 3).T
+    array([[ 0,  3,  6,  9, 12],
+           [10, 13, 16, 19, 22]])
+    >>> get_segment_boundaries('centered_cutout', 24, 10, 3).T
+    array([[ 1,  4,  7, 10, 13],
+           [11, 14, 17, 20, 23]])
+    >>> get_segment_boundaries('random', 24, 10, 3).T
+    array([[ 1,  4,  7, 10, 13],
+           [11, 14, 17, 20, 23]])
+    >>> get_segment_boundaries('random_max_segments', 24, 10, 3).T
+    array([[ 0,  3,  6,  9, 12],
+           [10, 13, 16, 19, 22]])
+    """
+    assert num_samples >= length, (num_samples, length)
+    if shift is None:
+        shift = length
+    assert shift > 0, shift
+    if isinstance(anchor, str):
+        anchor = get_anchor(num_samples, length, shift, mode=anchor, rng=rng)
+    assert isinstance(anchor, int), (anchor, type(anchor))
+
+    start = anchor % shift
     start = np.arange(start, num_samples - length + 1, shift)
-    if choose_one:
-        start = rng.choice(start, 1)
     stop = start + length
-    boundaries = np.stack([start, stop], axis=0)
+    boundaries = np.stack([start, stop], axis=-1)
     return boundaries
 
 
 def segment(
-        x, boundary: Union[tuple, list, np.array]=None, length: int=None,
-        axis: int=-1, shift: int=None, mode: str='begin',
-        choose_one: bool=False, rng=np.random
+        x, anchor: Union[str, int], length: int, shift: int = None,
+        axis: int = -1, rng=np.random
 ):
     """
-    Segments a signal `x` along an axis. Either with predefined segment
-    boundaries if boundary is set or with internally calculated boundaries if
-    length is set.
+    Segments a signal `x` along an axis. Either with a predefined anchor for
+    the segment boundaries if anchor is set or with an internally calculated
+    anchor if anchor is a string.
 
     Args:
         x: signal to be segmented
-        boundary: 1xB or 2xB `numpy array`, `tuple` or `list` containing start
-            (and end) values for B pre calculated boundaries.
-            If only start values are given the segment length has to be set.
+        anchor: anchor from which the segmentation boundaries are calculated.
+            if it is a string `get_anchor` is called to calculate an integer
+            using `anchor` as anchor mode definition.
         length: segment length
-        axis: axis which is segmented
         shift: shift between segments, defaults to length
-        mode: Defines the position of the boundaries in the signal:
-            begin: boundaries start at sample zero
-                so that only values at the end are cut
-            end: boundaries end at `x.shape[axis]`
-                so that only values at the beginning are cut
-            center: boundaries are chosen such that the same number of samples
-                are discarded at the end and the beginning of the signal
-            random: Starts the first segment randomly at a value
-                between 0 and `shift`
-            random_max_segments: Randomly chooses the first segment such that
-                the maximum number of segments are created
-        choose_one: If True only outputs one segment boundary
+        axis: axis over which to segment
         rng: random number generator (`numpy.random`)
 
     Returns:
 
-    >>> segment(np.arange(0, 15), None, 10, -1, 3)
+    >>> np.random.seed(3)
+    >>> segment(np.arange(0, 15), 'left', 10, 3)
     array([[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9],
            [ 3,  4,  5,  6,  7,  8,  9, 10, 11, 12]])
-    >>> segment(np.arange(0, 15), [[0, 3], [10, 13]])
-    array([[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9],
-           [ 3,  4,  5,  6,  7,  8,  9, 10, 11, 12]])
-    >>> segment(np.arange(0, 15), (0, 10))
-    array([[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]])
-    >>> segment(np.arange(0, 15), [[0, 6], [4, 13]])
-    [array([0, 1, 2, 3, 4, 5]), array([ 4,  5,  6,  7,  8,  9, 10, 11, 12])]
+    >>> segment(np.arange(0, 15), 'random', 10, 3)
+    array([[ 2,  3,  4,  5,  6,  7,  8,  9, 10, 11],
+           [ 5,  6,  7,  8,  9, 10, 11, 12, 13, 14]])
+    >>> segment(np.arange(0, 15), 5, 10, 3)
+    array([[ 2,  3,  4,  5,  6,  7,  8,  9, 10, 11],
+           [ 5,  6,  7,  8,  9, 10, 11, 12, 13, 14]])
     """
     if x.__class__.__module__ == 'numpy':
         ndim = x.ndim
@@ -256,49 +288,21 @@ def segment(
         raise TypeError('Unknown type for input signal x', type(x))
     axis = axis % ndim
 
-    if boundary is None:
-        boundary = get_segment_boundaries(
-            x.shape[axis], length, shift=shift, mode=mode,
-            choose_one=choose_one, rng=rng
-        )
-    else:
-        if isinstance(boundary, (list, tuple)):
-            boundary = np.array(boundary)
-        if boundary.ndim == 1:
-            # This might be necessary if only one start and stop point is given
-            boundary = boundary[..., None]
-
-    if boundary.shape[0] == 1 and length is not None:
-        boundary = np.concatenate((boundary, boundary + length), axis=0)
-
-    assert boundary.shape[0] == 2, ('The first dimension of boundary has to ' \
-                                    'be  2 to describe start and stop of a ' \
-                                    'segment or can be 1 if a fixed length ' \
-                                    'is defined', boundary.shape, length)
-    assert boundary.ndim == 2, 'Expects an two dimensional boundary array'
-
-    if boundary.shape[1] == 1:
-        return x.take(np.arange(boundary[0], boundary[1]), axis=axis)[None]
-
-    if length is None:
-        lengths = (boundary[1] - boundary[0]).tolist()
-        shifts = (boundary[0, 1:] - boundary[0, :-1]).tolist()
-        if not (len(set(lengths)) == 1 and len(set(shifts)) == 1):
-            # if no fixed length and shift are used the segmentation has to be
-            # done in a for loop
-            assert x.__class__.__module__ == 'numpy', 'Not implemented yet for torch'
-            segmented = list()
-            for start, end in boundary:
-                segmented.append(x.take(np.arange(start, end), axis=axis))
-            return segmented
-        length = lengths[0]
-        shift = shifts[0]
-    # slice the array to remove samples not addressed with
-    # this offsets-segment_length combination
-    slc = [slice(None)] * ndim
-    slc[axis] = slice(np.min(boundary[0]), np.max(boundary[1]))
-    x = x[tuple(slc)]
+    num_samples = x.shape[axis]
+    assert num_samples >= length, (num_samples, length)
     if shift is None:
         shift = length
+    assert shift > 0, shift
+    if isinstance(anchor, str):
+        anchor = get_anchor(num_samples, length, shift, mode=anchor, rng=rng)
+    assert isinstance(anchor, int), (anchor, type(anchor))
+
+    start = anchor % shift
+
+    # slice the array to remove samples discarded with the specified anchor
+    slc = [slice(None)] * ndim
+    slc[axis] = slice(start, None)
+    x = x[tuple(slc)]
+
     return np.moveaxis(segment_axis(
         x, length, shift, end='cut', axis=axis), axis, 0)
