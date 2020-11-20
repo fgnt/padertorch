@@ -128,7 +128,8 @@ def get_anchor(
     """
     Calculates anchor for the boundaries for segmentation of a signal
     with length `num_sammples` in case of a fixed segment length
-    `length` and shift `shift`
+    `length` and shift `shift`. The anchor always points to the first value of
+    a segment.
 
     Args:
         num_samples: num samples of signal for which boundaries are caclulated
