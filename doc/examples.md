@@ -8,10 +8,10 @@ Due to the modular structure of Padertorch, there are many more workflows that a
 However, getting started will likely become easier by basing your trainings on the examples provided, here.
 
 We recommend the usage of the following components when using Padertorch:
-  - [sacred]() / [Padertorch Configurable](): Experiment organization / Ensuring reproducability / Adjustment of training hyperparameters
+  - [sacred](sacred.md) / [Padertorch Configurable](configurable.md): Experiment organization / Ensuring reproducability / Adjustment of training hyperparameters
   - [lazy_dataset](https://github.com/fgnt/lazy_dataset): Data preparation and on-the-fly data generation
   
-The examples mostly use all of these components, whereas the simple examples  (See [Getting Started]()) omit some of these components to reduce the overall complexity of the example as much as possible.
+The examples mostly use all of these components, whereas the simple examples  (See Getting Started omit some of these components to reduce the overall complexity of the example as much as possible.
 
 
 ## Basic Structure of a Training:
@@ -39,7 +39,7 @@ storage_dir = pt.io.get_new_storage_dir('my_experiment')
 # storage_dir = pt.io.get_new_subdir('/my/experiment/path')
 ```
 For more information regarding the usage of Configurable or Sacred 
-see [Configurable Introduction](configurable) and [Sacred Introduction](sacred)
+see [Configurable Introduction](configurable.md) and [Sacred Introduction](sacred.md)
 
 ### Data preprocessing
 Data preprocessing describes the creation of an iterable object (e.g. a list of examples)for the Padertorch Trainer.
@@ -63,8 +63,9 @@ iterable = iterable.map(pt.data.utils.collate_fn)
 However, all other approaches that create an iterable object can be used for this step as well.
 
 ### Training
-The training itself is mostly handled by the [Padertorch Trainer](). 
-Therefore, the training consists of the initialization of the Padertorch model and the preparation of the iterable object.
+The training itself is mostly handled by the [Padertorch Trainer](trainer.md). 
+Therefore, the training consists of the initialization of the Padertorch model and
+the preparation of the iterable object.
 These two properties are then fed into the Padertorch Trainer.
 ``` python
 from padertorch import Trainer, optimizer
@@ -82,7 +83,7 @@ trainer.train(iterable)
 ```
 
 Optionally, many different hooks can be registered before starting the training to use e.g. learning rate scheduling.
-For more information how to use, register and write hooks, See [Hooks: customizing your training](hooks)  
+For more information how to use, register and write hooks, See [Hooks: customizing your training](hooks.md)  
 
 ### Evaluation
 Usually, a "light" evaluation (i.e. validation) is included in the training.
@@ -105,15 +106,16 @@ For most purposes, the structure of the examples should also serve as a good tem
     
 ## List of current examples:
   - Source Separation:
-    - PIT: Implementation of https://arxiv.org/abs/1703.06284
-    - OR-PIT: Implementation of https://arxiv.org/abs/1904.03065
-    - TasNet/ConvTasNet: Implementation of https://arxiv.org/abs/1711.00541
+    - [PIT](../padertorch/contrib/examples/source_separation/pit/README.md): Implementation of https://arxiv.org/abs/1703.06284
+    - [OR-PIT](../padertorch/contrib/examples/source_separation/or_pit/README.md): Implementation of https://arxiv.org/abs/1904.03065
+    - [TasNet/ConvTasNet](../padertorch/contrib/examples/source_separation/tasnet/README.md): Implementation of https://arxiv.org/abs/1711.00541
   - Speech Enhancement:
-    - Mask Estimator: 
-  - Acoustic Model:
+    - [Mask Estimator](../padertorch/contrib/examples/speech_enhancement/mask_estimator/README.md): 
   - Audio Tagging:
-  - Wavenet: See <>
-  - MNIST: Small toy example showing the application of Padertorch to image data
-  - Functions:
+  - [Speaker Classification](../padertorch/contrib/examples/speaker_classification/supervised/README.md):
+  - Audio Synthesis
+    - [Wavenet](../padertorch/contrib/examples/audio_synthesis/wavenet/README.md): See <>
+  - Toy Examples:
+    - MNIST: Small toy example showing the application of Padertorch to image data
     - Multi-GPU: Basic description and code example of Padertorch's Multi-GPU support
     - Configurable: Introduction into the usage of the Configurable class to setup trainings
