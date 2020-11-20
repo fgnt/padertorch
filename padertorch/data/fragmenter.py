@@ -5,7 +5,7 @@ import numpy as np
 from paderbox.array import segment_axis
 from paderbox.utils.nested import nested_op, flatten, deflatten
 
-possible_boundary_modes = [
+possible_anchor_modes = [
     'left',
     'right',
     'center',
@@ -186,8 +186,8 @@ def get_anchor(
         anchors = np.arange(start, num_samples - length + 1, shift)
         return int(np.random.choice(anchors))
     else:
-        raise ValueError('Unknown offset mode', mode,
-                         'choose on of', possible_boundary_modes)
+        raise ValueError('Unknown mode', mode,
+                         'choose on of', possible_anchor_modes)
 
 
 def get_segment_boundaries(
