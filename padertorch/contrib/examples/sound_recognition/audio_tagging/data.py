@@ -1,20 +1,23 @@
 import numpy as np
-from padercontrib.database.audio_set import AudioSet
+from lazy_dataset.database import JsonDatabase
 from padertorch.contrib.je.data.transforms import (
     AudioReader, STFT, MultiHotLabelEncoder, Collate
 )
-from padertorch.contrib.je.data.mixup import MixUpDataset, SuperposeEvents
+from padertorch.contrib.je.data.mixup import MixUpDataset, \
+    SampleMixupComponents, SuperposeEvents
 from padertorch.contrib.je.modules.augment import LogTruncNormalSampler
 
 
 def get_datasets(
-        audio_reader, stft,
-        num_workers, batch_size, max_padding_rate,
-        storage_dir
+        database_json, audio_reader, stft, batch_size, storage_dir,
+        num_workers=8, max_padding_rate=.05,
+        min_signal_length=None, max_signal_length=None,
+        mixup_probs=(1,), min_mixup_overlap=0., max_mixup_length=None,
+        training_set='balanced_train',
 ):
 
-    db = AudioSet()
-    training_set = db.get_dataset('balanced_train')
+    db = JsonDatabase(database_json)
+    training_set = db.get_dataset(training_set)
 
     event_encoder = MultiHotLabelEncoder(
         label_key='events', storage_dir=storage_dir,
@@ -23,13 +26,17 @@ def get_datasets(
 
     kwargs = dict(
         audio_reader=audio_reader, stft=stft, event_encoder=event_encoder,
-        num_workers=num_workers, batch_size=batch_size,
-        max_padding_rate=max_padding_rate,
+        num_workers=num_workers,
+        batch_size=batch_size, max_padding_rate=max_padding_rate,
+        min_signal_length=min_signal_length, max_signal_length=max_signal_length,
+        mixup_probs=mixup_probs,
+        min_mixup_overlap=min_mixup_overlap, max_mixup_length=max_mixup_length
     )
 
     return (
         prepare_dataset(training_set, training=True, **kwargs),
         prepare_dataset(db.get_dataset('validate'), **kwargs),
+        prepare_dataset(db.get_dataset('eval'), **kwargs),
     )
 
 
@@ -37,10 +44,20 @@ def prepare_dataset(
         dataset,
         audio_reader, stft, event_encoder,
         num_workers, batch_size, max_padding_rate,
+        min_signal_length=None, max_signal_length=None,
+        mixup_probs=(1,), min_mixup_overlap=0., max_mixup_length=None,
         training=False,
 ):
-
-    dataset = dataset.filter(lambda ex: 10.1 > ex['audio_length'] > 1.3, lazy=False)
+    assert np.sum(mixup_probs) == 1., mixup_probs
+    if min_signal_length is not None or max_signal_length is not None:
+        dataset = dataset.filter(
+            lambda ex: (
+                (max_signal_length is None or ex['audio_length'] <= max_signal_length)
+                and
+                (min_signal_length is None or ex['audio_length'] >= min_signal_length)
+            ),
+            lazy=False
+        )
 
     audio_reader = AudioReader(**audio_reader)
 
@@ -58,11 +75,6 @@ def prepare_dataset(
             example['audio_data'] *= scales
             return example
         dataset = dataset.map(random_scale)
-        dataset = MixUpDataset(dataset, dataset, p=[1/2, 1/2]).map(
-            SuperposeEvents(
-                audio_reader.target_sample_rate, min_overlap=.8, max_length=12.
-            )
-        )
         dataset = dataset.shuffle(reshuffle=True)
 
     stft = STFT(**stft)
@@ -70,6 +82,7 @@ def prepare_dataset(
 
     def finalize(example):
         return {
+            'dataset': example['dataset'],
             'example_id': example['example_id'],
             'stft': example['stft'].astype(np.float32),
             'seq_len': example['stft'].shape[1],
@@ -79,10 +92,20 @@ def prepare_dataset(
     dataset = dataset.map(finalize)\
         .prefetch(num_workers, 10*batch_size, catch_filter_exception=True)
 
-    if training:
-        dataset = dataset.shuffle(
-            reshuffle=True, buffer_size=min(100 * batch_size, 1000)
+    if training and mixup_probs[0] < 1.:
+        print('Mixup')
+        dataset = MixUpDataset(
+            dataset,
+            sample_fn=SampleMixupComponents(mixup_probs),
+            mixup_fn=SuperposeEvents(
+                min_overlap=min_mixup_overlap,
+                max_length=stft.samples_to_frames(
+                    max_mixup_length*audio_reader.target_sample_rate
+                )
+            ),
+            buffer_size=80*batch_size,
         )
+
     return dataset.batch_dynamic_time_series_bucket(
         batch_size=batch_size, len_key="seq_len",
         max_padding_rate=max_padding_rate, expiration=1000*batch_size,

@@ -89,22 +89,21 @@ class SuperposeEvents:
         start_indices = [0]
         stop_indices = [components[0]['stft'].shape[1]]
         for comp in components[1:]:
-            l = comp['stft'].shape[1]
-            min_start = -int(l*(1-self.min_overlap))
-            max_start = components[0]['stft'].shape[1] - int(np.ceil(self.min_overlap*l))
+            seq_len = comp['stft'].shape[1]
+            min_start = -int(seq_len*(1-self.min_overlap))
+            max_start = components[0]['stft'].shape[1] - int(np.ceil(self.min_overlap*seq_len))
             if self.max_length is not None:
+                assert seq_len <= self.max_length, (seq_len, self.max_length)
                 min_start = max(
                     min_start, max(stop_indices) - self.max_length
                 )
                 max_start = min(
-                    max_start, min(start_indices) + self.max_length - l
+                    max_start, min(start_indices) + self.max_length - seq_len
                 )
-            if max_start < min_start:
-                raise FilterException
             start_indices.append(
                 int(min_start + np.random.rand() * (max_start - min_start + 1))
             )
-            stop_indices.append(start_indices[-1] + l)
+            stop_indices.append(start_indices[-1] + seq_len)
         start_indices = np.array(start_indices)
         stop_indices = np.array(stop_indices)
         stop_indices -= start_indices.min()
