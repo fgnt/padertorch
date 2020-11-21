@@ -1,10 +1,10 @@
 # Configurable: What is it good for?
 
-The main idea of the `Configurable` object is to simplyfy the initialization
+The main idea of the `Configurable` object is to simplify the initialization
 of a neural network model from a config dictionary.
 A neural network usually consists of multiple modules with inter-dependent
 configurations which are combined in the main model.
-An simple model inspired by the model in
+A simple model inspired by the model in
 [pytorch tutorial](https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html#sphx-glr-beginner-blitz-cifar10-tutorial-py)
 looks like this:
 ```python
@@ -70,7 +70,7 @@ but it has major upsites.
 The main benefit is that we can now easily adjust the parameters from outside
 of the model.
 Another benefit is, that this initialization allows to easily save the used
-configuration for example by writting the config dictionary to a json file.
+configuration for example by writting the config dictionary to a json/yaml file.
 However, the current config does not include all parameters used in the model
 since there are some default values in the modules which are not specified in
 the config dictionary.
@@ -109,3 +109,74 @@ The key ```factory``` is a fixed signifier for a class representer and should
 
 
 ## Additonal perks of using Configurable 
+Configurable is designed to simplify class initialization and config 
+generation. One feature to allow interdependents bertween parameters is the 
+finalize_dogmatic_config classmethod. Here parameters from submodules can
+be changed dependent on the previous layer. For example one can define the
+input size as the output size of the previous layer:
+```python
+import padertorch as pt
+import torch.nn as nn
+import torch.nn.functional as F
+
+class Net(pt.Module):
+    @classmethod
+    def finalize_dogmatic_config(cls, config):
+       config['fc1'] = {
+            'factory': nn.Linear,
+            'in_features':120,
+            'out_features': 84
+        }
+       config['fc2'] = {
+            'factory': nn.Linear,
+            'in_features':config['fc1']['out_features'],
+            'out_features': 10
+       }
+
+    def __init__(self, fc1, fc2):
+        super().__init__()
+        self.fc1 = fc1
+        self.fc2 = fc2
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+net = Net.from_config(Net.get_config({}))
+```
+This allows us to initialize net without specificying any parameters,
+if the default parameters are chosen.
+The resulting network looks like this:
+```
+Net(
+  (fc1): Linear(in_features=120, out_features=84, bias=True)
+  (fc2): Linear(in_features=84, out_features=84, bias=True)
+)
+```
+Additionally, we can easily change the
+layer size of the first layer and the second layer will be adjusted 
+accordingly:
+```
+net = Net.from_config(Net.get_config({'fc1': {'out_features': 320}}))
+```
+which results in the following network:
+```
+Net(
+  (fc1): Linear(in_features=120, out_features=320, bias=True)
+  (fc2): Linear(in_features=320, out_features=84, bias=True)
+)
+```
+For more example on how to use finalize_dogmatic_config please refer to the
+class doctest, our toy example or our example models.
+
+Configaurable is designed to work with sacred to simplify the config generation
+and allow for changes in the configuration from the training script call.
+For more information on how to work with sacred visit our documentation on
+training with sacred: enter link here.
+
+Furthermore, Configurable allows for easily reproducable evaluations by 
+initializing the model from a model directory without knowledge about the
+specific model architecture: 
+`model = pt.Module.from_config_and_checkpoint()`.
+For further code examples please refer to our example evaluation scripts.
