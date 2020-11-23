@@ -121,6 +121,17 @@ class Fragmenter(object):
         return fragments
 
 
+def _get_rand_int(rng, *args, **kwargs):
+    if hasattr(rng, 'randint'):
+        return rng.randint(*args, **kwargs)
+    elif hasattr(rng, 'integers'):
+        return rng.integers(*args, **kwargs)
+    elif isinstance(rng, callable):
+        return rng(*args, **kwargs)
+    else:
+        raise TypeError('Unknown random generator used', rng)
+
+
 def get_anchor(
         num_samples: int, length: int, shift: int = None,
         mode: str = 'left', rng=np.random
@@ -163,6 +174,8 @@ def get_anchor(
     1
     >>> get_anchor(24, 10, 3, mode='random')
     10
+    >>> get_anchor(24, 10, 3, mode='random', rng=np.random.default_rng(seed=4))
+    10
     >>> get_anchor(24, 10, 3, mode='random_max_segments')
     3
     """
@@ -181,9 +194,9 @@ def get_anchor(
         remainder = (num_samples - length) % shift
         return remainder // 2
     elif mode == 'random':
-        return rng.randint(num_samples - length)
+        return _get_rand_int(rng, num_samples - length)
     elif mode == 'random_max_segments':
-        start = rng.randint((num_samples - length) % shift + 1)
+        start = _get_rand_int(rng, (num_samples - length) % shift + 1)
         anchors = np.arange(start, num_samples - length + 1, shift)
         return int(np.random.choice(anchors))
     else:
