@@ -45,6 +45,19 @@ def test_include_none():
         np.testing.assert_equal(entry['x'], entry['y'])
 
 
+def test_include_to_larger():
+    segmenter = Segmenter(length=32000, shift=16000, include_keys=['x', 'y', 'z'])
+    ex = {'x': np.arange(65000), 'y': np.arange(65000),
+          'num_samples': 65000, 'gender': 'm'}
+    segmented = segmenter(ex)
+    assert type(segmented) == list, segmented
+    for idx, entry in enumerate(segmented):
+        assert all([key in entry.keys() for key in ex.keys()])
+        np.testing.assert_equal(
+            entry['x'], np.arange(idx * 16000, 16000 + (idx + 1) * 16000))
+        np.testing.assert_equal(entry['x'], entry['y'])
+
+
 def test_include_none_ignore_torch():
     segmenter = Segmenter(length=32000, shift=16000)
     ex = {'x': np.arange(65000), 'y': np.arange(65000),
@@ -142,6 +155,39 @@ def test_axis():
         np.testing.assert_equal(
             entry['x'], np.arange(idx * 16000, 16000 + (idx + 1) * 16000))
         np.testing.assert_equal(entry['x'], entry['y'][:, 0])
+
+
+def test_axis_dict():
+    segmenter = Segmenter(length=32000, shift=16000, include_keys=['x', 'y'],
+                          axis={'x': -1, 'y': 0})
+    ex = {'x': np.arange(65000), 'y': np.arange(65000)[:, None],
+          'num_samples': 65000, 'gender': 'm'}
+    segmented = segmenter(ex)
+    assert type(segmented) == list, segmented
+    for idx, entry in enumerate(segmented):
+        assert all([key in entry.keys() for key in ex.keys()])
+        np.testing.assert_equal(
+            entry['x'], np.arange(idx * 16000, 16000 + (idx + 1) * 16000))
+        np.testing.assert_equal(entry['x'], entry['y'][:, 0])
+
+    segmenter = Segmenter(length=32000, shift=16000, include_keys=['audio'],
+                          axis={'audio': -1})
+    ex = {'audio': {'x': np.arange(65000), 'y': np.arange(65000)},
+          'z': np.arange(65000),
+          'num_samples': 65000, 'gender': 'm'}
+    segmented = segmenter(ex)
+    assert type(segmented) == list, segmented
+    for idx, entry in enumerate(segmented):
+        assert all([key in entry.keys() for key in ex.keys()])
+        np.testing.assert_equal(
+            entry['audio']['x'],
+            np.arange(idx * 16000, 16000 + (idx + 1) * 16000)
+        )
+        np.testing.assert_equal(entry['audio']['x'], entry['audio']['y'])
+        np.testing.assert_raises(
+            AssertionError,
+            np.testing.assert_equal, entry['audio']['x'], entry['z']
+        )
 
 def test_wildcard():
     segmenter = Segmenter(length=32000, shift=16000, include_keys=['audio'])

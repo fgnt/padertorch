@@ -27,12 +27,12 @@ class Segmenter:
     If an utterance is shorter than `length`, a
     `lazy_dataset.FilterException` is raised.
 
-    Examples (For more examples see tests/test_data/test_segmenter:
+    Examples (For more examples see `tests/test_data/test_segmenter`):
 
-        >>> segmenter = Segmenter(length=32000, include_keys=('x', 'y'),\
-                                   shift=16000)
-        >>> ex = {'x': np.arange(65000), 'y': np.arange(65000),\
-                    'num_samples': 65000, 'gender': 'm'}
+        >>> segmenter = Segmenter(length=32000, include_keys=('x', 'y'),
+        ...                           shift=16000)
+        >>> ex = {'x': np.arange(65000), 'y': np.arange(65000),
+        ...       'num_samples': 65000, 'gender': 'm'}
         >>> segmented = segmenter(ex)
         >>> type(segmented)
         <class 'list'>
@@ -42,7 +42,7 @@ class Segmenter:
         [16000 47999]
         [32000 63999]
 
-        segmenting can be disabled by setting `length=-1` or `keys=None`
+        Segmenting can be disabled by setting `length=-1`.
         >>> Segmenter(length=-1, include_keys=('x', 'y'))(ex)[0] == ex
         True
 
@@ -65,33 +65,43 @@ class Segmenter:
         shift: shift between segments, defaults to length
         include_keys: The keys in the passed example dict to segment. They all
             must have the same size along their specified `axis`, if keys is
-            None the segmentation is applied to all `numpy.arrays`.
+            `None` the segmentation is applied to all `numpy.arrays`.
             If a key points to a dictionary the segmentation is applied to all
-            values of this dictionary
+            nested values of this dictionary
         exclude_keys: This option allows to specify specific keys not to
             segment. This might be usefull if `include_keys` is `None` or
             one of the included keys points to a dictionary.
-        copy_keys: If `None` all not values which are not segmented are
+        copy_keys: If `True` all not values which are not segmented are
             copied. Otherwise only the specified keys are added to the new
             dictionary with the segmented signals.
-        axis: axis over which to segment
+        axis: axis over which to segment. Maybe a `list`, a `dict` or a `int`.
+            In case of `list` the length has to be equal to `include_keys`.
+            I case of `dict` the keys have to be equal to 
+            the entries of `include_keys`
         anchor_mode: anchor mode used in `get_anchor` to calculate the anchor
             from which the segmentation boundaries are calculated.
         rng: random number generator (`numpy.random`)
+        flatten_separator: specifies the separator used to separate the keys
+            in the flattened dictionary. Defaults to `.`
     """
 
-    def __init__(self, length: int = -1,shift: int = None,
+    def __init__(self, length: int = -1, shift: int = None,
                  include_keys: Union[str, list, tuple] = None,
                  exclude_keys: Union[str, list, tuple] = None,
-                 copy_keys: Union[str, list, tuple] = None,
+                 copy_keys: Union[str, list, tuple] = True,
                  axis: Union[int, list, tuple, dict] = -1,
-                 anchor_mode: str = 'left', rng=np.random):
+                 anchor_mode: str = 'left', rng=np.random,
+                 flatten_separator: str = '.'):
 
         self.include = None if include_keys is None else to_list(include_keys)
         self.exclude = [] if exclude_keys is None else to_list(exclude_keys)
         self.length = length
         if isinstance(axis, (dict, int)):
-            self. axis = axis
+            self.axis = axis
+            if isinstance(axis, dict):
+                assert set(axis.keys()) == set(self.include), (
+                    axis.keys, self.include
+                )
         elif isinstance(axis, (tuple, list)):
             self.axis = to_list(axis)
             assert len(axis) == len(include_keys), (
@@ -103,23 +113,25 @@ class Segmenter:
         self.shift = shift
         self.anchor_mode = anchor_mode
         self.rng = rng
-        self.copy_keys = None if copy_keys is None else to_list(copy_keys)
+        self.copy_keys = True if copy_keys is True else to_list(copy_keys)
+        self.flatten_separator = flatten_separator
 
     def __call__(self, example):
         # Shortcut if segmentation is disabled
         if self.length == -1:
             return [example]
 
-        example = flatten(example)
+        example = flatten(example, sep=self.flatten_separator)
 
         to_segment_keys = self.get_to_segment_keys(example)
         axis = self.get_axis_list(to_segment_keys)
 
-        to_segment = [
-            example.pop(key) for key in to_segment_keys
-        ]
+        to_segment = {
+            key: example.pop(key) for key in to_segment_keys
+        }
 
-        if any([not isinstance(value, np.ndarray) for value in to_segment]):
+        if any([not isinstance(value, np.ndarray)
+                for value in to_segment.values()]):
             raise ValueError(
                 'This segmenter only works on numpy arrays',
                 'However, the following keys point to other types:',
@@ -128,7 +140,7 @@ class Segmenter:
             )
 
         to_segment_lengths = [
-            v.shape[axis[i]] for i, v in enumerate(to_segment)]
+            v.shape[axis[i]] for i, v in enumerate(to_segment.values())]
         assert to_segment_lengths[1:] == to_segment_lengths[:-1], (
             'The shapes along the segment dimension of all entries to segment'
             ' must be equal!\n'
@@ -148,20 +160,17 @@ class Segmenter:
                                              axis=axis)
 
         segmented_examples = list()
-        if self.copy_keys is not None:
+        if self.copy_keys is not True:
             example = {key: example.pop(key) for key in self.copy_keys}
         for idx, (start, stop) in enumerate(boundaries):
             example_copy = copy(example)
-            example_copy.update({to_segment_keys[i]: value[idx]
-                                 for i, value in enumerate(segmented)})
-
+            example_copy.update({key: value[idx]
+                                 for key, value in segmented.items()})
             example_copy.update(segment_start=start, segment_stop=stop)
             segmented_examples.append(deflatten(example_copy))
         return segmented_examples
 
-
     def segment(self, to_segment, to_segment_length, axis):
-
         anchor = get_anchor(
             to_segment_length, self.length, self.shift,
             mode=self.anchor_mode, rng=self.rng
@@ -172,9 +181,9 @@ class Segmenter:
             anchor=self.anchor_mode, rng=self.rng
         )
 
-        segmented = [segment(signal, length=self.length, shift=self.shift,
-                       rng=self.rng, axis=axis[i], anchor=anchor)
-                     for i, signal in enumerate(to_segment)]
+        segmented = {key: segment(signal, length=self.length, shift=self.shift,
+                                  rng=self.rng, axis=axis[i], anchor=anchor)
+                     for i, (key, signal) in enumerate(to_segment.items())}
         return boundaries, segmented
 
     def get_to_segment_keys(self, example):
@@ -184,22 +193,30 @@ class Segmenter:
                 if not key in self.exclude and isinstance(value, np.ndarray)
             ]
         else:
+
             return [
-                key for key in example.keys()
-                if not key in self.exclude and
-                any([include_key in key for include_key in self.include])
+                key for key in example.keys() if
+                key not in self.exclude and
+                any([key.startswith(include_key)
+                     for include_key in self.include])
             ]
 
     def get_axis_list(self, to_segment_keys):
         if isinstance(self.axis, int):
             return [self.axis] * len(to_segment_keys)
         elif isinstance(self.axis, dict):
-            assert all([key in self.axis.keys() for key in to_segment_keys]), (
+            axis = self.axis.copy()
+            axis.update({
+                to_segment_key: axis for to_segment_key in to_segment_keys
+                for org_key, axis in self.axis.items()
+                if to_segment_key.startswith(org_key)
+            })
+            assert all([key in axis.keys() for key in to_segment_keys]), (
                 f'The dictionary for axis did not include keys for all'
                 f'segment arrays. axis keys: {self.axis.keys()},'
                 f'segment array keys {to_segment_keys}'
             )
-            return [self.axis[key] for key in to_segment_keys]
+            return [axis[key] for key in to_segment_keys]
         elif isinstance(self.axis, list):
             assert len(self.axis) == len(to_segment_keys), (
                 f'The list for axis does not include a axis for each'
@@ -208,7 +225,7 @@ class Segmenter:
             )
             return self.axis
         else:
-            raise NotImplementedError('This should never be reached')
+            raise TypeError('This should never be reached', self.axis)
 
 
 def _get_rand_int(rng, *args, **kwargs):
