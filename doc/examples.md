@@ -105,16 +105,17 @@ For most purposes, the structure of the examples should also serve as a good tem
 
     
 ## List of current examples:
+  - Audio Synthesis
+    - [Wavenet](../padertorch/contrib/examples/audio_synthesis/wavenet/README.md): See <>
+  - Sound Recognition:
+    - Audio Tagging:
   - Source Separation:
     - [PIT](../padertorch/contrib/examples/source_separation/pit/README.md): Implementation of https://arxiv.org/abs/1703.06284
     - [OR-PIT](../padertorch/contrib/examples/source_separation/or_pit/README.md): Implementation of https://arxiv.org/abs/1904.03065
     - [TasNet/ConvTasNet](../padertorch/contrib/examples/source_separation/tasnet/README.md): Implementation of https://arxiv.org/abs/1711.00541
+  - [Speaker Classification](../padertorch/contrib/examples/speaker_classification/supervised/README.md):
   - Speech Enhancement:
     - [Mask Estimator](../padertorch/contrib/examples/speech_enhancement/mask_estimator/README.md): 
-  - Audio Tagging:
-  - [Speaker Classification](../padertorch/contrib/examples/speaker_classification/supervised/README.md):
-  - Audio Synthesis
-    - [Wavenet](../padertorch/contrib/examples/audio_synthesis/wavenet/README.md): See <>
   - Toy Examples:
     - MNIST: Small toy example showing the application of Padertorch to image data
     - Multi-GPU: Basic description and code example of Padertorch's Multi-GPU support
