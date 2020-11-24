@@ -1,9 +1,10 @@
-from copy import deepcopy
+from copy import copy
 from typing import Union
 
 import numpy as np
 from paderbox.array import segment_axis
-from paderbox.utils.nested import nested_op, flatten, deflatten
+from paderbox.utils.nested import flatten, deflatten
+from padertorch.utils import to_list
 
 possible_anchor_modes = [
     'left',
@@ -15,110 +16,199 @@ possible_anchor_modes = [
 ]
 
 
-class Fragmenter(object):
+class Segmenter:
     """
-    Build fragments of the values corresponding to fragment_keys 
-    along axis and adds it to the examples queue in the iterator.
-    Mostly used with pb.database.iterator.FragmentIterator
+    This segmenting returns a list of segmented examples that can be unbatched.
+    Everything that is not listed in `keys` is simply copied from the
+    input example to the output examples.
+    The keys `segment_start` and `segment_stop` are added for each output
+    dictionary.
 
-    >>> time_fragmenter = Fragmenter({'a':2, 'b':1}, axis=-1)
-    >>> example = {'a': np.arange(8).reshape((2, 4)), 'b': np.array([1,2])}
-    >>> from pprint import pprint
-    >>> pprint(time_fragmenter(example))
-    [{'a': array([[0, 1],
-           [4, 5]]), 'b': array([1])},
-     {'a': array([[2, 3],
-           [6, 7]]), 'b': array([2])}]
-    >>> time_fragmenter = Fragmenter(\
-            {'a':1, 'b':1}, {'a':2, 'b':1}, drop_last=True)
-    >>> example = {'a': np.arange(8).reshape((2, 4)), 'b': np.array([1,2,3])}
-    >>> pprint(time_fragmenter(example))
-    [{'a': array([[0, 1],
-           [4, 5]]), 'b': array([1])},
-     {'a': array([[1, 2],
-           [5, 6]]), 'b': array([2])},
-     {'a': array([[2, 3],
-           [6, 7]]), 'b': array([3])}]
-    >>> channel_fragmenter = Fragmenter(\
-            {'a':1}, axis=0, copy_keys=['b'])
-    >>> example = {'a': np.arange(8).reshape((2, 4)), 'b': np.array([1,2,3,4])}
-    >>> pprint(channel_fragmenter(example))
-    [{'a': array([[0, 1, 2, 3]]), 'b': array([1, 2, 3, 4])},
-     {'a': array([[4, 5, 6, 7]]), 'b': array([1, 2, 3, 4])}]
-    >>> channel_fragmenter = Fragmenter(\
-            {'a':1}, axis=0, squeeze=True, copy_keys=['b'])
-    >>> example = {'a': np.arange(8).reshape((2, 4)), 'b': np.array([1,2,3,4])}
-    >>> pprint(channel_fragmenter(example))
-    [{'a': array([0, 1, 2, 3]), 'b': array([1, 2, 3, 4])},
-     {'a': array([4, 5, 6, 7]), 'b': array([1, 2, 3, 4])}]
+    If an utterance is shorter than `length`, a
+    `lazy_dataset.FilterException` is raised.
+
+    Examples (For more examples see tests/test_data/test_segmenter:
+
+        >>> segmenter = Segmenter(length=32000, include_keys=('x', 'y'),\
+                                   shift=16000)
+        >>> ex = {'x': np.arange(65000), 'y': np.arange(65000),\
+                    'num_samples': 65000, 'gender': 'm'}
+        >>> segmented = segmenter(ex)
+        >>> type(segmented)
+        <class 'list'>
+        >>> for entry in segmented:
+        ...     print(entry['x'][[0, -1]])
+        [    0 31999]
+        [16000 47999]
+        [32000 63999]
+
+        segmenting can be disabled by setting `length=-1` or `keys=None`
+        >>> Segmenter(length=-1, include_keys=('x', 'y'))(ex)[0] == ex
+        True
+
+        Check the corner cases.
+        >>> ex = {'x': np.arange(64000), 'y': np.arange(64000)}
+        >>> for entry in segmenter(ex):
+        ...     print(entry['x'][[0, -1]])
+        [    0 31999]
+        [16000 47999]
+        [32000 63999]
+        >>> ex = {'x': np.arange(63999), 'y': np.arange(63999)}
+        >>> for entry in segmenter(ex):
+        ...     print(entry['x'][[0, -1]])
+        [    0 31999]
+        [16000 47999]
+
+    Args:
+        length: The length of the segments in samples. If set to `-1`,
+            the original example is returned in a list of length one.
+        shift: shift between segments, defaults to length
+        include_keys: The keys in the passed example dict to segment. They all
+            must have the same size along their specified `axis`, if keys is
+            None the segmentation is applied to all `numpy.arrays`.
+            If a key points to a dictionary the segmentation is applied to all
+            values of this dictionary
+        exclude_keys: This option allows to specify specific keys not to
+            segment. This might be usefull if `include_keys` is `None` or
+            one of the included keys points to a dictionary.
+        copy_keys: If `None` all not values which are not segmented are
+            copied. Otherwise only the specified keys are added to the new
+            dictionary with the segmented signals.
+        axis: axis over which to segment
+        anchor_mode: anchor mode used in `get_anchor` to calculate the anchor
+            from which the segmentation boundaries are calculated.
+        rng: random number generator (`numpy.random`)
     """
-    def __init__(
-            self, fragment_steps, fragment_lengths=None, axis=-1,
-            squeeze=False, drop_last=False, copy_keys=None
-    ):
-        self.fragment_steps = fragment_steps
-        self.fragment_lengths = fragment_lengths \
-            if fragment_lengths is not None else fragment_steps
-        self.axis = axis
-        self.squeeze = squeeze
-        self.drop_last = drop_last
-        self.copy_keys = copy_keys
 
-    def __call__(self, example, random_onset=False):
-        copies = flatten(
-            {key: example[key] for key in self.copy_keys}
-            if self.copy_keys is not None else example
-        )
+    def __init__(self, length: int = -1,shift: int = None,
+                 include_keys: Union[str, list, tuple] = None,
+                 exclude_keys: Union[str, list, tuple] = None,
+                 copy_keys: Union[str, list, tuple] = None,
+                 axis: Union[int, list, tuple, dict] = -1,
+                 anchor_mode: str = 'left', rng=np.random):
 
-        if random_onset:
-            start = np.random.rand()
-            for fragment_step in self.fragment_steps.values():
-                start = int(int(start*fragment_step) / fragment_step)
+        self.include = None if include_keys is None else to_list(include_keys)
+        self.exclude = [] if exclude_keys is None else to_list(exclude_keys)
+        self.length = length
+        if isinstance(axis, (dict, int)):
+            self. axis = axis
+        elif isinstance(axis, (tuple, list)):
+            self.axis = to_list(axis)
+            assert len(axis) == len(include_keys), (
+                'If axis are specified as list it has to have the same length'
+                'as include_keys', axis, include_keys
+            )
         else:
-            start = 0.
+            raise TypeError('Unknown type for axis', axis)
+        self.shift = shift
+        self.anchor_mode = anchor_mode
+        self.rng = rng
+        self.copy_keys = None if copy_keys is None else to_list(copy_keys)
 
-        def fragment(key, x):
-            fragment_step = self.fragment_steps[key]
-            fragment_length = self.fragment_lengths[key]
-            start_idx = int(start * fragment_step)
-            if start_idx > 0:
-                slc = [slice(None)] * len(x.shape)
-                slc[self.axis] = slice(
-                    int(start_idx), x.shape[self.axis]
-                )
-                x = x[slc]
+    def __call__(self, example):
+        # Shortcut if segmentation is disabled
+        if self.length == -1:
+            return [example]
 
-            end_index = x.shape[self.axis]
-            if self.drop_last:
-                end_index -= (fragment_length - 1)
-            fragments = list()
-            for start_idx in np.arange(0, end_index, fragment_step):
-                if fragment_length == 1 and self.squeeze:
-                    fragments.append(x.take(start_idx, axis=self.axis))
-                else:
-                    slc = [slice(None)] * len(x.shape)
-                    slc[self.axis] = slice(
-                        int(start_idx), int(start_idx) + int(fragment_length)
-                    )
-                    fragments.append(x[tuple(slc)])
-            return fragments
+        example = flatten(example)
 
-        features = flatten({
-            key: nested_op(lambda x: fragment(key, x), example[key])
-            for key in self.fragment_steps.keys()
-        })
-        num_fragments = np.array(
-            [len(features[key]) for key in list(features.keys())]
+        to_segment_keys = self.get_to_segment_keys(example)
+        axis = self.get_axis_list(to_segment_keys)
+
+        to_segment = [
+            example.pop(key) for key in to_segment_keys
+        ]
+
+        if any([not isinstance(value, np.ndarray) for value in to_segment]):
+            raise ValueError(
+                'This segmenter only works on numpy arrays',
+                'However, the following keys point to other types:',
+                '\n'.join([f'{key} points to a {type(to_segment[idx])}'
+                           for idx, key in enumerate(to_segment_keys)])
+            )
+
+        to_segment_lengths = [
+            v.shape[axis[i]] for i, v in enumerate(to_segment)]
+        assert to_segment_lengths[1:] == to_segment_lengths[:-1], (
+            'The shapes along the segment dimension of all entries to segment'
+            ' must be equal!\n'
+            f'segment keys: {to_segment_keys}'
+            f'to_segment_lengths: {to_segment_lengths}'
         )
-        assert all(num_fragments == num_fragments[0]), (list(features.keys()), num_fragments)
-        fragments = list()
-        for i in range(int(num_fragments[0])):
-            fragment = deepcopy(copies)
-            for key in features.keys():
-                fragment[key] = features[key][i]
-            fragment = deflatten(fragment)
-            fragments.append(fragment)
-        return fragments
+        assert len(to_segment) > 0, ('Did not find any signals to segment',
+                                     self.include, self.exclude, to_segment)
+        to_segment_length = to_segment_lengths[0]
+
+        # Discard examples that are shorter than `length`
+        if to_segment_length < self.length:
+            import lazy_dataset
+            raise lazy_dataset.FilterException()
+
+        boundaries, segmented = self.segment(to_segment, to_segment_length,
+                                             axis=axis)
+
+        segmented_examples = list()
+        if self.copy_keys is not None:
+            example = {key: example.pop(key) for key in self.copy_keys}
+        for idx, (start, stop) in enumerate(boundaries):
+            example_copy = copy(example)
+            example_copy.update({to_segment_keys[i]: value[idx]
+                                 for i, value in enumerate(segmented)})
+
+            example_copy.update(segment_start=start, segment_stop=stop)
+            segmented_examples.append(deflatten(example_copy))
+        return segmented_examples
+
+
+    def segment(self, to_segment, to_segment_length, axis):
+
+        anchor = get_anchor(
+            to_segment_length, self.length, self.shift,
+            mode=self.anchor_mode, rng=self.rng
+        )
+
+        boundaries = get_segment_boundaries(
+            to_segment_length, self.length, self.shift,
+            anchor=self.anchor_mode, rng=self.rng
+        )
+
+        segmented = [segment(signal, length=self.length, shift=self.shift,
+                       rng=self.rng, axis=axis[i], anchor=anchor)
+                     for i, signal in enumerate(to_segment)]
+        return boundaries, segmented
+
+    def get_to_segment_keys(self, example):
+        if self.include is None:
+            return [
+                key for key, value in example.items()
+                if not key in self.exclude and isinstance(value, np.ndarray)
+            ]
+        else:
+            return [
+                key for key in example.keys()
+                if not key in self.exclude and
+                any([include_key in key for include_key in self.include])
+            ]
+
+    def get_axis_list(self, to_segment_keys):
+        if isinstance(self.axis, int):
+            return [self.axis] * len(to_segment_keys)
+        elif isinstance(self.axis, dict):
+            assert all([key in self.axis.keys() for key in to_segment_keys]), (
+                f'The dictionary for axis did not include keys for all'
+                f'segment arrays. axis keys: {self.axis.keys()},'
+                f'segment array keys {to_segment_keys}'
+            )
+            return [self.axis[key] for key in to_segment_keys]
+        elif isinstance(self.axis, list):
+            assert len(self.axis) == len(to_segment_keys), (
+                f'The list for axis does not include a axis for each'
+                f'segment array. axis: {self.axis}, '
+                f'segment array keys {to_segment_keys}'
+            )
+            return self.axis
+        else:
+            raise NotImplementedError('This should never be reached')
 
 
 def _get_rand_int(rng, *args, **kwargs):
