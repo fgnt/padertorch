@@ -1,4 +1,4 @@
-from padertorch.data.fragmenter import Segmenter
+from padertorch.data.segment import Segmenter
 import numpy as np
 import torch
 
