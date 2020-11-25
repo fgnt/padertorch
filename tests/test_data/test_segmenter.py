@@ -143,7 +143,8 @@ def test_include_exclude():
         assert all([key in entry.keys() for key in ex.keys()])
         np.testing.assert_equal(
             entry['x'], np.arange(idx * 16000, 16000 + (idx + 1) * 16000))
-        assert entry['x'] != entry['y']
+        np.testing.assert_equal(entry['audio_data']['y'],
+                                np.arange(65000)[:, None])
 
 
 def test_axis():
@@ -191,10 +192,8 @@ def test_axis_dict_wildcard():
         )
         np.testing.assert_equal(entry['audio_data']['x'],
                                 entry['audio_data']['y'])
-        np.testing.assert_raises(
-            AssertionError,
-            np.testing.assert_equal, entry['audio_data']['x'], entry['z']
-        )
+        np.testing.assert_equal(entry['audio_data']['z'],
+                                np.arange(65000)[:, None])
 
 
 def test_wildcard():
@@ -232,9 +231,5 @@ def test_wildcard_exclude():
         np.testing.assert_equal(
             entry['audio_data']['x'],
             np.arange(idx * 16000, 16000 + (idx + 1) * 16000))
-        np.testing.assert_equal(entry['audio_data']['x'],
-                                entry['audio_data']['y'][:, 0])
-        np.testing.assert_raises(
-            AssertionError,
-            np.testing.assert_equal, entry['audio_data']['x'], entry['y']
-        )
+        np.testing.assert_equal(entry['audio_data']['y'],
+                                np.arange(65000)[:, None])
