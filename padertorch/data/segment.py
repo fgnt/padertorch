@@ -76,7 +76,7 @@ class Segmenter:
             dictionary with the segmented signals.
         axis: axis over which to segment. Maybe a `list`, a `dict` or a `int`.
             In case of `list` the length has to be equal to `include_keys`.
-            I case of `dict` the keys have to be equal to 
+            I case of `dict` the keys have to be equal to
             the entries of `include_keys`
         anchor_mode: anchor mode used in `get_anchor` to calculate the anchor
             from which the segmentation boundaries are calculated.
@@ -135,8 +135,8 @@ class Segmenter:
             raise ValueError(
                 'This segmenter only works on numpy arrays',
                 'However, the following keys point to other types:',
-                '\n'.join([f'{key} points to a {type(to_segment[idx])}'
-                           for idx, key in enumerate(to_segment_keys)])
+                '\n'.join([f'{key} points to a {type(to_segment[key])}'
+                           for key in to_segment_keys])
             )
 
         to_segment_lengths = [
