@@ -71,16 +71,16 @@ class Segmenter:
         exclude_keys: This option allows to specify specific keys not to
             segment. This might be usefull if `include_keys` is `None` or
             one of the included keys points to a dictionary.
-        copy_keys: If `True` all not values which are not segmented are
-            copied. Otherwise only the specified keys are added to the new
-            dictionary with the segmented signals.
+        copy_keys: If `True` all values which are not segmented are
+            copied. If `False` the new dictionary only consists of the
+            segmented keys are copied. Otherwise only the specified keys are
+            added to the new dictionary with the segmented signals.
         axis: axis over which to segment. Maybe a `list`, a `dict` or a `int`.
             In case of `list` the length has to be equal to `include_keys`.
             I case of `dict` the keys have to be equal to
             the entries of `include_keys`
         anchor_mode: anchor mode used in `get_anchor` to calculate the anchor
             from which the segmentation boundaries are calculated.
-        rng: random number generator (`numpy.random`)
         flatten_separator: specifies the separator used to separate the keys
             in the flattened dictionary. Defaults to `.`
     """
@@ -88,9 +88,9 @@ class Segmenter:
     def __init__(self, length: int = -1, shift: int = None,
                  include_keys: Union[str, list, tuple] = None,
                  exclude_keys: Union[str, list, tuple] = None,
-                 copy_keys: Union[str, list, tuple] = True,
+                 copy_keys: Union[str, bool, list, tuple] = True,
                  axis: Union[int, list, tuple, dict] = -1,
-                 anchor_mode: str = 'left', rng=np.random,
+                 anchor_mode: str = 'left',
                  flatten_separator: str = '.'):
 
         self.include = None if include_keys is None else to_list(include_keys)
@@ -100,7 +100,7 @@ class Segmenter:
             self.axis = axis
             if isinstance(axis, dict):
                 assert set(axis.keys()) == set(self.include), (
-                    axis.keys, self.include
+                    axis.keys(), self.include
                 )
         elif isinstance(axis, (tuple, list)):
             self.axis = to_list(axis)
@@ -112,11 +112,14 @@ class Segmenter:
             raise TypeError('Unknown type for axis', axis)
         self.shift = shift
         self.anchor_mode = anchor_mode
-        self.rng = rng
-        self.copy_keys = True if copy_keys is True else to_list(copy_keys)
+        self.copy_keys = to_list(copy_keys)
+        assert all([isinstance(key, (bool, str)) for key in self.copy_keys]), (
+            'All keys in copy_keys have to be str, or copy key has to be one'
+            'boolean', copy_keys
+        )
         self.flatten_separator = flatten_separator
 
-    def __call__(self, example):
+    def __call__(self, example, rng=np.random):
         # Shortcut if segmentation is disabled
         if self.length == -1:
             return [example]
@@ -157,11 +160,20 @@ class Segmenter:
             raise lazy_dataset.FilterException()
 
         boundaries, segmented = self.segment(to_segment, to_segment_length,
-                                             axis=axis)
+                                             axis=axis, rng=rng)
 
         segmented_examples = list()
-        if self.copy_keys is not True:
+        if all([isinstance(key, str) for key in self.copy_keys]):
             example = {key: example.pop(key) for key in self.copy_keys}
+        elif self.copy_keys[0] is True:
+            assert len(self.copy_keys) == 1, self.copy_keys
+            pass
+        elif self.copy_keys[0] is False:
+            assert len(self.copy_keys) == 1, self.copy_keys
+            example = {}
+        else:
+            raise TypeError('Unknown type for copy keys', self.copy_keys)
+
         for idx, (start, stop) in enumerate(boundaries):
             example_copy = copy(example)
             example_copy.update({key: value[idx]
@@ -170,19 +182,19 @@ class Segmenter:
             segmented_examples.append(deflatten(example_copy))
         return segmented_examples
 
-    def segment(self, to_segment, to_segment_length, axis):
+    def segment(self, to_segment, to_segment_length, axis, rng=np.random):
         anchor = get_anchor(
             to_segment_length, self.length, self.shift,
-            mode=self.anchor_mode, rng=self.rng
+            mode=self.anchor_mode, rng=rng
         )
 
         boundaries = get_segment_boundaries(
             to_segment_length, self.length, self.shift,
-            anchor=self.anchor_mode, rng=self.rng
+            anchor=self.anchor_mode, rng=rng
         )
 
         segmented = {key: segment(signal, length=self.length, shift=self.shift,
-                                  rng=self.rng, axis=axis[i], anchor=anchor)
+                                  rng=rng, axis=axis[i], anchor=anchor)
                      for i, (key, signal) in enumerate(to_segment.items())}
         return boundaries, segmented
 
@@ -190,7 +202,7 @@ class Segmenter:
         if self.include is None:
             return [
                 key for key, value in example.items()
-                if not key in self.exclude and isinstance(value, np.ndarray)
+                if key not in self.exclude and isinstance(value, np.ndarray)
             ]
         else:
 
