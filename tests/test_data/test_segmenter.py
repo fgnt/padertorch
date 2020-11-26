@@ -38,8 +38,7 @@ def test_copy_keys():
           'num_samples': 65000, 'gender': 'm'}
     segmented = segmenter(ex)
     assert type(segmented) == list, segmented
-    expected_keys = {key: value for key, value in ex.items()
-                     if not key == 'num_samples'}.keys()
+    expected_keys = [key for key in ex.keys() if not key == 'num_samples']
     for idx, entry in enumerate(segmented):
         assert all([key in entry.keys() for key in expected_keys])
         np.testing.assert_equal(
