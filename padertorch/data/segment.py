@@ -90,7 +90,7 @@ class Segmenter:
                  exclude_keys: Union[str, list, tuple] = None,
                  copy_keys: Union[str, bool, list, tuple] = True,
                  axis: Union[int, list, tuple, dict] = -1,
-                 anchor_mode: str = 'left',
+                 anchor: Union[int, str] = 'left',
                  flatten_separator: str = '.'):
 
         self.include = None if include_keys is None else to_list(include_keys)
@@ -113,7 +113,8 @@ class Segmenter:
         else:
             raise TypeError('Unknown type for axis', axis)
         self.shift = shift
-        self.anchor_mode = anchor_mode
+        assert isinstance(anchor, (str, int)), anchor
+        self.anchor = anchor
         self.copy_keys = to_list(copy_keys)
         assert all([isinstance(key, (bool, str)) for key in self.copy_keys]), (
             'All keys in copy_keys have to be str, or copy key has to be one'
@@ -185,14 +186,17 @@ class Segmenter:
         return segmented_examples
 
     def segment(self, to_segment, to_segment_length, axis, rng=np.random):
-        anchor = get_anchor(
-            to_segment_length, self.length, self.shift,
-            mode=self.anchor_mode, rng=rng
-        )
-
+        if isinstance(self.anchor, str):
+            anchor = get_anchor(
+                to_segment_length, self.length, self.shift,
+                mode=self.anchor, rng=rng
+            )
+        else:
+            assert isinstance(self.anchor, int), self.anchor
+            anchor = self.anchor
         boundaries = get_segment_boundaries(
             to_segment_length, self.length, self.shift,
-            anchor=self.anchor_mode, rng=rng
+            anchor=self.anchor, rng=rng
         )
 
         segmented = {key: segment(signal, length=self.length, shift=self.shift,

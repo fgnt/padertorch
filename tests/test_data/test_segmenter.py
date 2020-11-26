@@ -17,6 +17,20 @@ def test_simple_case():
         np.testing.assert_equal(entry['x'], entry['y'])
 
 
+def test_fixed_anchor():
+    segmenter = Segmenter(length=32000, include_keys=('x', 'y'),
+                          shift=16000, anchor=10)
+    ex = {'x': np.arange(65000), 'y': np.arange(65000),
+          'num_samples': 65000, 'gender': 'm'}
+    segmented = segmenter(ex)
+    assert type(segmented) == list, segmented
+    for idx, entry in enumerate(segmented):
+        assert all([key in entry.keys() for key in ex.keys()])
+        np.testing.assert_equal(
+            entry['x'], 10 + np.arange(idx * 16000, 16000 + (idx + 1) * 16000))
+        np.testing.assert_equal(entry['x'], entry['y'])
+
+
 def test_copy_keys():
     segmenter = Segmenter(length=32000, include_keys=('x', 'y'),
                           shift=16000, copy_keys='gender')
@@ -51,51 +65,29 @@ def test_include_to_larger():
                           include_keys=['x', 'y', 'z'])
     ex = {'x': np.arange(65000), 'y': np.arange(65000),
           'num_samples': 65000, 'gender': 'm'}
-    segmented = segmenter(ex)
-    assert type(segmented) == list, segmented
-    for idx, entry in enumerate(segmented):
-        assert all([key in entry.keys() for key in ex.keys()])
-        np.testing.assert_equal(
-            entry['x'], np.arange(idx * 16000, 16000 + (idx + 1) * 16000))
-        np.testing.assert_equal(entry['x'], entry['y'])
-
-
-def test_include_none_ignore_torch():
-    segmenter = Segmenter(length=32000, shift=16000)
-    ex = {'x': np.arange(65000), 'y': np.arange(65000),
-          'z': torch.arange(65000),
-          'num_samples': 65000, 'gender': 'm'}
-    segmented = segmenter(ex)
-    assert type(segmented) == list, segmented
-    for idx, entry in enumerate(segmented):
-        assert all([key in entry.keys() for key in ex.keys()])
-        np.testing.assert_equal(
-            entry['x'], np.arange(idx * 16000, 16000 + (idx + 1) * 16000))
-
-    segmenter = Segmenter(length=32000, shift=16000,
-                          copy_keys=['num_samples', 'gender'])
-    segmented = segmenter(ex)
-    assert type(segmented) == list, segmented
-    expected_keys = ['x', 'y', 'num_samples', 'gender']
-    for idx, entry in enumerate(segmented):
-        assert all([key in entry.keys() for key in expected_keys])
-        np.testing.assert_equal(
-            entry['x'], np.arange(idx * 16000, 16000 + (idx + 1) * 16000))
-        np.testing.assert_equal(entry['x'], entry['y'])
-
-
-def test_error_include():
-    segmenter = Segmenter(length=32000, shift=16000,
-                          include_keys=['x', 'y', 'z'])
-    ex = {'x': np.arange(65000), 'y': np.arange(65000),
-          'z': torch.arange(65000),
-          'num_samples': 65000, 'gender': 'm'}
     error = False
     try:
         segmenter(ex)
-    except ValueError:
+    except AssertionError:
         error = True
     assert error, segmenter
+
+
+def test_include_none_with_torch():
+    segmenter = Segmenter(length=32000, shift=16000)
+    array = np.random.randn(5,10,64000)
+    ex = {'x': array.copy(), 'y': array.copy(),
+          'z': torch.tensor(array),
+          'num_samples': 65000, 'gender': 'm'}
+    segmented = segmenter(ex)
+    assert type(segmented) == list, segmented
+    for idx, entry in enumerate(segmented):
+        assert all([key in entry.keys() for key in ex.keys()])
+        np.testing.assert_equal(entry['x'], entry['z'].numpy())
+        np.testing.assert_equal(entry['x'], entry['y'])
+
+
+def test_error_include_list():
     segmenter = Segmenter(length=32000, shift=16000,
                           include_keys=['x', 'y', 'z'])
     ex = {'x': np.arange(65000), 'y': np.arange(65000),
@@ -158,6 +150,20 @@ def test_axis():
         np.testing.assert_equal(
             entry['x'], np.arange(idx * 16000, 16000 + (idx + 1) * 16000))
         np.testing.assert_equal(entry['x'], entry['y'][:, 0])
+
+    segmenter = Segmenter(length=32000, shift=16000,
+                          include_keys=['x', 'y', 'z'],
+                          axis={'x': 0, 'y': 1, 'z': -1})
+    array = np.random.randn(65000, 5, 10)
+    ex = {'x': array.copy(), 'y': array.copy().transpose(1,0,2),
+          'z': torch.tensor(array.transpose(1,2,0)),
+          'num_samples': 65000, 'gender': 'm'}
+    segmented = segmenter(ex)
+    assert type(segmented) == list, segmented
+    for idx, entry in enumerate(segmented):
+        assert all([key in entry.keys() for key in ex.keys()])
+        np.testing.assert_equal(entry['x'], entry['z'].numpy().transpose(2,0,1))
+        np.testing.assert_equal(entry['x'], entry['y'].transpose(1,0,2))
 
 
 def test_axis_dict():
