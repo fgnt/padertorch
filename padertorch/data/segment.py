@@ -99,11 +99,13 @@ class Segmenter:
         if isinstance(axis, (dict, int)):
             self.axis = axis
             if isinstance(axis, dict):
+                assert self.include is not None, (self.axis, self.include)
                 assert set(axis.keys()) == set(self.include), (
                     axis.keys(), self.include
                 )
         elif isinstance(axis, (tuple, list)):
             self.axis = to_list(axis)
+            assert self.include is not None, (self.axis, self.include)
             assert len(axis) == len(include_keys), (
                 'If axis are specified as list it has to have the same length'
                 'as include_keys', axis, include_keys
