@@ -133,7 +133,7 @@ class Segmenter:
             key: example.pop(key) for key in to_segment_keys
         }
 
-        if any([not isinstance(value, np.ndarray)
+        if any([not isinstance(value, (np.ndarray, torch.Tensor))
                 for value in to_segment.values()]):
             raise ValueError(
                 'This segmenter only works on numpy arrays',
@@ -202,16 +202,22 @@ class Segmenter:
         if self.include is None:
             return [
                 key for key, value in example.items()
-                if key not in self.exclude and isinstance(value, np.ndarray)
+                if key not in self.exclude and
+                   isinstance(value, (np.ndarray, torch.Tensor))
             ]
         else:
-
-            return [
+            to_segment_keys = [
                 key for key in example.keys() if
                 key not in self.exclude and
                 any([key.startswith(include_key)
                      for include_key in self.include])
             ]
+            assert all([
+                any([key.startswith(include_key) for key in to_segment_keys])
+                for include_key in self.include
+            ]), ('For some keys in include_keys no associated key was found '
+                 'in the example', self.include, to_segment_keys)
+            return to_segment_keys
 
     def get_axis_list(self, to_segment_keys):
         if isinstance(self.axis, int):
