@@ -2,6 +2,7 @@ from copy import copy
 from typing import Union
 
 import numpy as np
+import torch
 from paderbox.array import segment_axis
 from paderbox.utils.nested import flatten, deflatten
 from padertorch.utils import to_list
