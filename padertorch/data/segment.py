@@ -413,11 +413,29 @@ def segment(
     """
     if x.__class__.__module__ == 'numpy':
         ndim = x.ndim
+        moveaxis = np.moveaxis
     elif x.__class__.__module__ == 'torch':
         ndim = x.dim()
+        from distutils.version import LooseVersion
+
+        if LooseVersion(torch.__version__) >= '1.7.0':
+            moveaxis = torch.movedim
+        else:
+            # moveaxis code taken from
+            # https: // github.com / pytorch / pytorch / issues / 36048
+            def moveaxis(tensor: torch.Tensor, source: int,
+                          destination: int) -> torch.Tensor:
+                dim = tensor.dim()
+                perm = list(range(dim))
+                if destination < 0:
+                    destination += dim
+                perm.pop(source)
+                perm.insert(destination, source)
+                return tensor.permute(*perm)
     elif isinstance(x, list):
         x = np.array(x)
         ndim = x.ndim
+        moveaxis = np.moveaxis
     else:
         raise TypeError('Unknown type for input signal x', type(x))
     axis = axis % ndim
@@ -438,5 +456,5 @@ def segment(
     slc[axis] = slice(start, None)
     x = x[tuple(slc)]
 
-    return np.moveaxis(segment_axis(
-        x, length, shift, end='cut', axis=axis), axis, 0)
+    return moveaxis(
+        segment_axis(x, length, shift, end='cut', axis=axis), axis, 0)
