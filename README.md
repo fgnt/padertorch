@@ -184,7 +184,7 @@ Padertorch especially offers support for training with [sequential data](paderto
 - [WaveNet](padertorch/modules/wavenet): Synthesize waveforms from spectrograms (supports fast inference with [nv_wavenet](https://github.com/NVIDIA/nv-wavenet)).
 - [Visualization in tensorboard](padertorch/summary/tbx_utils.py): Prepare spectrograms and speech masks for visualization and audio for playback in tensorboard.
 
-We also provide a [loss wrapper for permutation-invariant training (PIT)](padertorch/ops/losses/source_separation.py#L34) criteria which is, e.g., commonly used in (speech) source separation.
+We also provide a [loss wrapper for permutation-invariant training (PIT)](padertorch/ops/losses/source_separation.py#L34) criteria which are, e.g., commonly used in (speech) source separation.
 
 # Further Reading
 
