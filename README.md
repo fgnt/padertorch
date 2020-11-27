@@ -44,10 +44,6 @@ Padertorch provides a selection of frequently used network architectures and fun
 - [Collection of activation functions](padertorch/ops/mappings.py): Fast access of various activation functions with just a string.
 - [Losses](padertorch/ops/losses): We provide an implementation of the [Kullback-Leibler divergence](padertorch/ops/losses/kl_divergence.py) and different [regression](padertorch/ops/losses/regression.py) objectives.
 
-## Advanced Architectures
-
-- [Dual-Path RNN (DPRNN)](padertorch/modules/dual_path_rnn.py): See the [paper](https://arxiv.org/abs/1910.06379).
-
 ## Support for sequential and speech data
 
 Padertorch especially offers support for training with [sequential data](padertorch/ops/sequence) such as:
@@ -55,6 +51,7 @@ Padertorch especially offers support for training with [sequential data](paderto
 - [Fragmenting](padertorch/data/fragmenter.py): Fragment a sequence into smaller chunks of the same length.
 - [Visualization in tensorboard](padertorch/summary/tbx_utils.py): Prepare spectrograms and speech masks for visualization and audio for playback in tensorboard.
 - [Source separation objectives](padertorch/ops/losses/source_separation.py): Commonly used objectives for speech source separation such as PIT or deep clustering.
+- [Dual-Path RNN (DPRNN)](padertorch/modules/dual_path_rnn.py): See the [paper](https://arxiv.org/abs/1910.06379).
 
 # Installation
 
