@@ -52,6 +52,7 @@ Padertorch especially offers support for training with [sequential data](paderto
 - [Visualization in tensorboard](padertorch/summary/tbx_utils.py): Prepare spectrograms and speech masks for visualization and audio for playback in tensorboard.
 - [Source separation objectives](padertorch/ops/losses/source_separation.py): Commonly used objectives for speech source separation such as PIT or deep clustering.
 - [Dual-Path RNN (DPRNN)](padertorch/modules/dual_path_rnn.py): See the [paper](https://arxiv.org/abs/1910.06379).
+- [WaveNet](padertorch/modules/wavenet): Synthesize waveforms from spectrograms (supports fast inference with [nv_wavenet](https://github.com/NVIDIA/nv-wavenet)).
 
 # Installation
 
