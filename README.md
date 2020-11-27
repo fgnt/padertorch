@@ -38,7 +38,20 @@ This repository is currently under construction.
 
 **Requirements**
 - Python 3
-- torch >= 1.0
+- matplotlib
+- To run the examples:
+  - [sacred](https://github.com/IDSIA/sacred)
+  - torchvision
+  - [pb_bss](http://github.com/fgnt/pb_bss)
+- Installed by padetorch:
+  - torch
+  - tensorboardX
+  - einops
+  - tqdm
+  - natsort
+  - [lazy_dataset](https://github.com/fgnt/lazy_dataset)
+  - IPython
+  - [paderbox](https://github.com/fgnt/paderbox)
 
 ```bash
 $ git clone https://github.com/fgnt/padertorch.git
