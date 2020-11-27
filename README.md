@@ -34,27 +34,6 @@ This repository is currently under construction.
 - **Multi-GPU training**: Easily deploy your model onto multiple GPUs to increase the total batch size and speed up the training. See [here](doc/virtual_batch_size_multi_gpu.md#L68) for implementation details and the [example](padertorch/contrib/examples/multi_gpu) for how to enable it.
 - **Support for lazy data preparation**: Ever tired of pre-computing features, taking up time and space on the hard disk? Padertorch works with lazy dataloaders (e.g., [lazy_dataset](https://github.com/fgnt/lazy_dataset)) which extract the features on the fly!
 
-# Features for Application in Deep Learning
-
-Padertorch provides a selection of frequently used network architectures and functionalities such as activation and normalization, ready for you to integrate into your own models.
-
-- [Multi-layer Feed-Forward](padertorch/modules/fully_connected.py): Multiple fully-connected layers with non-linearity and dropout.
-- [CNN](padertorch/contrib/je/modules/conv.py) (currently subject to breaking changes and hardly any documentation): 1d- and 2d-CNNs with residual connections, dropout, gated activations, batch and sequence norm and correct handling of down- and upsampling.
-- [Normalization](padertorch/modules/normalization.py): Perform normalization of arbitrary axes/dimensions of your features, keep track of running statistics and apply learnable affine transformation.
-- [Collection of activation functions](padertorch/ops/mappings.py): Fast access of various activation functions with just a string.
-- [Losses](padertorch/ops/losses): We provide an implementation of the [Kullback-Leibler divergence](padertorch/ops/losses/kl_divergence.py) and different [regression](padertorch/ops/losses/regression.py) objectives.
-
-## Support for Sequential and Speech Data
-
-Padertorch especially offers support for training with [sequential data](padertorch/ops/sequence) such as:
-- [Masking](padertorch/ops/sequence/mask.py): Calculate a mask which has non-zero entries for non-padded positions and zero entries for padded positions in the sequence.
-- [Fragmenting](padertorch/data/fragmenter.py): Fragment a sequence into smaller chunks of the same length.
-- [Dual-Path RNN (DPRNN)](padertorch/modules/dual_path_rnn.py): See the [paper](https://arxiv.org/abs/1910.06379).
-- [WaveNet](padertorch/modules/wavenet): Synthesize waveforms from spectrograms (supports fast inference with [nv_wavenet](https://github.com/NVIDIA/nv-wavenet)).
-- [Visualization in tensorboard](padertorch/summary/tbx_utils.py): Prepare spectrograms and speech masks for visualization and audio for playback in tensorboard.
-
-We also provide a [loss wrapper for permutation-invariant training (PIT)](padertorch/ops/losses/source_separation.py#L34) criteria which is, e.g., commonly used in (speech) source separation.
-
 # Installation
 
 **Requirements**
@@ -173,7 +152,28 @@ See the [trainer](padertorch/train/trainer.py#L40) for an explanation of its sig
 If you want to use `pt.io.get_new_storage_dir` to manage your experiments, you have to define an environment variable `STORAGE_ROOT` which points to the path where all your experiments will be stored, i.e., in the example above, a new directory under `$STORAGE_ROOT/my_experiment_1` will be created.
 Otherwise, you can use `pt.io.get_new_subdir` where you can directly input the path to store your model without defining an environment variable.
 
-## Further Reading
+# Features for Application in Deep Learning
+
+Padertorch provides a selection of frequently used network architectures and functionalities such as activation and normalization, ready for you to integrate into your own models.
+
+- [Multi-layer Feed-Forward](padertorch/modules/fully_connected.py): Multiple fully-connected layers with non-linearity and dropout.
+- [CNN](padertorch/contrib/je/modules/conv.py) (currently subject to breaking changes and hardly any documentation): 1d- and 2d-CNNs with residual connections, dropout, gated activations, batch and sequence norm and correct handling of down- and upsampling.
+- [Normalization](padertorch/modules/normalization.py): Perform normalization of arbitrary axes/dimensions of your features, keep track of running statistics and apply learnable affine transformation.
+- [Collection of activation functions](padertorch/ops/mappings.py): Fast access of various activation functions with just a string.
+- [Losses](padertorch/ops/losses): We provide an implementation of the [Kullback-Leibler divergence](padertorch/ops/losses/kl_divergence.py) and different [regression](padertorch/ops/losses/regression.py) objectives.
+
+## Support for Sequential and Speech Data
+
+Padertorch especially offers support for training with [sequential data](padertorch/ops/sequence) such as:
+- [Masking](padertorch/ops/sequence/mask.py): Calculate a mask which has non-zero entries for non-padded positions and zero entries for padded positions in the sequence.
+- [Fragmenting](padertorch/data/fragmenter.py): Fragment a sequence into smaller chunks of the same length.
+- [Dual-Path RNN (DPRNN)](padertorch/modules/dual_path_rnn.py): See the [paper](https://arxiv.org/abs/1910.06379).
+- [WaveNet](padertorch/modules/wavenet): Synthesize waveforms from spectrograms (supports fast inference with [nv_wavenet](https://github.com/NVIDIA/nv-wavenet)).
+- [Visualization in tensorboard](padertorch/summary/tbx_utils.py): Prepare spectrograms and speech masks for visualization and audio for playback in tensorboard.
+
+We also provide a [loss wrapper for permutation-invariant training (PIT)](padertorch/ops/losses/source_separation.py#L34) criteria which is, e.g., commonly used in (speech) source separation.
+
+# Further Reading
 
 Have a look at the following links to get the most out of your experience with padertorch:
 
