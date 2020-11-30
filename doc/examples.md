@@ -42,7 +42,7 @@ For more information regarding the usage of Configurable or Sacred
 see [Configurable Introduction](configurable.md) and [Sacred Introduction](sacred.md)
 
 ### Data preprocessing
-Data preprocessing describes the creation of an iterable object (e.g. a list of examples) for the Padertorch Trainer.
+Data preprocessing describes the creation of an iterable object (e.g., a list of examples) for the Padertorch Trainer.
 In our examples, we use [lazy_dataset](https://github.com/fgnt/lazy_dataset) to obtain an iterable object and map all necessary transformations onto this iterable. A lazy_dataset database allows for several additional helper functions like combining multiple datasets. The specifics of the `Database` object can be found at https://github.com/fgnt/lazy_dataset/blob/master/lazy_dataset/database.py.
 ``` python
 import lazy_dataset.database
@@ -83,7 +83,7 @@ trainer.train(iterable)
 ```
 
 Optionally, many different hooks can be registered before starting the training to use e.g. learning rate scheduling.
-For more information how to use, register and write hooks, See [Hooks: Customizing your training](hooks.md)  
+For more information how to use, register and write hooks, see [Hooks: Customizing your training](hooks.md)  
 
 ### Evaluation
 Usually, a "light" evaluation (i.e. validation) is included in the training.
