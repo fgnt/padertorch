@@ -1,9 +1,12 @@
 import operator
+from typing import Union, Optional, Tuple
 
 import numpy as np
 import torch
 
 from padertorch.utils import to_numpy
+
+_T_input = Union[torch.Tensor, np.ndarray]
 
 __all__ = [
     'mask_to_image',
@@ -53,14 +56,28 @@ def _apply_origin(image, origin):
     return image
 
 
-def mask_to_image(mask, batch_first=False, color=None, origin='lower'):
+def mask_to_image(
+        mask: _T_input, batch_first: bool = False, color: Optional[str] = None,
+        origin: str = 'lower'
+) -> np.ndarray:
     """
-    For more details of the output shape, see the tensorboardx docs
-    Args:
-        mask: Shape (frames, batch [optional], features)
-        batch_first: if true mask shape (batch [optional], frames, features]
+    Creates an image from a mask `Tensor` or `ndarray`.
 
-    Returns: Shape(color, features, frames)
+    For more details of the output shape, see the tensorboardx docs
+
+    Args:
+        mask: Mask to plot
+        batch_first: If `True`, `signal` is expected to have shape
+            `(batch [optional], frames, features)`. If `False`, the batch axis
+            is assumed to be in the second position, i.e.,
+            `(frames, batch [optional], features)`.
+        color: A color map name. The name is forwarded to
+               `matplotlib.pyplot.cm.get_cmap` to get the color map. If `None`,
+               grayscale is used.
+        origin: Origin of the plot. Can be `'upper'` or `'lower'`.
+
+    Returns:
+        Colorized image with shape (color (1 or 3), features, frames)
 
     """
     mask = to_numpy(mask, detach=True)
@@ -73,14 +90,26 @@ def mask_to_image(mask, batch_first=False, color=None, origin='lower'):
     return _colorize(_apply_origin(image.T, origin), color)
 
 
-def stft_to_image(signal, batch_first=False, color='viridis', origin='lower'):
+def stft_to_image(
+        signal: _T_input,
+        batch_first: bool = False,
+        color: str = 'viridis',
+        origin: str = 'lower'
+) -> np.ndarray:
     """
-        For more details of the output shape, see the tensorboardx docs
+    Creates an image from an STFT signal.
+    For more details of the output shape, see the tensorboardx docs
+
     Args:
         signal: Shape (frames, batch [optional], features)
         batch_first: if true mask shape (batch [optional], frames, features]
+        color: A color map name. The name is forwarded to
+               `matplotlib.pyplot.cm.get_cmap` to get the color map. If `None`,
+               grayscale is used.
+        origin: Origin of the plot. Can be `'upper'` or `'lower'`.
 
-    Returns: Shape(features, frames)
+    Returns:
+        Colorized image with shape (color (1 or 3), features, frames)
 
     """
     signal = to_numpy(signal, detach=True)
@@ -121,6 +150,7 @@ class _Colorize:
     [[[0 1 2]
       [3 4 5]]]
     """
+
     def __init__(self):
         self.color_to_cmap = {}
 
@@ -151,50 +181,73 @@ _colorize = _Colorize()
 
 
 def spectrogram_to_image(
-        signal, batch_first=False, color='viridis', origin='lower'):
-    """
+        signal: _T_input,
+        batch_first: bool = False,
+        color: str = 'viridis',
+        origin: str = 'lower',
+        log: bool = True
+) -> np.ndarray:
+    """ Creates an image from a spectrogram
         For more details of the output shape, see the tensorboardx docs
+
     Args:
-        signal: Shape (frames, batch [optional], features)
-        batch_first: if true mask shape (batch [optional], frames, features]
+        signal: Spectrogram to plot.
+        batch_first: If `True`, `signal` is expected to have shape
+            `(batch [optional], frames, features)`. If `False`, the batch axis
+            is assumed to be in the second position, i.e.,
+            `(frames, batch [optional], features)`.
         color: A color map name. The name is forwarded to
                `matplotlib.pyplot.cm.get_cmap` to get the color map.
+        origin: Origin of the plot. Can be `'upper'` or `'lower'`.
+        log: If `True`, the spectrogram is plotted in log domain.
 
-
-    Returns: Shape(features, frames)
+    Returns:
+        Colorized image with shape (channels (3), frames, features)
     """
     signal = to_numpy(signal, detach=True)
 
-    signal = signal / (np.max(signal) + np.finfo(signal.dtype).tiny)
+    signal = signal / (np.max(np.abs(signal)) + np.finfo(signal.dtype).tiny)
 
     signal = _remove_batch_axis(signal, batch_first=batch_first)
 
-    visible_dB = 50
+    if log:
+        visible_dB = 50
 
-    # remove problematic small numbers
-    floor = 10 ** (-visible_dB / 20)
-    signal = np.maximum(signal, floor)
+        # remove problematic small numbers
+        floor = 10 ** (-visible_dB / 20)
+        signal = np.maximum(signal, floor)
 
-    # Scale such that X dB are visible (i.e. in the range 0 to 1)
-    signal = (20 / visible_dB) * np.log10(signal) + 1
+        # Scale such that X dB are visible (i.e. in the range 0 to 1)
+        signal = (20 / visible_dB) * np.log10(signal) + 1
 
     signal = (signal * 255).astype(np.uint8)
 
     return _colorize(_apply_origin(signal.T, origin=origin), color)
 
 
-def audio(signal, sampling_rate: int = 16000, batch_first=False,
-          normalize=True):
+def audio(
+        signal: _T_input,
+        sampling_rate: int = 16000,
+        batch_first: bool = False,
+        normalize: bool = True,
+) -> Tuple[np.ndarray, int]:
     """
+    Adds an audio signal to tensorboard.
 
     Args:
-        signal: Shape (samples, batch [optional]). If `batch_first = True`,
-            (batch [optional], samples).
+        signal: Time-domain signal with shape (samples, batch [optional]).
+            If `batch_first = True`, (batch [optional], samples).
         sampling_rate: Sampling rate of the audio signal
-        batch_first: If `True`, the optional batch dimension is assumed to be
-            the first axis, otherwise the second one.
+        batch_first: If `True`, `signal` is expected to have shape
+            `(batch [optional], samples)`. If `False`, the batch axis
+            is assumed to be in the second position, i.e.,
+            `(samples, batch [optional])`.
         normalize: If `True`, the signal is normalized to a max amplitude of
-            0.95 to prevent clipping
+            0.95 to prevent clipping.
+
+    Returns:
+        A tuple consisting of the signal and the sampling rate. See tensorboardX
+        docs for further information on the return type.
     """
     signal = to_numpy(signal, detach=True)
 
@@ -212,12 +265,12 @@ def audio(signal, sampling_rate: int = 16000, batch_first=False,
 
 def review_dict(
         *,
-        loss: torch.Tensor=None,
-        losses: dict=None,
-        scalars: dict=None,
-        histograms: dict=None,
-        audios: dict=None,
-        images: dict=None,
+        loss: torch.Tensor = None,
+        losses: dict = None,
+        scalars: dict = None,
+        histograms: dict = None,
+        audios: dict = None,
+        images: dict = None,
 ):
     """
     This is a helper function to build the review dict.
