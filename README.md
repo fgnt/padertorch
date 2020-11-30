@@ -69,10 +69,12 @@ You can build your models upon `padertorch.Module` and `padertorch.Model`.
 Both expect a `forward` method which has the same functionality as the `forward` call of  `torch.nn.Module`: It takes data as input, applies some transformations, and returns the network output:
 
 ```python
-def forward(self, example):
-    x = example['x']
-    out = transform(x)
-    return out
+class MyModel(pt.Model):
+
+  def forward(self, example):
+      x = example['x']
+      out = transform(x)
+      return out
 ```
 
 Additionally, `padertorch.Model` expects a `review` method to be implemented which takes the data and output of the `forward` call as inputs from which it computes the training loss and metrics for logging in tensorboard:
@@ -80,16 +82,18 @@ Additionally, `padertorch.Model` expects a `review` method to be implemented whi
 ```python
 import torch
 
-def review(self, example, output):
-    # loss computation
-    ce_loss = torch.nn.CrossEntropyLoss()(output, example['label'])
-    # compute additional metrics
-    with torch.no_grad():
-        prediction = torch.argmax(output, dim=1)
-        accuracy = (prediction == example['label']).float().mean()
-    return {
-        'loss': ce_loss,
-        'scalars': {'accuracy': accuracy}
+class MyModel(pt.Model):
+
+  def review(self, example, output):
+      # loss computation
+      ce_loss = torch.nn.CrossEntropyLoss()(output, example['label'])
+      # compute additional metrics
+      with torch.no_grad():
+          prediction = torch.argmax(output, dim=1)
+          accuracy = (prediction == example['label']).float().mean()
+      return {
+          'loss': ce_loss,
+          'scalars': {'accuracy': accuracy}
     }
 ```
 
