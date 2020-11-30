@@ -174,7 +174,7 @@ Padertorch provides a selection of frequently used network architectures and fun
 - [CNN](padertorch/contrib/je/modules/conv.py) (currently subject to breaking changes and hardly any documentation): 1d- and 2d-CNNs with residual connections, dropout, gated activations, batch and sequence norm and correct handling of down- and upsampling.
 - [Normalization](padertorch/modules/normalization.py): Perform normalization of arbitrary axes/dimensions of your features, keep track of running statistics and apply learnable affine transformation.
 - [Collection of activation functions](padertorch/ops/mappings.py): Fast access of various activation functions with just a string.
-- [Losses](padertorch/ops/losses): We provide an implementation of the [Kullback-Leibler divergence](padertorch/ops/losses/kl_divergence.py) and different [regression](padertorch/ops/losses/regression.py) objectives.
+- [Losses](padertorch/ops/losses): We provide an implementation of the [Kullback-Leibler divergence](padertorch/ops/losses/kl_divergence.py) and different [regression](padertorch/ops/losses/regression.py) objectives (SI-SNR, log-MSE and others).
 
 ## Support for Sequential and Speech Data
 
