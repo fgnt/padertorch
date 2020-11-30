@@ -263,6 +263,48 @@ def audio(
     return signal, sampling_rate
 
 
+def matplotlib_figure_to_image(
+        figure: 'matplotlib.figure.Figure' = None,
+) -> np.ndarray:
+    """
+    Converts a matplotlib figure to a numpy array that can be handled by
+    tensorboardX.
+
+    Note:
+        Matplotlib is in general quite slow, so you shouldn't be computing
+        matplotlib plots in every iteration. Use the `pt.Model.create_snapshot`
+        flag to reduce the computational overhead.
+
+    Warnings:
+        This function doesn't close the plot! Make sure that you close unused
+        plots to reduce memory consumption!
+
+    Args:
+        figure: matplotlib figure object. If `None`, it defaults to `plt.gcf()`.
+
+    Returns:
+        Numpy array with shape (color (4), width, height)
+
+    Examples:
+        >>> from matplotlib import pyplot as plt
+        >>> plt.plot([1, 3, 2, 4])  # doctest: +ELLIPSIS
+        [<matplotlib.lines.Line2D object ...>]
+        >>> image = matplotlib_figure_to_image()
+        >>> image.shape
+        (3, 480, 640)
+    """
+    from einops import rearrange
+
+    if figure is None:
+        from matplotlib import pyplot as plt
+        figure = plt.gcf()
+
+    figure.canvas.draw()
+    data = np.fromstring(figure.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    data = data.reshape(figure.canvas.get_width_height()[::-1] + (3,))
+    return rearrange(data, 't f c -> c t f')
+
+
 def review_dict(
         *,
         loss: torch.Tensor = None,
