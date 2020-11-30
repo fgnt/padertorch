@@ -37,14 +37,17 @@ This repository is currently under construction.
 
 # Installation
 
+```bash
+$ git clone https://github.com/fgnt/padertorch.git
+$ cd padertorch && pip install -e .[all]
+```
+This will install all dependencies.
+For a light installation, you can drop `[all]`.
+
 **Requirements**
 - Python 3
 - matplotlib
-- To run the examples:
-  - [sacred](https://github.com/IDSIA/sacred)
-  - torchvision
-  - [pb_bss](http://github.com/fgnt/pb_bss)
-- Installed by padetorch:
+- Installed by padertorch (core dependencies):
   - torch
   - tensorboardX
   - einops
@@ -53,11 +56,10 @@ This repository is currently under construction.
   - [lazy_dataset](https://github.com/fgnt/lazy_dataset)
   - IPython
   - [paderbox](https://github.com/fgnt/paderbox)
-
-```bash
-$ git clone https://github.com/fgnt/padertorch.git
-$ cd padertorch && pip install -e .
-```
+- To run the examples (included in `[all]`):
+  - [sacred](https://github.com/IDSIA/sacred)
+  - torchvision
+  - [pb_bss](http://github.com/fgnt/pb_bss)
 
 # Getting Started
 
