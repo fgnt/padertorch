@@ -14,6 +14,8 @@ __all__ = [
     'spectrogram_to_image',
     'review_dict',
     'audio',
+    'figure',
+    'figure_to_image',
 ]
 
 
@@ -57,7 +59,8 @@ def _apply_origin(image, origin):
 
 
 def mask_to_image(
-        mask: _T_input, batch_first: bool = False, color: Optional[str] = None,
+        mask: _T_input, batch_first: bool = False,
+        color: Optional[str] = None,
         origin: str = 'lower'
 ) -> np.ndarray:
     """
@@ -78,7 +81,6 @@ def mask_to_image(
 
     Returns:
         Colorized image with shape (color (1 or 3), features, frames)
-
     """
     mask = to_numpy(mask, detach=True)
 
@@ -110,7 +112,6 @@ def stft_to_image(
 
     Returns:
         Colorized image with shape (color (1 or 3), features, frames)
-
     """
     signal = to_numpy(signal, detach=True)
 
@@ -187,8 +188,10 @@ def spectrogram_to_image(
         origin: str = 'lower',
         log: bool = True
 ) -> np.ndarray:
-    """ Creates an image from a spectrogram
-        For more details of the output shape, see the tensorboardx docs
+    """
+    Creates an image from a spectrogram.
+
+    For more details of the output shape, see the tensorboardx docs
 
     Args:
         signal: Spectrogram to plot.
@@ -199,10 +202,11 @@ def spectrogram_to_image(
         color: A color map name. The name is forwarded to
                `matplotlib.pyplot.cm.get_cmap` to get the color map.
         origin: Origin of the plot. Can be `'upper'` or `'lower'`.
-        log: If `True`, the spectrogram is plotted in log domain.
+        log: If `True`, the spectrogram is plotted in log domain and shows a
+            50dB range.
 
     Returns:
-        Colorized image with shape (channels (3), frames, features)
+        Colorized image with shape (channels (3), features, frames)
     """
     signal = to_numpy(signal, detach=True)
 
@@ -263,46 +267,83 @@ def audio(
     return signal, sampling_rate
 
 
-def matplotlib_figure_to_image(
-        figure: 'matplotlib.figure.Figure' = None,
+def figure_to_image(
+        fig: 'matplotlib.figure.Figure' = None,
+        close=True,
 ) -> np.ndarray:
     """
     Converts a matplotlib figure to a numpy array that can be handled by
     tensorboardX.
 
-    Note:
+    Uses `tensorboardX.utils.figure_to_image` with some sanity checks. It works
+    even without explicitly switching to the 'Agg' backend before using this
+    function.
+
+    Notes:
+        Use this function only if you want to convert the figure to an image
+        manually and don't want to wait for tensorboardX to convert it (e.g., if
+        you have a very large number of points that would take up too much
+        memory). Otherwise, use the `padertorch.summary.figure` function and
+        pass it under the `figures` key in the review dict.
+
         Matplotlib is in general quite slow, so you shouldn't be computing
         matplotlib plots in every iteration. Use the `pt.Model.create_snapshot`
         flag to reduce the computational overhead.
 
     Warnings:
-        This function doesn't close the plot! Make sure that you close unused
-        plots to reduce memory consumption!
+        Make sure that you close unused plots to reduce memory consumption by
+        either closing the plot manually or setting `close=True` (default)!
 
     Args:
-        figure: matplotlib figure object. If `None`, it defaults to `plt.gcf()`.
+        fig: matplotlib figure object. If `None`, it defaults to `plt.gcf()`.
+        close: If `True`, closes the figure.
 
     Returns:
-        Numpy array with shape (color (4), width, height)
+        Numpy array with shape (color (4), height, width)
 
     Examples:
         >>> from matplotlib import pyplot as plt
         >>> plt.plot([1, 3, 2, 4])  # doctest: +ELLIPSIS
         [<matplotlib.lines.Line2D object ...>]
-        >>> image = matplotlib_figure_to_image()
+        >>> image = figure_to_image()
         >>> image.shape
         (3, 480, 640)
     """
-    from einops import rearrange
+    from tensorboardX.utils import figure_to_image as tbX_figure_to_image
+    return tbX_figure_to_image(figure(fig, close=close), close=False)
 
-    if figure is None:
+
+def figure(
+        fig: 'matplotlib.figure.Figure' = None,
+        close=True,
+) -> 'matplotlib.figure.Figure':
+    """
+    Checks a figure to be passed on to tensorboardX.
+
+    Makes sure that:
+        - The figure exists (i.e., is not None)
+        - The figure is not empty (i.e., contains at least one axis)
+
+    Args:
+        fig: The figure to plot. This is directly passed to tensorboardX.
+        close: If `True`, closes the figure to prevent modifications.
+
+    Returns:
+        The input figure
+    """
+    if fig is None:
         from matplotlib import pyplot as plt
-        figure = plt.gcf()
+        fig = plt.gcf()
 
-    figure.canvas.draw()
-    data = np.fromstring(figure.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-    data = data.reshape(figure.canvas.get_width_height()[::-1] + (3,))
-    return rearrange(data, 't f c -> c t f')
+    assert len(fig.axes) > 0, (
+        'Empty plot detected. You probably wanted to plot something.'
+    )
+
+    if close:
+        import matplotlib.pyplot as plt
+        plt.close(fig)
+
+    return fig
 
 
 def review_dict(
@@ -313,34 +354,47 @@ def review_dict(
         histograms: dict = None,
         audios: dict = None,
         images: dict = None,
+        figures: dict = None,
+        texts: dict = None,
 ):
     """
     This is a helper function to build the review dict.
     The main purpose is for auto completion of the review dict, prevent typos
     and documentation what is expected for the values.
 
-    ToDo: Text for expected shapes
+    Every argument to this function is a `dict`. Its keys represent the tags
+    used in tensorboard and its values the values displayed.
 
     Args:
         loss:
-            Scalar torch.Tensor. If not None, expect losses to be None.
+            Scalar `torch.Tensor`s. If not `None`, expect `losses` to be `None`.
         losses:
-            Dict of scalar torch.Tensor. If not None, expect loss to be None.
+            `dict` of scalar `torch.Tensor`s. If not `None`, expect `loss` to be
+            `None`.
         scalars:
-            Dict of scalars that are reported to tensorboard. Losses and loss
-            are also reported as scalars.
+            `dict` of scalars that are reported to tensorboard. `losses` and
+            `loss` are also reported as scalars.
         histograms:
-            Dict of ???.
+            `dict` of scalars, `list`s, `tuple`s `torch.Tensor`s or
+            `np.ndarray`s of any shape to build a histogram from. Any
+            multi-dimensional tensors or arrays are flattened before a histogram
+            is created from them.
         audios:
-            Dict of either one dimensional numpy arrays with the raw audio data
-            with a sampling rate of 16k or tuples of length 2 with
-            (audio data, sampling rate).
+            `dict` of audio data. The audio data can have two formats:
+                - A one dimensional numpy array with raw audio data at a
+                    sampling rate of 16kHz
+                - A `tuple` of length 2 with (audio data, sampling rate). Use
+                    `padertorch.summary.audio` to create these tuples.
         images:
-            Dict of torch.Tensor with Shape(batch, features, frames, 1).
+            `dict` of `torch.Tensor`s or `np.ndarray`s with shape
+                (color (1 or 3), height, width).
+        figures:
+            `dict` of `matplotlib.figure.Figure`s.
+        texts:
+            `dict` of `str`.
 
     Returns:
-        dict of the args that are not None
-
+        `dict` of the args that are not `None`
     """
 
     review = locals()
