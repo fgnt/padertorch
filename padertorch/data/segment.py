@@ -81,7 +81,9 @@ class Segmenter:
             I case of `dict` the keys have to be equal to
             the entries of `include_keys`
         anchor_mode: anchor mode used in `get_anchor` to calculate the anchor
-            from which the segmentation boundaries are calculated.
+        anchor: anchor or anchor mode used in `get_anchor` to calculate
+            the anchor from which the segmentation boundaries are calculated.
+        length_mode: used in _get_segment_length_for_mode
         flatten_separator: specifies the separator used to separate the keys
             in the flattened dictionary. Defaults to `.`
     """
@@ -124,6 +126,16 @@ class Segmenter:
         self.flatten_separator = flatten_separator
 
     def __call__(self, example, rng=np.random):
+        """
+
+        Args:
+            example: dictionary with string keys
+            rng: random number generator, maybe set using
+                paderbox.utils.random_utils.str_to_random_state
+
+        Returns:
+
+        """
         # Shortcut if segmentation is disabled
         if self.length == -1:
             return [example]
