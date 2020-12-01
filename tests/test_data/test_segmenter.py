@@ -237,3 +237,28 @@ def test_wildcard_exclude():
             np.arange(idx * 16000, 16000 + (idx + 1) * 16000))
         np.testing.assert_equal(entry['audio_data']['y'],
                                 np.arange(65000)[:, None])
+
+
+def test_length_mode():
+    examples = [{'x': np.arange(16000), 'y': np.arange(16000),
+                 'num_samples': 16000, 'gender': 'm'},
+                {'x': np.arange(15900), 'y': np.arange(15900),
+                 'num_samples': 15900, 'gender': 'm'}]
+    new_length = [{'constant': 950, 'max': 942, 'min': 1000},
+                  {'constant': 950, 'max': 936, 'min': 993}]
+    for mode in ['constant', 'max', 'min']:
+        for idx, ex in enumerate(examples):
+            segmenter = Segmenter(length=950, include_keys=('x'),
+                                  length_mode=mode)
+            segmented = segmenter(ex)
+            np.testing.assert_equal(segmented[0]['x'],
+                                    np.arange(0, new_length[idx][mode]))
+    new_length = [{'constant': 950, 'max': 947, 'min': 950},
+                  {'constant': 950, 'max': 950, 'min': 953}]
+    for mode in ['constant', 'max', 'min']:
+        for idx, ex in enumerate(examples):
+            segmenter = Segmenter(length=950, shift=250, include_keys=('x'),
+                                  length_mode=mode)
+            segmented = segmenter(ex)
+            np.testing.assert_equal(segmented[0]['x'],
+                                    np.arange(0, new_length[idx][mode]))
