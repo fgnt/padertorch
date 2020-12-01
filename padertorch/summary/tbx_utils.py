@@ -1,9 +1,12 @@
 import operator
+from typing import Union, Optional, Tuple
 
 import numpy as np
 import torch
 
 from padertorch.utils import to_numpy
+
+_T_input = Union[torch.Tensor, np.ndarray]
 
 __all__ = [
     'mask_to_image',
@@ -11,6 +14,8 @@ __all__ = [
     'spectrogram_to_image',
     'review_dict',
     'audio',
+    'figure',
+    'figure_to_image',
 ]
 
 
@@ -53,15 +58,29 @@ def _apply_origin(image, origin):
     return image
 
 
-def mask_to_image(mask, batch_first=False, color=None, origin='lower'):
+def mask_to_image(
+        mask: _T_input, batch_first: bool = False,
+        color: Optional[str] = None,
+        origin: str = 'lower'
+) -> np.ndarray:
     """
+    Creates an image from a mask `Tensor` or `ndarray`.
+
     For more details of the output shape, see the tensorboardx docs
+
     Args:
-        mask: Shape (frames, batch [optional], features)
-        batch_first: if true mask shape (batch [optional], frames, features]
+        mask: Mask to plot
+        batch_first: If `True`, `signal` is expected to have shape
+            `(batch [optional], frames, features)`. If `False`, the batch axis
+            is assumed to be in the second position, i.e.,
+            `(frames, batch [optional], features)`.
+        color: A color map name. The name is forwarded to
+               `matplotlib.pyplot.cm.get_cmap` to get the color map. If `None`,
+               grayscale is used.
+        origin: Origin of the plot. Can be `'upper'` or `'lower'`.
 
-    Returns: Shape(color, features, frames)
-
+    Returns:
+        Colorized image with shape (color (1 or 3), features, frames)
     """
     mask = to_numpy(mask, detach=True)
 
@@ -73,15 +92,26 @@ def mask_to_image(mask, batch_first=False, color=None, origin='lower'):
     return _colorize(_apply_origin(image.T, origin), color)
 
 
-def stft_to_image(signal, batch_first=False, color='viridis', origin='lower'):
+def stft_to_image(
+        signal: _T_input,
+        batch_first: bool = False,
+        color: str = 'viridis',
+        origin: str = 'lower'
+) -> np.ndarray:
     """
-        For more details of the output shape, see the tensorboardx docs
+    Creates an image from an STFT signal.
+    For more details of the output shape, see the tensorboardx docs
+
     Args:
         signal: Shape (frames, batch [optional], features)
         batch_first: if true mask shape (batch [optional], frames, features]
+        color: A color map name. The name is forwarded to
+               `matplotlib.pyplot.cm.get_cmap` to get the color map. If `None`,
+               grayscale is used.
+        origin: Origin of the plot. Can be `'upper'` or `'lower'`.
 
-    Returns: Shape(features, frames)
-
+    Returns:
+        Colorized image with shape (color (1 or 3), features, frames)
     """
     signal = to_numpy(signal, detach=True)
 
@@ -121,6 +151,7 @@ class _Colorize:
     [[[0 1 2]
       [3 4 5]]]
     """
+
     def __init__(self):
         self.color_to_cmap = {}
 
@@ -151,50 +182,76 @@ _colorize = _Colorize()
 
 
 def spectrogram_to_image(
-        signal, batch_first=False, color='viridis', origin='lower'):
+        signal: _T_input,
+        batch_first: bool = False,
+        color: str = 'viridis',
+        origin: str = 'lower',
+        log: bool = True
+) -> np.ndarray:
     """
-        For more details of the output shape, see the tensorboardx docs
+    Creates an image from a spectrogram.
+
+    For more details of the output shape, see the tensorboardx docs
+
     Args:
-        signal: Shape (frames, batch [optional], features)
-        batch_first: if true mask shape (batch [optional], frames, features]
+        signal: Spectrogram to plot.
+        batch_first: If `True`, `signal` is expected to have shape
+            `(batch [optional], frames, features)`. If `False`, the batch axis
+            is assumed to be in the second position, i.e.,
+            `(frames, batch [optional], features)`.
         color: A color map name. The name is forwarded to
                `matplotlib.pyplot.cm.get_cmap` to get the color map.
+        origin: Origin of the plot. Can be `'upper'` or `'lower'`.
+        log: If `True`, the spectrogram is plotted in log domain and shows a
+            50dB range.
 
-
-    Returns: Shape(features, frames)
+    Returns:
+        Colorized image with shape (channels (3), features, frames)
     """
     signal = to_numpy(signal, detach=True)
 
-    signal = signal / (np.max(signal) + np.finfo(signal.dtype).tiny)
+    signal = signal / (np.max(np.abs(signal)) + np.finfo(signal.dtype).tiny)
 
     signal = _remove_batch_axis(signal, batch_first=batch_first)
 
-    visible_dB = 50
+    if log:
+        visible_dB = 50
 
-    # remove problematic small numbers
-    floor = 10 ** (-visible_dB / 20)
-    signal = np.maximum(signal, floor)
+        # remove problematic small numbers
+        floor = 10 ** (-visible_dB / 20)
+        signal = np.maximum(signal, floor)
 
-    # Scale such that X dB are visible (i.e. in the range 0 to 1)
-    signal = (20 / visible_dB) * np.log10(signal) + 1
+        # Scale such that X dB are visible (i.e. in the range 0 to 1)
+        signal = (20 / visible_dB) * np.log10(signal) + 1
 
     signal = (signal * 255).astype(np.uint8)
 
     return _colorize(_apply_origin(signal.T, origin=origin), color)
 
 
-def audio(signal, sampling_rate: int = 16000, batch_first=False,
-          normalize=True):
+def audio(
+        signal: _T_input,
+        sampling_rate: int = 16000,
+        batch_first: bool = False,
+        normalize: bool = True,
+) -> Tuple[np.ndarray, int]:
     """
+    Adds an audio signal to tensorboard.
 
     Args:
-        signal: Shape (samples, batch [optional]). If `batch_first = True`,
-            (batch [optional], samples).
+        signal: Time-domain signal with shape (samples, batch [optional]).
+            If `batch_first = True`, (batch [optional], samples).
         sampling_rate: Sampling rate of the audio signal
-        batch_first: If `True`, the optional batch dimension is assumed to be
-            the first axis, otherwise the second one.
+        batch_first: If `True`, `signal` is expected to have shape
+            `(batch [optional], samples)`. If `False`, the batch axis
+            is assumed to be in the second position, i.e.,
+            `(samples, batch [optional])`.
         normalize: If `True`, the signal is normalized to a max amplitude of
-            0.95 to prevent clipping
+            0.95 to prevent clipping.
+
+    Returns:
+        A tuple consisting of the signal and the sampling rate. See tensorboardX
+        docs for further information on the return type.
     """
     signal = to_numpy(signal, detach=True)
 
@@ -210,42 +267,134 @@ def audio(signal, sampling_rate: int = 16000, batch_first=False,
     return signal, sampling_rate
 
 
+def figure_to_image(
+        fig: 'matplotlib.figure.Figure' = None,
+        close=True,
+) -> np.ndarray:
+    """
+    Converts a matplotlib figure to a numpy array that can be handled by
+    tensorboardX.
+
+    Uses `tensorboardX.utils.figure_to_image` with some sanity checks. It works
+    even without explicitly switching to the 'Agg' backend before using this
+    function.
+
+    Notes:
+        Use this function only if you want to convert the figure to an image
+        manually and don't want to wait for tensorboardX to convert it (e.g., if
+        you have a very large number of points that would take up too much
+        memory). Otherwise, use the `padertorch.summary.figure` function and
+        pass it under the `figures` key in the review dict.
+
+        Matplotlib is in general quite slow, so you shouldn't be computing
+        matplotlib plots in every iteration. Use the `pt.Model.create_snapshot`
+        flag to reduce the computational overhead.
+
+    Warnings:
+        Make sure that you close unused plots to reduce memory consumption by
+        either closing the plot manually or setting `close=True` (default)!
+
+    Args:
+        fig: matplotlib figure object. If `None`, it defaults to `plt.gcf()`.
+        close: If `True`, closes the figure.
+
+    Returns:
+        Numpy array with shape (color (4), height, width)
+
+    Examples:
+        >>> from matplotlib import pyplot as plt
+        >>> plt.plot([1, 3, 2, 4])  # doctest: +ELLIPSIS
+        [<matplotlib.lines.Line2D object ...>]
+        >>> image = figure_to_image()
+        >>> image.shape
+        (3, 480, 640)
+    """
+    from tensorboardX.utils import figure_to_image as tbX_figure_to_image
+    return tbX_figure_to_image(figure(fig, close=close), close=False)
+
+
+def figure(
+        fig: 'matplotlib.figure.Figure' = None,
+        close=True,
+) -> 'matplotlib.figure.Figure':
+    """
+    Checks a figure to be passed on to tensorboardX.
+
+    Makes sure that:
+        - The figure exists (i.e., is not None)
+        - The figure is not empty (i.e., contains at least one axis)
+
+    Args:
+        fig: The figure to plot. This is directly passed to tensorboardX.
+        close: If `True`, closes the figure to prevent modifications.
+
+    Returns:
+        The input figure
+    """
+    if fig is None:
+        from matplotlib import pyplot as plt
+        fig = plt.gcf()
+
+    assert len(fig.axes) > 0, (
+        'Empty plot detected. You probably wanted to plot something.'
+    )
+
+    if close:
+        import matplotlib.pyplot as plt
+        plt.close(fig)
+
+    return fig
+
+
 def review_dict(
         *,
-        loss: torch.Tensor=None,
-        losses: dict=None,
-        scalars: dict=None,
-        histograms: dict=None,
-        audios: dict=None,
-        images: dict=None,
+        loss: torch.Tensor = None,
+        losses: dict = None,
+        scalars: dict = None,
+        histograms: dict = None,
+        audios: dict = None,
+        images: dict = None,
+        figures: dict = None,
+        texts: dict = None,
 ):
     """
     This is a helper function to build the review dict.
     The main purpose is for auto completion of the review dict, prevent typos
     and documentation what is expected for the values.
 
-    ToDo: Text for expected shapes
+    Every argument to this function is a `dict`. Its keys represent the tags
+    used in tensorboard and its values the values displayed.
 
     Args:
         loss:
-            Scalar torch.Tensor. If not None, expect losses to be None.
+            Scalar `torch.Tensor`s. If not `None`, expect `losses` to be `None`.
         losses:
-            Dict of scalar torch.Tensor. If not None, expect loss to be None.
+            `dict` of scalar `torch.Tensor`s. If not `None`, expect `loss` to be
+            `None`.
         scalars:
-            Dict of scalars that are reported to tensorboard. Losses and loss
-            are also reported as scalars.
+            `dict` of scalars that are reported to tensorboard. `losses` and
+            `loss` are also reported as scalars.
         histograms:
-            Dict of ???.
+            `dict` of scalars, `list`s, `tuple`s `torch.Tensor`s or
+            `np.ndarray`s of any shape to build a histogram from. Any
+            multi-dimensional tensors or arrays are flattened before a histogram
+            is created from them.
         audios:
-            Dict of either one dimensional numpy arrays with the raw audio data
-            with a sampling rate of 16k or tuples of length 2 with
-            (audio data, sampling rate).
+            `dict` of audio data. The audio data can have two formats:
+                - A one dimensional numpy array with raw audio data at a
+                    sampling rate of 16kHz
+                - A `tuple` of length 2 with (audio data, sampling rate). Use
+                    `padertorch.summary.audio` to create these tuples.
         images:
-            Dict of torch.Tensor with Shape(batch, features, frames, 1).
+            `dict` of `torch.Tensor`s or `np.ndarray`s with shape
+                (color (1 or 3), height, width).
+        figures:
+            `dict` of `matplotlib.figure.Figure`s.
+        texts:
+            `dict` of `str`.
 
     Returns:
-        dict of the args that are not None
-
+        `dict` of the args that are not `None`
     """
 
     review = locals()
