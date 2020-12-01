@@ -3,22 +3,46 @@
 [sacred](https://github.com/IDSIA/sacred) is a package that simplifies running experiments by
 
  - collecting important information about the experiment, such as host information, configuration, current git
-  state, and storing the information about the experiment on disk or in a database with observers,
- - building configuration, and
+  state, 
+ - storing this information about the experiment on disk or in a database with observers,
+ - providing tools to build a configuration, and
  - providing an easy-to-use command line interface.
 
 The documentation for sacred can be found on [readthedocs](https://sacred.readthedocs.io/en/stable/).
 The [quickstart section](https://sacred.readthedocs.io/en/stable/quickstart.html) gives a good introduction into sacred.
 For real-world examples of how to use sacred in a deep-learning context with `padertorch` you can have a look at our
  [examples](padertorch/contrib/examples).
+ 
+## Experiment structure with sacred
 
-## Sacred, the Configuration and Configurable
+Padertorch uses the [`padertorch.Configurable`](doc/configurable.md) for all its components to easily create
+ instances from configuration dictionaries.
+`sacred` handles the part of creating the configuration dictionaries in a easy and reproducible way.
+`sacred` provides a base class for experiments, called `Experiment`, that handles everything related to experiments.
+When instantiating, it requires an experiment name:
 
-The [`padertorch.Configurable`](doc/configurable.md) class is built to work seamlessly with sacred, and all relevant
- classes in `padertorch` inherit from it.
-While the `Configurable` allows creation of objects from a configuration dictionary, sacred is there to assist you in 
-constructing such a configuration dictionary.
-The configuration in sacred can be set and modified in different ways:
+```python
+from sacred import Expeirment
+
+ex = Experiment('my-experiment')
+```
+
+The main function is defined with the `@ex.automain` decorator:
+
+```python
+from sacred import Expeirment
+
+ex = Experiment('my-experiment')
+
+@ex.automain
+def main(...):
+    ... # Run your experiment here
+```
+
+### Defining the configuration
+
+The experiment object `ex` can then be used to define the configuration of the experiment.
+This can be done in different ways:
 
  - Using **[dicts](https://sacred.readthedocs.io/en/stable/configuration.html#dictionaries)**: Set the configuration
   directly as a dictionary.
@@ -37,27 +61,178 @@ The configuration in sacred can be set and modified in different ways:
   You can call your script with the arguments `with configuration_key=value` and
   it automatically updates all configuration values that depend on `configuration_key` and stores information about
   what was modified.
- 
-The main class in sacred is the `sacred.Experiment` that is used to define the configuration and main function of the
- experiment.
-It contains various methods to add configuration values and to wrap functions to provide them with a configuration.
 
- 
 For more information about how sacred handles configuration, have a look at the documentation about 
 [the config](https://sacred.readthedocs.io/en/stable/configuration.html) and 
 [the command line interface](https://sacred.readthedocs.io/en/stable/command_line.html).
 
-## Storing experiment information with sacred
+The configuration for a training experiment could look like the following example.
+It contains a config scope (`@ex.config`) and multiple named configs (`@ex.named_config`).
+It uses functions from the `Configurable` to fill the configuration with missing arguments.
+Have a look at the `Configurable` documentation [here](doc/configurable.md) for more information about the structure
+ of the configuration `dict`.
+
+```python
+from sacred import Experiment
+from sacred.observers import FileStorageObserver
+from sacred.commands import print_config
+import padertorch as pt
+from pathlib import Path
+
+# Define the experiment. Experiment is the main class for managing experiments.
+ex = Experiment('my-experiment-name')
+
+
+class MyModel(pt.Model):
+    # Implement your model here
+    def __init__(self, num_layers=2):
+        super().__init__()
+        self.num_layers = num_layers
+
+
+# Create a ConfigScope with the config decorator
+@ex.config
+def config():
+    """
+    This function contains the configuration of the experiment. All local 
+    variables in this function will be captured by sacred and used as 
+    configuration values.
+    """
+    # padertorch.Trainer inherits from Configurable, so we can easily construct 
+    # the config dictionary here and instantiate the trainer from the config 
+    # later
+    trainer = {
+        # The 'factory' key tells the Configurable which class to instantiate
+        'factory': pt.Trainer,
+        # The next line creates a new experiment folder for this experiment
+        'storage_dir': None,
+        'model': {
+            'factory': MyModel, # <-- insert your model class here
+            # You can put additional configuration of your model here
+        },
+        # Here goes additional configuration of the trainer
+    }   
+    if not trainer['storage_dir'] is None:
+        # This finds and creates an unused storage dir relative to the 
+        # environment variable $STORAGE_ROOT. It is enclosed in the if statement
+        # because otherwise it would create unused folders on resume
+        trainer['storage_dir'] = pt.io.get_new_storage_dir(ex.path)
+    
+    # The following line fills the trainer config with the default arguments of
+    # the configurable classes. In this example, it will, for example, insert 
+    # the "num_layers" argument from the model.
+    pt.Trainer.get_config(trainer)
+    
+    # This adds an observer to the experiment that stores the collected 
+    # information about the experiment. In this case, we use a 
+    # FileStorageObserver that writes the information to the filesystem to a 
+    # sub-folder of the experiment's storage directory.
+    ex.observers.append(FileStorageObserver(
+        Path(trainer['storage_dir']) / 'sacred')
+    )
+
+@ex.named_config
+def large():
+    """This is a named config for a large model. This configuration can be 
+    activated by calling the script `with large` and it overwrites the default 
+    values in the `config` function above."""
+    trainer = {
+        'model': {
+            'num_layers': 5   
+        }
+    }
+
+@ex.automain
+def main(...):
+    ... # Run your experiment here
+```
+
+When calling the script, all configuration values can be modified from the command line interface with dotted path
+ access.
+If you want to set the number of layers of your model in the above example to `3`, you could write:
+
+```shell
+$ python experiment.py with trainer.model.num_layers=3
+```
+
+### Accessing the configuration
+
+The configuration is stored internally in sacred and is passed to so-called captured functions.
+These are functions decorated with `@ex.captured_function`.
+When called, the decorator fills the missing arguments of a function with values from the configuration.
+For example:
+
+```python
+from sacred import Experiment
+
+ex = Experiment('my-experiment')
+
+@ex.config
+def config():
+    a = 1
+    b = 2
+    c = 3
+
+@ex.captured_function
+def foo(a, b):
+    """A captured function. If it is called without arguments, they are filled 
+    from the config."""
+    print(a, b)
+
+@ex.automain
+def main(_config):
+    """The main function is also a named config. The special argument `_config`
+    contains the whole configuration dict."""
+    foo()
+    print(_config)
+```
+
+### Storing experiment information with sacred observers
 
 A core part of sacred are the so called ["Observers"](https://sacred.readthedocs.io/en/stable/observers.html) in `sacred.observers`.
 Observers keep track of important information and store them in a database (e.g., `sacred.observers.MongoObserver
 `) or on the disk (`sacred.observers.FileStorageObserver`).
 We recommend to use the `FileStorageObserver` because it does not depend on an external server and the data can
  easily be viewed on the command line.
+You can add an `Observer` to an experiment by appending it to the list of observers.
+We recommend to do this in a config scope so that you can use configuration values, such as the experiment path, to
+ initialize the observer.
 
-## Example
+```python
+from sacred import Experiment
+from sacred.observers import FileStorageObserver
+from pathlib import Path
 
-Consider the following example for a trainings script using sacred.
+ex = Experiment('my-experiment')
+
+@ex.config
+def config():
+    experiment_dir = '/.../...'
+    ex.observers.append(FileStorageObserver(Path(experiment_dir) / 'sacred'))
+
+@ex.automain
+def main(...):
+    ...
+```
+
+The `FileStorageObserver` stores experiment information in the storage dir with the following structure:
+
+```
+.                   # The storage dir you passed to the observer
+├── 1               # A Unique ID created by the observer to handle multipe runs in the same storage dir (e.g., resume)
+│   ├── config.json     # Configuration of this run
+│   ├── cout.txt        # Captured stdout and stderr streams
+│   ├── metrics.json    # Reported metrics (not used by the trainer, so this file is typically empty)
+│   └── run.json        # Information about the run, such as time, host info, git status, imported packages ...
+└── _sources                  # The _sources folder can contain source files that are not checked into git
+    └── experiment_<somerandomid>.py
+```
+
+You can use the loading functions in `paderbox.io` to look at the stored information.
+
+## Full Example
+
+Consider the following example for a training script using sacred.
 This might seem a bit lengthy at the beginning, but the added functionality really pays off.
 
 ```python
@@ -163,7 +338,7 @@ def init(_config, _run):
 def main(_config, _run):
     """This is the main function of your experiment. It receives all 
     configuration values set in `config` as parameters. `_config` contains the  
-    whole configuration as a dictionary."""
+    whole configuration as a dictionary and `_run` the current `Run` object."""
 
     # Print the configuration with marked modifications
     print_config(_run)
@@ -234,9 +409,10 @@ Once you initialized the experiment's storage directory with the `init` command,
 $ python experiment.py with /path/to/the/experiment/storage/dir/config.json
 ```
 
-## Accessing information stored by sacred
+### Accessing information stored by sacred and the Trainer
 
-The `FileStorageObserver` stores experiment information in the storage dir with the following structure:
+In addition to the information stored by the `FileStorageObserver`, the `pt.Trainer` stores training checkpoints.
+The resulting structure looks like this:
 
 ```
 .                       # The storage dir
@@ -255,8 +431,6 @@ The `FileStorageObserver` stores experiment information in the storage dir with 
         └── experiment_544d3ddcc21032c781ad70f6aa728f18.py
 ```
 
-You can use the loading functions in `paderbox.io` to look at the stored information.
-
 Once you created and trained a model with a script similar to the above example, you can easily access the trained
  model with:
  
@@ -264,3 +438,6 @@ Once you created and trained a model with a script similar to the above example,
 import padertorch as pt
 model = pt.Model.from_storage_dir('/path/to/the/storage/dir')
 ```
+
+Note that we have to save the configuration manually for this to work because the FileStorageObserver doesn't save
+ the configuration in a fixed folder.
