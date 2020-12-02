@@ -207,8 +207,8 @@ ex = Experiment('my-experiment')
 
 @ex.config
 def config():
-    experiment_dir = '/.../...'
-    ex.observers.append(FileStorageObserver(Path(experiment_dir) / 'sacred'))
+    storage_dir = '/.../...'
+    ex.observers.append(FileStorageObserver(Path(storage_dir) / 'sacred'))
 
 @ex.automain
 def main(...):
