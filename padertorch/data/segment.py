@@ -16,9 +16,10 @@ possible_anchor_modes = [
     'random_max_segments',
 ]
 
-possible_length_modes = [
+possible_segment_modes = [
     'max', 'min', 'constant'
 ]
+
 
 class Segmenter:
     """
@@ -66,7 +67,8 @@ class Segmenter:
     Args:
         length: The length of the segments in samples. If set to `-1`,
             the original example is returned in a list of length one.
-        shift: shift between segments, defaults to length
+        shift: shift between segments, hast to be smaller or equal to `length`,
+            defaults to length
         include_keys: The keys in the passed example dict to segment. They all
             must have the same size along their specified `axis`, if keys is
             `None` the segmentation is applied to all `numpy.arrays`.
@@ -85,7 +87,14 @@ class Segmenter:
             the entries of `include_keys`
         anchor: anchor or anchor mode used in `get_anchor` to calculate
             the anchor from which the segmentation boundaries are calculated.
-        length_mode: used in _get_segment_length_for_mode
+        mode: defines whether a constant length is used for all examples
+            or whether a specific length is calculated for each example.
+            Maybe either 'max', 'min', 'constant'.
+            This is used in _get_segment_length_for_mode
+        padding: May only be `True` if `anchor` is `0` or `left` since padding
+            is only applied to the end of the signal. This may be the right
+            choice for evaluation.
+            If `False` the residual values are disgarded.
         flatten_separator: specifies the separator used to separate the keys
             in the flattened dictionary. Defaults to `.`
     """
@@ -96,7 +105,8 @@ class Segmenter:
                  copy_keys: Union[str, bool, list, tuple] = True,
                  axis: Union[int, list, tuple, dict] = -1,
                  anchor: Union[int, str] = 'left',
-                 length_mode: 'str' = 'constant',
+                 mode: 'str' = 'constant',
+                 padding: bool = False,
                  flatten_separator: str = '.'):
 
         self.include = None if include_keys is None else to_list(include_keys)
@@ -118,6 +128,11 @@ class Segmenter:
             )
         else:
             raise TypeError('Unknown type for axis', axis)
+        if shift is None:
+            shift = length
+        # If there is a use case for shift > length, open a pull request and
+        # remove this assert.
+        assert shift <= length, (shift, length)
         self.shift = shift
         assert isinstance(anchor, (str, int)), anchor
         self.anchor = anchor
@@ -126,11 +141,15 @@ class Segmenter:
             'All keys in copy_keys have to be str, or copy key has to be one'
             'boolean', copy_keys
         )
-        assert length_mode in possible_length_modes, (
-            'length_mode has to be one of', possible_length_modes,
-            'but is', length_mode
+        assert mode in possible_segment_modes, (
+            'length_mode has to be one of', possible_segment_modes,
+            'but is', mode
         )
-        self.length_mode = length_mode
+        self.mode = mode
+        if padding:
+            # No padding is implemented for the begging of a signal
+            assert anchor in [0, 'left'], (padding, anchor)
+        self.padding = padding
         self.flatten_separator = flatten_separator
 
     def __call__(self, example, rng=np.random):
@@ -142,7 +161,6 @@ class Segmenter:
                 paderbox.utils.random_utils.str_to_random_state
 
         Returns:
-
         """
         # Shortcut if segmentation is disabled
         if self.length == -1:
@@ -210,14 +228,26 @@ class Segmenter:
         """
         >>> import numpy as np
         >>> ex = {'x': np.arange(16000), 'y': np.arange(16000)}
-        >>> segmenter = Segmenter(length=950, include_keys=('x'),
-        ...                       length_mode='max')
+        >>> segmenter = Segmenter(length=950, include_keys='x',
+        ...                       mode='max', padding=True)
         >>> boundaries, segmented = segmenter.segment(ex, 16000, [0, 0])
         >>> len(boundaries), len(segmented['x'])
         (17, 17)
+        >>> segmenter = Segmenter(length=950, include_keys='x',
+        ...                       mode='max', padding=False)
+        >>> boundaries, segmented = segmenter.segment(ex, 16000, [0, 0])
+        >>> len(boundaries), len(segmented['x'])
+        (16, 16)
+        >>> segmenter = Segmenter(length=950, shift=250, include_keys='x',
+        ...                       mode='min', padding=True)
+        >>> boundaries, segmented = segmenter.segment(ex, 16000, [0, 0])
+        >>> len(boundaries), len(segmented['x'])
+        (61, 61)
         """
         length, shift, to_segment_length = _get_segment_length_for_mode(
-            to_segment_length, self.length, self.shift, self.length_mode)
+            to_segment_length, self.length, self.shift,
+            self.mode, self.padding
+        )
 
         if isinstance(self.anchor, str):
             anchor = get_anchor(
@@ -228,13 +258,14 @@ class Segmenter:
             assert isinstance(self.anchor, int), self.anchor
             anchor = self.anchor
         boundaries = get_segment_boundaries(
-            to_segment_length, length, shift, anchor=self.anchor, rng=rng
+            to_segment_length, length, shift, anchor=self.anchor,
+            mode='constant', rng=rng
         )
 
-        segmented = {key: segment(signal, length=length, shift=shift,
-                                  rng=rng, axis=axis[i], anchor=anchor,
-                                  length_mode=self.length_mode)
-                     for i, (key, signal) in enumerate(to_segment.items())}
+        segmented = {key: segment(
+            signal, length=length, shift=shift, rng=rng, axis=axis[i],
+            anchor=anchor, padding=self.padding, mode='constant'
+        ) for i, (key, signal) in enumerate(to_segment.items())}
         return boundaries, segmented
 
     def get_to_segment_keys(self, example):
@@ -242,7 +273,7 @@ class Segmenter:
             return [
                 key for key, value in example.items()
                 if key not in self.exclude and
-                   isinstance(value, (np.ndarray, torch.Tensor))
+                isinstance(value, (np.ndarray, torch.Tensor))
             ]
         else:
             to_segment_keys = [
@@ -370,7 +401,8 @@ def get_anchor(
 
 def get_segment_boundaries(
         num_samples: int, length: int, shift: int = None,
-        anchor: Union[str, int] = 'left', rng=np.random
+        anchor: Union[str, int] = 'left', mode: str = 'constant',
+        rng=np.random
 ):
     """
     Calculates boundaries for segmentation of a signal with length
@@ -384,6 +416,7 @@ def get_segment_boundaries(
         anchor: anchor from which the segmentation boundaries are calculated.
             If it is a string `get_anchor` is called to calculate an integer
             using `anchor` as anchor mode definition.
+        mode: used in _get_segment_length_for_mode
         rng: random number generator (`numpy.random`)
 
     Returns:
@@ -413,7 +446,14 @@ def get_segment_boundaries(
     if shift is None:
         shift = length
     assert shift > 0, shift
+    assert mode in possible_segment_modes, (
+        'Unknown length mode. Length mode has to be chosen'
+        'from', possible_segment_modes, 'and is', mode
+    )
+
     if isinstance(anchor, str):
+        length, shift, num_samples = _get_segment_length_for_mode(
+            num_samples, length, shift, mode)
         anchor = get_anchor(num_samples, length, shift, mode=anchor, rng=rng)
     assert isinstance(anchor, int), (anchor, type(anchor))
 
@@ -425,7 +465,7 @@ def get_segment_boundaries(
 
 
 def _get_segment_length_for_mode(num_samples, length: int, shift: int = None,
-                                 length_mode: str = 'constant'):
+                                 mode: str = 'constant', padding=False):
     """
     This function calculates an optimal segment length assuming that `length`
     is equal to the segment shift. Length can be used in three different ways
@@ -435,13 +475,15 @@ def _get_segment_length_for_mode(num_samples, length: int, shift: int = None,
         num_samples: number of samples to be segmented
         length: segment length
         shift: shift between segments
-        length_mode: constant: uses `length` for all examples
+        mode: constant: uses `length` for all examples
                      max:      uses some length smaller than `length` for each
                                example
                      min:      uses some length larger than `length` for each
                                example
             max and min calculate a length with minimum padding, in case of
             constant mode the residual samples are cut.
+        padding: if True num_samples is increased to the padded length,
+                 if False num_sample is returned
     Returns:
         Tuple of adapted segment length and shift as `int` and number of
         samples after padding in case of `length_mode` equal to max or min.
@@ -455,44 +497,51 @@ def _get_segment_length_for_mode(num_samples, length: int, shift: int = None,
     >>> _get_segment_length_for_mode(num_samples, length, None, 'min')
     (1000, 1000, 16000)
     >>> length = 950; num_samples = 16000
-    >>> _get_segment_length_for_mode(num_samples, length)
+    >>> _get_segment_length_for_mode(num_samples, length, padding=False)
     (950, 950, 16000)
-    >>> _get_segment_length_for_mode(num_samples, length, None, 'max')
+    >>> _get_segment_length_for_mode(num_samples, length, padding=True)
+    (950, 950, 16800)
+    >>> _get_segment_length_for_mode(num_samples, length, None, 'max', True)
     (942, 942, 16014)
-    >>> _get_segment_length_for_mode(num_samples, length, None, 'min')
+    >>> _get_segment_length_for_mode(num_samples, length, None, 'min', True)
     (1000, 1000, 16000)
     >>> length = 950; shift = 250; num_samples = 16000
-    >>> _get_segment_length_for_mode(num_samples, length, shift)
-    (950, 250, 16000)
-    >>> _get_segment_length_for_mode(num_samples, length, shift, 'max')
+    >>> _get_segment_length_for_mode(num_samples, length, shift, padding=True)
+    (950, 250, 16050)
+    >>> _get_segment_length_for_mode(num_samples, length, shift, 'max', True)
     (947, 247, 16014)
-    >>> _get_segment_length_for_mode(num_samples, length, shift, 'min')
-    (950, 250, 15950)
+    >>> _get_segment_length_for_mode(num_samples, length, shift, 'min', True)
+    (951, 251, 16011)
     """
 
     if shift is None:
         shift = length
-    if length_mode == 'constant':
+    if mode == 'constant':
+        if padding:
+            num_samples += (num_samples - length) % shift
         return length, shift, num_samples
-    elif length_mode in ['min', 'max']:
+    elif mode in ['min', 'max']:
         overlap = length - shift
-        if length_mode == 'max':
-            n = (num_samples - 1 - overlap) // (length - overlap) + 1
-            new_length = (num_samples - 1 - overlap) // n + 1 + overlap
+
+        if mode == 'max':
+            n = (num_samples - overlap - 1) // shift + 1
+            length = (num_samples - 1 - overlap) // n + 1 + overlap
         else:
-            n = (num_samples - overlap) // (length - overlap)
-            new_length = ((num_samples - overlap) % (length - overlap)) // n
-            new_length = new_length + length
-        shift = new_length - overlap
-        padded_length = (n - 1) * shift + new_length
-        return new_length, shift, padded_length
+            n = (num_samples - overlap) // shift
+            delta = ((num_samples - overlap) % shift + -1) // n + 1
+            length = length + delta
+        shift = length - overlap
+        if padding:
+            num_samples = (n - 1) * shift + length
+        return length, shift, num_samples
     else:
-        raise ValueError(length_mode, possible_length_modes)
+        raise ValueError(mode, possible_segment_modes)
 
 
 def segment(
         x, length: int, shift: int = None, anchor: Union[str, int] = 'left',
-        axis: int = -1, length_mode: str = 'constant', rng=np.random
+        axis: int = -1, mode: str = 'constant',
+        padding: bool = False, rng=np.random
 ):
     """
     Segments a signal `x` along an axis. Either with a predefined anchor for
@@ -507,7 +556,11 @@ def segment(
         length: segment length
         shift: shift between segments, defaults to length
         axis: axis over which to segment
-        length_mode: used in _get_segment_length_for_mode
+        mode: used in _get_segment_length_for_mode
+        padding: May only be `True` if `anchor` is `0` or `left` since padding
+            is only applied to the end of the signal. This may be the right
+            choice for evaluation.
+            If `False` the residual values are disgarded.
         rng: random number generator (`numpy.random`)
 
     Returns:
@@ -524,6 +577,13 @@ def segment(
            [ 5,  6,  7,  8,  9, 10, 11, 12, 13, 14]])
     """
 
+    if padding:
+        # No padding is implemented for the begging of a signal
+        assert anchor in [0, 'left'], (padding, anchor)
+        end = 'pad'
+    else:
+        end = 'cut'
+
     if x.__class__.__module__ == 'numpy':
         ndim = x.ndim
         moveaxis = np.moveaxis
@@ -537,7 +597,7 @@ def segment(
             # moveaxis code taken from
             # https: // github.com / pytorch / pytorch / issues / 36048
             def moveaxis(tensor: torch.Tensor, source: int,
-                          destination: int) -> torch.Tensor:
+                         destination: int) -> torch.Tensor:
                 dim = tensor.dim()
                 perm = list(range(dim))
                 if destination < 0:
@@ -555,16 +615,14 @@ def segment(
 
     num_samples = x.shape[axis]
     assert num_samples >= length, (num_samples, length)
-    if length_mode == 'constant':
-        end = 'cut'
-    elif length_mode in ['max', 'min']:
-        end = 'pad'
-    else:
-        raise ValueError('Unknown length mode. Length mode has to be chosen'
-                         'from', possible_length_modes, 'and is', length_mode)
+
+    assert mode in possible_segment_modes, (
+        'Unknown length mode. Length mode has to be chosen'
+        'from', possible_segment_modes, 'and is', mode
+    )
 
     length, shift, num_samples = _get_segment_length_for_mode(
-        num_samples, length, shift, length_mode)
+        num_samples, length, shift, mode)
 
     assert shift > 0, shift
     if isinstance(anchor, str):

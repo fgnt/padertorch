@@ -245,20 +245,20 @@ def test_length_mode():
                 {'x': np.arange(15900), 'y': np.arange(15900),
                  'num_samples': 15900, 'gender': 'm'}]
     new_length = [{'constant': 950, 'max': 942, 'min': 1000},
-                  {'constant': 950, 'max': 936, 'min': 993}]
+                  {'constant': 950, 'max': 936, 'min': 994}]
     for mode in ['constant', 'max', 'min']:
         for idx, ex in enumerate(examples):
             segmenter = Segmenter(length=950, include_keys=('x'),
-                                  length_mode=mode)
+                                  mode=mode, padding=True)
             segmented = segmenter(ex)
             np.testing.assert_equal(segmented[0]['x'],
                                     np.arange(0, new_length[idx][mode]))
     new_length = [{'constant': 950, 'max': 947, 'min': 950},
-                  {'constant': 950, 'max': 950, 'min': 953}]
+                  {'constant': 950, 'max': 950, 'min': 954}]
     for mode in ['constant', 'max', 'min']:
         for idx, ex in enumerate(examples):
             segmenter = Segmenter(length=950, shift=250, include_keys=('x'),
-                                  length_mode=mode)
+                                  mode=mode, padding=True)
             segmented = segmenter(ex)
             np.testing.assert_equal(segmented[0]['x'],
                                     np.arange(0, new_length[idx][mode]))
