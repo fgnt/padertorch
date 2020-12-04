@@ -253,7 +253,7 @@ def test_length_mode():
             segmented = segmenter(ex)
             np.testing.assert_equal(segmented[0]['x'],
                                     np.arange(0, new_length[idx][mode]))
-    new_length = [{'constant': 950, 'max': 947, 'min': 950},
+    new_length = [{'constant': 950, 'max': 947, 'min': 951},
                   {'constant': 950, 'max': 950, 'min': 954}]
     for mode in ['constant', 'max', 'min']:
         for idx, ex in enumerate(examples):
