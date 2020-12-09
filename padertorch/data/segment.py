@@ -48,8 +48,8 @@ class Segmenter:
         [32000 63999]
 
         Segmenting can be disabled by setting `length=-1`.
-        >>> Segmenter(length=-1, include_keys=('x', 'y'))(ex)[0] == ex
-        True
+        >>> Segmenter(length=-1, include_keys=('x', 'y'))(ex)[0].keys()
+        dict_keys(['num_samples', 'gender', 'x', 'y', 'segment_start', 'segment_stop'])
 
         Check the corner cases.
         >>> ex = {'x': np.arange(64000), 'y': np.arange(64000)}
@@ -182,10 +182,6 @@ class Segmenter:
             to_copy = dict()
         else:
             raise TypeError('Unknown type for copy keys', self.copy_keys)
-        # Shortcut if segmentation is disabled
-        if self.length == -1:
-            to_copy.update(to_segment)
-            return [deflatten(to_copy)]
 
         if any([not isinstance(value, (np.ndarray, torch.Tensor))
                 for value in to_segment.values()]):
@@ -198,6 +194,7 @@ class Segmenter:
 
         to_segment_lengths = [
             v.shape[axis[i]] for i, v in enumerate(to_segment.values())]
+
         assert to_segment_lengths[1:] == to_segment_lengths[:-1], (
             'The shapes along the segment dimension of all entries to segment'
             ' must be equal!\n'
@@ -212,6 +209,12 @@ class Segmenter:
         if to_segment_length < self.length:
             import lazy_dataset
             raise lazy_dataset.FilterException()
+
+        # Shortcut if segmentation is disabled
+        if self.length == -1:
+            to_copy.update(to_segment)
+            to_copy.update(segment_start=0, segment_stop=to_segment_length)
+            return [deflatten(to_copy)]
 
         boundaries, segmented = self.segment(to_segment, to_segment_length,
                                              axis=axis, rng=rng)
