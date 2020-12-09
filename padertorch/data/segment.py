@@ -162,9 +162,6 @@ class Segmenter:
 
         Returns:
         """
-        # Shortcut if segmentation is disabled
-        if self.length == -1:
-            return [example]
 
         example = flatten(example, sep=self.flatten_separator)
 
@@ -174,6 +171,21 @@ class Segmenter:
         to_segment = {
             key: example.pop(key) for key in to_segment_keys
         }
+
+        if all([isinstance(key, str) for key in self.copy_keys]):
+            to_copy = {key: example.pop(key) for key in self.copy_keys}
+        elif self.copy_keys[0] is True:
+            assert len(self.copy_keys) == 1, self.copy_keys
+            to_copy = example
+        elif self.copy_keys[0] is False:
+            assert len(self.copy_keys) == 1, self.copy_keys
+            to_copy = dict()
+        else:
+            raise TypeError('Unknown type for copy keys', self.copy_keys)
+        # Shortcut if segmentation is disabled
+        if self.length == -1:
+            to_copy.update(to_segment)
+            return [deflatten(to_copy)]
 
         if any([not isinstance(value, (np.ndarray, torch.Tensor))
                 for value in to_segment.values()]):
@@ -205,19 +217,9 @@ class Segmenter:
                                              axis=axis, rng=rng)
 
         segmented_examples = list()
-        if all([isinstance(key, str) for key in self.copy_keys]):
-            example = {key: example.pop(key) for key in self.copy_keys}
-        elif self.copy_keys[0] is True:
-            assert len(self.copy_keys) == 1, self.copy_keys
-            pass
-        elif self.copy_keys[0] is False:
-            assert len(self.copy_keys) == 1, self.copy_keys
-            example = {}
-        else:
-            raise TypeError('Unknown type for copy keys', self.copy_keys)
 
         for idx, (start, stop) in enumerate(boundaries):
-            example_copy = copy(example)
+            example_copy = copy(to_copy)
             example_copy.update({key: value[idx]
                                  for key, value in segmented.items()})
             example_copy.update(segment_start=start, segment_stop=stop)
