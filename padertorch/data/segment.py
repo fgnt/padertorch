@@ -336,7 +336,7 @@ def _get_rand_int(rng, *args, **kwargs):
 def get_anchor(
         num_samples: int, length: int, shift: int = None,
         mode: str = 'left', rng=np.random
-):
+) -> int:
     """
     Calculates anchor for the boundaries for segmentation of a signal
     with length `num_sammples` in case of a fixed segment length
@@ -364,6 +364,7 @@ def get_anchor(
 
     Returns:
        integer value describing the anchor
+
     >>> np.random.seed(3)
     >>> get_anchor(24, 10, 3, mode='left')
     0
@@ -409,7 +410,7 @@ def get_segment_boundaries(
         num_samples: int, length: int, shift: int = None,
         anchor: Union[str, int] = 'left', mode: str = 'constant',
         rng=np.random
-):
+) -> np.array:
     """
     Calculates boundaries for segmentation of a signal with length
     `num_samples` in case of a fixed segment length `length` and shift `shift`
@@ -470,9 +471,10 @@ def get_segment_boundaries(
     return boundaries
 
 
-def _get_segment_length_for_mode(num_samples: int, length: int,
-                                 shift: int = None, mode: str = 'constant',
-                                 padding=False):
+def _get_segment_length_for_mode(
+        num_samples: int, length: int, shift: int = None,
+        mode: str = 'constant', padding=False
+):
     """
     This function calculates an optimal segment length assuming that `length`
     is equal to the segment shift. Length can be used in three different ways
