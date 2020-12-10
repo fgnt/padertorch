@@ -2,6 +2,7 @@
     This module contains the Trainer class which can be used to train
     configurable padertorch models.
 """
+import sys
 import contextlib
 import itertools
 import time
