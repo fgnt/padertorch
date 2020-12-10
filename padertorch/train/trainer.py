@@ -624,7 +624,7 @@ class Trainer(Configurable):
 
         return loss, review
 
-    def log_error_state(self, data_dict, folder='log', stdout=sys.stdout):
+    def log_error_state(self, data_dict, folder='log', file=sys.stdout):
         """
 
         Args:
@@ -647,7 +647,7 @@ class Trainer(Configurable):
                     try:
                         super().save(obj, save_persistent_id=save_persistent_id)
                     except Exception as e:
-                        print(f'Cannot pickle {obj!r}, replace it with a str.', file=stdout)
+                        print(f'Cannot pickle {obj!r}, replace it with a str.', file=file)
                         super().save(repr(obj), save_persistent_id=save_persistent_id)
 
             # Not sure, when this happens, but when `torch.save` uses
@@ -671,7 +671,7 @@ class Trainer(Configurable):
                 log_file = (self.storage_dir / folder / f'{k}.log')
                 with log_file.open('w') as fd:
                     traceback.print_exc(file=fd)
-                print(f'Cannot save {k}. {type(e)}: {e}. See {log_file}', file=stdout)
+                print(f'Cannot save {k}. {type(e)}: {e}. See {log_file}', file=file)
 
         written = ','.join(written)
         return str(self.storage_dir / folder / f'error_state_{{{written}}}.pth')

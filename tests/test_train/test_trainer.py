@@ -687,7 +687,7 @@ def test_log_error_state():
             {
                 'file_name': 'simple data',
             },
-            stdout=stdout,
+            file=stdout,
         )
         stdout = stdout.getvalue()
 
@@ -707,7 +707,7 @@ def test_log_error_state():
                 'file_name': 'simple data',
                 'broken_data': {'working': 'works', 'broken': func},
             },
-            stdout=stdout,
+            file=stdout,
         )
         stdout = stdout.getvalue()
 
@@ -729,7 +729,7 @@ def test_log_error_state():
                 {
                     'file_name': 'simple data',
                 },
-                stdout=stdout,
+                file=stdout,
             )
             stdout = stdout.getvalue()
 
