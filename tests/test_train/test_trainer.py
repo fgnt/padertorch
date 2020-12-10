@@ -6,6 +6,10 @@ import textwrap
 import collections
 import copy
 import itertools
+import io
+import functools
+
+import mock
 
 from IPython.lib.pretty import pprint, pretty
 import pytest
@@ -664,3 +668,75 @@ def test_released_tensors():
         )
         t.register_hook(ReleaseTestHook())  # This hook will do the tests
         t.train(tr_dataset)
+
+
+def test_log_error_state():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        t = pt.Trainer(
+            Model(),
+            optimizer=pt.optimizer.Adam(),
+            storage_dir=str(tmp_dir),
+            stop_trigger=(1, 'epoch'),
+            summary_trigger=(1, 'epoch'),
+            checkpoint_trigger=(1, 'epoch'),
+        )
+
+        # Working example
+        stdout = io.StringIO()
+        r = t.log_error_state(
+            {
+                'file_name': 'simple data',
+            },
+            file=stdout,
+        )
+        stdout = stdout.getvalue()
+
+        assert r == f'{tmp_dir}/log/error_state_{{file_name}}.pth', (r, stdout)
+        assert stdout == '', stdout
+
+        with torch.serialization._open_file_like(
+                f'{tmp_dir}/log/error_state_file_name.pth', 'rb'
+        ) as opened_file:
+            assert torch.serialization._is_zipfile(opened_file)
+
+        # Broken example
+        stdout = io.StringIO()
+        func = lambda x: x
+        r = t.log_error_state(
+            {
+                'file_name': 'simple data',
+                'broken_data': {'working': 'works', 'broken': func},
+            },
+            file=stdout,
+        )
+        stdout = stdout.getvalue()
+
+        assert r == f'{tmp_dir}/log/error_state_{{file_name,broken_data}}.pth', r
+        stdout = stdout.splitlines()
+        assert len(stdout) == 1, stdout
+        assert stdout[0] == f'Cannot pickle <function test_log_error_state.<locals>.<lambda> at 0x{id(func):x}>, replace it with a str.'
+
+        assert torch.load(f'{tmp_dir}/log/error_state_file_name.pth') == 'simple data'
+        assert torch.load(f'{tmp_dir}/log/error_state_broken_data.pth') == {'working': 'works', 'broken': f'<function test_log_error_state.<locals>.<lambda> at 0x{id(func):x}>'}
+
+        # TCL reported that his code used `_legacy_save`.
+        # Hence test that the `_legacy_save` works.
+        torch_save = functools.partial(torch.save, _use_new_zipfile_serialization=False)
+        with mock.patch('torch.save', torch_save):
+            # Working example
+            stdout = io.StringIO()
+            r = t.log_error_state(
+                {
+                    'file_name': 'simple data',
+                },
+                file=stdout,
+            )
+            stdout = stdout.getvalue()
+
+            assert r == f'{tmp_dir}/log/error_state_{{file_name}}.pth', (r, stdout)
+            assert stdout == '', stdout
+
+            with torch.serialization._open_file_like(
+                    f'{tmp_dir}/log/error_state_file_name.pth', 'rb'
+            ) as opened_file:
+                assert not torch.serialization._is_zipfile(opened_file)
