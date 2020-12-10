@@ -1,5 +1,5 @@
 from copy import copy
-from typing import Union
+from typing import Union, List
 
 import numpy as np
 import torch
@@ -152,7 +152,7 @@ class Segmenter:
         self.padding = padding
         self.flatten_separator = flatten_separator
 
-    def __call__(self, example, rng=np.random):
+    def __call__(self, example: dict, rng=np.random) -> List[dict]:
         """
 
         Args:
@@ -229,7 +229,8 @@ class Segmenter:
             segmented_examples.append(deflatten(example_copy))
         return segmented_examples
 
-    def segment(self, to_segment, to_segment_length, axis, rng=np.random):
+    def segment(self, to_segment: dict, to_segment_length: int,
+                axis: Union[int, list, tuple, dict] = -1, rng=np.random):
         """
         >>> import numpy as np
         >>> ex = {'x': np.arange(16000), 'y': np.arange(16000)}
@@ -273,7 +274,7 @@ class Segmenter:
         ) for i, (key, signal) in enumerate(to_segment.items())}
         return boundaries, segmented
 
-    def get_to_segment_keys(self, example):
+    def get_to_segment_keys(self, example: dict):
         if self.include is None:
             return [
                 key for key, value in example.items()
@@ -294,7 +295,7 @@ class Segmenter:
                  'in the example', self.include, to_segment_keys)
             return to_segment_keys
 
-    def get_axis_list(self, to_segment_keys):
+    def get_axis_list(self, to_segment_keys: Union[int, dict, list]):
         if isinstance(self.axis, int):
             return [self.axis] * len(to_segment_keys)
         elif isinstance(self.axis, dict):
@@ -469,8 +470,9 @@ def get_segment_boundaries(
     return boundaries
 
 
-def _get_segment_length_for_mode(num_samples, length: int, shift: int = None,
-                                 mode: str = 'constant', padding=False):
+def _get_segment_length_for_mode(num_samples: int, length: int,
+                                 shift: int = None, mode: str = 'constant',
+                                 padding=False):
     """
     This function calculates an optimal segment length assuming that `length`
     is equal to the segment shift. Length can be used in three different ways
@@ -544,9 +546,9 @@ def _get_segment_length_for_mode(num_samples, length: int, shift: int = None,
 
 
 def segment(
-        x, length: int, shift: int = None, anchor: Union[str, int] = 'left',
-        axis: int = -1, mode: str = 'constant',
-        padding: bool = False, rng=np.random
+        x: Union[list, np.ndarray, torch.Tensor], length: int,
+        shift: int = None, anchor: Union[str, int] = 'left', axis: int = -1,
+        mode: str = 'constant', padding: bool = False, rng=np.random
 ):
     """
     Segments a signal `x` along an axis. Either with a predefined anchor for
@@ -554,7 +556,7 @@ def segment(
     anchor if anchor is a string.
 
     Args:
-        x: signal to be segmented
+        x: signal to be segmented, either torch.Tensor or numpy.array
         anchor: anchor from which the segmentation boundaries are calculated.
             if it is a string `get_anchor` is called to calculate an integer
             using `anchor` as anchor mode definition.
