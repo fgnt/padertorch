@@ -1,4 +1,25 @@
-# Configurable: What is it good for?
+# Configurable
+The `Configurable` class allows for a simple initialization of a class from a
+dictionary.
+```python
+from torch import nn
+import padertorch as pt
+config = dict(
+        factory=nn.Linear,
+        in_features=120,
+        out_features=84
+)
+feed_forward_layer = pt.Configurable.from_config(config)
+```
+Here `Configurable` takes the class specified with the `factory` key and
+initializes it using the other items in the dictionary as kwargs.
+Therefore, all parameters not mentioned in the dictionary fallback to the
+defaults.
+In case of nested dictionaries all nested classes with a factory key are first 
+initialized by `Configurable` before using them as input to the upper-level 
+class. 
+
+## Configurable: What is it good for?
 
 The main idea of the `Configurable` object is to simplify the initialization
 of a neural network model from a config dictionary.
@@ -63,7 +84,7 @@ config = dict(
         out_features=10
     ),
 )
-net = pt.Configurable.from_config(update)
+net = pt.Configurable.from_config(config)
 ```
 This initialization looks more complicated than the two possiblities above,
 but it has major upsites.
