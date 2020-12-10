@@ -525,15 +525,30 @@ class Trainer(Configurable):
         return self.step(model, example, self.validate_timer, device)[1:]
 
     def step(self, model, example, timer, device):
-        # TODO: Backup OutOfMemory
-        with timer['time_per_to_device']:
-            example = model.example_to_device(example, device)
-        with timer['time_per_forward']:
-            model_out = model(example)
-        with timer['time_per_review']:
-            review = model.review(example, model_out)
-            loss, summary = self._review_to_loss_and_summary(review)
-            return loss, example, model_out, summary
+        try:
+            # TODO: Backup OutOfMemory
+            with timer['time_per_to_device']:
+                example = model.example_to_device(example, device)
+            with timer['time_per_forward']:
+                model_out = model(example)
+            with timer['time_per_review']:
+                review = model.review(example, model_out)
+                loss, summary = self._review_to_loss_and_summary(review)
+                return loss, example, model_out, summary
+        except Exception:
+            data = {
+                'model': self.model,
+                'state_dict': self.state_dict(),
+                'example': example,
+            }
+            if 'model_out' in locals():
+                data['model_out'] = model_out
+            if 'review' in locals():
+                data['review'] = review
+
+            log_path_pattern = self.log_error_state(data)
+            print(f'Wrote\n{log_path_pattern}\nfor debugging.')
+            raise
 
     def _review_to_loss_and_summary(self, review):
         """
@@ -608,7 +623,7 @@ class Trainer(Configurable):
 
         return loss, review
 
-    def log_error_state(self, data_dict, folder='log'):
+    def log_error_state(self, data_dict, folder='log', stdout=sys.stdout):
         """
 
         Args:
@@ -631,8 +646,15 @@ class Trainer(Configurable):
                     try:
                         super().save(obj, save_persistent_id=save_persistent_id)
                     except Exception as e:
-                        print(f'Cannot pickle {obj!r}, replace it with a str.')
+                        print(f'Cannot pickle {obj!r}, replace it with a str.', file=stdout)
                         super().save(repr(obj), save_persistent_id=save_persistent_id)
+
+            # Not sure, when this happens, but when `torch.save` uses
+            # `_legacy_save`, the MyPickleModule needs a dump function.
+            # Reported from TCL.
+            def dump(self, obj, file, protocol=None, *, fix_imports=True):
+                # copy from pickle source code
+                self.Pickler(file, protocol, fix_imports=fix_imports).dump(obj)
 
         written = []
         for k, v in data_dict.items():
@@ -648,7 +670,7 @@ class Trainer(Configurable):
                 log_file = (self.storage_dir / folder / f'{k}.log')
                 with log_file.open('w') as fd:
                     traceback.print_exc(file=fd)
-                print(f'Cannot save {k}. {type(e)}: {e}. See {log_file}')
+                print(f'Cannot save {k}. {type(e)}: {e}. See {log_file}', file=stdout)
 
         written = ','.join(written)
         return str(self.storage_dir / folder / f'error_state_{{{written}}}.pth')
