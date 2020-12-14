@@ -186,7 +186,7 @@ Padertorch provides a selection of frequently used network architectures and fun
 
 Padertorch especially offers support for training with [sequential data](padertorch/ops/sequence) such as:
 - [Masking](padertorch/ops/sequence/mask.py): Calculate a mask which has non-zero entries for non-padded positions and zero entries for padded positions in the sequence.
-- [Fragmenting](padertorch/data/fragmenter.py): Fragment a sequence into smaller chunks of the same length.
+- [Segmenting](padertorch/data/segment.py): Segment a sequence into smaller chunks of the same length.
 - [Dual-Path RNN (DPRNN)](padertorch/modules/dual_path_rnn.py): See the [paper](https://arxiv.org/abs/1910.06379).
 - [WaveNet](padertorch/modules/wavenet): Synthesize waveforms from spectrograms (supports fast inference with [nv_wavenet](https://github.com/NVIDIA/nv-wavenet)).
 - [Visualization in tensorboard](padertorch/summary/tbx_utils.py): Prepare spectrograms and speech masks for visualization and audio for playback in tensorboard.
