@@ -15,9 +15,13 @@ Here `Configurable` takes the class specified with the `factory` key and
 initializes it using the other items in the dictionary as kwargs.
 Therefore, all parameters not mentioned in the dictionary fallback to the
 defaults.
-In case of nested dictionaries all nested classes with a factory key are first 
-initialized by `Configurable` before using them as input to the upper-level 
-class. 
+In case of nested dictionaries all nested classes with a `factory` key are 
+first initialized by `Configurable` before using them as input to the upper-level 
+class. The value for `factory` may either be class, a function or a string.
+If `factory` is string it must be a python path to a class
+which can be initialized from the dictionary 
+(all inputs without defaults are specified in the dictionary).
+Supporting strings allows for human-readable serializations like yaml or json.
 
 ## Configurable: What is it good for?
 
