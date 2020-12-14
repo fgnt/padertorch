@@ -77,15 +77,20 @@ class MyModel(pt.Module):
       return out
 ```
 
-Additionally, `padertorch.Model` expects a `review` method to be implemented which takes the data and output of the `forward` call as inputs from which it computes the training loss and metrics for logging in tensorboard:
+Additionally, `padertorch.Model` expects a `review` method to be implemented which takes the input and output of the `forward` call as its inputs from which it computes the training loss and metrics for logging in tensorboard.
+The following is an example for a classification problem using the cross-entropy loss:
 
 ```python
 import torch
 
 class MyModel(pt.Model):
 
+  def forward(self, example):
+      output = ...  # e.g., output has shape (N, C), where C is the number of classes
+      return output
+
   def review(self, example, output):
-      # loss computation
+      # loss computation, where example['label'] has shape (N,)
       ce_loss = torch.nn.CrossEntropyLoss()(output, example['label'])
       # compute additional metrics
       with torch.no_grad():
