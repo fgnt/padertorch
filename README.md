@@ -135,6 +135,7 @@ validation_dataset = ...
 
 class MyModel(pt.Model):
     def __init__(self):
+        super().__init__()
         self.net = torch.nn.Sequential(...)
 
     def forward(self, example):
