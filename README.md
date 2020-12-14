@@ -66,10 +66,10 @@ For a light installation, you can drop `[all]`.
 ## A Short Explanation of `padertorch.Module` and `padertorch.Model`
 
 You can build your models upon `padertorch.Module` and `padertorch.Model`.
-Both expect a `forward` method which has the same functionality as the `forward` call of  `torch.nn.Module`: It takes data as input, applies some transformations, and returns the network output:
+Both expect a `forward` method which has the same functionality as the `forward` call of  `torch.nn.Module`: It takes some data as input, applies some transformations, and returns the network output:
 
 ```python
-class MyModel(pt.Model):
+class MyModel(pt.Module):
 
   def forward(self, example):
       x = example['x']
