@@ -8,6 +8,7 @@ import copy
 import itertools
 import io
 import functools
+from distutils.version import LooseVersion
 
 import mock
 
@@ -697,7 +698,10 @@ def test_log_error_state():
         with torch.serialization._open_file_like(
                 f'{tmp_dir}/log/error_state_file_name.pth', 'rb'
         ) as opened_file:
-            assert torch.serialization._is_zipfile(opened_file)
+            if LooseVersion(torch.__version__) >= '1.6':
+                assert torch.serialization._is_zipfile(opened_file)
+            else:
+                assert not torch.serialization._is_zipfile(opened_file)
 
         # Broken example
         stdout = io.StringIO()
