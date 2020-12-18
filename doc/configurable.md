@@ -17,10 +17,19 @@ Therefore, all parameters not mentioned in the dictionary fallback to the
 defaults.
 In case of nested dictionaries all nested classes with a `factory` key are 
 first initialized by `Configurable` before using them as input to the upper-level 
-class. The value for `factory` may either be class, a function or a string.
-If `factory` is string it must be a python path to a class
+class. The value for `factory` may either be a `Callable` (class, a function) 
+or a string. If `factory` is string it must be a python path to a class
 which can be initialized from the dictionary 
-(all inputs without defaults are specified in the dictionary).
+(all inputs without defaults are specified in the dictionary):
+```python
+import padertorch as pt
+config = dict(
+        factory='torch.nn.Linear',
+        in_features=120,
+        out_features=84
+)
+feed_forward_layer = pt.Configurable.from_config(config)
+```
 Supporting strings allows for human-readable serializations like yaml or json.
 
 ## Configurable: What is it good for?
