@@ -252,7 +252,6 @@ def prepare_dataset(
     if shuffle:
         dataset = dataset.shuffle(reshuffle=True, buffer_size=128)
 
-    dataset = dataset.shuffle(reshuffle=True, buffer_size=128)
     dataset = dataset.batch(batch_size)
     dataset = dataset.map(pt.data.batch.Sorter('num_samples'))
     dataset = dataset.map(pt.data.utils.collate_fn)
