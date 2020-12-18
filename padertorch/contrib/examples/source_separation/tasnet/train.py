@@ -20,7 +20,7 @@ from sacred.utils import InvalidConfigError, MissingConfigError
 
 import padertorch as pt
 import padertorch.contrib.examples.source_separation.tasnet.model
-from padertorch.contrib.neumann.chunking import RandomChunkSingle
+from padertorch.data.segment import Segmenter
 
 sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 experiment_name = "tasnet"
@@ -32,7 +32,7 @@ JSON_BASE = os.environ.get('NT_DATABASE_JSONS_DIR', None)
 @ex.config
 def config():
     debug = False
-    batch_size = 4  # Runs on 4GB GPU mem. Can safely be set to 12 on 12 GB (e.g., GTX1080)
+    batch_size = 4
     chunk_size = 32000  # 4s chunks @8kHz
 
     train_dataset = "mix_2_spk_min_tr"
@@ -212,53 +212,63 @@ def pre_batch_transform(inputs):
 
 def prepare_iterable(
         db, dataset: str, batch_size, chunk_size, prefetch=True,
-        iterator_slice=None
+        dataset_slice=None
 ):
     """
     This is re-used in the evaluate script
     """
-    iterator = db.get_dataset(dataset)
+    dataset = db.get_dataset(dataset)
 
-    if iterator_slice is not None:
-        iterator = iterator[iterator_slice]
+    if dataset_slice is not None:
+        dataset = dataset[dataset_slice]
 
-    chunker = RandomChunkSingle(chunk_size, chunk_keys=('y', 's'), axis=-1)
-    iterator = (
-        iterator
+    segmenter = Segmenter(chunk_size, include_keys=('y', 's'), axis=-1)
+
+    def _set_num_samples(example):
+        example['num_samples'] = example['y'].shape[-1]
+        return example
+
+    dataset = (
+        dataset
             .map(pre_batch_transform)
-            .map(chunker)
-            .shuffle(reshuffle=True)
+            .map(segmenter)
+    )
+
+    # FilterExceptions are only raised inside the chunking code if the
+    # example is too short. If chunk_size == -1, no filter exception is raised.
+    catch_exception = segmenter.length > 0
+    if prefetch:
+        dataset = dataset.prefetch(
+            8, 16, catch_filter_exception=catch_exception)
+    elif catch_exception:
+        dataset = dataset.catch()
+
+    dataset = (
+        dataset
+            .unbatch()
+            .map(_set_num_samples)
+            .shuffle(reshuffle=True, buffer_size=128)
             .batch(batch_size)
             .map(pt.data.batch.Sorter('num_samples'))
             .map(pt.data.utils.collate_fn)
     )
 
-    # FilterExceptions are only raised inside the chunking code if the
-    # example is too short. If min_length <= 0 or chunk_size == -1, no filter
-    # exception is raised.
-    catch_exception = chunker.chunk_size != -1 and chunker.min_length > 0
-    if prefetch:
-        iterator = iterator.prefetch(
-            8, 16, catch_filter_exception=catch_exception)
-    elif catch_exception:
-        iterator = iterator.catch()
-
-    return iterator
+    return dataset
 
 
 @ex.capture
 def prepare_iterable_captured(
         database_obj, dataset, batch_size, debug, chunk_size,
-        iterator_slice=None,
+        dataset_slice=None,
 ):
-    if iterator_slice is None:
+    if dataset_slice is None:
         if debug:
-            iterator_slice = slice(0, 100, 1)
+            dataset_slice = slice(0, 100, 1)
 
     return prepare_iterable(
         database_obj, dataset, batch_size, chunk_size,
         prefetch=not debug,
-        iterator_slice=iterator_slice,
+        dataset_slice=dataset_slice,
     )
 
 
@@ -276,7 +286,7 @@ def dump_config_and_makefile(_config):
             MAKEFILE_TEMPLATE_TRAIN
 
         config_path = experiment_dir / "config.json"
-        pb.io.dump_json(_config, config_path)
+        pt.io.dump_config(_config, config_path)
 
         makefile_path.write_text(
             MAKEFILE_TEMPLATE_TRAIN.format(
