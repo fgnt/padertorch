@@ -31,6 +31,25 @@ def test_fixed_anchor():
         np.testing.assert_equal(entry['x'], entry['y'])
 
 
+def test_random_anchor():
+    """
+    Checks fix for random anchor in https://github.com/fgnt/padertorch/pull/91
+    """
+    ex = {'x': np.arange(65000), 'y': np.arange(65000),
+          'num_samples': 65000, 'gender': 'm'}
+
+    segmenter = Segmenter(length=32000, include_keys=('x', 'y'),
+                          shift=32000, anchor='random')
+    segmented = segmenter(ex)
+    assert type(segmented) == list, segmented
+
+    segmenter = Segmenter(length=32000, include_keys=('x', 'y'),
+                          shift=32000, anchor='random_max_segments')
+    segmented = segmenter(ex)
+    assert type(segmented) == list, segmented
+    assert len(segmented) == 2
+
+
 def test_copy_keys():
     segmenter = Segmenter(length=32000, include_keys=('x', 'y'),
                           shift=16000, copy_keys='gender')

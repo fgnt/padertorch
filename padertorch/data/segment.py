@@ -264,7 +264,7 @@ class Segmenter:
             assert isinstance(self.anchor, int), self.anchor
             anchor = self.anchor
         boundaries = get_segment_boundaries(
-            to_segment_length, length, shift, anchor=self.anchor,
+            to_segment_length, length, shift, anchor=anchor,
             mode='constant', rng=rng
         )
 
