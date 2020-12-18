@@ -328,11 +328,13 @@ def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
 
     db = JsonDatabase(database_json)
 
-    # Perform a test run to check if everything works
-    trainer.test_run(
-        prepare_dataset_captured(db, train_dataset, shuffle=True),
-        prepare_dataset_captured(db, validate_dataset, shuffle=False),
+    train_dataset = prepare_dataset_captured(db, train_dataset, shuffle=True)
+    validate_dataset = prepare_dataset_captured(
+        db, validate_dataset, shuffle=False, chunk_size=-1
     )
+
+    # Perform a test run to check if everything works
+    trainer.test_run(train_dataset, validate_dataset)
 
     # Register hooks and start the actual training
 
@@ -347,20 +349,12 @@ def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
         ))
 
         # Don't use LR back-off
-        trainer.register_validation_hook(
-            prepare_dataset_captured(db, validate_dataset, shuffle=False),
-        )
+        trainer.register_validation_hook(validate_dataset)
     else:
         # Use LR back-off
-        trainer.register_validation_hook(
-            prepare_dataset_captured(db, validate_dataset, shuffle=False),
-            n_back_off=5, back_off_patience=3
-        )
+        trainer.register_validation_hook(validate_dataset)
 
-    trainer.train(
-        prepare_dataset_captured(db, train_dataset, shuffle=True),
-        resume=trainer.checkpoint_dir.exists()
-    )
+    trainer.train(train_dataset, resume=trainer.checkpoint_dir.exists())
 
 
 def get_trainer(trainer_config, load_model_from, _log):
