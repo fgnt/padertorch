@@ -380,6 +380,10 @@ def get_anchor(
     10
     >>> get_anchor(24, 10, 3, mode='random_max_segments')
     3
+    >>> get_anchor(100, 100, mode='random')
+    0
+    >>> get_anchor(100, 100, mode='random_max_segments')
+    0
     """
     assert num_samples >= length, (num_samples, length)
     if shift is None:
@@ -396,7 +400,7 @@ def get_anchor(
         remainder = (num_samples - length) % shift
         return remainder // 2
     elif mode == 'random':
-        return _get_rand_int(rng, num_samples - length)
+        return _get_rand_int(rng, num_samples - length + 1)
     elif mode == 'random_max_segments':
         start = _get_rand_int(rng, (num_samples - length) % shift + 1)
         anchors = np.arange(start, num_samples - length + 1, shift)
