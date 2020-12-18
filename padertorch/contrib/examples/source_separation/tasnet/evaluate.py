@@ -26,7 +26,7 @@ from tqdm import tqdm
 
 import padertorch as pt
 from padertorch.contrib.neumann.evaluation import compute_means
-from .train import prepare_iterable
+from .train import prepare_dataset
 
 # Unfortunately need to disable this since conda scipy needs update
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -145,11 +145,12 @@ def main(_run, datasets, debug, experiment_dir, dump_audio,
     results = defaultdict(dict)
     with torch.no_grad():
         for dataset in datasets:
-            iterable = prepare_iterable(
+            iterable = prepare_dataset(
                 db, dataset, 1,
                 chunk_size=-1,
                 prefetch=False,
-                iterator_slice=slice(dlp_mpi.RANK, 20 if debug else None,
+                shuffle=False,
+                dataset_slice=slice(dlp_mpi.RANK, 20 if debug else None,
                                      dlp_mpi.SIZE),
             )
 

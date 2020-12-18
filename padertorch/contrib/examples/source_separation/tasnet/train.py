@@ -210,9 +210,9 @@ def pre_batch_transform(inputs):
     }
 
 
-def prepare_iterable(
-        db, dataset: str, batch_size, chunk_size, prefetch=True,
-        dataset_slice=None
+def prepare_dataset(
+        db, dataset: str, batch_size, chunk_size, shuffle=True,
+        prefetch=True, dataset_slice=None,
 ):
     """
     This is re-used in the evaluate script
@@ -222,18 +222,20 @@ def prepare_iterable(
     if dataset_slice is not None:
         dataset = dataset[dataset_slice]
 
-    segmenter = Segmenter(chunk_size, include_keys=('y', 's'), axis=-1)
+    segmenter = Segmenter(
+        chunk_size, include_keys=('y', 's'), axis=-1,
+        anchor='random' if shuffle else 'left',
+    )
 
     def _set_num_samples(example):
         example['num_samples'] = example['y'].shape[-1]
         return example
 
-    dataset = (
-        dataset
-            .shuffle(reshuffle=True)
-            .map(pre_batch_transform)
-            .map(segmenter)
-    )
+    if shuffle:
+        dataset = dataset.shuffle(reshuffle=True)
+
+    dataset = dataset.map(pre_batch_transform)
+    dataset = dataset.map(segmenter)
 
     # FilterExceptions are only raised inside the chunking code if the
     # example is too short. If chunk_size == -1, no filter exception is raised.
@@ -244,30 +246,32 @@ def prepare_iterable(
     elif catch_exception:
         dataset = dataset.catch()
 
-    dataset = (
-        dataset
-            .unbatch()
-            .map(_set_num_samples)
-            .shuffle(reshuffle=True, buffer_size=128)
-            .batch(batch_size)
-            .map(pt.data.batch.Sorter('num_samples'))
-            .map(pt.data.utils.collate_fn)
-    )
+    dataset = dataset.unbatch()
+    dataset = dataset.map(_set_num_samples)
+
+    if shuffle:
+        dataset = dataset.shuffle(reshuffle=True, buffer_size=128)
+
+    dataset = dataset.shuffle(reshuffle=True, buffer_size=128)
+    dataset = dataset.batch(batch_size)
+    dataset = dataset.map(pt.data.batch.Sorter('num_samples'))
+    dataset = dataset.map(pt.data.utils.collate_fn)
 
     return dataset
 
 
 @ex.capture
-def prepare_iterable_captured(
+def prepare_dataset_captured(
         database_obj, dataset, batch_size, debug, chunk_size,
-        dataset_slice=None,
+        shuffle, dataset_slice=None,
 ):
     if dataset_slice is None:
         if debug:
             dataset_slice = slice(0, 100, 1)
 
-    return prepare_iterable(
+    return prepare_dataset(
         database_obj, dataset, batch_size, chunk_size,
+        shuffle=shuffle,
         prefetch=not debug,
         dataset_slice=dataset_slice,
     )
@@ -327,8 +331,8 @@ def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
 
     # Perform a test run to check if everything works
     trainer.test_run(
-        prepare_iterable_captured(db, train_dataset),
-        prepare_iterable_captured(db, validate_dataset),
+        prepare_dataset_captured(db, train_dataset, shuffle=True),
+        prepare_dataset_captured(db, validate_dataset, shuffle=False),
     )
 
     # Register hooks and start the actual training
@@ -345,17 +349,17 @@ def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
 
         # Don't use LR back-off
         trainer.register_validation_hook(
-            prepare_iterable_captured(db, validate_dataset),
+            prepare_dataset_captured(db, validate_dataset, shuffle=False),
         )
     else:
         # Use LR back-off
         trainer.register_validation_hook(
-            prepare_iterable_captured(db, validate_dataset),
+            prepare_dataset_captured(db, validate_dataset, shuffle=False),
             n_back_off=5, back_off_patience=3
         )
 
     trainer.train(
-        prepare_iterable_captured(db, train_dataset),
+        prepare_dataset_captured(db, train_dataset, shuffle=True),
         resume=trainer.checkpoint_dir.exists()
     )
 
@@ -381,8 +385,8 @@ def test_run(_run, _log, trainer, train_dataset, validate_dataset,
 
     # Perform a test run to check if everything works
     trainer.test_run(
-        prepare_iterable_captured(db, train_dataset),
-        prepare_iterable_captured(db, validate_dataset),
+        prepare_dataset_captured(db, train_dataset, shuffle=True),
+        prepare_dataset_captured(db, validate_dataset, shuffle=True),
     )
 
 
