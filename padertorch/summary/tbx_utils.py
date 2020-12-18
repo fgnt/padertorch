@@ -321,20 +321,23 @@ def figure(
     Checks a figure to be passed on to tensorboardX.
 
     Makes sure that:
-        - The figure exists (i.e., is not None)
+        - The figure is a figure (i.e., subclass of `matplotlib.figure.Figure`)
         - The figure is not empty (i.e., contains at least one axis)
 
     Args:
         fig: The figure to plot. This is directly passed to tensorboardX.
+            Defaults to `plt.gcf()` if `None`.
         close: If `True`, closes the figure to prevent modifications.
 
     Returns:
         The input figure
     """
+    from matplotlib.figure import Figure
     if fig is None:
         from matplotlib import pyplot as plt
         fig = plt.gcf()
 
+    assert isinstance(fig, Figure), fig
     assert len(fig.axes) > 0, (
         'Empty plot detected. You probably wanted to plot something.'
     )

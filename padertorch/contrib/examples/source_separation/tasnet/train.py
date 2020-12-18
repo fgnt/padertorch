@@ -20,7 +20,7 @@ from sacred.utils import InvalidConfigError, MissingConfigError
 
 import padertorch as pt
 import padertorch.contrib.examples.source_separation.tasnet.model
-from padertorch.contrib.neumann.chunking import RandomChunkSingle
+from padertorch.data.segment import Segmenter
 
 sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False
 experiment_name = "tasnet"
@@ -210,55 +210,69 @@ def pre_batch_transform(inputs):
     }
 
 
-def prepare_iterable(
-        db, dataset: str, batch_size, chunk_size, prefetch=True,
-        iterator_slice=None
+def prepare_dataset(
+        db, dataset: str, batch_size, chunk_size, shuffle=True,
+        prefetch=True, dataset_slice=None,
 ):
     """
     This is re-used in the evaluate script
     """
-    iterator = db.get_dataset(dataset)
+    dataset = db.get_dataset(dataset)
 
-    if iterator_slice is not None:
-        iterator = iterator[iterator_slice]
+    if dataset_slice is not None:
+        dataset = dataset[dataset_slice]
 
-    chunker = RandomChunkSingle(chunk_size, chunk_keys=('y', 's'), axis=-1)
-    iterator = (
-        iterator
-            .map(pre_batch_transform)
-            .map(chunker)
-            .shuffle(reshuffle=True)
-            .batch(batch_size)
-            .map(pt.data.batch.Sorter('num_samples'))
-            .map(pt.data.utils.collate_fn)
+    segmenter = Segmenter(
+        chunk_size, include_keys=('y', 's'), axis=-1,
+        anchor='random' if shuffle else 'left',
     )
 
+    def _set_num_samples(example):
+        example['num_samples'] = example['y'].shape[-1]
+        return example
+
+    if shuffle:
+        dataset = dataset.shuffle(reshuffle=True)
+
+    dataset = dataset.map(pre_batch_transform)
+    dataset = dataset.map(segmenter)
+
     # FilterExceptions are only raised inside the chunking code if the
-    # example is too short. If min_length <= 0 or chunk_size == -1, no filter
-    # exception is raised.
-    catch_exception = chunker.chunk_size != -1 and chunker.min_length > 0
+    # example is too short. If chunk_size == -1, no filter exception is raised.
+    catch_exception = segmenter.length > 0
     if prefetch:
-        iterator = iterator.prefetch(
+        dataset = dataset.prefetch(
             8, 16, catch_filter_exception=catch_exception)
     elif catch_exception:
-        iterator = iterator.catch()
+        dataset = dataset.catch()
 
-    return iterator
+    dataset = dataset.unbatch()
+    dataset = dataset.map(_set_num_samples)
+
+    if shuffle:
+        dataset = dataset.shuffle(reshuffle=True, buffer_size=128)
+
+    dataset = dataset.batch(batch_size)
+    dataset = dataset.map(pt.data.batch.Sorter('num_samples'))
+    dataset = dataset.map(pt.data.utils.collate_fn)
+
+    return dataset
 
 
 @ex.capture
-def prepare_iterable_captured(
+def prepare_dataset_captured(
         database_obj, dataset, batch_size, debug, chunk_size,
-        iterator_slice=None,
+        shuffle, dataset_slice=None,
 ):
-    if iterator_slice is None:
+    if dataset_slice is None:
         if debug:
-            iterator_slice = slice(0, 100, 1)
+            dataset_slice = slice(0, 100, 1)
 
-    return prepare_iterable(
+    return prepare_dataset(
         database_obj, dataset, batch_size, chunk_size,
+        shuffle=shuffle,
         prefetch=not debug,
-        iterator_slice=iterator_slice,
+        dataset_slice=dataset_slice,
     )
 
 
@@ -276,7 +290,7 @@ def dump_config_and_makefile(_config):
             MAKEFILE_TEMPLATE_TRAIN
 
         config_path = experiment_dir / "config.json"
-        pb.io.dump_json(_config, config_path)
+        pt.io.dump_config(_config, config_path)
 
         makefile_path.write_text(
             MAKEFILE_TEMPLATE_TRAIN.format(
@@ -310,15 +324,17 @@ def init(_config, _run):
 def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
                       lr_scheduler_step, lr_scheduler_gamma,
                       load_model_from, database_json):
-    trainer = get_trainer(trainer, load_model_from)
+    trainer = get_trainer(trainer, load_model_from, _log)
 
     db = JsonDatabase(database_json)
 
-    # Perform a test run to check if everything works
-    trainer.test_run(
-        prepare_iterable_captured(db, train_dataset),
-        prepare_iterable_captured(db, validate_dataset),
+    train_dataset = prepare_dataset_captured(db, train_dataset, shuffle=True)
+    validate_dataset = prepare_dataset_captured(
+        db, validate_dataset, shuffle=False, chunk_size=-1
     )
+
+    # Perform a test run to check if everything works
+    trainer.test_run(train_dataset, validate_dataset)
 
     # Register hooks and start the actual training
 
@@ -333,23 +349,17 @@ def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
         ))
 
         # Don't use LR back-off
-        trainer.register_validation_hook(
-            prepare_iterable_captured(db, validate_dataset),
-        )
+        trainer.register_validation_hook(validate_dataset)
     else:
         # Use LR back-off
         trainer.register_validation_hook(
-            prepare_iterable_captured(db, validate_dataset),
-            n_back_off=5, back_off_patience=3
+            validate_dataset,  n_back_off=5, back_off_patience=3
         )
 
-    trainer.train(
-        prepare_iterable_captured(db, train_dataset),
-        resume=trainer.checkpoint_dir.exists()
-    )
+    trainer.train(train_dataset, resume=trainer.checkpoint_dir.exists())
 
 
-def get_trainer(trainer_config, load_model_from):
+def get_trainer(trainer_config, load_model_from, _log):
     trainer = pt.Trainer.from_config(trainer_config)
 
     checkpoint_path = trainer.checkpoint_dir / 'ckpt_latest.pth'
@@ -364,14 +374,14 @@ def get_trainer(trainer_config, load_model_from):
 @ex.command
 def test_run(_run, _log, trainer, train_dataset, validate_dataset,
                       load_model_from, database_json):
-    trainer = get_trainer(trainer, load_model_from)
+    trainer = get_trainer(trainer, load_model_from, _log)
 
     db = JsonDatabase(database_json)
 
     # Perform a test run to check if everything works
     trainer.test_run(
-        prepare_iterable_captured(db, train_dataset),
-        prepare_iterable_captured(db, validate_dataset),
+        prepare_dataset_captured(db, train_dataset, shuffle=True),
+        prepare_dataset_captured(db, validate_dataset, shuffle=True),
     )
 
 
