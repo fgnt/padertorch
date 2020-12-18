@@ -32,7 +32,7 @@ JSON_BASE = os.environ.get('NT_DATABASE_JSONS_DIR', None)
 @ex.config
 def config():
     debug = False
-    batch_size = 4
+    batch_size = 4  # Runs on 4GB GPU mem. Can safely be set to 12 on 12 GB (e.g., GTX1080)
     chunk_size = 32000  # 4s chunks @8kHz
 
     train_dataset = "mix_2_spk_min_tr"
