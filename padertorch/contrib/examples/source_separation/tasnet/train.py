@@ -352,7 +352,9 @@ def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
         trainer.register_validation_hook(validate_dataset)
     else:
         # Use LR back-off
-        trainer.register_validation_hook(validate_dataset)
+        trainer.register_validation_hook(
+            validate_dataset,  n_back_off=5, back_off_patience=3
+        )
 
     trainer.train(train_dataset, resume=trainer.checkpoint_dir.exists())
 
