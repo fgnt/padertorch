@@ -230,6 +230,7 @@ def prepare_iterable(
 
     dataset = (
         dataset
+            .shuffle(reshuffle=True)
             .map(pre_batch_transform)
             .map(segmenter)
     )
