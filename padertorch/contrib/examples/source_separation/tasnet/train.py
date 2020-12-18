@@ -324,7 +324,7 @@ def init(_config, _run):
 def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
                       lr_scheduler_step, lr_scheduler_gamma,
                       load_model_from, database_json):
-    trainer = get_trainer(trainer, load_model_from)
+    trainer = get_trainer(trainer, load_model_from, _log)
 
     db = JsonDatabase(database_json)
 
@@ -363,7 +363,7 @@ def prepare_and_train(_run, _log, trainer, train_dataset, validate_dataset,
     )
 
 
-def get_trainer(trainer_config, load_model_from):
+def get_trainer(trainer_config, load_model_from, _log):
     trainer = pt.Trainer.from_config(trainer_config)
 
     checkpoint_path = trainer.checkpoint_dir / 'ckpt_latest.pth'
@@ -378,7 +378,7 @@ def get_trainer(trainer_config, load_model_from):
 @ex.command
 def test_run(_run, _log, trainer, train_dataset, validate_dataset,
                       load_model_from, database_json):
-    trainer = get_trainer(trainer, load_model_from)
+    trainer = get_trainer(trainer, load_model_from, _log)
 
     db = JsonDatabase(database_json)
 
