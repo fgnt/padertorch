@@ -1,4 +1,4 @@
-# Running Experiments with sacred
+# Running experiments with sacred
 
 [sacred](https://github.com/IDSIA/sacred) is a package that simplifies running experiments by
 
@@ -441,5 +441,5 @@ import padertorch as pt
 model = pt.Model.from_storage_dir('/path/to/the/storage/dir')
 ```
 
-Note that we have to save the configuration manually for this to work because the FileStorageObserver doesn't save
+Note that we have to save the configuration manually for this to work because the `FileStorageObserver` doesn't save
  the configuration in a fixed folder.
