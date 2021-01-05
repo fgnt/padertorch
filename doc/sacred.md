@@ -15,9 +15,9 @@ For real-world examples of how to use sacred in a deep-learning context with `pa
  
 ## Experiment structure with sacred
 
-Padertorch uses the [`padertorch.Configurable`](doc/configurable.md) for all its components to easily create
+Padertorch uses the [`padertorch.Configurable`](configurable.md) for all its components to easily create
  instances from configuration dictionaries.
-`sacred` handles the part of creating the configuration dictionaries in a easy and reproducible way.
+`sacred` handles the part of creating the configuration dictionaries in an easy and reproducible way.
 `sacred` provides a base class for experiments, called `Experiment`, that handles everything related to experiments.
 When instantiating, it requires an experiment name:
 
@@ -69,7 +69,7 @@ For more information about how sacred handles configuration, have a look at the 
 The configuration for a training experiment could look like the following example.
 It contains a config scope (`@ex.config`) and multiple named configs (`@ex.named_config`).
 It uses functions from the `Configurable` to fill the configuration with missing arguments.
-Have a look at the `Configurable` documentation [here](doc/configurable.md) for more information about the structure
+Have a look at the `Configurable` documentation [here](configurable.md) for more information about the structure
  of the configuration `dict`.
 
 ```python
@@ -143,7 +143,9 @@ def large():
     }
 
 @ex.automain
-def main(...):
+def main(trainer, ...):
+    # Create trainer from config (Configurable)
+    trainer = pt.Trainer.from_config(trainer)
     ... # Run your experiment here
 ```
 
@@ -192,10 +194,10 @@ def main(_config):
 A core part of sacred are the so called ["Observers"](https://sacred.readthedocs.io/en/stable/observers.html) in `sacred.observers`.
 Observers keep track of important information and store them in a database (e.g., `sacred.observers.MongoObserver
 `) or on the disk (`sacred.observers.FileStorageObserver`).
-We recommend to use the `FileStorageObserver` because it does not depend on an external server and the data can
+We recommend using the `FileStorageObserver` because it does not depend on an external server, and the data can
  easily be viewed on the command line.
 You can add an `Observer` to an experiment by appending it to the list of observers.
-We recommend to do this in a config scope so that you can use configuration values, such as the experiment path, to
+We recommend doing this in a config scope so that you can use configuration values, such as the experiment path, to
  initialize the observer.
 
 ```python
@@ -308,7 +310,7 @@ def large():
 
 @ex.capture
 def get_trainer(trainer):
-    """This is a captured function. Its arguments are filles with the 
+    """This is a captured function. Its arguments are filled with the 
     configuration values by sacred. It can be called without providing arguments
     within a sacred experiment.
     """
