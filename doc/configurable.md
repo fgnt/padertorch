@@ -204,10 +204,10 @@ Net(
 For more example on how to use finalize_dogmatic_config please refer to the
 class doctest, our toy example or our example models.
 
-Configaurable is designed to work with sacred to simplify the config generation
+Configurable is designed to work with sacred to simplify the config generation
 and allow for changes in the configuration from the training script call.
-For more information on how to work with sacred visit our documentation on
-training with sacred: enter link here.
+For more information on how to work with sacred visit our sacred documentation
+[here](sacred.md).
 
 Furthermore, Configurable allows for easily reproducable evaluations by 
 initializing the model from a model directory without knowledge about the
