@@ -634,10 +634,12 @@ class DPRNN(torch.nn.Module):
         if isinstance(sequence, PackedSequence):
             warnings.warn(
                 'DPRNN does not support packed sequences. Unpacking it again!')
-            sequence = pad_packed_sequence(sequence, batch_first=True)
+            sequence, sequence_lengths = pad_packed_sequence(
+                sequence, batch_first=True
+            )
 
         # Make sure that the sequence lengths are a Tensor
-        if not torch.is_tensor(sequence_lengths):
+        if not torch.is_tensor(sequence_lengths) and sequence_lengths is not None:
             sequence_lengths = torch.tensor(sequence_lengths)
 
         # Segment
