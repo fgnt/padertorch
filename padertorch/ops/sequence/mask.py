@@ -3,7 +3,7 @@ from typing import Union, List
 
 
 def compute_mask(x: torch.Tensor,
-                 sequence_lengths: Union[List[int], int] = None,
+                 sequence_lengths: Union[List[int], int],
                  batch_axis: int = 0, sequence_axis: int = 1):
     """
     This function calculates a mask which indicates the position
