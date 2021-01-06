@@ -2,8 +2,9 @@ import torch
 from typing import Union, List
 
 
-def compute_mask(x, sequence_lengths: Union[List[int], int] = None,
-                 batch_axis=0, sequence_axis=1):
+def compute_mask(x: torch.Tensor,
+                 sequence_lengths: Union[List[int], int] = None,
+                 batch_axis: int = 0, sequence_axis: int = 1):
     """
     This function calculates a mask which indicates the position
     of non-padded values.
