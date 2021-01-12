@@ -119,7 +119,7 @@ def stft_to_image(
         Colorized image with shape (color (1 or 3), features, frames)
 
 
-    Comparison with `paderbox.visualization.plot.stft`
+    Small test to see the effect of `visible_dB`:
 
         >>> visible_dB = 60
         >>> 10 ** (-visible_dB / 20)
@@ -132,15 +132,6 @@ def stft_to_image(
         >>> np.squeeze(stft_to_image(
         ...     np.array(data)[:, None], color=None, visible_dB=60))
         array([255,  51,  40,   1,   0], dtype=uint8)
-
-        >>> import matplotlib
-        >>> matplotlib.use('Agg')
-        >>> from paderbox.visualization import plot
-        >>> ax = plot.stft(np.array(data)[:, None])
-        >>> np.squeeze(plot.stft(
-        ...     np.array(data)[:, None]).get_images()[0].get_array().data)
-        array([  0.        , -47.95880017, -50.45757491, -59.57621402,
-               -60.        ])
 
     """
     signal = to_numpy(signal, detach=True)
