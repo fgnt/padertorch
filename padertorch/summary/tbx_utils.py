@@ -96,7 +96,8 @@ def stft_to_image(
         signal: _T_input,
         batch_first: bool = False,
         color: str = 'viridis',
-        origin: str = 'lower'
+        origin: str = 'lower',
+        visible_dB: float = 50,
 ) -> np.ndarray:
     """
     Creates an image from an STFT signal.
@@ -109,14 +110,38 @@ def stft_to_image(
                `matplotlib.pyplot.cm.get_cmap` to get the color map. If `None`,
                grayscale is used.
         origin: Origin of the plot. Can be `'upper'` or `'lower'`.
+        visible_dB: How many dezibel are visible in the image.
+                    Note: `paderbox.visualization.plot.stft` uses
+                          `visible_dB == 60` internally. So by default it shows
+                          10 dB more.
 
     Returns:
         Colorized image with shape (color (1 or 3), features, frames)
+
+
+    Small test to see the effect of `visible_dB`:
+
+        >>> visible_dB = 60
+        >>> 10 ** (-visible_dB / 20)
+        0.001
+
+        >>> data = [1, 0.004, 0.003, 0.001_05, 0.001]
+        >>> np.squeeze(stft_to_image(np.array(data)[:, None], color=None))
+        array([255,  10,   0,   0,   0], dtype=uint8)
+
+        >>> np.squeeze(stft_to_image(
+        ...     np.array(data)[:, None], color=None, visible_dB=60))
+        array([255,  51,  40,   1,   0], dtype=uint8)
+
     """
     signal = to_numpy(signal, detach=True)
 
     return spectrogram_to_image(
-        np.abs(signal), batch_first=batch_first, color=color, origin=origin,
+        signal.real ** 2 + signal.imag ** 2,
+        batch_first=batch_first,
+        color=color,
+        origin=origin,
+        visible_dB=visible_dB,
     )
 
 
@@ -186,10 +211,11 @@ def spectrogram_to_image(
         batch_first: bool = False,
         color: str = 'viridis',
         origin: str = 'lower',
-        log: bool = True
+        log: bool = True,
+        visible_dB: float = 50,
 ) -> np.ndarray:
     """
-    Creates an image from a spectrogram.
+    Creates an image from a spectrogram (power).
 
     For more details of the output shape, see the tensorboardx docs
 
@@ -203,10 +229,14 @@ def spectrogram_to_image(
                `matplotlib.pyplot.cm.get_cmap` to get the color map.
         origin: Origin of the plot. Can be `'upper'` or `'lower'`.
         log: If `True`, the spectrogram is plotted in log domain and shows a
-            50dB range.
+            50dB range. The 50dB can be changed with the argument `visible_dB`.
+        visible_dB: Only used when `log` is `True`. Specifies how many dB will
+            be visible in the plot. Assumes the input is the power of the STFT
+            signal, i.e., the abs square of it.
 
     Returns:
         Colorized image with shape (channels (3), features, frames)
+
     """
     signal = to_numpy(signal, detach=True)
 
@@ -215,14 +245,12 @@ def spectrogram_to_image(
     signal = _remove_batch_axis(signal, batch_first=batch_first)
 
     if log:
-        visible_dB = 50
-
         # remove problematic small numbers
-        floor = 10 ** (-visible_dB / 20)
+        floor = 10 ** (-visible_dB / 10)
         signal = np.maximum(signal, floor)
 
         # Scale such that X dB are visible (i.e. in the range 0 to 1)
-        signal = (20 / visible_dB) * np.log10(signal) + 1
+        signal = (10 / visible_dB) * np.log10(signal) + 1
 
     signal = (signal * 255).astype(np.uint8)
 
