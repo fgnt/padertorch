@@ -43,7 +43,8 @@ def split_dataset(dataset, fold, nfolds=5, seed=0):
     [array([1, 3]), array([2, 4, 5])]
     """
     indices = np.arange(len(dataset))
-    np.random.RandomState(seed).shuffle(indices)
+    if seed is not None:
+        np.random.RandomState(seed).shuffle(indices)
     folds = np.split(
         indices,
         np.linspace(0, len(dataset), nfolds + 1)[1:-1].astype(np.int64)

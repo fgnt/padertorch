@@ -112,9 +112,9 @@ class SuperposeEvents:
         stft_shape = list(components[0]['stft'].shape)
         stft_shape[1] = stop_indices.max()
         mixed_stft = np.zeros(stft_shape, dtype=components[0]['stft'].dtype)
-        if 'events_alignment' in components[0]:
-            assert all(['events_alignment' in comp for comp in components])
-            alignment_shape = list(components[0]['events_alignment'].shape)
+        if 'events' in components[0] and components[0]['events'].ndim >= 2:
+            assert all([('events' in comp and comp['events'].ndim == 2) for comp in components])
+            alignment_shape = list(components[0]['events'].shape)
             alignment_shape[1] = stop_indices.max()
             mixed_alignment = np.zeros(alignment_shape)
         else:
@@ -122,7 +122,7 @@ class SuperposeEvents:
         for comp, start, stop in zip(components, start_indices, stop_indices):
             mixed_stft[:, start:stop] += comp['stft']
             if mixed_alignment is not None:
-                mixed_alignment[:, start:stop] += comp['events_alignment']
+                mixed_alignment[:, start:stop] += comp['events']
 
         mix = {
             'example_id': '+'.join([comp['example_id'] for comp in components]),
@@ -130,8 +130,8 @@ class SuperposeEvents:
             'stft': mixed_stft,
             'seq_len': mixed_stft.shape[1],
         }
-        if all(['events' in comp for comp in components]):
-            mix['events'] = (np.sum([comp['events'] for comp in components], axis=0) > .5).astype(components[0]['events'].dtype)
         if mixed_alignment is not None:
-            mix['events_alignment'] = (mixed_alignment > .5).astype(components[0]['events_alignment'].dtype)
+            mix['events'] = (mixed_alignment > .5).astype(components[0]['events'].dtype)
+        elif all(['events' in comp for comp in components]):
+            mix['events'] = (np.sum([comp['events'] for comp in components], axis=0) > .5).astype(components[0]['events'].dtype)
         return mix
