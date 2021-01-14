@@ -206,7 +206,7 @@ class Segmenter:
         to_segment_length = to_segment_lengths[0]
 
         # Discard examples that are shorter than `length`
-        if to_segment_length < self.length:
+        if not self.mode == 'max' and to_segment_length < self.length:
             import lazy_dataset
             raise lazy_dataset.FilterException()
 
