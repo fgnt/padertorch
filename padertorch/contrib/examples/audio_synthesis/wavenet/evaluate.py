@@ -25,9 +25,7 @@ ex = Experiment('wavenet-eval')
 def config():
     exp_dir = ''
     assert len(exp_dir) > 0, 'Set the exp_dir on the command line.'
-    storage_dir = get_new_subdir(
-        Path(exp_dir) / 'eval', id_naming='time', consider_mpi=True
-    )
+    storage_dir = str(Path(exp_dir) / 'eval')
     database_json = load_json(Path(exp_dir) / 'config.json')["database_json"]
     test_set = 'test_clean'
     max_examples = None
@@ -42,7 +40,8 @@ def main(_run, exp_dir, storage_dir, database_json, test_set, max_examples, devi
 
     exp_dir = Path(exp_dir)
     storage_dir = Path(storage_dir)
-    audio_dir = storage_dir / 'audio'
+    eval_dir = get_new_subdir(storage_dir, id_naming='time', consider_mpi=True)
+    audio_dir = eval_dir / 'audio'
     audio_dir.mkdir(parents=True)
 
     config = load_json(exp_dir / 'config.json')
@@ -57,7 +56,7 @@ def main(_run, exp_dir, storage_dir, database_json, test_set, max_examples, devi
         test_data = test_data.shuffle(rng=np.random.RandomState(0))[:max_examples]
     test_data = prepare_dataset(
         test_data, audio_reader=config['audio_reader'], stft=config['stft'],
-        max_length=None, batch_size=1, shuffle=True
+        max_length_in_sec=None, batch_size=1, shuffle=False
     )
     squared_err = list()
     with torch.no_grad():
@@ -70,10 +69,11 @@ def main(_run, exp_dir, storage_dir, database_json, test_set, max_examples, devi
             x = model.feature_extraction(example['stft'], example['seq_len'])
             x = model.wavenet.infer(
                 x.squeeze(1),
-                chunk_length=80_000,
+                chunk_length=48_000,
                 chunk_overlap=16_000,
             )
-            assert target.shape == x.shape, (target.shape, x.shape)
+            assert config['stft']['shift'] > (x.shape[-1] - target.shape[-1]) >= 0, (target.shape, x.shape)
+            x = x[..., :target.shape[-1]]
             squared_err.extend([
                 (ex_id, mse.cpu().detach().numpy(), x.shape[1])
                 for ex_id, mse in zip(
@@ -94,7 +94,7 @@ def main(_run, exp_dir, storage_dir, database_json, test_set, max_examples, devi
             [(ex_id, np.sqrt(err/t)) for ex_id, err, t in squared_err],
             key=lambda x: x[1]
         )
-        dump_json(rmse, storage_dir / 'rmse.json', indent=4, sort_keys=False)
+        dump_json(rmse, eval_dir / 'rmse.json', indent=4, sort_keys=False)
         ex_ids_ordered = [x[0] for x in rmse]
         test_data = db.get_dataset('test_clean').shuffle(
             rng=np.random.RandomState(0))[:max_examples].filter(
@@ -103,7 +103,7 @@ def main(_run, exp_dir, storage_dir, database_json, test_set, max_examples, devi
         )
         test_data = prepare_dataset(
             test_data, audio_reader=config['audio_reader'], stft=config['stft'],
-            max_length=10., batch_size=1, shuffle=True
+            max_length_in_sec=None, batch_size=1, shuffle=False
         )
         with torch.no_grad():
             for example in test_data:
@@ -111,7 +111,7 @@ def main(_run, exp_dir, storage_dir, database_json, test_set, max_examples, devi
                 x = model.feature_extraction(example['stft'], example['seq_len'])
                 x = model.wavenet.infer(
                     x.squeeze(1),
-                    chunk_length=80_000,
+                    chunk_length=48_000,
                     chunk_overlap=16_000,
                 )
                 for i, audio in enumerate(x.cpu().detach().numpy()):

@@ -7,6 +7,7 @@ python -m padertorch.contrib.examples.sound_recognition.audio_tagging.train
 import os
 from pathlib import Path
 
+from paderbox.utils.random_utils import Uniform
 from padertorch import Trainer
 from padertorch.contrib.examples.sound_recognition.audio_tagging.data import \
     get_datasets
@@ -15,6 +16,7 @@ from padertorch.contrib.examples.sound_recognition.audio_tagging.model import \
 from padertorch.io import get_new_storage_dir
 from padertorch.train.optimizer import Adam
 from sacred import Experiment, commands
+from sacred.observers import FileStorageObserver
 
 ex = Experiment('audio_tagging')
 
@@ -52,7 +54,7 @@ def config():
         'model': {
             'factory': WALNet,
             'sample_rate': audio_reader['target_sample_rate'],
-            'fft_length': stft['size'],
+            'stft_size': stft['size'],
             'output_size': 527,
         },
         'optimizer': {
@@ -71,6 +73,7 @@ def config():
     validation_metric = 'map'
     maximize_metric = True
     resume = False
+    ex.observers.append(FileStorageObserver.create(trainer['storage_dir']))
 
 
 @ex.automain
@@ -92,7 +95,10 @@ def main(
         audio_reader=audio_reader, stft=stft, num_workers=num_workers,
         batch_size=batch_size, max_padding_rate=max_padding_rate,
         training_set=training_set, storage_dir=storage_dir,
-        mixup_probs=(1/2, 1/2), max_mixup_length=12., min_mixup_overlap=.8,
+        stft_stretch_factor_sampling_fn=Uniform(low=0.5, high=1.5),
+        stft_segment_length=audio_reader['target_sample_rate'],
+        stft_segment_shuffle_prob=0.,
+        mixup_probs=(1/2, 1/2), max_mixup_length=15., min_mixup_overlap=.8,
     )
 
     trainer.test_run(training_data, validation_data)

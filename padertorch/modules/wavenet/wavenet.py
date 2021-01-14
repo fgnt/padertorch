@@ -137,20 +137,9 @@ class WaveNet(Module):
             self.skip_layers.append(skip_layer)
 
     def forward(self, features, audio):
-        cond_input = self.upsample(features)
         quantized = mu_law_encode(audio).long()
-
-        if self.fading is not None:
-            assert self.fading in ['half', 'full']
-            pad_width = self.upsamp_window - self.upsamp_stride
-            if self.fading == 'half':
-                pad_width //= 2
-            assert (
-                quantized.size(1) + 2*pad_width
-                <= cond_input.size(2)
-                < quantized.size(1) + 2*pad_width + self.upsamp_stride
-            ), (cond_input.shape, quantized.shape, features.shape)
-            cond_input = cond_input[:, :, pad_width:]
+        cond_input = self.get_cond_input(features)
+        assert self.upsamp_stride > (cond_input.shape[-1] - quantized.shape[1]) >= 0, (quantized.shape, cond_input.shape)
         cond_input = cond_input[:, :, :quantized.size(1)]
 
         forward_input = self.embed(quantized)
@@ -189,6 +178,23 @@ class WaveNet(Module):
         output = torch.cat((first, output), dim=2)
 
         return output, quantized
+
+    def get_cond_input(self, features):
+        """
+        Takes in features and gets the 2*R x batch x # layers x samples tensor
+        """
+        cond_input = self.upsample(features)
+        if self.fading is not None:
+            assert self.fading in ['half', 'full']
+            pad_width = self.upsamp_window - self.upsamp_stride
+            if self.fading == 'half':
+                front_pad = pad_width // 2
+                back_pad = math.ceil(pad_width / 2)
+                cond_input = cond_input[..., front_pad:-back_pad]
+            elif self.fading == 'full':
+                cond_input = cond_input[..., pad_width:-pad_width]
+        cond_input = self.cond_layers(cond_input)
+        return cond_input
 
     def export_weights(self):
         """
@@ -235,20 +241,6 @@ class WaveNet(Module):
 
         return model
 
-    def get_cond_input(self, features):
-        """
-        Takes in features and gets the 2*R x batch x # layers x samples tensor
-        """
-        cond_input = self.upsample(features)
-        time_cutoff = self.upsample.kernel_size[0] - self.upsample.stride[0]
-        cond_input = cond_input[:, :, :-time_cutoff]
-        cond_input = self.cond_layers(cond_input).data
-        cond_input = cond_input.view(
-            cond_input.size(0), self.n_layers, -1, cond_input.size(2))
-        # This makes the data channels x batch x num_layers x samples
-        cond_input = cond_input.permute(2, 0, 1, 3)
-        return cond_input
-
     @cached_property
     def nv_wavenet(self):
         from .nv_wavenet.nv_wavenet import NVWaveNet
@@ -257,6 +249,10 @@ class WaveNet(Module):
     def infer(self, x, chunk_length=None, chunk_overlap=0):
         with torch.no_grad():
             x = self.get_cond_input(x)
+            x = x.view(
+                x.size(0), self.n_layers, -1, x.size(2))
+            # This makes the data channels x batch x num_layers x samples
+            x = x.permute(2, 0, 1, 3)
             length = x.shape[-1]
             if chunk_length is None or length <= chunk_length:
                 chunks = [x]
@@ -278,15 +274,10 @@ class WaveNet(Module):
                 else:
                     from .nv_wavenet.nv_wavenet import Impl
                     xi = self.nv_wavenet.infer(xi, Impl.AUTO)
+                    torch.cuda.synchronize(xi.device)
                     xi = mu_law_decode(xi, self.n_out_channels)
                 if i > 0:
                     xi = xi[..., chunk_overlap:]
                 audio.append(xi)
             audio = torch.cat(tuple(audio), dim=-1)
-            if self.fading is not None:
-                assert self.fading in ['half', 'full']
-                pad_width = self.upsamp_window - self.upsamp_stride
-                if self.fading == 'half':
-                    pad_width //= 2
-                audio = audio[..., pad_width:]
             return audio
