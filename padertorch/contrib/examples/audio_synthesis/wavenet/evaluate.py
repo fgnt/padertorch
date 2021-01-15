@@ -72,6 +72,9 @@ def main(_run, exp_dir, storage_dir, database_json, test_set, max_examples, devi
                 chunk_length=48_000,
                 chunk_overlap=16_000,
             )
+            # wavenet also reconstructs padded samples which need to be discarded.
+            # Assert that the number of discarded samples are less than shift,
+            # i.e., less equal the maximum possible pad width.
             assert config['stft']['shift'] > (x.shape[-1] - target.shape[-1]) >= 0, (target.shape, x.shape)
             x = x[..., :target.shape[-1]]
             squared_err.extend([
