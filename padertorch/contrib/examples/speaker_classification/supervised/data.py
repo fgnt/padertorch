@@ -78,7 +78,7 @@ def _prepare_features(example, training=False):
     )
     stft = stft_transform(audio_data)
     mel_transform = pb.transform.module_fbank.MelTransform(
-        sample_rate=16000, fft_length=512, n_mels=64, fmin=50
+        sample_rate=16000, stft_size=512, number_of_filters=64, lowest_frequency=50
     )
     mel_spec = mel_transform(np.abs(stft) ** 2)
 

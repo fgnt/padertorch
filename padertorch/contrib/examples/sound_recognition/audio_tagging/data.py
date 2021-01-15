@@ -1,17 +1,19 @@
 import numpy as np
 from lazy_dataset.database import JsonDatabase
 from padertorch.contrib.je.data.transforms import (
-    AudioReader, STFT, MultiHotLabelEncoder, Collate
+    AudioReader, STFT, PiecewiseSTFT, MultiHotEncoder, Collate
 )
 from padertorch.contrib.je.data.mixup import MixUpDataset, \
     SampleMixupComponents, SuperposeEvents
-from padertorch.contrib.je.modules.augment import LogTruncNormalSampler
+from paderbox.utils.random_utils import LogTruncatedNormal
 
 
 def get_datasets(
         database_json, audio_reader, stft, batch_size, storage_dir,
         num_workers=8, max_padding_rate=.05,
         min_signal_length=None, max_signal_length=None,
+        stft_stretch_factor_sampling_fn=None, stft_segment_length=None,
+        stft_segment_shuffle_prob=0.,
         mixup_probs=(1,), min_mixup_overlap=0., max_mixup_length=None,
         training_set='balanced_train',
 ):
@@ -19,7 +21,7 @@ def get_datasets(
     db = JsonDatabase(database_json)
     training_set = db.get_dataset(training_set)
 
-    event_encoder = MultiHotLabelEncoder(
+    event_encoder = MultiHotEncoder(
         label_key='events', storage_dir=storage_dir,
     )
     event_encoder.initialize_labels(dataset=training_set, verbose=True)
@@ -29,8 +31,11 @@ def get_datasets(
         num_workers=num_workers,
         batch_size=batch_size, max_padding_rate=max_padding_rate,
         min_signal_length=min_signal_length, max_signal_length=max_signal_length,
+        stft_stretch_factor_sampling_fn=stft_stretch_factor_sampling_fn,
+        stft_segment_length=stft_segment_length,
+        stft_segment_shuffle_prob=stft_segment_shuffle_prob,
         mixup_probs=mixup_probs,
-        min_mixup_overlap=min_mixup_overlap, max_mixup_length=max_mixup_length
+        min_mixup_overlap=min_mixup_overlap, max_mixup_length=max_mixup_length,
     )
 
     return (
@@ -45,8 +50,10 @@ def prepare_dataset(
         audio_reader, stft, event_encoder,
         num_workers, batch_size, max_padding_rate,
         min_signal_length=None, max_signal_length=None,
-        mixup_probs=(1,), min_mixup_overlap=0., max_mixup_length=None,
         training=False,
+        stft_stretch_factor_sampling_fn=None, stft_segment_length=None,
+        stft_segment_shuffle_prob=0.,
+        mixup_probs=(1,), min_mixup_overlap=0., max_mixup_length=None,
 ):
     assert np.sum(mixup_probs) == 1., mixup_probs
     if min_signal_length is not None or max_signal_length is not None:
@@ -59,7 +66,12 @@ def prepare_dataset(
             lazy=False
         )
 
-    audio_reader = AudioReader(**audio_reader)
+    audio_reader = AudioReader(**audio_reader, roll_prob=float(training))
+    stft = STFT(**stft)
+    if max_mixup_length is not None:
+        max_mixup_length = stft.samples_to_frames(
+            max_mixup_length*audio_reader.target_sample_rate
+        )
 
     def normalize(example):
         example['audio_data'] -= example['audio_data'].mean(-1, keepdims=True)
@@ -71,13 +83,21 @@ def prepare_dataset(
     if training:
         def random_scale(example):
             c = example['audio_data'].shape[0]
-            scales = LogTruncNormalSampler(scale=1., truncation=3.)(c)[:, None]
+            scales = LogTruncatedNormal(loc=1., truncation=3.)(c)[:, None]
             example['audio_data'] *= scales
             return example
         dataset = dataset.map(random_scale)
         dataset = dataset.shuffle(reshuffle=True)
 
-    stft = STFT(**stft)
+        if stft_stretch_factor_sampling_fn is not None:
+            assert callable(stft_stretch_factor_sampling_fn), stft_stretch_factor_sampling_fn
+            stft = PiecewiseSTFT(
+                base_stft=stft,
+                stretch_factor_sampling_fn=stft_stretch_factor_sampling_fn,
+                segment_length=stft_segment_length,
+                shuffle_prob=stft_segment_shuffle_prob,
+            )
+
     dataset = dataset.map(stft).map(event_encoder)
 
     def finalize(example):
@@ -99,9 +119,7 @@ def prepare_dataset(
             sample_fn=SampleMixupComponents(mixup_probs),
             mixup_fn=SuperposeEvents(
                 min_overlap=min_mixup_overlap,
-                max_length=stft.samples_to_frames(
-                    max_mixup_length*audio_reader.target_sample_rate
-                )
+                max_length=max_mixup_length,
             ),
             buffer_size=80*batch_size,
         )

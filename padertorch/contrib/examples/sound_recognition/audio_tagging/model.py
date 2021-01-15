@@ -1,9 +1,8 @@
 import numpy as np
 import torch
-from padercontrib.evaluation.event_detection import fscore
 from padertorch import Model
-from padertorch.contrib.je.modules.augment import MelWarping, \
-    LogTruncNormalSampler, TruncExponentialSampler
+from paderbox.transform.module_fbank import MelWarping
+from paderbox.utils.random_utils import LogTruncatedNormal, TruncatedExponential
 from padertorch.contrib.je.modules.conv import CNN2d
 from padertorch.contrib.je.modules.features import NormalizedLogMelExtractor
 from padertorch.contrib.je.modules.reduce import Mean
@@ -16,7 +15,7 @@ from torchvision.utils import make_grid
 class WALNet(Model):
     """
     >>> from paderbox.utils.nested import deflatten
-    >>> tagger = WALNet(sample_rate=44100, fft_length=2048, output_size=10)
+    >>> tagger = WALNet(sample_rate=44100, stft_size=2048, output_size=10)
     >>> inputs = {'stft': torch.zeros(4,1,128,1025,2), 'events': torch.zeros((4, 10)), 'seq_len': 4*[128]}
     >>> outputs = tagger(inputs)
     >>> outputs[0][0].shape
@@ -24,21 +23,23 @@ class WALNet(Model):
     >>> review = tagger.review(inputs, outputs)
     """
 
-    def __init__(self, sample_rate, fft_length, output_size):
+    def __init__(self, sample_rate, stft_size, output_size):
         super().__init__()
         self.feature_extractor = NormalizedLogMelExtractor(
-            n_mels=128, sample_rate=sample_rate, fft_length=fft_length,
+            sample_rate=sample_rate, stft_size=stft_size,
+            number_of_filters=128,
             # augmentation
             frequency_warping_fn=MelWarping(
-                alpha_sampling_fn=LogTruncNormalSampler(
+                warp_factor_sampling_fn=LogTruncatedNormal(
                     scale=0.07, truncation=np.log(1.3)
                 ),
-                fhi_sampling_fn=TruncExponentialSampler(
+                boundary_frequency_ratio_sampling_fn=TruncatedExponential(
                     scale=0.5, truncation=5.
-                )
+                ),
+                highest_frequency=sample_rate/2,
             ),
             n_time_masks=1,
-            n_mel_masks=1,
+            n_frequency_masks=1,
         )
         self.cnn = CNN2d(
             in_channels=1,
@@ -87,7 +88,14 @@ class WALNet(Model):
                 targets, predictions, 'f1'
             )
             summary['scalars']['macro_fscore'] = f.mean()
-            summary['scalars']['micro_fscore'] = fscore(
+            summary['scalars']['micro_fscore'] = instance_based.fscore(
+                targets, predictions > thresholds
+            )[0]
+            thresholds, er = instance_based.get_optimal_thresholds(
+                targets, predictions, 'er'
+            )
+            summary['scalars']['macro_er'] = er.mean()
+            summary['scalars']['micro_er'] = instance_based.error_rate(
                 targets, predictions > thresholds
             )[0]
             summary['scalars']['lwlrap'] = instance_based.lwlrap(

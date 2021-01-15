@@ -9,18 +9,22 @@ from padertorch.ops import mu_law_decode
 
 class WaveNet(Model):
     def __init__(
-            self, wavenet, sample_rate, fft_length, n_mels, fmin=50, fmax=None
+            self,
+            wavenet,
+            sample_rate, stft_size,
+            number_of_mel_filters, lowest_frequency=50, highest_frequency=None
     ):
         super().__init__()
         self.wavenet = wavenet
         self.sample_rate = sample_rate
         self.mel_transform = MelTransform(
-            n_mels=n_mels, sample_rate=sample_rate, fft_length=fft_length,
-            fmin=fmin, fmax=fmax,
+            number_of_filters=number_of_mel_filters,
+            sample_rate=sample_rate, stft_size=stft_size,
+            lowest_frequency=lowest_frequency, highest_frequency=highest_frequency,
         )
         self.in_norm = InputNormalization(
             data_format='bcft',
-            shape=(None, 1, n_mels, None),
+            shape=(None, 1, number_of_mel_filters, None),
             statistics_axis='bt',
             independent_axis=None,
         )
@@ -59,4 +63,4 @@ class WaveNet(Model):
     @classmethod
     def finalize_dogmatic_config(cls, config):
         config['wavenet']['factory'] = modules.WaveNet
-        config['wavenet']['n_cond_channels'] = config['n_mels']
+        config['wavenet']['n_cond_channels'] = config['number_of_mel_filters']

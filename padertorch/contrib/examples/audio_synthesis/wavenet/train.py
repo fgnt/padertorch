@@ -34,8 +34,8 @@ def config():
         'pointing to a directory with a "librispeech.json" in it (see README '
         'for the JSON format).'
     )
-    training_sets = ['train_clean_100', 'train_clean_360', 'train_other_500']
-    validation_sets = ['dev_clean', 'dev_other']
+    training_sets = ['train_clean_100', 'train_clean_360']
+    validation_sets = ['dev_clean']
     audio_reader = {
         'source_sample_rate': 16000,
         'target_sample_rate': 16000,
@@ -47,22 +47,22 @@ def config():
         'fading': 'full',
         'pad': True,
     }
-    max_length = 1.
+    max_length_in_sec = 1.
     batch_size = 3
-    n_mels = 80
+    number_of_mel_filters = 80
     trainer = {
         'model': {
             'factory': WaveNet,
             'wavenet': {
-                'n_cond_channels': n_mels,
+                'n_cond_channels': number_of_mel_filters,
                 'upsamp_window': stft['window_length'],
                 'upsamp_stride': stft['shift'],
                 'fading': stft['fading'],
             },
             'sample_rate': audio_reader['target_sample_rate'],
-            'fft_length': stft['size'],
-            'n_mels': n_mels,
-            'fmin': 50
+            'stft_size': stft['size'],
+            'number_of_mel_filters': number_of_mel_filters,
+            'lowest_frequency': 50
         },
         'optimizer': {
             'factory': Adam,
@@ -83,7 +83,7 @@ def config():
 @ex.automain
 def main(
         _run, _log, trainer, database_json, training_sets, validation_sets,
-        audio_reader, stft, max_length, batch_size, resume
+        audio_reader, stft, max_length_in_sec, batch_size, resume
 ):
     commands.print_config(_run)
     trainer = Trainer.from_config(trainer)
@@ -98,11 +98,11 @@ def main(
     validation_data = db.get_dataset(validation_sets)
     training_data = prepare_dataset(
         training_data, audio_reader=audio_reader, stft=stft,
-        max_length=max_length, batch_size=batch_size, shuffle=True
+        max_length_in_sec=max_length_in_sec, batch_size=batch_size, shuffle=True
     )
     validation_data = prepare_dataset(
         validation_data, audio_reader=audio_reader, stft=stft,
-        max_length=max_length, batch_size=batch_size, shuffle=False
+        max_length_in_sec=max_length_in_sec, batch_size=batch_size, shuffle=False
     )
 
     trainer.test_run(training_data, validation_data)
