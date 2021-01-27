@@ -94,6 +94,7 @@ def pit_loss(
     """
     sources = estimate.size()[axis]
     assert sources < 30, f'Are you sure? sources={sources}'
+
     if loss_fn in [torch.nn.functional.cross_entropy]:
         assert axis % estimate.ndimension() == 1, axis
         estimate_shape = list(estimate.shape)
@@ -269,6 +270,8 @@ def pit_loss_from_loss_matrix(
     tensor(-26., dtype=torch.float64)
     >>> pit_loss_from_loss_matrix(pair_wise_loss_matrix, reduction='sum', algorithm='greedy')
     tensor(-21., dtype=torch.float64)
+    >>> pit_loss_from_loss_matrix(pair_wise_loss_matrix, reduction=None, algorithm='greedy')
+    tensor([-11., -10.,  -0.], dtype=torch.float64)
 
     """
     import scipy.optimize
@@ -292,7 +295,9 @@ def pit_loss_from_loss_matrix(
     else:
         raise ValueError(algorithm)
 
-    if reduction == 'mean':
+    if reduction is None:
+        min_loss = pair_wise_loss_matrix[row_ind, col_ind]
+    elif reduction == 'mean':
         min_loss = pair_wise_loss_matrix[row_ind, col_ind].mean()
     elif reduction == 'sum':
         min_loss = pair_wise_loss_matrix[row_ind, col_ind].sum()
