@@ -7,7 +7,7 @@
 Padertorch is designed to simplify the training of deep learning models written with [PyTorch](https://pytorch.org).
 While focusing on speech and audio processing, it is not limited to these application areas.
 
-This repository is currently under construction.
+[//]: <> (This repository is currently under construction.)
 
 [//]: <> (The examples in contrib/examples are only working in the Paderborn NT environment)
 
