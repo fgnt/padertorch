@@ -20,18 +20,35 @@ While focusing on speech and audio processing, it is not limited to these applic
 - **Fast prototyping**: The trainer and models are all compatible with [sacred](https://github.com/IDSIA/sacred) and easily allow hyperparameter changes over the command line. Check out the [configurable](padertorch/configurable.py) module and the [examples](padertorch/contrib/examples) for how it works.
 - **Trainer**: Our `padertorch.Trainer` takes care of the repetitive training loop and allows you to focus on network tuning. Included are features such as:
   - Periodically executed validation runs
-  - Automatic checkpointing: The parameters of the model and the state of the trainer are periodically saved. The checkpoint interval and number of total checkpoints are customizable: Keep one, some or all checkpoints. We also keep track of the best checkpoint on the validation data given some metric.
-    - Resume from the latest checkpoint if the training was interrupted.
+  - <details>
+    <summary>Automatic checkpointing</summary><p>
+
+    The parameters of the model and the state of the trainer are periodically saved. The checkpoint interval and number of total checkpoints are customizable: Keep one, some or all checkpoints. We also keep track of the best checkpoint on the validation data given some metric.
+      - Resume from the latest checkpoint if the training was interrupted.
+
+    </p></details><br />
+
   - Learning rate scheduling
   - Backoff: Restore the best checkpoint and change the learning rate if the loss is not decreasing.
   - [Hooks](padertorch/train/hooks.py): Extend the basic features of the trainer with your own functionality.
-  - **Test run**: The trainer has a `test_run` function to train the model for few iterations and test if
+  - <details>
+    <summary><b>Test run</b></summary><p>
+
+    The trainer has a `test_run` function to train the model for few iterations and test if
       - the model is executable (burn test),
       - the validation is deterministic/reproducible, and
       - the model changes the parameter during training.
-  - **Virtual minibatch**:
-    - The `Trainer` usually does not know if the model is trained with a single example or multiple examples (minibatch), because the examples that are yielded from the dataset are directly forwarded to the model.
-    - When the `virtual_minibatch_size` option is larger than one, the trainer calls the forward and backward step `virtual_minibatch_size` times before applying the gradients. This increases the number of examples over which the gradient is calculated while the memory consumption stays similar, e.g., with `virtual_minibatch_size=2` the gradient is accumulated over two (batched) examples before calling `optimizer.step(); optimizer.zero_grad()`. See [here](doc/virtual_batch_size_multi_gpu.md) for a more thorough explanation.
+
+    <p></details><br />
+
+  - <details>
+    <summary><b>Virtual minibatch</b></summary><p>
+
+      - The `Trainer` usually does not know if the model is trained with a single example or multiple examples (minibatch), because the examples that are yielded from the dataset are directly forwarded to the model.
+      - When the `virtual_minibatch_size` option is larger than one, the trainer calls the forward and backward step `virtual_minibatch_size` times before applying the gradients. This increases the number of examples over which the gradient is calculated while the memory consumption stays similar, e.g., with `virtual_minibatch_size=2` the gradient is accumulated over two (batched) examples before calling `optimizer.step(); optimizer.zero_grad()`. See [here](doc/virtual_batch_size_multi_gpu.md) for a more thorough explanation.
+
+    </p></details><br />
+
 - **Logging**: As logging backend, we use [tensorboardX](https://github.com/lanpa/tensorboardX) to generate a `tfevents` file that can be visualized from a [tensorboard](https://github.com/tensorflow/tensorboard). Custom values to be logged can be defined in subclasses of `padertorch.Model`.
 - **Multi-GPU training**: Easily deploy your model onto multiple GPUs to increase the total batch size and speed up the training. See [here](doc/virtual_batch_size_multi_gpu.md#L68) for implementation details and the [example](padertorch/contrib/examples/multi_gpu) for how to enable it.
 - **Support for lazy data preparation**: Ever tired of pre-computing features, taking up time and space on the hard disk? Padertorch works with lazy dataloaders (e.g., [lazy_dataset](https://github.com/fgnt/lazy_dataset)) which extract the features on the fly!
