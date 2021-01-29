@@ -11,6 +11,8 @@ This repository is currently under construction.
 
 [//]: <> (The examples in contrib/examples are only working in the Paderborn NT environment)
 
+![Schematic overview of padertorch](doc/padertorch.svg)
+
 # Highlights
 
 - **Easily extensible**: Write your own network modules and models based on `padertorch.Module` and `padertorch.Model`.
