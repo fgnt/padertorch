@@ -204,6 +204,6 @@ We also provide a [loss wrapper for permutation-invariant training (PIT)](padert
 Have a look at the following links to get the most out of your experience with padertorch:
 
 - [Configurable](doc/configurable.md): Provides a thorough explanation of our [configurable](padertorch/configurable.py) module which allows to create model instances from a config dict.
-- [Sacred](doc/sacred.md): Explains how to use sacred in combination with `Configurable`.
+- [Sacred](doc/sacred.md): Explains how to use sacred in combination with `pt.Configurable`.
 - [contrib/](padertorch/contrib): Unordered collection of advanced and experimental features. Subject to breaking changes so be careful with relying on it too much. But it might provide ideas for your own implementations.
 - [contrib/examples/](padertorch/contrib/examples): Shows advanced usage of padertorch with actual data and models. A good starting point to get ideas for writing own models and experiments. See [here](doc/examples.md) for a guide to navigate through the examples and recommendations for which examples to start with.
