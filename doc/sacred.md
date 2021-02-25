@@ -238,11 +238,14 @@ Consider the following example for a training script using sacred.
 This might seem a bit lengthy at the beginning, but the added functionality really pays off.
 
 ```python
+import sacred
 from sacred import Experiment
 from sacred.observers import FileStorageObserver
 from sacred.commands import print_config
 import padertorch as pt
 from pathlib import Path
+
+sacred.SETTINGS.CONFIG.READ_ONLY_CONFIG = False  # READ_ONLY causes some strange errors. Disable it.
 
 # Define the experiment. Experiment is the main class for managing experiments.
 ex = Experiment('my-experiment-name')
