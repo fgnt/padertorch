@@ -523,6 +523,10 @@ def _get_segment_length_for_mode(
     (950, 250, 16050)
     >>> _get_segment_length_for_mode(num_samples, length, shift, 'max', True)
     (947, 247, 16014)
+    >>> _get_segment_length_for_mode(num_samples, length, shift, 'max', False)
+    (946, 246, 16000)
+    >>> _get_segment_length_for_mode(num_samples, length, shift, 'min', True)
+    (951, 251, 16011)
     >>> _get_segment_length_for_mode(num_samples, length, shift, 'min', True)
     (951, 251, 16011)
     """
@@ -538,7 +542,10 @@ def _get_segment_length_for_mode(
 
         if mode == 'max':
             n = (num_samples - overlap - 1) // shift + 1
-            length = (num_samples - 1 - overlap) // n + 1 + overlap
+            if padding:
+                length = (num_samples - 1 - overlap) // n + 1 + overlap
+            else:
+                length = (num_samples - overlap) // n + overlap
         else:
             n = (num_samples - overlap) // shift
             delta = ((num_samples - overlap) % shift + -1) // n + 1
