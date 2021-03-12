@@ -527,8 +527,6 @@ def _get_segment_length_for_mode(
     (946, 246, 16000)
     >>> _get_segment_length_for_mode(num_samples, length, shift, 'min', True)
     (951, 251, 16011)
-    >>> _get_segment_length_for_mode(num_samples, length, shift, 'min', True)
-    (951, 251, 16011)
     """
 
     if shift is None:
