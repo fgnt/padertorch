@@ -61,7 +61,7 @@ def to_list(x, length=None):
     def to_list_helper(x_):
         return [x_] * (1 if length is None else length)
 
-    if isinstance(x, collections.Mapping):
+    if isinstance(x, collections.abc.Mapping):
         x = to_list_helper(x)
     elif isinstance(x, str):
         x = to_list_helper(x)
