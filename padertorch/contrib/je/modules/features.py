@@ -6,7 +6,7 @@ from paderbox.transform.module_fbank import get_fbanks
 from paderbox.utils.random_utils import TruncatedExponential
 from padertorch.base import Module
 from padertorch.contrib.je.modules.augment import (
-    TimeWarping, GaussianBlur2d, Mask, AdditiveNoise,
+    TimeWarping, GaussianBlur2d, Mixup, Mask, AdditiveNoise,
 )
 from padertorch.modules.normalization import Normalization, InputNormalization
 from torch import nn
@@ -21,14 +21,16 @@ class NormalizedLogMelExtractor(nn.Module):
     torch.Size([10, 3, 40, 100])
     """
     def __init__(
-            self, sample_rate, stft_size, number_of_filters,
+            self, sample_rate, stft_size, number_of_filters, num_channels=1,
             lowest_frequency=50, highest_frequency=None,
             add_deltas=False, add_delta_deltas=False,
             norm_statistics_axis='bt', norm_eps=1e-5, batch_norm=False,
             clamp=6,
+            ipd_pairs=(),
             # augmentation
             frequency_warping_fn=None, time_warping_fn=None,
             blur_sigma=0, blur_kernel_size=5,
+            mixup_prob=0., mixup_alpha=1.,
             n_time_masks=0, max_masked_time_steps=70, max_masked_time_rate=.2,
             n_frequency_masks=0, max_masked_frequency_bands=20, max_masked_frequency_rate=.2,
             max_noise_scale=0.,
@@ -45,10 +47,19 @@ class NormalizedLogMelExtractor(nn.Module):
         )
         self.add_deltas = add_deltas
         self.add_delta_deltas = add_delta_deltas
+        assert all([len(pair) == 2 for pair in ipd_pairs]), ipd_pairs
+        assert all([c < num_channels for pair in ipd_pairs for c in pair]), ipd_pairs
+        self.ipd_pairs = list(zip(*ipd_pairs))
+        self.filter_max_indices = self.mel_transform.fbanks.argmax(0)
         norm_cls = Normalization if batch_norm else InputNormalization
         self.norm = norm_cls(
             data_format='bcft',
-            shape=(None, 1 + add_deltas + add_delta_deltas, number_of_filters, None),
+            shape=(
+                None,
+                (1 + add_deltas + add_delta_deltas) * num_channels,
+                number_of_filters,
+                None
+            ),
             statistics_axis=norm_statistics_axis,
             shift=True,
             scale=True,
@@ -74,6 +85,12 @@ class NormalizedLogMelExtractor(nn.Module):
         else:
             self.blur = None
 
+        assert 0 <= mixup_prob <= 1, mixup_prob
+        if mixup_prob > 0:
+            self.mixup = Mixup(p=mixup_prob, alpha=mixup_alpha)
+        else:
+            self.mixup = None
+
         if n_time_masks > 0:
             self.time_masking = Mask(
                 axis=-1, n_masks=n_time_masks,
@@ -97,9 +114,20 @@ class NormalizedLogMelExtractor(nn.Module):
         else:
             self.noise = None
 
-    def forward(self, x, seq_len=None):
+    def forward(self, x, seq_len=None, targets=None):
         with torch.no_grad():
-
+            if self.ipd_pairs:
+                x_re = x[..., self.filter_max_indices, 0]
+                x_im = x[..., self.filter_max_indices, 1]
+                channel_ref, channel_other = self.ipd_pairs
+                ipds = torch.atan2(
+                    x_im[:, channel_other] * x_re[:, channel_ref]
+                    - x_re[:, channel_other] * x_im[:, channel_ref],
+                    x_re[:, channel_other] * x_re[:, channel_ref]
+                    + x_im[:, channel_other] * x_im[:, channel_ref]
+                ).transpose(-2, -1)
+            else:
+                ipds = None
             x = self.mel_transform(torch.sum(x**2, dim=(-1,))).transpose(-2, -1)
 
             if self.time_warping is not None:
@@ -117,8 +145,15 @@ class NormalizedLogMelExtractor(nn.Module):
                     x = torch.cat((x, delta_deltas), dim=1)
 
             x = self.norm(x, sequence_lengths=seq_len)
+
             if self.clamp is not None:
                 x = torch.clamp(x, -self.clamp, self.clamp)
+
+            if ipds is not None:
+                x = torch.cat((x, torch.cos(ipds), torch.sin(ipds)), dim=1)
+
+            if self.mixup is not None:
+                x, seq_len, targets = self.mixup(x, seq_len, targets)
 
             if self.time_masking is not None:
                 x = self.time_masking(x, seq_len=seq_len)
@@ -128,13 +163,14 @@ class NormalizedLogMelExtractor(nn.Module):
             if self.noise is not None:
                 # print(torch.std(x, dim=-1))
                 x = self.noise(x)
-
-        return x, seq_len
+        if targets is None:
+            return x, seq_len
+        return x, seq_len, targets
 
     def inverse(self, x):
         return self.mel_transform.inverse(
             self.norm.inverse(x).transpose(-2, -1)
-        )
+        ).sqrt().unsqueeze(-1)
 
 
 class MelTransform(Module):
@@ -217,9 +253,10 @@ class MelTransform(Module):
             torch.from_numpy(fbanks.T), requires_grad=False
         )
 
-    def forward(self, x):
+    def forward(self, x, return_maxima=False):
         if not self.training or self.warping_fn is None:
-            x = x.matmul(self.fbanks)
+            fbanks = self.fbanks
+            x = x.matmul(fbanks)
         else:
             independent_axis = [ax if ax >= 0 else x.ndim+ax for ax in self.independent_axis]
             assert all([ax < x.ndim-1 for ax in independent_axis])
@@ -244,6 +281,9 @@ class MelTransform(Module):
                 x = x[..., None, :].matmul(fbanks).squeeze(-2)
         if self.log:
             x = torch.log(x + self.eps)
+        if return_maxima:
+            maxima = (fbanks.argmax(-2) + 1) * (fbanks.sum(-2) > 0) - 1
+            return x, maxima
         return x
 
     def inverse(self, x):
@@ -277,9 +317,13 @@ def compute_deltas(specgram, win_length=5, mode="replicate"):
         deltas (torch.Tensor): Tensor of audio of dimension (..., freq, time)
 
     Example
-        >>> specgram = torch.randn(1, 40, 1000)
+        >>> specgram = torch.randn(4, 2, 40, 1000)
         >>> delta = compute_deltas(specgram)
+        >>> delta.shape
+        torch.Size([4, 2, 40, 1000])
         >>> delta2 = compute_deltas(delta)
+        >>> delta2.shape
+        torch.Size([4, 2, 40, 1000])
     """
 
     # pack batch

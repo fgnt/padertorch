@@ -10,15 +10,14 @@ class Scale(nn.Module):
     >>> x = torch.ones((3, 4, 5))
     >>> x = Scale(log_truncnormal_sampling_fn)(x)
     """
-    def __init__(self, scale_sampling_fn, **kwargs):
+    def __init__(self, scale_sampling_fn):
         super().__init__()
         self.scale_sampling_fn = scale_sampling_fn
-        self.kwargs = kwargs
 
     def forward(self, x):
         if not self.training:
             return x
-        scales = self.scale_sampling_fn(x.shape[0], **self.kwargs)
+        scales = self.scale_sampling_fn(x.shape[0])
         scales = torch.from_numpy(scales[(...,) + (x.dim()-1)*(None,)]).float()
         return x * scales.to(x.device)
 
@@ -28,15 +27,14 @@ class Shift(nn.Module):
     >>> x = torch.ones((3, 4, 5))
     >>> Shift(truncnormal_sampling_fn, scale=0.5)(x)
     """
-    def __init__(self, shift_sampling_fn, **kwargs):
+    def __init__(self, shift_sampling_fn):
         super().__init__()
         self.shift_sampling_fn = shift_sampling_fn
-        self.kwargs = kwargs
 
     def forward(self, x):
         if not self.training:
             return x
-        shifts = self.shift_sampling_fn(x.shape[0], **self.kwargs)
+        shifts = self.shift_sampling_fn(x.shape[0])
         shifts = torch.from_numpy(shifts[(...,) + (x.dim()-1)*(None,)]).float()
         return x + shifts.to(x.device)
 
@@ -44,9 +42,9 @@ class Shift(nn.Module):
 class TimeWarping(nn.Module):
     """
     >>> x = torch.cumsum(torch.ones((3, 1, 4, 5)), -1) - 1
-    >>> resampling_factors = np.array([1,2,3])
+    >>> resampling_factors = np.array([1,2,.5])
     >>> warping_fn=lambda seq_len: (\
-            np.arange(max(seq_len))/resampling_factors[:, None],\
+            np.minimum(np.arange(max(seq_len))/resampling_factors[:, None], max(seq_len)-1),\
             np.minimum(resampling_factors*np.array(seq_len), max(seq_len))\
         )
     >>> TimeWarping(warping_fn=warping_fn)(x, seq_len=[3,4,5])
@@ -122,6 +120,39 @@ class TimeWarping(nn.Module):
                     tensor = tensor.transpose(0, batch_axis)
                 tensors[i] = tensor
         return (*tensors, seq_len)
+
+
+class Mixup(nn.Module):
+    """
+    >>> x = torch.cumsum(torch.ones((3, 4, 5)), 0)
+    >>> y = torch.eye(3).float()
+    >>> mixup = Mixup(p=1.)
+    >>> mixup(x, seq_len=[3,4,5], targets=y)
+    """
+    def __init__(self, p, alpha=1.):
+        super().__init__()
+        self.p = p
+        self.alpha = alpha
+
+    def forward(self, x, seq_len=None, targets=None):
+        if self.training:
+            B = x.shape[0]
+            shuffle_idx = ((np.arange(B)+1) % B).astype(np.int)
+            lambda_ = np.maximum(
+                np.random.binomial(1, 1 - self.p, B),
+                np.random.beta(self.alpha, self.alpha, B)
+            )
+            if seq_len is not None:
+                seq_len = np.maximum(seq_len, (lambda_ < 1.) * np.array(seq_len)[shuffle_idx])
+            lambda_ = torch.from_numpy(lambda_).float().to(x.device)
+            assert all(lambda_ >= 0.) and all(lambda_ <= 1.)
+            lambda_x = lambda_[(...,) + (x.dim() - 1) * (None,)]
+            x = lambda_x * x + (1. - lambda_x) * x[shuffle_idx]
+            if targets is not None:
+                assert ((targets == 0.) | (targets == 1.)).all(), 'Targets must be one-/multi-hot encoded'
+                lambda_t = lambda_[(...,) + (targets.dim() - 1) * (None,)]
+                targets = lambda_t * targets + (1. - lambda_t) * targets[shuffle_idx]
+        return x, seq_len, targets
 
 
 class Mask(nn.Module):
