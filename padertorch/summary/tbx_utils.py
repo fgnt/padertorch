@@ -217,6 +217,11 @@ def spectrogram_to_image(
     """
     Creates an image from a spectrogram (power).
 
+    Note:
+        When The input is the absolute value of the STFT, the value for
+        visible_dB is effectively two times larger (i.e. default 100) and
+        the image looks more noisy.
+
     For more details of the output shape, see the tensorboardx docs
 
     Args:
