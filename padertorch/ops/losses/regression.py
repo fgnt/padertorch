@@ -148,7 +148,8 @@ def si_sdr_loss(estimate, target, reduction='mean', offset_invariant=False,
     >>> import numpy as np
     >>> from pb_bss.evaluation import si_sdr
     >>> np.random.seed(0)
-    >>> reference = torch.tensor(np.random.randn(100))
+    >>> rng = np.random.RandomState(0)
+    >>> reference = torch.tensor(rng.randn(100))
 
     >>> def calculate(estimate, target):
     ...     print('Torch loss:', si_sdr_loss(estimate, target))
