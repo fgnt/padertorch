@@ -83,13 +83,13 @@ def download(verbose=True):
 
     >>> from paderbox.utils.pretty import pprint
     >>> pprint(download())
-    Downloading http://yann.lecun.com/exdb/mnist/train-images-idx3-ubyte.gz
+    Downloading https://raw.githubusercontent.com/fgnt/mnist/master/train-images-idx3-ubyte.gz
     Done.
-    Downloading http://yann.lecun.com/exdb/mnist/train-labels-idx1-ubyte.gz
+    Downloading https://raw.githubusercontent.com/fgnt/mnist/master/train-labels-idx1-ubyte.gz
     Done.
-    Downloading http://yann.lecun.com/exdb/mnist/t10k-images-idx3-ubyte.gz
+    Downloading https://raw.githubusercontent.com/fgnt/mnist/master/t10k-images-idx3-ubyte.gz
     Done.
-    Downloading http://yann.lecun.com/exdb/mnist/t10k-labels-idx1-ubyte.gz
+    Downloading https://raw.githubusercontent.com/fgnt/mnist/master/t10k-labels-idx1-ubyte.gz
     Done.
     {'train_data': array(shape=(60000, 28, 28), dtype=uint8),
      'train_digits': array(shape=(60000,), dtype=uint8),
@@ -98,13 +98,13 @@ def download(verbose=True):
 
     """
     # URLs for the train image and label data
-    url_train_image = 'http://yann.lecun.com/exdb/mnist/train-images-idx3-ubyte.gz'
-    url_train_labels = 'http://yann.lecun.com/exdb/mnist/train-labels-idx1-ubyte.gz'
+    url_train_image = 'https://raw.githubusercontent.com/fgnt/mnist/master/train-images-idx3-ubyte.gz'
+    url_train_labels = 'https://raw.githubusercontent.com/fgnt/mnist/master/train-labels-idx1-ubyte.gz'
     num_train_samples = 60000
 
     # URLs for the test image and label data
-    url_test_image = 'http://yann.lecun.com/exdb/mnist/t10k-images-idx3-ubyte.gz'
-    url_test_labels = 'http://yann.lecun.com/exdb/mnist/t10k-labels-idx1-ubyte.gz'
+    url_test_image = 'https://raw.githubusercontent.com/fgnt/mnist/master/t10k-images-idx3-ubyte.gz'
+    url_test_labels = 'https://raw.githubusercontent.com/fgnt/mnist/master/t10k-labels-idx1-ubyte.gz'
     num_test_samples = 10000
 
     return {
