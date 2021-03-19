@@ -135,6 +135,8 @@ def dumps_config(
     """
     import padertorch as pt
     config = pt.configurable.recursive_class_to_str(config, sort=True)
+    if '__annotations__' in config:
+        del config['__annotations__']
     if format == ".json":
         from paderbox.io import dumps_json
         return dumps_json(config, sort_keys=False)

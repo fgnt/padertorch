@@ -148,21 +148,29 @@ def si_sdr_loss(estimate, target, reduction='mean', offset_invariant=False,
     >>> import numpy as np
     >>> from pb_bss.evaluation import si_sdr
     >>> np.random.seed(0)
-    >>> reference = torch.tensor(np.random.randn(100))
+    >>> rng = np.random.RandomState(0)
+    >>> reference = torch.tensor(rng.randn(100))
+    >>> reference[:10]
+    tensor([ 1.7641,  0.4002,  0.9787,  2.2409,  1.8676, -0.9773,  0.9501, -0.1514,
+            -0.1032,  0.4106], dtype=torch.float64)
 
     >>> def calculate(estimate, target):
     ...     print('Torch loss:', si_sdr_loss(estimate, target))
     ...     print('Numpy metric:', si_sdr(estimate.numpy(), target.numpy()))
 
     Perfect estimation
-    >>> calculate(reference, reference)
-    Torch loss: tensor(-313.2011, dtype=torch.float64)
-    Numpy metric: inf
-    >>> si_sdr_loss(reference.to(torch.float32), reference.to(torch.float32))
-    tensor(-141.5990)
-    >>> calculate(reference, reference * 2)
-    Torch loss: tensor(-313.2011, dtype=torch.float64)
-    Numpy metric: inf
+    >>> si_sdr(reference.numpy(), reference.numpy())
+    inf
+    >>> sdr_loss(reference, reference)
+    tensor(-inf, dtype=torch.float64)
+    >>> si_sdr_loss(reference, reference) < -300  # Torch CPU is not hardware independent
+    tensor(True)
+    >>> si_sdr_loss(reference.to(torch.float32), reference.to(torch.float32)) < -130  # Torch CPU is not hardware independent
+    tensor(True)
+    >>> si_sdr(reference.numpy(), (reference * 2).numpy())
+    inf
+    >>> si_sdr_loss(reference, reference * 2) < -300  # Torch CPU is not hardware independent
+    tensor(True)
 
     >>> calculate(reference, torch.flip(reference, (-1,)))
     Torch loss: tensor(25.1277, dtype=torch.float64)

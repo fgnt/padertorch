@@ -93,7 +93,7 @@ def pit_loss(
         tensor(1.)
     """
     sources = estimate.size()[axis]
-    assert sources < 30, f'Are you sure? sources={sources}'
+    assert sources < 30, f'Are you sure? sources={sources}, estimate.shape={estimate.shape}, target.shape={target.shape}'
 
     if loss_fn in [torch.nn.functional.cross_entropy]:
         assert axis % estimate.ndimension() == 1, axis
