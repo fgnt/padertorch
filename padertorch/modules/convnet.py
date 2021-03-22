@@ -241,5 +241,6 @@ class ConvNet(pt.Module):
 
         """
         x = rearrange(sequence, 'b l n -> b n l')
-        y = self.conv_blocks(x)
+        y = self.activation(self.conv_blocks(x))
+
         return rearrange(y, 'b n l -> b l n')
