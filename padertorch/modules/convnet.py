@@ -181,7 +181,6 @@ class ConvNet(pt.Module):
             hidden_channels=512,
             kernel_size=3,
             norm="gLN",
-            activation="relu",
     ):
         """
 
@@ -194,11 +193,9 @@ class ConvNet(pt.Module):
             hidden_channels:
             kernel_size:
             norm:
-            activation:
         """
         super().__init__()
         self.input_size = input_size
-        self.activation = pt.mappings.ACTIVATION_FN_MAP[activation]()
 
         self.layer_norm = build_norm('cLN', input_size)
         self.projection = Conv1d(input_size, in_channels, 1, pad_type=None)
@@ -242,4 +239,5 @@ class ConvNet(pt.Module):
         """
         x = rearrange(sequence, 'b l n -> b n l')
         y = self.conv_blocks(x)
+
         return rearrange(y, 'b n l -> b l n')

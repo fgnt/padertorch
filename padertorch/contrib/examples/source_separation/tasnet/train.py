@@ -150,7 +150,7 @@ def dprnn():
 def convnet():
     feat_size = 256
     trainer = {'model': {'separator': {
-        'factory': 'padertorch.contrib.jensheit.convnet.ConvNet',
+        'factory': 'padertorch.modules.convnet.ConvNet',
         'input_size': feat_size,
         'num_blocks': 8,
         'num_repeats': 4,
