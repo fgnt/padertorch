@@ -288,7 +288,8 @@ class MelTransform(Module):
 
     def inverse(self, x):
         """Invert the mel-filterbank transform."""
-        ifbanks = torch.pinverse(self.fbanks.T).T
+        ifbanks = self.fbanks.T
+        ifbanks = ifbanks / (ifbanks.sum(dim=-2, keepdim=True) + 1e-6)
         if self.log:
             x = torch.exp(x)
         x = x @ ifbanks

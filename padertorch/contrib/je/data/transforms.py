@@ -10,6 +10,8 @@ from paderbox.transform.module_fbank import MelTransform as BaseMelTransform
 from paderbox.transform.module_stft import STFT as BaseSTFT
 from paderbox.utils.nested import nested_op
 from padertorch.utils import to_list
+from tqdm import tqdm
+from collections import defaultdict
 
 
 @dataclasses.dataclass
@@ -17,31 +19,39 @@ class AudioReader:
     """
     >>> audio_reader = AudioReader(roll_prob=1., alignment_keys=['labels'])
     >>> example = {'audio_data': np.arange(16000.)[None], 'labels': ['a', 'b', 'c'], 'labels_start_samples': [0, 4000, 12000], 'labels_stop_samples': [4000, 10000, 16000]}
-    >>> audio_reader.maybe_roll(example)
     """
     source_sample_rate: int = 16000
     target_sample_rate: int = 16000
     concat_axis: int = None
+    average_channels: bool = False
+    normalization_type: str = None  # max, power
+    normalization_domain: str = None  # instance, dataset, global
+    channelwise_norm: bool = False
+    eps: float = 1e-3
+    storage_dir: str = None
     alignment_keys: list = None
-    roll_prob: float = 0.
 
-    def _read_source(self, filepath, start_sample=0, stop_sample=None):
+    def __post_init__(self):
+        self.norm = None
+
+    def _load_source(self, filepath, start_sample=0, stop_sample=None):
         if isinstance(filepath, (list, tuple)):
+            assert self.concat_axis is not None
             if start_sample == 0:
                 start_sample = len(filepath) * [start_sample]
             if stop_sample is None:
                 stop_sample = len(filepath) * [stop_sample]
             assert isinstance(start_sample, (list, tuple))
             assert isinstance(stop_sample, (list, tuple))
-            audio = [
-                self._read_source(filepath_, start_, stop_)
+            audio_sr = [
+                self._load_source(filepath_, start_, stop_)
                 for filepath_, start_, stop_ in zip(
                     filepath, start_sample, stop_sample
                 )
             ]
-            assert self.concat_axis is not None
-            audio = np.concatenate(audio, axis=self.concat_axis)
-            return audio
+            audio, sr = list(zip(*audio_sr))
+            assert len(set(sr)) == 1, sr
+            return np.concatenate(audio, axis=self.concat_axis), sr[0]
 
         filepath = str(filepath)
         x, sr = soundfile.read(
@@ -52,12 +62,97 @@ class AudioReader:
         return x.T, sr
 
     def load(self, filepath, start_sample=0, stop_sample=None):
-        x, sr = self._read_source(filepath, start_sample, stop_sample)
+        x, sr = self._load_source(filepath, start_sample, stop_sample)
         if self.target_sample_rate != sr:
             x = samplerate.resample(
                 x.T, self.target_sample_rate / sr, "sinc_fastest"
             ).T
+        x -= x.mean(-1, keepdims=True)
+        if self.average_channels:
+            x = x.mean(0, keepdims=True)
         return x
+
+    def normalize(self, example):
+        if self.normalization_domain is None:
+            assert self.normalization_type is None, self.normalization_type
+            return example
+        elif self.normalization_domain == 'global':
+            assert isinstance(self.norm, dict), type(self.norm)
+            norm = np.array(self.norm['global_norm'])
+        elif self.normalization_domain == 'dataset':
+            assert isinstance(self.norm, dict), type(self.norm)
+            norm = np.array(self.norm[example['dataset']])
+        elif self.normalization_domain == 'instance':
+            norm = self._get_audio_norm(example['audio_data'])
+        else:
+            raise ValueError(f'Invalid normalization domain {self.normalization_domain}')
+        example['audio_data'] /= norm + self.eps
+        return example
+
+    def _get_audio_norm(self, audio):
+        if self.normalization_type is None:
+            return 1
+        elif self.normalization_type == "max":
+            if self.channelwise_norm:
+                return np.abs(audio).max(-1, keepdims=True)
+            else:
+                return np.abs(audio).max()
+        elif self.normalization_type == "power":
+            if self.channelwise_norm:
+                return audio.std(-1, keepdims=True)
+            else:
+                return audio.std()
+        else:
+            raise ValueError(f'Invalid normalization {self.normalization_type}')
+
+    def initialize_norm(self, dataset=None):
+        if self.normalization_domain is None \
+                or self.normalization_domain == 'instance' \
+                or self.normalization_type is None:
+            print('No audio norm initialization required')
+            return
+        filepath = None if self.storage_dir is None \
+            else Path(self.storage_dir) / f"audio_norm.json"
+        if filepath is not None and Path(filepath).exists():
+            with filepath.open() as fid:
+                self.norm = {
+                    key: np.array(norm) for key, norm in json.load(fid).items()
+                }
+            print(f'Restored audio norm from {filepath}')
+        else:
+            print(f'Initialize audio norm')
+            assert dataset is not None
+            count = 0
+            for example in tqdm(dataset):
+                dataset_name = example['dataset']
+                assert dataset_name != 'global_norm'
+                audio_path = example["audio_path"]
+                start_samples = example.get("audio_start_samples", 0)
+                stop_samples = example.get("audio_stop_samples", None)
+                audio = self.load(audio_path, start_samples, stop_samples)
+                audio_norm = self._get_audio_norm(audio)
+                n_samples = audio.shape[-1] if self.channelwise_norm else np.prod(audio.shape)
+                if count == 0:
+                    self.norm = defaultdict(lambda: np.zeros_like(audio_norm))
+                    count = defaultdict(lambda: 0)
+                for key in [dataset_name, 'global_norm']:
+                    if self.normalization_type == "power":
+                        self.norm[key] *= count[key] / (count[key] + n_samples)
+                        self.norm[key] += n_samples / (count[key] + n_samples) * audio_norm**2
+                    elif self.normalization_type == "max":
+                        self.norm[key] = np.maximum(self.norm[key], audio_norm)
+                    count[key] += n_samples
+            if self.normalization_type == "power":
+                self.norm = {key: np.sqrt(power) for key, power in self.norm.items()}
+            elif self.normalization_type == "max":
+                self.norm = {key: norm for key, norm in self.norm.items()}
+            if filepath is not None:
+                with filepath.open('w') as fid:
+                    json.dump(
+                        {key: norm.tolist() for key, norm in self.norm.items()},
+                        fid, sort_keys=True, indent=4
+                    )
+                print(f'Saved audio norm to {filepath}')
 
     def add_start_stop_samples(self, example):
         if self.alignment_keys is not None:
@@ -74,60 +169,13 @@ class AudioReader:
                     ]
         return example
 
-    def maybe_roll(self, example):
-        n_samples = example['audio_data'].shape[-1]
-        if np.random.rand() < self.roll_prob:
-            n_roll = int(np.random.rand()*n_samples)
-            if n_roll != 0:
-                fade_len = self.target_sample_rate//100
-                assert example['audio_data'].shape[-1] > 2*fade_len
-                example['audio_data'][..., :fade_len] *= 1/2-np.cos(np.pi*np.arange(fade_len)/fade_len)/2
-                example['audio_data'][..., -fade_len:] *= 1/2+np.cos(np.pi*np.arange(fade_len)/fade_len)/2
-                example['audio_data'] = np.roll(example['audio_data'], n_roll, axis=-1)
-                if self.alignment_keys is not None:
-                    for ali_key in self.alignment_keys:
-                        labels = example.pop(ali_key)
-                        start_samples = example.pop(f'{ali_key}_start_samples')
-                        stop_samples = example.pop(f'{ali_key}_stop_samples')
-                        example[ali_key] = []
-                        example[f'{ali_key}_start_samples'] = []
-                        example[f'{ali_key}_stop_samples'] = []
-                        for label, n_start, n_stop in zip(labels, start_samples, stop_samples):
-                            assert n_stop >= n_start, (n_start, n_stop)
-                            n_start = (n_start + n_roll) % n_samples
-                            n_stop = (n_stop + n_roll) % n_samples
-                            if n_stop < n_start:
-                                example[ali_key].append(label)
-                                example[f'{ali_key}_start_samples'].append(n_start)
-                                example[f'{ali_key}_stop_samples'].append(n_samples)
-                                n_start = 0
-                            example[ali_key].append(label)
-                            example[f'{ali_key}_start_samples'].append(n_start)
-                            example[f'{ali_key}_stop_samples'].append(n_stop)
-                        sort_idx = np.argsort(example[f'{ali_key}_start_samples']).flatten().tolist()
-                        example[ali_key] = [example[ali_key][i] for i in sort_idx]
-                        example[f'{ali_key}_start_samples'] = [
-                            example[f'{ali_key}_start_samples'][i]
-                            for i in sort_idx
-                        ]
-                        example[f'{ali_key}_stop_samples'] = [
-                            example[f'{ali_key}_stop_samples'][i]
-                            for i in sort_idx
-                        ]
-        return example
-
     def __call__(self, example):
         audio_path = example["audio_path"]
-        start_samples = 0
-        if "audio_start_samples" in example:
-            start_samples = example["audio_start_samples"]
-        stop_samples = None
-        if "audio_stop_samples" in example:
-            stop_samples = example["audio_stop_samples"]
-
+        start_samples = example.get("audio_start_samples", 0)
+        stop_samples = example.get("audio_stop_samples", None)
         example['audio_data'] = self.load(audio_path, start_samples, stop_samples)
+        example = self.normalize(example)
         self.add_start_stop_samples(example)
-        self.maybe_roll(example)
         return example
 
 
@@ -146,7 +194,7 @@ class STFT(BaseSTFT):
         if isinstance(example, dict):
             audio = example["audio_data"]
             x = super().__call__(audio)
-            example["stft"] = np.stack([x.real, x.imag], axis=-1)
+            example["stft"] = np.stack([x.real, x.imag], axis=-1).astype(np.float32)
             self.add_start_stop_frames(example)
         else:
             example = super().__call__(example)
@@ -168,34 +216,38 @@ class STFT(BaseSTFT):
 
 
 @dataclasses.dataclass
-class PiecewiseSTFT:
+class AugmentedSTFT:
     """
     >>> stft = STFT(200, 800, alignment_keys=['labels'], pad=False, fading='full')
     >>> out = stft({'audio_data': np.random.rand(80000)[None], 'labels': ['a','b','c'], 'labels_start_samples': [100, 12000, 24000], 'labels_stop_samples': [10000, 16000, 32000]})
     >>> out['stft'].shape
+    >>> out['labels']
     >>> out['labels_start_frames']
     >>> out['labels_stop_frames']
-    >>> piecewise_stft = PiecewiseSTFT(stft, lambda: (np.random.choice([0.75, 1.25])), 8000)
-    >>> out = piecewise_stft({'audio_data': np.random.rand(80000)[None], 'labels': ['a','b','c'], 'labels_start_samples': [100, 12000, 24000], 'labels_stop_samples': [10000, 16000, 32000]})
+    >>> augmented_stft = AugmentedSTFT(stft, 1., lambda n: (np.random.choice([0.75, 1.25], n)), 8000, lambda: (np.random.choice([0.5, 1.5])), 1.)
+    >>> out = augmented_stft({'audio_data': np.random.rand(80000)[None], 'labels': ['a','b','c'], 'labels_start_samples': [100, 12000, 24000], 'labels_stop_samples': [10000, 16000, 32000]})
     >>> out['stft'].shape
-    >>> out['labels_start_frames']
-    >>> out['labels_stop_frames']
-    >>> piecewise_stft = PiecewiseSTFT(stft, lambda: (np.random.choice([0.75, 1.25])), 8000, shuffle_prob=1.)
-    >>> out = piecewise_stft({'audio_data': np.random.rand(80000)[None], 'labels': ['a','b','c'], 'labels_start_samples': [100, 12000, 24000], 'labels_stop_samples': [10000, 16000, 32000]})
-    >>> out['stft'].shape
+    >>> out['labels']
     >>> out['labels_start_frames']
     >>> out['labels_stop_frames']
     """
     base_stft: STFT
-    stretch_factor_sampling_fn: callable
-    segment_length: int = None
-    warping_prob: float = 1.
-    shuffle_prob: float = 0.
+    warp_prob: float = 1.
+    warp_factor_sampling_fn: callable = None
+    warp_segment_length: int = None
+    scale_sample_fn: callable = None
+    roll_prob: float = 0.
 
     def __call__(self, example):
-        if np.random.rand() > self.warping_prob:
-            return self.base_stft(example)
+        example = self.maybe_roll(example)
+        example = self.stft(example)
+        example = self.maybe_scale(example)
+        return example
 
+    def stft(self, example):
+        if np.random.rand() > self.warp_prob:
+            return self.base_stft(example)
+        assert self.warp_factor_sampling_fn is not None
         audio = example["audio_data"]
         pad_widths = [0, 0]
         if self.base_stft.pad:
@@ -211,20 +263,22 @@ class PiecewiseSTFT:
         if sum(pad_widths) > 0:
             audio = np.pad(audio, [[0, 0], pad_widths], mode='constant')
         num_samples = audio.shape[-1]
+        if self.warp_segment_length is None:
+            n_segments = 1
+            segment_length = num_samples
+        else:
+            n_segments = ceil(num_samples / self.warp_segment_length)
+            segment_length = ceil(num_samples / n_segments)
+        shifts = (self.base_stft.shift / self.warp_factor_sampling_fn(n_segments)).astype(np.int)
+        n_frames = (segment_length - (self.base_stft.window_length - shifts) + self.base_stft.window_length - 1) // shifts
+        segment_lengths = (self.base_stft.window_length - shifts) + n_frames * shifts
         segments = []
-        cur_onset = 0
-        while cur_onset <= (num_samples - self.base_stft.window_length):
-            shift = int(
-                self.base_stft.shift / self.stretch_factor_sampling_fn()
-            )
-            segment_len = num_samples if self.segment_length is None else int((self.segment_length // shift) * shift)
-            assert segment_len > 0, segment_len
-            if (cur_onset + segment_len) > (num_samples - self.base_stft.window_length):
-                cur_offset = num_samples
-            else:
-                cur_offset = cur_onset + segment_len + (self.base_stft.window_length-shift)
+        total_shifts = n_frames*shifts
+        onsets = np.cumsum(total_shifts) - total_shifts
+        for onset, seg_len, shift in zip(onsets, segment_lengths, shifts):
+            offset = onset + seg_len
             segments.append({
-                'audio_data': audio[..., cur_onset:cur_offset],
+                'audio_data': audio[..., onset:offset],
             })
             if self.base_stft.alignment_keys is not None:
                 for ali_key in self.base_stft.alignment_keys:
@@ -236,17 +290,19 @@ class PiecewiseSTFT:
                             f'{ali_key}_stop_samples': [],
                         })
                         for label, start_sample, stop_sample in zip(
-                            example[ali_key],
-                            example[f'{ali_key}_start_samples'],
-                            example[f'{ali_key}_stop_samples'],
+                                example[ali_key],
+                                example[f'{ali_key}_start_samples'],
+                                example[f'{ali_key}_stop_samples'],
                         ):
+                            start_sample = start_sample + pad_widths[0]
+                            stop_sample = stop_sample + pad_widths[0]
                             if (
-                                stop_sample > (cur_onset + self.base_stft.window_length//2)
-                                and start_sample < (cur_offset - self.base_stft.window_length//2)
+                                    stop_sample > (onset + self.base_stft.window_length//2)
+                                    and start_sample < (offset - self.base_stft.window_length//2)
                             ):
                                 segments[-1][ali_key].append(label)
-                                segments[-1][f'{ali_key}_start_samples'].append(max(start_sample+pad_widths[0]-cur_onset, 0))
-                                segments[-1][f'{ali_key}_stop_samples'].append(min(stop_sample+pad_widths[0], cur_offset)-cur_onset)
+                                segments[-1][f'{ali_key}_start_samples'].append(max(start_sample-onset, 0))
+                                segments[-1][f'{ali_key}_stop_samples'].append(min(stop_sample, offset)-onset)
             stft = STFT(
                 shift=shift,
                 size=self.base_stft.size,
@@ -258,12 +314,10 @@ class PiecewiseSTFT:
                 alignment_keys=self.base_stft.alignment_keys,
             )
             segments[-1] = stft(segments[-1])
-            cur_onset += segment_len
-        if np.random.rand() < self.shuffle_prob:
-            np.random.shuffle(segments)
+
         example['stft'] = np.concatenate([segment['stft'] for segment in segments], axis=1)
         n_frames = [segment['stft'].shape[1] for segment in segments]
-        frame_onsets = np.cumsum(n_frames)-n_frames
+        frame_onsets = np.cumsum(n_frames) - n_frames
         if self.base_stft.alignment_keys is not None:
             for ali_key in self.base_stft.alignment_keys:
                 if f'{ali_key}_start_samples' in example or f'{ali_key}_stop_samples' in example:
@@ -274,6 +328,8 @@ class PiecewiseSTFT:
                             segment[f'{ali_key}_start_frames'],
                             segment[f'{ali_key}_stop_frames'],
                         ):
+                            # if stop == start:
+                            #     raise Exception
                             start += seg_onset
                             stop += seg_onset
                             if len(example[f'{ali_key}_stop_frames']) > 0 and example[f'{ali_key}_stop_frames'][-1] >= start:
@@ -281,6 +337,56 @@ class PiecewiseSTFT:
                             else:
                                 example[f'{ali_key}_start_frames'].append(start)
                                 example[f'{ali_key}_stop_frames'].append(stop)
+        return example
+
+    def maybe_roll(self, example):
+        if np.random.rand() < self.roll_prob:
+            example = self.roll(example, key='audio_data')
+        return example
+
+    def roll(self, example, key):
+        assert key in ['audio_data', 'stft']
+        seq_len = example[key].shape[1]
+        n_roll = int(np.random.rand()*seq_len)
+        if n_roll != 0:
+            example[key] = np.roll(example[key], n_roll, axis=1)
+            if self.base_stft.alignment_keys is not None:
+                unit = 'samples' if key == 'audio_data' else 'frames'
+                for ali_key in self.base_stft.alignment_keys:
+                    labels = example.pop(ali_key)
+                    starts = example.pop(f'{ali_key}_start_{unit}')
+                    stops = example.pop(f'{ali_key}_stop_{unit}')
+                    example[ali_key] = []
+                    example[f'{ali_key}_start_{unit}'] = []
+                    example[f'{ali_key}_stop_{unit}'] = []
+                    for label, start, stop in zip(labels, starts, stops):
+                        assert stop >= start, (start, stop)
+                        start = (start + n_roll) % seq_len
+                        stop = (stop + n_roll) % seq_len
+                        if stop < start:
+                            example[ali_key].append(label)
+                            example[f'{ali_key}_start_{unit}'].append(start)
+                            example[f'{ali_key}_stop_{unit}'].append(seq_len)
+                            start = 0
+                        example[ali_key].append(label)
+                        example[f'{ali_key}_start_{unit}'].append(start)
+                        example[f'{ali_key}_stop_{unit}'].append(stop)
+                    sort_idx = np.argsort(example[f'{ali_key}_start_{unit}']).flatten().tolist()
+                    example[ali_key] = [example[ali_key][i] for i in sort_idx]
+                    example[f'{ali_key}_start_{unit}'] = [
+                        example[f'{ali_key}_start_{unit}'][i]
+                        for i in sort_idx
+                    ]
+                    example[f'{ali_key}_stop_{unit}'] = [
+                        example[f'{ali_key}_stop_{unit}'][i]
+                        for i in sort_idx
+                    ]
+        return example
+
+    def maybe_scale(self, example):
+        if self.scale_sample_fn is not None:
+            scale = self.scale_sample_fn()
+            example['stft'] = example['stft'] * scale
         return example
 
 
@@ -354,14 +460,20 @@ class LabelEncoder:
 
 @dataclasses.dataclass
 class MultiHotEncoder(LabelEncoder):
-    to_array: bool = False
+    to_array: bool = True
 
     def __call__(self, example):
-        labels = super().__call__(example)[self.label_key]
+        labels = np.array(super().__call__(example)[self.label_key]).astype(np.int)
+        if labels.ndim == 0:
+            labels = labels[None]
+        assert labels.ndim == 1, labels.shape
         nhot_encoding = np.zeros(len(self.label_mapping)).astype(np.float32)
         if len(labels) > 0:
             nhot_encoding[labels] = 1
-        example[self.label_key] = nhot_encoding
+        if self.to_array:
+            example[self.label_key] = nhot_encoding
+        else:
+            example[self.label_key] = nhot_encoding.tolist()
         return example
 
 
@@ -405,6 +517,14 @@ class MultiHotAlignmentEncoder(LabelEncoder):
 
 @dataclasses.dataclass
 class StackArrays:
+    """
+    >>> batch = [np.ones((2,7)), np.zeros((2,10))]
+    >>> StackArrays()(batch)
+    >>> StackArrays(axis=1)(batch)
+    >>> StackArrays(axis=2)(batch)
+    >>> StackArrays(cut_end=True)(batch)
+    """
+
     axis: int = 0
     cut_end: bool = False
 
@@ -422,19 +542,31 @@ class StackArrays:
                 target_shape = np.min(shapes, axis=0)
             else:
                 target_shape = np.max(shapes, axis=0)
+            axis = self.axis
+            if axis < 0:
+                axis = len(target_shape) + 1 + axis
+            assert -(len(target_shape)+1) <= axis <= len(target_shape), axis
+            stack_shape = [*target_shape[:axis].tolist(), len(batch), *target_shape[axis:].tolist()]
+            stacked_arrays = np.zeros(stack_shape, dtype=batch[0].dtype)
             for i, array in enumerate(batch):
                 diff = target_shape - array.shape
                 assert np.argwhere(diff != 0).size <= 1, (
                     'arrays are only allowed to differ in one dim',
                     array.shape, target_shape,
                 )
-                if np.any(diff > 0):
-                    pad = [(0, n) for n in diff]
-                    batch[i] = np.pad(array, pad_width=pad, mode='constant')
-                elif np.any(diff < 0):
-                    sliceing = [slice(None) if n >= 0 else slice(n) for n in diff]
-                    batch[i] = array[tuple(sliceing)]
-            batch = np.stack(batch, axis=self.axis).astype(batch[0].dtype)
+                shape = np.minimum(target_shape, array.shape)
+                sliceing = tuple([slice(int(n)) for n in shape])
+                array = array[sliceing]
+                sliceing = tuple([*sliceing[:axis], i, *sliceing[axis:]])
+                stacked_arrays[sliceing] = array
+            return stacked_arrays
+            #     if np.any(diff > 0):
+            #         pad = [(0, n) for n in diff]
+            #         batch[i] = np.pad(array, pad_width=pad, mode='constant')
+            #     elif np.any(diff < 0):
+            #         sliceing = [slice(None) if n >= 0 else slice(n) for n in diff]
+            #         batch[i] = array[tuple(sliceing)]
+            # batch = np.stack(batch, axis=self.axis).astype(batch[0].dtype)
         return batch
 
 

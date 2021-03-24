@@ -1,9 +1,18 @@
 import numpy as np
 from lazy_dataset.core import DynamicTimeSeriesBucket
+from padertorch.utils import to_list
 
 
-class DynamicDisjointExamplesTimeSeriesBucket(DynamicTimeSeriesBucket):
-    def __init__(self, init_example, **kwargs):
+class DynamicExtendedTimeSeriesBucket(DynamicTimeSeriesBucket):
+    def __init__(
+            self,
+            init_example,
+            min_label_diversity=0,
+            label_key=None,
+            min_dataset_examples=None,
+            bucket_id=None,
+            **kwargs
+    ):
         """
         Extension of the DynamicTimeSeriesBucket such that examples are
         balanced with respect to the dataset they originate from
@@ -15,15 +24,56 @@ class DynamicDisjointExamplesTimeSeriesBucket(DynamicTimeSeriesBucket):
         """
         super().__init__(init_example, **kwargs)
         self.example_ids = set()
+        self.min_label_diversity = min_label_diversity
+        if min_label_diversity > 0:
+            assert label_key is not None
+            assert min_label_diversity <= self.batch_size
+        self.label_key = label_key
+        self.label_classes = set()
+        if min_dataset_examples is not None:
+            self.missing_dataset_examples = {
+                key: value for key, value in min_dataset_examples.items()
+            }
+            assert sum(min_dataset_examples.values()) <= self.batch_size
+        else:
+            self.missing_dataset_examples = None
+        self.bucket_id = bucket_id
 
     def assess(self, example):
-        return (
-            example["example_id"] not in self.example_ids and super().assess(example)
-        )
+        if example["example_id"] in self.example_ids:
+            return False
+        if self.bucket_id is not None and example[self.bucket_id] != self.data[0][self.bucket_id]:
+            return False
+        if not super().assess(example):
+            return False
+        if self.missing_dataset_examples is not None:
+            dataset_names = example['dataset'].split('+')  # '+' indicates mixtures
+            assert all([name in self.missing_dataset_examples for name in dataset_names]), (
+                dataset_names, sorted(self.missing_dataset_examples.keys())
+            )
+            if not (
+                (self.batch_size - len(self.data)) > sum(self.missing_dataset_examples.values())
+                or
+                any([self.missing_dataset_examples[name] > 0 for name in dataset_names])
+            ):
+                return False
+        if not (
+            (self.batch_size - len(self.data)) > (self.min_label_diversity - len(self.label_classes))
+            or
+            any([label not in self.label_classes for label in to_list(example.get(self.label_key, []))])
+        ):
+            return False
+        return True
 
     def _append(self, example):
         super()._append(example)
         self.example_ids.add(example["example_id"])
+        if self.missing_dataset_examples is not None:
+            for name in example['dataset'].split('+'):
+                if self.missing_dataset_examples[name] > 0:
+                    self.missing_dataset_examples[name] -= 1
+        if self.label_key is not None and self.label_key in example:
+            self.label_classes.update(to_list(example[self.label_key]))
 
 
 def split_dataset(dataset, fold, nfolds=5, seed=0):
