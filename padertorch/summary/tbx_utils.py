@@ -88,11 +88,12 @@ def mask_to_image(
     """
     mask = to_numpy(mask, detach=True)
 
-    if np.any(mask < 0) or np.any(mask > 1):
+    clipped_values = np.sum((mask < 0) | (mask > 1))
+    if clipped_values:
         import warning
         warning.warn(
             f'Mask value passed to mask_to_image out of range ([0, 1])! '
-            f'Clipping to range!'
+            f'{clipped_values} values are clipped!'
         )
 
     image = np.clip(mask * 255, 0, 255)
