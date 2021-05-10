@@ -11,7 +11,7 @@ from padertorch.contrib.je.modules.augment import (
 from padertorch.modules.normalization import Normalization, InputNormalization
 from torch import nn
 from scipy.signal import savgol_coeffs
-from padertorch.ops.sequence.mask import mask, compute_mask
+from padertorch.ops.sequence.mask import compute_mask
 
 
 class NormalizedLogMelExtractor(nn.Module):
