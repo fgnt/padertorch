@@ -9,6 +9,7 @@ class DynamicExtendedTimeSeriesBucket(DynamicTimeSeriesBucket):
             init_example,
             min_label_diversity=0,
             label_key=None,
+            multi_hot_encoded_labels=True,
             min_dataset_examples=None,
             bucket_id=None,
             **kwargs
@@ -29,6 +30,7 @@ class DynamicExtendedTimeSeriesBucket(DynamicTimeSeriesBucket):
             assert label_key is not None
             assert min_label_diversity <= self.batch_size
         self.label_key = label_key
+        self.multi_hot_encoded_labels = multi_hot_encoded_labels
         self.label_classes = set()
         if min_dataset_examples is not None:
             self.missing_dataset_examples = {
@@ -57,12 +59,14 @@ class DynamicExtendedTimeSeriesBucket(DynamicTimeSeriesBucket):
                 any([self.missing_dataset_examples[name] > 0 for name in dataset_names])
             ):
                 return False
-        if not (
-            (self.batch_size - len(self.data)) > (self.min_label_diversity - len(self.label_classes))
-            or
-            any([label not in self.label_classes for label in to_list(example.get(self.label_key, []))])
-        ):
-            return False
+        if self.label_key is not None:
+            labels = self._get_labels(example)
+            if not (
+                (self.batch_size - len(self.data)) > (self.min_label_diversity - len(self.label_classes))
+                or
+                any([label not in self.label_classes for label in labels])
+            ):
+                return False
         return True
 
     def _append(self, example):
@@ -73,7 +77,19 @@ class DynamicExtendedTimeSeriesBucket(DynamicTimeSeriesBucket):
                 if self.missing_dataset_examples[name] > 0:
                     self.missing_dataset_examples[name] -= 1
         if self.label_key is not None and self.label_key in example:
-            self.label_classes.update(to_list(example[self.label_key]))
+            self.label_classes.update(self._get_labels(example))
+
+    def _get_labels(self, example):
+        labels = example[self.label_key]
+        if self.multi_hot_encoded_labels:
+            assert labels.ndim >= 1, labels.shape
+            if labels.ndim > 1:
+                assert labels.ndim == 2, labels.shape
+                labels = labels.sum(-1)
+            labels = np.argwhere(labels > 0).flatten()
+        if isinstance(labels, np.ndarray):
+            labels = labels.tolist()
+        return to_list(labels)
 
 
 def split_dataset(dataset, fold, nfolds=5, seed=0):

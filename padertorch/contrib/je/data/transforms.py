@@ -12,6 +12,7 @@ from paderbox.utils.nested import nested_op
 from padertorch.utils import to_list
 from tqdm import tqdm
 from collections import defaultdict
+from paderbox.transform.module_filter import preemphasis_with_offset_compensation
 
 
 @dataclasses.dataclass
@@ -29,6 +30,7 @@ class AudioReader:
     channelwise_norm: bool = False
     eps: float = 1e-3
     storage_dir: str = None
+    preemphasis_factor: float = 0.
     alignment_keys: list = None
 
     def __post_init__(self):
@@ -67,12 +69,18 @@ class AudioReader:
             x = samplerate.resample(
                 x.T, self.target_sample_rate / sr, "sinc_fastest"
             ).T
-        x -= x.mean(-1, keepdims=True)
-        if self.average_channels:
-            x = x.mean(0, keepdims=True)
         return x
 
+    def _prenormalize(self, audio):
+        audio -= audio.mean(-1, keepdims=True)
+        if self.average_channels:
+            audio = audio.mean(0, keepdims=True)
+        if self.preemphasis_factor > 0.:
+            audio = preemphasis_with_offset_compensation(audio, self.preemphasis_factor)
+        return audio
+
     def normalize(self, example):
+        example['audio_data'] = self._prenormalize(example['audio_data'])
         if self.normalization_domain is None:
             assert self.normalization_type is None, self.normalization_type
             return example
@@ -130,6 +138,7 @@ class AudioReader:
                 start_samples = example.get("audio_start_samples", 0)
                 stop_samples = example.get("audio_stop_samples", None)
                 audio = self.load(audio_path, start_samples, stop_samples)
+                audio = self._prenormalize(audio)
                 audio_norm = self._get_audio_norm(audio)
                 n_samples = audio.shape[-1] if self.channelwise_norm else np.prod(audio.shape)
                 if count == 0:
@@ -158,7 +167,7 @@ class AudioReader:
         if self.alignment_keys is not None:
             for ali_key in self.alignment_keys:
                 if f'{ali_key}_start_times' in example or f'{ali_key}_stop_times' in example:
-                    assert f'{ali_key}_start_times' in example and f'{ali_key}_stop_times' in example, example.keys()
+                    assert ali_key in example and f'{ali_key}_start_times' in example and f'{ali_key}_stop_times' in example, example.keys()
                     example[f'{ali_key}_start_samples'] = [
                         int(self.target_sample_rate*t)
                         for t in example[f'{ali_key}_start_times']
@@ -204,7 +213,7 @@ class STFT(BaseSTFT):
         if self.alignment_keys is not None:
             for ali_key in self.alignment_keys:
                 if f'{ali_key}_start_samples' in example or f'{ali_key}_stop_samples' in example:
-                    assert f'{ali_key}_start_samples' in example and f'{ali_key}_stop_samples' in example, example.keys()
+                    assert ali_key in example and f'{ali_key}_start_samples' in example and f'{ali_key}_stop_samples' in example, example.keys()
                     example[f'{ali_key}_start_frames'] = [
                         self.sample_index_to_frame_index(int(n)+self.shift//2)
                         for n in example[f'{ali_key}_start_samples']
@@ -410,12 +419,13 @@ class LabelEncoder:
         self.label_mapping = None
         self.inverse_label_mapping = None
 
+    def encode(self, labels):
+        if isinstance(labels, (list, tuple)):
+            return [self.label_mapping[label] for label in labels]
+        return self.label_mapping[labels]
+
     def __call__(self, example):
-        def encode(labels):
-            if isinstance(labels, (list, tuple)):
-                return [self.label_mapping[label] for label in labels]
-            return self.label_mapping[labels]
-        y = encode(example[self.label_key])
+        y = self.encode(example[self.label_key])
         if self.to_array:
             example[self.label_key] = np.array(y)
         else:
@@ -463,11 +473,11 @@ class MultiHotEncoder(LabelEncoder):
     to_array: bool = True
 
     def __call__(self, example):
-        labels = np.array(super().__call__(example)[self.label_key]).astype(np.int)
+        labels = np.array(super().__call__(example)[self.label_key], dtype=np.int)
         if labels.ndim == 0:
             labels = labels[None]
         assert labels.ndim == 1, labels.shape
-        nhot_encoding = np.zeros(len(self.label_mapping)).astype(np.float32)
+        nhot_encoding = np.zeros(len(self.label_mapping), dtype=np.float32)
         if len(labels) > 0:
             nhot_encoding[labels] = 1
         if self.to_array:
@@ -484,7 +494,7 @@ class AlignmentEncoder(LabelEncoder):
     def __call__(self, example):
         labels = super().__call__(example)[self.label_key]
         n_frames = example['stft'].shape[1]
-        ali = np.zeros(n_frames)
+        ali = np.zeros(n_frames, dtype=np.float32)
         assert f'{self.label_key}_start_frames' in example, (example['dataset'], example.keys())
         for label, onset, offset in zip(
                 labels,
@@ -503,7 +513,7 @@ class MultiHotAlignmentEncoder(LabelEncoder):
     def __call__(self, example):
         labels = super().__call__(example)[self.label_key]
         n_frames = example['stft'].shape[1]
-        ali = np.zeros((n_frames, len(self.label_mapping)))
+        ali = np.zeros((n_frames, len(self.label_mapping)), dtype=np.float32)
         assert f'{self.label_key}_start_frames' in example, (example['dataset'], example.keys())
         for label, onset, offset in zip(
                 labels,

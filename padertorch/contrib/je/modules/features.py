@@ -10,6 +10,8 @@ from padertorch.contrib.je.modules.augment import (
 )
 from padertorch.modules.normalization import Normalization, InputNormalization
 from torch import nn
+from scipy.signal import savgol_coeffs
+from padertorch.ops.sequence.mask import mask, compute_mask
 
 
 class NormalizedLogMelExtractor(nn.Module):
@@ -22,7 +24,7 @@ class NormalizedLogMelExtractor(nn.Module):
     """
     def __init__(
             self, sample_rate, stft_size, number_of_filters, num_channels=1,
-            lowest_frequency=50, highest_frequency=None,
+            lowest_frequency=50, highest_frequency=None, htk_mel=True,
             add_deltas=False, add_delta_deltas=False,
             norm_statistics_axis='bt', norm_eps=1e-5, batch_norm=False,
             clamp=6,
@@ -42,11 +44,19 @@ class NormalizedLogMelExtractor(nn.Module):
             number_of_filters=number_of_filters,
             lowest_frequency=lowest_frequency,
             highest_frequency=highest_frequency,
+            htk_mel=htk_mel,
             log=True,
             warping_fn=frequency_warping_fn,
         )
-        self.add_deltas = add_deltas
-        self.add_delta_deltas = add_delta_deltas
+        if add_deltas:
+            self.deltas_extractor = DeltaExtractor(order=1)
+        else:
+            self.deltas_extractor = None
+        if add_delta_deltas:
+            self.delta_deltas_extractor = DeltaExtractor(order=2)
+        else:
+            self.delta_deltas_extractor = None
+
         assert all([len(pair) == 2 for pair in ipd_pairs]), ipd_pairs
         assert all([c < num_channels for pair in ipd_pairs for c in pair]), ipd_pairs
         self.ipd_pairs = list(zip(*ipd_pairs))
@@ -136,12 +146,13 @@ class NormalizedLogMelExtractor(nn.Module):
             if self.blur is not None:
                 x = self.blur(x)
 
-            if self.add_deltas or self.add_delta_deltas:
-                deltas = compute_deltas(x)
-                if self.add_deltas:
+            if (self.deltas_extractor is not None) or (self.delta_deltas_extractor is not None):
+                x_ = x
+                if self.deltas_extractor is not None:
+                    deltas = self.deltas_extractor(x_, seq_len=seq_len)
                     x = torch.cat((x, deltas), dim=1)
-                if self.add_delta_deltas:
-                    delta_deltas = compute_deltas(deltas)
+                if self.delta_deltas_extractor is not None:
+                    delta_deltas = self.delta_deltas_extractor(x_, seq_len=seq_len)
                     x = torch.cat((x, delta_deltas), dim=1)
 
             x = self.norm(x, sequence_lengths=seq_len)
@@ -181,6 +192,7 @@ class MelTransform(Module):
             number_of_filters: int,
             lowest_frequency: Optional[float] = 50.,
             highest_frequency: Optional[float] = None,
+            htk_mel=True,
             log: bool = True,
             eps=1e-12,
             *,
@@ -236,6 +248,7 @@ class MelTransform(Module):
         self.number_of_filters = number_of_filters
         self.lowest_frequency = lowest_frequency
         self.highest_frequency = highest_frequency
+        self.htk_mel = htk_mel
         self.log = log
         self.eps = eps
         self.warping_fn = warping_fn
@@ -247,6 +260,7 @@ class MelTransform(Module):
             number_of_filters=self.number_of_filters,
             lowest_frequency=self.lowest_frequency,
             highest_frequency=self.highest_frequency,
+            htk_mel=htk_mel,
         ).astype(np.float32)
         fbanks = fbanks / (fbanks.sum(axis=-1, keepdims=True) + 1e-6)
         self.fbanks = nn.Parameter(
@@ -270,6 +284,7 @@ class MelTransform(Module):
                 number_of_filters=self.number_of_filters,
                 lowest_frequency=self.lowest_frequency,
                 highest_frequency=self.highest_frequency,
+                htk_mel=self.htk_mel,
                 warping_fn=self.warping_fn,
                 size=size,
             ).astype(np.float32)
@@ -296,59 +311,53 @@ class MelTransform(Module):
         return torch.max(x, torch.zeros_like(x))
 
 
-def compute_deltas(specgram, win_length=5, mode="replicate"):
-    # type: (Tensor, int, str) -> Tensor
-    r"""Compute delta coefficients of a tensor, usually a spectrogram:
-
-    !!!copy from torchaudio.functional!!!
-
-    .. math::
-        d_t = \frac{\sum_{n=1}^{\text{N}} n (c_{t+n} - c_{t-n})}{2 \sum_{n=1}^{\text{N} n^2}
-
-    where :math:`d_t` is the deltas at time :math:`t`,
-    :math:`c_t` is the spectrogram coeffcients at time :math:`t`,
-    :math:`N` is (`win_length`-1)//2.
-
-    Args:
-        specgram (torch.Tensor): Tensor of audio of dimension (..., freq, time)
-        win_length (int): The window length used for computing delta
-        mode (str): Mode parameter passed to padding
-
-    Returns:
-        deltas (torch.Tensor): Tensor of audio of dimension (..., freq, time)
-
-    Example
-        >>> specgram = torch.randn(4, 2, 40, 1000)
-        >>> delta = compute_deltas(specgram)
-        >>> delta.shape
-        torch.Size([4, 2, 40, 1000])
-        >>> delta2 = compute_deltas(delta)
-        >>> delta2.shape
-        torch.Size([4, 2, 40, 1000])
+class DeltaExtractor(nn.Module):
     """
+    >>> f = DeltaExtractor(order=1, width=9)
+    >>> f.kernel
+    >>> x = torch.randn(4, 2, 40, 1000) - 40
+    >>> deltas = f(x)
+    >>> deltas.shape
+    torch.Size([4, 2, 40, 1000])
+    >>> deltas.max()
+    >>> deltas[0, 0, :, :5]
+    >>> f = DeltaExtractor(order=2, width=9)
+    >>> f.kernel
+    >>> delta_deltas = f(x)
+    >>> delta_deltas.shape
+    torch.Size([4, 2, 40, 1000])
+    >>> delta_deltas[0, 0, :, :5]
+    >>> delta_deltas.max()
+    >>> from librosa import feature
+    >>> librosa_deltas = feature.delta(x.numpy(), axis=-1, order=1)
+    >>> librosa_delta_deltas = feature.delta(x.numpy(), axis=-1, order=2)
+    >>> np.abs(deltas.numpy() - librosa_deltas)[..., 4:-4].max()
+    >>> np.abs(delta_deltas.numpy() - librosa_delta_deltas)[..., 4:-4].max()
+    """
+    def __init__(self, width=5, order=1):
+        super().__init__()
+        self.width = width
+        self.order = order
+        kernel = savgol_coeffs(width, order, deriv=order, delta=1.0).astype(np.float32)
+        self.kernel = nn.Parameter(
+            torch.from_numpy((-1)**(order % 2)*kernel), requires_grad=False
+        )
 
-    # pack batch
-    shape = specgram.size()
-    specgram = specgram.reshape(1, -1, shape[-1])
+    def forward(self, x, seq_len=None):
+        # pack batch
+        shape = x.size()
+        x = x.reshape(1, -1, shape[-1])
 
-    assert win_length >= 3
+        assert self.width >= 3, self.width
+        n = (self.width - 1) // 2
 
-    n = (win_length - 1) // 2
+        kernel = self.kernel.repeat(x.shape[1], 1, 1)
+        y = torch.nn.functional.conv1d(x, kernel, groups=x.shape[1])
+        y = torch.nn.functional.pad(y, [n, n], mode="constant")
 
-    # twice sum of integer squared
-    denom = n * (n + 1) * (2 * n + 1) / 3
+        # unpack batch
+        y = y.reshape(shape)
+        if seq_len is not None:
+            y = y * compute_mask(y, np.array(seq_len) - n, batch_axis=0, sequence_axis=-1)
 
-    specgram = torch.nn.functional.pad(specgram, (n, n), mode=mode)
-
-    kernel = (
-        torch
-        .arange(-n, n + 1, 1, device=specgram.device, dtype=specgram.dtype)
-        .repeat(specgram.shape[1], 1, 1)
-    )
-
-    output = torch.nn.functional.conv1d(specgram, kernel, groups=specgram.shape[1]) / denom
-
-    # unpack batch
-    output = output.reshape(shape)
-
-    return output
+        return y
