@@ -68,6 +68,10 @@ def mask_to_image(
 
     For more details of the output shape, see the tensorboardx docs
 
+    Note:
+        Clips mask to range [0, 1]. Any values outside of this range will be
+        ignored.
+
     Args:
         mask: Mask to plot
         batch_first: If `True`, `signal` is expected to have shape
@@ -83,6 +87,14 @@ def mask_to_image(
         Colorized image with shape (color (1 or 3), features, frames)
     """
     mask = to_numpy(mask, detach=True)
+
+    clipped_values = np.sum((mask < 0) | (mask > 1))
+    if clipped_values:
+        import warning
+        warning.warn(
+            f'Mask value passed to mask_to_image out of range ([0, 1])! '
+            f'{clipped_values} values are clipped!'
+        )
 
     image = np.clip(mask * 255, 0, 255)
     image = image.astype(np.uint8)
