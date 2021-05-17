@@ -158,7 +158,6 @@ def convnet():
         'hidden_channels': 512,
         'kernel_size': 3,
         'norm': "gLN",
-        'activation': "relu",
     }}}
 
 
