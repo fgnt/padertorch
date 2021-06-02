@@ -573,8 +573,7 @@ def fix_doctext_import_class(locals_dict):
         ImportError: Could not import 'Foo' from '...configurable',
         because module '...configurable' has no attribute 'Foo'
         <BLANKLINE>
-        Make su
-        re that
+        Make sure that
          1. This is the class you want to import.
          2. You activated the right environment.
          3. The module exists and has been installed with pip.
