@@ -201,6 +201,61 @@ Net(
   (fc2): Linear(in_features=320, out_features=84, bias=True)
 )
 ```
+
+Some modules need functions or non-initialized classes as an input.
+Therefore, one can use the partial key instead of the factory key.
+All defined kwargs will overwrite the defaults without calling the function
+or initializing the class using partial.
+One example is SpeechBrain which requires the activity to be not
+initialized at the class input.
+
+```python
+import padertorch as pt
+import torch.nn as nn
+
+class Net(pt.Module):
+    @classmethod
+    def finalize_dogmatic_config(cls, config):
+       config['fc1'] = {
+            'factory': nn.Linear,
+            'in_features':120,
+            'out_features': 84
+        }
+       config['fc2'] = {
+            'factory': nn.Linear,
+            'in_features':config['fc1']['out_features'],
+            'out_features': 10
+       }
+       config['activation'] = {
+            'partial': nn.ReLU
+       }
+
+    def __init__(self, fc1, fc2, activation):
+        super().__init__()
+        self.fc1 = fc1
+        self.fc2 = fc2
+        self.activation=activation()
+
+    def forward(self, x):
+        x = self.activation(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+net = Net.from_config(Net.get_config({}))
+```
+To overwrite the activation, we can just define the new activation in the 
+update for the config.
+```
+net = Net.from_config(Net.get_config({'activation': {'partial': torch.nn.LeakyReLU}}))
+```
+which results in the following network:
+```
+Net(
+  (fc1): Linear(in_features=120, out_features=84, bias=True)
+  (fc2): Linear(in_features=84, out_features=10, bias=True)
+  (activation): LeakyReLU(negative_slope=0.01)
+)
+```
 For more example on how to use finalize_dogmatic_config please refer to the
 class doctest, our toy example or our example models.
 
