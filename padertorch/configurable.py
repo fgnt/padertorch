@@ -18,20 +18,16 @@ used for that instance in your modified `finalize_docmatic_config`.
 import sys
 import os
 import collections
+import functools
 import importlib
 import inspect
 from pathlib import Path
-from functools import partial
 import copy
 
 import paderbox as pb
 
 # pylint: disable=import-outside-toplevel
 
-# These special keys are used in the config to indicate classes or functions
-# 'factory' is used to specify initialized classes or function outputs as an
-# input. 'partial' is used if an input is a non-initialized class or
-# a functions
 
 class Configurable:
     """Allow subclasses to be configured automatically from JSON config files.
@@ -198,10 +194,13 @@ class Configurable:
     NN input size depends on selected input features).
 
     Some modules need unitilized classes or functions as an input.
+    Factory already supports functions but cannot make them json
+    serializable.
     Therefore, one can use the partial key instead of the factory key.
     All defined kwargs will overwrite the defaults without calling the function
     or initializing the class using partial.
-    One example is SpeechBrain which requires the activity to be not
+    This is essential a functions.partial call.
+    One usecase is SpeechBrain which requires the activity to be not
     initialized at the class input.
 
         >>> class SBDenseLayer(Configurable, torch.nn.Module):
@@ -927,7 +926,7 @@ def recursive_class_to_str(config, sort=False):
     # ToDo: Support tuple and list?
     if isinstance(config, dict):
         d = config.__class__()
-        special_key = _get_special_key(config.keys())
+        special_key = _get_special_key(config)
 
         if sort and special_key:
             # Force factory to be the first key
