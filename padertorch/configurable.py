@@ -21,13 +21,13 @@ import collections
 import importlib
 import inspect
 from pathlib import Path
+from functools import partial
 import copy
 
 import paderbox as pb
 
 # pylint: disable=import-outside-toplevel
 
-special_keys = ['factory', 'partial']
 # These special keys are used in the config to indicate classes or functions
 # 'factory' is used to specify initialized classes or function outputs as an
 # input. 'partial' is used if an input is a non-initialized class or
@@ -376,9 +376,11 @@ class Configurable:
                 # When subclass of Configurable expect proper subclass
                 assert issubclass(config['factory'], cls), (
                     config['factory'], cls)
-        elif 'partial' in config:
-            config['partial'] = import_class(config['partial'])
-            assert callable(config['partial']), config['partial']
+        # If get_config has to be called on a partial object,
+        # you can use this
+        # elif 'partial' in config:
+        #     config['partial'] = import_class(config['partial'])
+        #     assert callable(config['partial']), config['partial']
         else:
             config['factory'] = cls
 
@@ -925,25 +927,19 @@ def recursive_class_to_str(config, sort=False):
     # ToDo: Support tuple and list?
     if isinstance(config, dict):
         d = config.__class__()
-        if sort:
-            for special_key in special_keys:
-                if special_key in config:
-                    # Force factory to be the first key
-                    d[special_key] = None  # will be set later
-                    imported = import_class(config[special_key])
-                    arg_names = inspect.signature(imported).parameters.keys()
-                    for k in arg_names:
-                        if k in config:
-                            d[k] = None  # will be set later
+        special_key = _get_special_key(config.keys())
 
-                    break
-        else:
-            for special_key in special_keys:
-                if special_key in config.keys():
-                    break
+        if sort and special_key:
+            # Force factory to be the first key
+            d[special_key] = None  # will be set later
+            imported = import_class(config[special_key])
+            arg_names = inspect.signature(imported).parameters.keys()
+            for k in arg_names:
+                if k in config:
+                    d[k] = None  # will be set later
 
         for k, v in config.items():
-            if k == special_key:
+            if special_key and k == special_key:
                 d[k] = class_to_str(v)
             else:
                 d[k] = recursive_class_to_str(v)
@@ -960,6 +956,15 @@ def _split_factory_kwargs(config, key='factory'):
     kwargs = config.copy()
     factory = kwargs.pop(key)
     return factory, kwargs
+
+
+def _get_special_key(config):
+    for key in ['factory', 'partial']:
+        if callable(config):
+            if key in config(key):
+                return key
+        elif key in config:
+            return key
 
 
 def _check_factory_signature_and_kwargs(factory, kwargs, strict):
@@ -1024,17 +1029,6 @@ def config_to_instance(config, strict=False):
 
     >>> import torch.nn
     >>> config = {
-    ...     'partial': 'torch.nn.modules.activation.ReLU',
-    ...     'inplace': False}
-    >>> config_to_instance(config)
-    functools.partial(<class 'torch.nn.modules.activation.ReLU'>, inplace=False)
-    >>> config_to_instance(config, strict=True)
-    functools.partial(<class 'torch.nn.modules.activation.ReLU'>, inplace=False)
-    >>> config = {
-    ...     'partial': 'torch.nn.modules.activation.ReLU'}
-    >>> config_to_instance(config)
-    <class 'torch.nn.modules.activation.ReLU'>
-    >>> config = {
     ...     'factory': 'torch.nn.modules.activation.ReLU',
     ...     'inplace': False}
     >>> config_to_instance(config)
@@ -1070,33 +1064,43 @@ def config_to_instance(config, strict=False):
     Tried to instantiate/call <class 'torch.nn.modules.activation.ReLU'> with
     `torch.nn.modules.activation.ReLU(**{'inplace_typo': False})`.
     Signature: (inplace=False)
+    >>> config = {
+    ...     'partial': 'torch.nn.modules.activation.ReLU',
+    ...     'inplace': False}
+    >>> config_to_instance(config)
+    functools.partial(<class 'torch.nn.modules.activation.ReLU'>, inplace=False)
+    >>> config_to_instance(config, strict=True)
+    functools.partial(<class 'torch.nn.modules.activation.ReLU'>, inplace=False)
+    >>> config = {
+    ...     'partial': 'torch.nn.modules.activation.ReLU'}
+    >>> config_to_instance(config)
+    <class 'torch.nn.modules.activation.ReLU'>
 
     """
     if isinstance(config, dict):
-        for key in special_keys:
-            if key in config:
-                factory, kwargs = _split_factory_kwargs(config, key=key)
-                factory = import_class(factory)
-                kwargs = config_to_instance(kwargs, strict)
+        special_key = _get_special_key(config.keys())
+        if special_key:
+            factory, kwargs = _split_factory_kwargs(config, key=special_key)
+            factory = import_class(factory)
+            kwargs = config_to_instance(kwargs, strict)
 
-                _check_factory_signature_and_kwargs(factory, kwargs, strict)
+            _check_factory_signature_and_kwargs(factory, kwargs, strict)
 
-                if key == 'factory':
-                    new = factory(**kwargs)
-                elif key == 'partial':
-                    if len(kwargs) > 0:
-                        from functools import partial
-                        new = partial(factory, **kwargs)
-                    else:
-                        new = factory
+            if special_key == 'factory':
+                new = factory(**kwargs)
+            elif special_key == 'partial':
+                if len(kwargs) > 0:
+                    new = partial(factory, **kwargs)
                 else:
-                    ValueError()
+                    new = factory
+            else:
+                Exception('This cannot happen')
 
-                try:
-                    new.config = config
-                except AttributeError:
-                    pass
-                return new
+            try:
+                new.config = config
+            except AttributeError:
+                pass
+            return new
         else:
             d = copy.copy(config)  # config.__class__() not possible in sacred>=0.8 because of ReadOnlyDict.
             for k, v in config.items():
@@ -1349,17 +1353,15 @@ class _DogmaticConfig:
          'storage_dir': 'abc'}
         """
         if isinstance(dictionary, collections.Mapping):
-            for special_key in special_keys:
-                if special_key in dictionary:
-                    dictionary[special_key] = cls._force_factory_type(
-                        dictionary[special_key]
+            special_key = _get_special_key(dictionary.keys())
+            if special_key:
+                dictionary[special_key] = cls._force_factory_type(
+                    dictionary[special_key]
                     )
-                    break
             dictionary = {
                 k: cls.normalize(v)
                 for k, v in dictionary.items()
             }
-
         elif isinstance(dictionary, (tuple, list)):
             dictionary = [
                 cls.normalize(v)
@@ -1400,15 +1402,14 @@ class _DogmaticConfig:
             mutable_idx=mutable_idx,
         )
 
-        for special_key in special_keys:
-            if special_key in self.data:
-                self._check_redundant_keys(
-                    'padertorch.Configurable.get_config(updates=...) got an '
-                    f'unexpected keyword argument in updates for '
-                    f'{self.data[special_key]}.\n'
-                    'See details below.\n', special_key=special_key
-                )
-                break
+        special_key = _get_special_key(self.data.keys())
+        if special_key:
+            self._check_redundant_keys(
+                'padertorch.Configurable.get_config(updates=...) got an '
+                f'unexpected keyword argument in updates for '
+                f'{self.data[special_key]}.\n'
+                'See details below.\n', special_key=special_key
+            )
 
     def get_sub_config(self, key, mutable_idx=None):
         if mutable_idx is None:
@@ -1492,15 +1493,14 @@ class _DogmaticConfig:
     def __setitem__(self, key, value):
         self.data[key] = self.normalize(value)
 
-        for special_key in special_keys:
-            if special_key in self.data.keys():
-                self._check_redundant_keys(
-                    'Tried to set an unexpected keyword argument for '
-                    f'{self.data[special_key]} in finalize_dogmatic_config.\n'
-                    'See details below and stacktrace above.\n',
-                    special_key=special_key
-                )
-                break
+        special_key = _get_special_key(self.data.keys())
+        if special_key:
+            self._check_redundant_keys(
+                'Tried to set an unexpected keyword argument for '
+                f'{self.data[special_key]} in finalize_dogmatic_config.\n'
+                'See details below and stacktrace above.\n',
+                special_key=special_key
+            )
 
     def update(self, dictionary: dict, **kwargs):
         dictionary.update()
@@ -1583,12 +1583,10 @@ class _DogmaticConfig:
         finalize_dogmatic_config if it exists.)
 
         """
-        for special_key in special_keys:
-            if special_key in self.data \
-                    and key != special_key \
+        special_key = _get_special_key(self.data.keys())
+        if special_key and key != special_key \
                     and self.data.mutable_idx != (len(self.data.maps) - 1):
-                self._update_factory_kwargs(special_key=special_key)
-                break
+            self._update_factory_kwargs(special_key=special_key)
 
         if 'cls' in self._key_candidates(special_key=special_key):
             from IPython.lib.pretty import pretty
@@ -1620,10 +1618,10 @@ class _DogmaticConfig:
     def to_dict(self):
         """Export the Configurable object to a dict."""
         result_dict = {}
-        for special_key in special_keys:
-            if special_key in self._key_candidates(special_key=special_key):
-                self._update_factory_kwargs(special_key=special_key)
-                break
+        special_key = _get_special_key(self._key_candidates)
+        if special_key:
+            self._update_factory_kwargs(special_key=special_key)
+
         for k in self._key_candidates(special_key=special_key):
             try:
                 v = self[k]
