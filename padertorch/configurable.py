@@ -925,17 +925,22 @@ def recursive_class_to_str(config, sort=False):
     # ToDo: Support tuple and list?
     if isinstance(config, dict):
         d = config.__class__()
-        for special_key in special_keys:
-            if sort and special_key in config:
-                # Force factory to be the first key
-                d[special_key] = None  # will be set later
-                imported = import_class(config[special_key])
-                arg_names = inspect.signature(imported).parameters.keys()
-                for k in arg_names:
-                    if k in config:
-                        d[k] = None  # will be set later
+        if sort:
+            for special_key in special_keys:
+                if special_key in config:
+                    # Force factory to be the first key
+                    d[special_key] = None  # will be set later
+                    imported = import_class(config[special_key])
+                    arg_names = inspect.signature(imported).parameters.keys()
+                    for k in arg_names:
+                        if k in config:
+                            d[k] = None  # will be set later
 
-                break
+                    break
+        else:
+            for special_key in special_keys:
+                if special_key in config.keys():
+                    break
 
         for k, v in config.items():
             if k == special_key:
