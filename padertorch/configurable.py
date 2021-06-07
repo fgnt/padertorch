@@ -965,6 +965,7 @@ def _get_special_key(config):
     for key in ['factory', 'partial']:
         if key in config.keys():
             return key
+    return None
 
 
 def _check_factory_signature_and_kwargs(factory, kwargs, strict):
@@ -1456,7 +1457,7 @@ class _DogmaticConfig:
         return tuple(self.data.keys())
 
     def _check_redundant_keys(self, msg):
-        assert self.special_key in self.data, self.data
+        assert self.special_key in self.data, f'Missing factory or partial in {self.data}'
         imported = import_class(self.data[self.special_key])
         parameters = inspect.signature(imported).parameters.values()
         p: inspect.Parameter
@@ -1519,7 +1520,7 @@ class _DogmaticConfig:
         return self[key]
 
     def _update_factory_kwargs(self):
-        assert self.special_key in self.data, self.data
+        assert self.special_key in self.data, f'Missing factory or partial in {self.data}'
 
         # Force factory to be the class/function
         factory = import_class(self.data[self.special_key])
