@@ -959,11 +959,12 @@ def _split_factory_kwargs(config, key='factory'):
 
 
 def _get_special_key(config):
+    # These special keys are used in the config to indicate classes or
+    # functions 'factory' is used to specify initialized classes or
+    # function outputs as an input. 'partial' is used if an input is a
+    # non-initialized class or a functions
     for key in ['factory', 'partial']:
-        if callable(config):
-            if key in config(key):
-                return key
-        elif key in config:
+        if key in config.keys():
             return key
 
 
@@ -1078,7 +1079,7 @@ def config_to_instance(config, strict=False):
 
     """
     if isinstance(config, dict):
-        special_key = _get_special_key(config.keys())
+        special_key = _get_special_key(config)
         if special_key:
             factory, kwargs = _split_factory_kwargs(config, key=special_key)
             factory = import_class(factory)
@@ -1090,12 +1091,11 @@ def config_to_instance(config, strict=False):
                 new = factory(**kwargs)
             elif special_key == 'partial':
                 if len(kwargs) > 0:
-                    new = partial(factory, **kwargs)
+                    new = functools.partial(factory, **kwargs)
                 else:
                     new = factory
             else:
                 Exception('This cannot happen')
-
             try:
                 new.config = config
             except AttributeError:
@@ -1353,7 +1353,7 @@ class _DogmaticConfig:
          'storage_dir': 'abc'}
         """
         if isinstance(dictionary, collections.Mapping):
-            special_key = _get_special_key(dictionary.keys())
+            special_key = _get_special_key(dictionary)
             if special_key:
                 dictionary[special_key] = cls._force_factory_type(
                     dictionary[special_key]
@@ -1402,14 +1402,17 @@ class _DogmaticConfig:
             mutable_idx=mutable_idx,
         )
 
-        special_key = _get_special_key(self.data.keys())
-        if special_key:
+        if self.special_key:
             self._check_redundant_keys(
                 'padertorch.Configurable.get_config(updates=...) got an '
                 f'unexpected keyword argument in updates for '
-                f'{self.data[special_key]}.\n'
-                'See details below.\n', special_key=special_key
+                f'{self.data[self.special_key]}.\n'
+                'See details below.\n'
             )
+
+    @property
+    def special_key(self):
+        return _get_special_key(self.data)
 
     def get_sub_config(self, key, mutable_idx=None):
         if mutable_idx is None:
@@ -1423,13 +1426,13 @@ class _DogmaticConfig:
         else:
             raise KeyError(key)
 
-    def _key_candidates(self, special_key='factory'):
-        if special_key in self.data:
-            factory = import_class(self.data[special_key])
+    def _key_candidates(self):
+        if self.special_key:
+            factory = import_class(self.data[self.special_key])
             parameters = inspect.signature(factory).parameters.values()
             p: inspect.Parameter
 
-            parameter_names = tuple([special_key]) + tuple([
+            parameter_names = tuple([self.special_key]) + tuple([
                 p.name
                 for p in parameters
                 if p.kind in [
@@ -1453,9 +1456,9 @@ class _DogmaticConfig:
     def keys(self):
         return tuple(self.data.keys())
 
-    def _check_redundant_keys(self, msg, special_key='factory'):
-        assert special_key in self.data, self.data
-        imported = import_class(self.data[special_key])
+    def _check_redundant_keys(self, msg):
+        assert self.special_key in self.data, self.data
+        imported = import_class(self.data[self.special_key])
         parameters = inspect.signature(imported).parameters.values()
         p: inspect.Parameter
 
@@ -1469,7 +1472,7 @@ class _DogmaticConfig:
                     inspect.Parameter.POSITIONAL_OR_KEYWORD,
                     inspect.Parameter.KEYWORD_ONLY,
                 ]
-            ]) | {special_key}
+            ]) | {self.special_key}
 
             redundant_keys = set(self.data.keys()) - parameter_names
 
@@ -1493,13 +1496,11 @@ class _DogmaticConfig:
     def __setitem__(self, key, value):
         self.data[key] = self.normalize(value)
 
-        special_key = _get_special_key(self.data.keys())
-        if special_key:
+        if self.special_key:
             self._check_redundant_keys(
                 'Tried to set an unexpected keyword argument for '
-                f'{self.data[special_key]} in finalize_dogmatic_config.\n'
+                f'{self.data[self.special_key]} in finalize_dogmatic_config.\n'
                 'See details below and stacktrace above.\n',
-                special_key=special_key
             )
 
     def update(self, dictionary: dict, **kwargs):
@@ -1518,11 +1519,11 @@ class _DogmaticConfig:
             self[key] = default
         return self[key]
 
-    def _update_factory_kwargs(self, special_key='factory'):
-        assert special_key in self.data, self.data
+    def _update_factory_kwargs(self):
+        assert self.special_key in self.data, self.data
 
         # Force factory to be the class/function
-        factory = import_class(self.data[special_key])
+        factory = import_class(self.data[self.special_key])
 
         # Freeze the mutable_idx (i.e. all updates to the config of
         # this level)
@@ -1556,7 +1557,7 @@ class _DogmaticConfig:
                     'in the finalize_dogmatic_config.'
                 ) from e
 
-        delta = set(self.data.keys()) - set(self._key_candidates(special_key))
+        delta = set(self.data.keys()) - set(self._key_candidates())
 
         if len(delta) > 1:
             # (delta, self.data.keys(), parameter_names)
@@ -1583,18 +1584,17 @@ class _DogmaticConfig:
         finalize_dogmatic_config if it exists.)
 
         """
-        special_key = _get_special_key(self.data.keys())
-        if special_key and key != special_key \
+        if self.special_key and key != self.special_key \
                     and self.data.mutable_idx != (len(self.data.maps) - 1):
-            self._update_factory_kwargs(special_key=special_key)
+            self._update_factory_kwargs()
 
-        if 'cls' in self._key_candidates(special_key=special_key):
+        if 'cls' in self._key_candidates():
             from IPython.lib.pretty import pretty
             factory = self.data['cls']
             factory_str = class_to_str(factory)
             raise Exception(
                 f'Got the old key "cls" (value: {factory_str}).\n'
-                f'Use the new key: {special_key}\n'
+                f'Use the new key: {self.special_key}\n'
                 f'Signature: {inspect.signature(factory)}\n'
                 f'Current config with fallbacks:\n{pretty(self.data)}'
             )
@@ -1618,21 +1618,20 @@ class _DogmaticConfig:
     def to_dict(self):
         """Export the Configurable object to a dict."""
         result_dict = {}
-        special_key = _get_special_key(self._key_candidates)
-        if special_key:
-            self._update_factory_kwargs(special_key=special_key)
+        if self.special_key:
+            self._update_factory_kwargs()
 
-        for k in self._key_candidates(special_key=special_key):
+        for k in self._key_candidates():
             try:
                 v = self[k]
             except KeyError as ex:
                 from IPython.lib.pretty import pretty
-                if special_key in self._key_candidates(special_key) and k != special_key:
+                if self.special_key in self._key_candidates() and k != self.special_key:
                     # KeyError has a bad __repr__, use Exception
-                    missing_keys = set(self._key_candidates(special_key)) - set(self.data.keys())
+                    missing_keys = set(self._key_candidates()) - set(self.data.keys())
                     raise Exception(
                         f'KeyError: {k}\n'
-                        f'signature: {inspect.signature(self[special_key])}\n'
+                        f'signature: {inspect.signature(self[self.special_key])}\n'
                         f'missing keys: {missing_keys}\n'
                         f'self:\n{pretty(self)}'
                     ) from ex
@@ -1641,11 +1640,11 @@ class _DogmaticConfig:
                     # Can this happen?
                     raise Exception(
                         f'{k}\n'
-                        f'signature: {inspect.signature(self[special_key])}'
+                        f'signature: {inspect.signature(self[self.special_key])}'
                         f'self:\n{pretty(self)}'
                     ) from ex
 
-            if k == special_key:
+            if k == self.special_key:
                 v = class_to_str(v)
             if isinstance(v, self.__class__):
                 v = v.to_dict()
