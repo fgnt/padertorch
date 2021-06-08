@@ -1626,8 +1626,7 @@ class _DogmaticConfig:
                 v = self[k]
             except KeyError as ex:
                 from IPython.lib.pretty import pretty
-                if self.special_key and \
-                        self.special_key in self._key_candidates() and \
+                if self.special_key in self._key_candidates() and \
                         k != self.special_key:
                     # KeyError has a bad __repr__, use Exception
                     missing_keys = set(self._key_candidates()) - set(self.data.keys())
