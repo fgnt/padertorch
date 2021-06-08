@@ -702,7 +702,8 @@ def import_class(name: [str, callable]):
 
     """
     if not isinstance(name, str):
-        assert callable(name), name
+        assert callable(name), (
+            'expects string or callcable but got', type(name), name)
         return name
 
     if '.' not in name:
