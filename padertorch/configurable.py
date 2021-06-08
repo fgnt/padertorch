@@ -1083,7 +1083,14 @@ def config_to_instance(config, strict=False):
         special_key = _get_special_key(config)
         if special_key:
             factory, kwargs = _split_factory_kwargs(config, key=special_key)
-            factory = import_class(factory)
+            if isinstance(factory, str):
+                factory = import_class(factory)
+            elif callable(factory):
+                pass
+            else:
+                raise TypeError(f'The special key {special_key} expects a'
+                                f' string or a callable but got',
+                                type(factory), factory)
             kwargs = config_to_instance(kwargs, strict)
 
             _check_factory_signature_and_kwargs(factory, kwargs, strict)
