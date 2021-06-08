@@ -1457,7 +1457,7 @@ class _DogmaticConfig:
         return tuple(self.data.keys())
 
     def _check_redundant_keys(self, msg):
-        assert self.special_key in self.data, f'Missing factory or partial in {self.data}'
+        assert self.special_key, f'Missing factory or partial in {self.data}'
         imported = import_class(self.data[self.special_key])
         parameters = inspect.signature(imported).parameters.values()
         p: inspect.Parameter
@@ -1520,7 +1520,7 @@ class _DogmaticConfig:
         return self[key]
 
     def _update_factory_kwargs(self):
-        assert self.special_key in self.data, f'Missing factory or partial in {self.data}'
+        assert self.special_key, f'Missing factory or partial in {self.data}'
 
         # Force factory to be the class/function
         factory = import_class(self.data[self.special_key])
@@ -1594,7 +1594,7 @@ class _DogmaticConfig:
             factory_str = class_to_str(factory)
             raise Exception(
                 f'Got the old key "cls" (value: {factory_str}).\n'
-                f'Use the new key: {self.special_key}\n'
+                f'Use the new key: factory\n'
                 f'Signature: {inspect.signature(factory)}\n'
                 f'Current config with fallbacks:\n{pretty(self.data)}'
             )
@@ -1626,7 +1626,9 @@ class _DogmaticConfig:
                 v = self[k]
             except KeyError as ex:
                 from IPython.lib.pretty import pretty
-                if self.special_key in self._key_candidates() and k != self.special_key:
+                if self.special_key and \
+                        self.special_key in self._key_candidates() and \
+                        k != self.special_key:
                     # KeyError has a bad __repr__, use Exception
                     missing_keys = set(self._key_candidates()) - set(self.data.keys())
                     raise Exception(
@@ -1644,7 +1646,7 @@ class _DogmaticConfig:
                         f'self:\n{pretty(self)}'
                     ) from ex
 
-            if k == self.special_key:
+            if self.special_key and k == self.special_key:
                 v = class_to_str(v)
             if isinstance(v, self.__class__):
                 v = v.to_dict()
