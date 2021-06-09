@@ -15,6 +15,7 @@ class TestSTFTMethods(unittest.TestCase):
     window_length = 1024
     window = 'blackman'
     fading = 'full'
+    complex = 'concat'
 
     def setUp(self):
         path = get_file_path("sample.wav")
@@ -24,8 +25,13 @@ class TestSTFTMethods(unittest.TestCase):
         self.torch_signal = torch.from_numpy(self.time_signal)
         self.stft = STFT(size=self.size, shift=self.shift,
                          window_length=self.window_length, fading=self.fading,
-                         complex_representation='concat', window=self.window)
+                         complex_representation=self.complex,
+                         window=self.window)
         self.fbins = self.stft.size // 2 + 1
+        if self.complex == 'concat':
+            self.num_features = self.fbins * 2
+        else:
+            self.num_features = self.fbins
 
     def test_restore_time_signal_from_stft_and_istft(self):
         x = self.time_signal
@@ -33,35 +39,35 @@ class TestSTFTMethods(unittest.TestCase):
 
         tc.assert_almost_equal(
             self.stft.inverse(X)[..., :x.shape[-1]].numpy(), x)
-        tc.assert_equal(X.shape, (154, self.fbins * 2))
+        tc.assert_equal(X.shape, (154, self.num_features))
 
     def test_stft_frame_count(self):
         stft = self.stft
         stft.fading = False
         x = torch.rand(size=[1023])
         X = stft(x)
-        tc.assert_equal(X.shape, (1, self.fbins * 2))
+        tc.assert_equal(X.shape, (1, self.num_features))
 
         x = torch.rand(size=[1024])
         X = stft(x)
-        tc.assert_equal(X.shape, (1, self.fbins * 2))
+        tc.assert_equal(X.shape, (1, self.num_features))
 
         x = torch.rand(size=[1025])
         X = stft(x)
-        tc.assert_equal(X.shape, (2, self.fbins * 2))
+        tc.assert_equal(X.shape, (2, self.num_features))
 
         stft.fading = True
         x = torch.rand(size=[1023])
         X = stft(x)
-        tc.assert_equal(X.shape, (7, self.fbins * 2))
+        tc.assert_equal(X.shape, (7, self.num_features))
 
         x = torch.rand(size=[1024])
         X = stft(x)
-        tc.assert_equal(X.shape, (7, self.fbins * 2))
+        tc.assert_equal(X.shape, (7, self.num_features))
 
         x = torch.rand(size=[1025])
         X = stft(x)
-        tc.assert_equal(X.shape, (8, self.fbins * 2))
+        tc.assert_equal(X.shape, (8, self.num_features))
 
     def test_compare_stft_to_numpy(self):
         X_numpy = stft(self.time_signal, size=self.size, shift=self.shift,
@@ -83,6 +89,32 @@ class TestSTFTMethods(unittest.TestCase):
     def test_restore_time_signal_from_torch_stft_and_numpy_istft(self):
         X_torch = self.stft(self.torch_signal).numpy()
         X_numpy = X_torch[..., :self.fbins] + 1j * X_torch[..., self.fbins:]
+        x_numpy = istft(X_numpy, size=self.size, shift=self.shift,
+                        window_length=self.window_length, window=self.window,
+                        fading=self.fading)[..., :self.time_signal.shape[-1]]
+        tc.assert_almost_equal(x_numpy, self.time_signal)
+
+
+class TestSTFTComplexMethods(TestSTFTMethods):
+    complex = 'complex'
+
+    def test_compare_stft_to_numpy(self):
+        X_numpy = stft(self.time_signal, size=self.size, shift=self.shift,
+                       window_length=self.window_length, window=self.window,
+                       fading=self.fading)
+        X_torch = self.stft(self.torch_signal).numpy()
+        tc.assert_almost_equal(X_torch, X_numpy)
+
+    def test_restore_time_signal_from_numpy_stft_and_torch_istft(self):
+        X_numpy = stft(self.time_signal, size=self.size, shift=self.shift,
+                       window_length=self.window_length, window=self.window,
+                       fading=self.fading)
+        x_torch = self.stft.inverse(torch.from_numpy(X_numpy))
+        x_numpy = x_torch.numpy()[..., :self.time_signal.shape[-1]]
+        tc.assert_almost_equal(x_numpy, self.time_signal)
+
+    def test_restore_time_signal_from_torch_stft_and_numpy_istft(self):
+        X_numpy = self.stft(self.torch_signal).numpy()
         x_numpy = istft(X_numpy, size=self.size, shift=self.shift,
                         window_length=self.window_length, window=self.window,
                         fading=self.fading)[..., :self.time_signal.shape[-1]]

@@ -75,11 +75,8 @@ class STFT:
                                 either complex, concat or stacked
                                 complex is not supported at the moment
         """
-        if complex_representation == 'complex':
-            raise NotImplementedError('Complex tensors are not yet implemented'
-                                      'in torch. This is just a placeholder'
-                                      'for later implementations')
-        self.possible_out_types = ['concat', 'stacked']
+
+        self.possible_out_types = ['concat', 'stacked', 'complex']
         assert complex_representation in self.possible_out_types, (
             f'Please choose one of the predefined output_types'
             f' {self.possible_out_types}, not {complex_representation}'
@@ -120,9 +117,17 @@ class STFT:
         >>> stft_signal = np.concatenate(\
                 [np.real(stft_out), np.imag(stft_out)], axis=-1)
         >>> np.testing.assert_allclose(torch_stft_out, stft_signal, atol=1e-5)
+        >>> mixture = torch.rand((2, 6, 203))
+        >>> torch_stft = STFT(512, 20, window_length=40,\
+                              complex_representation='complex')
+        >>> torch_stft_out = torch_stft(mixture)
+        >>> torch_stft_out.shape
+        torch.Size([2, 6, 12, 257])
+        >>> from paderbox.transform import stft
+        >>> stft_out = stft(mixture.numpy(), 512, 20, window_length=40)
+        >>> np.testing.assert_allclose(torch_stft_out.numpy(), stft_out, atol=1e-5)
 
         """
-
         org_shape = inputs.shape
         stride = self.shift
         length = self.window_length
@@ -159,6 +164,8 @@ class STFT:
             encoded = torch.stack(encoded, dim=-1)
         elif self.complex_representation == 'concat':
             encoded = torch.cat(encoded, dim=-1)
+        elif self.complex_representation == 'complex':
+            encoded = torch.complex(*encoded)
         else:
             raise ValueError(
                 f'Please choose one of the predefined output_types'
@@ -203,12 +210,25 @@ class STFT:
         >>> complex_signal = signal_np[..., 0] + 1j* signal_np[..., 1]
         >>> time_signal = istft(complex_signal, 512, 20, window_length=40)
         >>> np.testing.assert_allclose(torch_signal, time_signal, atol=1e-5)
+
+        >>> stft_signal = torch.rand((2, 4, 10, 257), dtype=torch.complex128)
+        >>> torch_stft = STFT(512, 20, window_length=40, \
+                              complex_representation='complex')
+        >>> torch_signal = torch_stft.inverse(stft_signal)
+        >>> torch_signal.shape
+        torch.Size([2, 4, 180])
+        >>> from paderbox.transform import istft
+        >>> signal_np = stft_signal.numpy()
+        >>> time_signal = istft(signal_np, 512, 20, window_length=40)
+        >>> np.testing.assert_allclose(torch_signal, time_signal, atol=1e-5)
         """
 
         if self.complex_representation == 'stacked':
             signal_real, signal_imag = rearrange(stft_signal, '... s -> s ...')
         elif self.complex_representation == 'concat':
             signal_real, signal_imag = torch.chunk(stft_signal, 2, dim=-1)
+        elif self.complex_representation == 'complex':
+            signal_real, signal_imag = stft_signal.real, stft_signal.imag
         else:
             raise ValueError(
                 f'Please choose one of the predefined output_types'
