@@ -199,7 +199,7 @@ class Configurable:
     Therefore, one can use the partial key instead of the factory key.
     All defined kwargs will overwrite the defaults without calling the function
     or initializing the class using partial.
-    This is essential a functions.partial call.
+    This is essentially a `functools.partial` call.
     One usecase is SpeechBrain which requires the activity to be not
     initialized at the class input.
 
@@ -702,8 +702,9 @@ def import_class(name: [str, callable]):
 
     """
     if not isinstance(name, str):
-        assert callable(name), (
-            'expects string or callcable but got', type(name), name)
+        if not callable(name):
+            raise TypeError(
+                'expects string or callcable but got', type(name), name)
         return name
 
     if '.' not in name:
@@ -891,12 +892,12 @@ def class_to_str(cls, fix_module=False):
 
 def recursive_class_to_str(config, sort=False):
     """
-    Ensures that all factory values are strings.
+    Ensures that factory and partial values are strings.
 
     The config that is returned from a configurable already takes care, that
-    all factory values are strings. But when sacred overwrites a factory values
-    with a class and not the str, the config will contain a class instead of
-    the corresponding string.
+    all factory and partial values are strings. But when sacred overwrites a
+    factory values with a class and not the str, the config will contain a
+    class instead of the corresponding string.
 
     Args:
         config:
@@ -930,10 +931,11 @@ def recursive_class_to_str(config, sort=False):
         special_key = _get_special_key(config)
 
         if sort and special_key:
-            # Force factory to be the first key
+            # Force the special key to be the first key
             d[special_key] = None  # will be set later
             imported = import_class(config[special_key])
             arg_names = inspect.signature(imported).parameters.keys()
+            # This ensure that the keys are in the same order as the signature
             for k in arg_names:
                 if k in config:
                     d[k] = None  # will be set later
@@ -959,8 +961,8 @@ def _split_factory_kwargs(config, key='factory'):
 
 
 def _get_special_key(config):
-    # These special keys are used in the config to indicate classes or
-    # functions 'factory' is used to specify initialized classes or
+    # These special keys are used in the config to indicate a class or
+    # function. 'factory' is used to specify initialized classes or
     # function outputs as an input. 'partial' is used if an input is a
     # non-initialized class or a functions
     for key in ['factory', 'partial']:
@@ -1083,14 +1085,12 @@ def config_to_instance(config, strict=False):
         special_key = _get_special_key(config)
         if special_key:
             factory, kwargs = _split_factory_kwargs(config, key=special_key)
-            if isinstance(factory, str):
+            try:
                 factory = import_class(factory)
-            elif callable(factory):
-                pass
-            else:
-                raise TypeError(f'The special key {special_key} expects a'
-                                f' string or a callable but got',
-                                type(factory), factory)
+            except TypeError as err:
+                raise TypeError(f'The special key {special_key} expects a '
+                                f'string or a callable but got',
+                                type(factory), factory) from err
             kwargs = config_to_instance(kwargs, strict)
 
             _check_factory_signature_and_kwargs(factory, kwargs, strict)
