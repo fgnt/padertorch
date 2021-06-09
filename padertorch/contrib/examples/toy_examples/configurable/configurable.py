@@ -1,22 +1,21 @@
-import padertorch as pts
+import padertorch as pt
 
-
-class GRU(pts.configurable.Configurable):
+class GRU(pt.Configurable):
     def __init__(self, nonlinearity='tanh'):
         pass
 
 
-class LSTM(pts.configurable.Configurable):
+class LSTM(pt.Configurable):
     def __init__(self, peephole=False):
         pass
 
 
-class DenseEncoder(pts.configurable.Configurable):
+class DenseEncoder(pt.Configurable):
     def __init__(self, layers=2, nonlinearity='elu'):
         pass
 
 
-class RecurrentEncoder(pts.configurable.Configurable):
+class RecurrentEncoder(pt.Configurable):
 
     @classmethod
     def get_signature(cls):
@@ -35,7 +34,7 @@ class RecurrentEncoder(pts.configurable.Configurable):
         pass
 
 
-class VAE(pts.configurable.Configurable):
+class VAE(pt.Configurable):
     """
     >>> from pprint import pprint
     >>> pprint(VAE.get_config({}))
