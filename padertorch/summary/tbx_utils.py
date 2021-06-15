@@ -90,8 +90,8 @@ def mask_to_image(
 
     clipped_values = np.sum((mask < 0) | (mask > 1))
     if clipped_values:
-        import warning
-        warning.warn(
+        import warnings
+        warnings.warn(
             f'Mask value passed to mask_to_image out of range ([0, 1])! '
             f'{clipped_values} values are clipped!'
         )
