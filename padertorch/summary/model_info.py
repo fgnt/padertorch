@@ -1,10 +1,36 @@
-from collections import namedtuple
-from typing import Tuple
-import numpy as np
+from dataclasses import dataclass
+import torch
 from torch import nn
 
 
-def num_parameters(module: nn.Module) -> Tuple[int, int]:
+@dataclass(repr=False)
+class ModelParameterSize:
+    total_count: int = 0
+    trainable_count: int = 0
+    total_bytes: int = 0
+    trainable_bytes: int = 0
+
+    def __repr__(self):
+        try:
+            import humanize
+            return (
+                f'{self.__class__.__name__}('
+                f'total_count={humanize.intword(self.total_count)}, '
+                f'trainable_count={humanize.intword(self.trainable_count)}, '
+                f'total_bytes={humanize.naturalsize(self.total_bytes)}, '
+                f'trainable_bytes={humanize.naturalsize(self.trainable_bytes)})'
+            )
+        except ImportError:
+            return (
+                f'{self.__class__.__name__}('
+                f'total_count={self.total_count}, '
+                f'trainable_count={self.trainable_count}, '
+                f'total_bytes={self.total_bytes}, '
+                f'trainable_bytes={self.trainable_bytes})'
+            )
+
+
+def num_parameters(module: nn.Module) -> ModelParameterSize:
     """Counts the number of parameters for `module`.
 
     Args:
@@ -15,31 +41,26 @@ def num_parameters(module: nn.Module) -> Tuple[int, int]:
 
     Examples:
         >>> num_parameters(nn.Linear(10, 10))
-        model_parameter_size(total=110, trainable=110)
+        ModelParameterSize(total_count=110, trainable_count=110, total_bytes=440 Bytes, trainable_bytes=440 Bytes)
         >>> net = nn.Sequential(nn.Linear(10, 10).requires_grad_(False), nn.Linear(10, 10))
         >>> num_parameters(net)
-        model_parameter_size(total=220, trainable=110)
+        ModelParameterSize(total_count=220, trainable_count=110, total_bytes=880 Bytes, trainable_bytes=440 Bytes)
     """
-    total_number = 0
-    trainable_number = 0
+    result = ModelParameterSize()
+
     for parameter in module.parameters():
-        size = np.prod(parameter.shape)
+        size = parameter.numel()
+
+        try:
+            bits = torch.finfo(parameter.dtype).bits
+        except TypeError:
+            bits = torch.iinfo(parameter.dtype).bits
+        bytes = bits / 8
+
         if parameter.requires_grad:
-            trainable_number += size
-        total_number += size
+            result.trainable_count += size
+            result.trainable_bytes += size * bytes
+        result.total_count += size
+        result.total_bytes += size * bytes
 
-    return namedtuple(
-        'model_parameter_size', ('total', 'trainable')
-    )(total_number, trainable_number)
-
-
-def human_num_parameters(module: nn.Module) -> str:
-    import humanize
-    total, trainable = num_parameters(module)
-    if total == trainable:
-        return humanize.intword(total)
-    else:
-        return (
-            f'{humanize.intword(total)} '
-            f'(trainable: {humanize.intword(trainable)})'
-        )
+    return result
