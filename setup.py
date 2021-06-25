@@ -35,6 +35,7 @@ test = [
     'pb_bss @ git+http://github.com/fgnt/pb_bss',
     'torch_complex',  # https://github.com/kamo-naoyuki/pytorch_complex
     'pyyaml',
+    'humanize',
 ]
 
 setup(
