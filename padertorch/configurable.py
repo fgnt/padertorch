@@ -997,19 +997,28 @@ def _check_factory_signature_and_kwargs(factory, kwargs, strict, special_key):
             annotation=inspect.Parameter.empty
         ) for p in sig.parameters.values()]
     )
+
+    # Define key specific check_func since factory requires all keys of the
+    # signature to be specified in kwargs whereas partial only requires the
+    # keys in kwargs to be in the signature.
     if special_key == 'factory':
-        try:
-            # With sig.bind we ensure, that the "bind" here raises the
-            # exception. Using the factory(**kwargs) may raise TypeError
-            # with another cause. The overhead doesn't matter here.
-            bound_arguments: inspect.BoundArguments = sig.bind(**kwargs)
-        except TypeError as e:
-            raise TypeError(
-                f'{e}\n'
-                f'Tried to instantiate/call {factory} with\n'
-                f'`{class_to_str(factory)}(**{kwargs})`.\n'
-                f'Signature: {sig}'
-            ) from e
+        check_func = sig.bind
+    elif special_key == 'partial':
+        check_func = sig.bind_partial
+    else:
+        raise ValueError(special_key)
+    try:
+        # With sig.bind we ensure, that the "bind" here raises the
+        # exception. Using the factory(**kwargs) may raise TypeError
+        # with another cause. The overhead doesn't matter here.
+        bound_arguments: inspect.BoundArguments = check_func(**kwargs)
+    except TypeError as e:
+        raise TypeError(
+            f'{e}\n'
+            f'Tried to instantiate/call {factory} with\n'
+            f'`{class_to_str(factory)}(**{kwargs})`.\n'
+            f'Signature: {sig}'
+        ) from e
 
     if strict:
         sig = sig.replace(
@@ -1666,7 +1675,7 @@ class _DogmaticConfig:
                         f'self:\n{pretty(self)}'
                     ) from ex
                 elif self.special_key == 'partial' \
-                        and self.special_key  in self._key_candidates() and \
+                        and self.special_key in self._key_candidates() and \
                         k != self.special_key:
                     continue
                 else:
