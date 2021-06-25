@@ -143,7 +143,9 @@ class Configurable:
          'linear': {'factory': 'torch.nn.modules.linear.Linear',
           'in_features': 5,
           'out_features': 3,
-          'bias': True},
+          'bias': True,
+          'device': None,
+          'dtype': None},
          'activation': {'factory': 'torch.nn.modules.activation.ReLU',
           'inplace': False}}
         >>> CustomizableDenseLayer.from_config(config)
@@ -181,7 +183,9 @@ class Configurable:
           'in1_features': 10,
           'in2_features': 15,
           'out_features': 3,
-          'bias': True},
+          'bias': True,
+          'device': None,
+          'dtype': None},
          'activation': {'factory': 'torch.nn.modules.activation.ReLU',
           'inplace': False}}
         >>> CustomizableDenseLayer.from_config(config)
@@ -228,10 +232,14 @@ class Configurable:
          'linear': {'factory': 'torch.nn.modules.linear.Linear',
           'in_features': 5,
           'out_features': 3,
-          'bias': True},
+          'bias': True,
+          'device': None,
+          'dtype': None},
          'linear_2': {'partial': 'torch.nn.modules.linear.Linear',
           'in_features': 3,
-          'bias': True},
+          'bias': True,
+          'device': None,
+          'dtype': None},
          'activation': {'partial': 'torch.nn.modules.activation.ReLU',
           'inplace': False}}
         >>> SBDenseLayer.from_config(config)
