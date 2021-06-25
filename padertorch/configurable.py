@@ -212,13 +212,16 @@ class Configurable:
         ...         }
         ...         if config['linear']['factory'] == torch.nn.Linear:
         ...             config['linear']['in_features'] = 5
-        ...         config['activation'] = {'partial': torch.nn.ReLU}
-        ...     def __init__(self, linear, activation):
+        ...         config['activation'] = {'partial': torch.nn.ReLU,}
+        ...         config['linear_2'] = {'partial': torch.nn.Linear,
+        ...                               'in_features': 3}
+        ...     def __init__(self, linear, linear_2, activation):
         ...         super().__init__()
         ...         self.l = linear  # torch.nn.Linear(in_units, out_units)
+        ...         self.l2 = linear_2(out_features=10)
         ...         self.a = activation()  # torch.nn.ReLU()
         ...     def __call__(self, x):
-        ...         return self.a(self.l(x))
+        ...         return self.l2(self.a(self.l(x)))
         >>> config = SBDenseLayer.get_config()
         >>> pprint(config)
         {'factory': 'padertorch.configurable.SBDenseLayer',
@@ -226,11 +229,15 @@ class Configurable:
           'in_features': 5,
           'out_features': 3,
           'bias': True},
+         'linear_2': {'partial': 'torch.nn.modules.linear.Linear',
+          'in_features': 3,
+          'bias': True},
          'activation': {'partial': 'torch.nn.modules.activation.ReLU',
           'inplace': False}}
         >>> SBDenseLayer.from_config(config)
         SBDenseLayer(
           (l): Linear(in_features=5, out_features=3, bias=True)
+          (l2): Linear(in_features=3, out_features=10, bias=True)
           (a): ReLU()
         )
 
@@ -971,7 +978,7 @@ def _get_special_key(config):
     return None
 
 
-def _check_factory_signature_and_kwargs(factory, kwargs, strict):
+def _check_factory_signature_and_kwargs(factory, kwargs, strict, special_key):
     sig = inspect.signature(factory)
     # Remove annotation, sometimes they are to verbose and in python
     # 3.7 they changed the `__str__` function, when an annotation is
@@ -982,18 +989,19 @@ def _check_factory_signature_and_kwargs(factory, kwargs, strict):
             annotation=inspect.Parameter.empty
         ) for p in sig.parameters.values()]
     )
-    try:
-        # With sig.bind we ensure, that the "bind" here raises the
-        # exception. Using the factory(**kwargs) may raise TypeError
-        # with another cause. The overhead doesn't matter here.
-        bound_arguments: inspect.BoundArguments = sig.bind(**kwargs)
-    except TypeError as e:
-        raise TypeError(
-            f'{e}\n'
-            f'Tried to instantiate/call {factory} with\n'
-            f'`{class_to_str(factory)}(**{kwargs})`.\n'
-            f'Signature: {sig}'
-        ) from e
+    if special_key == 'factory':
+        try:
+            # With sig.bind we ensure, that the "bind" here raises the
+            # exception. Using the factory(**kwargs) may raise TypeError
+            # with another cause. The overhead doesn't matter here.
+            bound_arguments: inspect.BoundArguments = sig.bind(**kwargs)
+        except TypeError as e:
+            raise TypeError(
+                f'{e}\n'
+                f'Tried to instantiate/call {factory} with\n'
+                f'`{class_to_str(factory)}(**{kwargs})`.\n'
+                f'Signature: {sig}'
+            ) from e
 
     if strict:
         sig = sig.replace(
@@ -1079,7 +1087,10 @@ def config_to_instance(config, strict=False):
     ...     'partial': 'torch.nn.modules.activation.ReLU'}
     >>> config_to_instance(config)
     <class 'torch.nn.modules.activation.ReLU'>
-
+    >>> config = {
+    ...     'partial': 'torch.nn.Linear'}
+    >>> config_to_instance(config)
+    <class 'torch.nn.modules.linear.Linear'>
     """
     if isinstance(config, dict):
         special_key = _get_special_key(config)
@@ -1093,7 +1104,8 @@ def config_to_instance(config, strict=False):
                                 type(factory), factory) from err
             kwargs = config_to_instance(kwargs, strict)
 
-            _check_factory_signature_and_kwargs(factory, kwargs, strict)
+            _check_factory_signature_and_kwargs(factory, kwargs,
+                                                strict, special_key)
 
             if special_key == 'factory':
                 new = factory(**kwargs)
@@ -1634,7 +1646,8 @@ class _DogmaticConfig:
                 v = self[k]
             except KeyError as ex:
                 from IPython.lib.pretty import pretty
-                if self.special_key in self._key_candidates() and \
+                if self.special_key == 'factory' \
+                        and self.special_key  in self._key_candidates() and \
                         k != self.special_key:
                     # KeyError has a bad __repr__, use Exception
                     missing_keys = set(self._key_candidates()) - set(self.data.keys())
@@ -1644,6 +1657,10 @@ class _DogmaticConfig:
                         f'missing keys: {missing_keys}\n'
                         f'self:\n{pretty(self)}'
                     ) from ex
+                elif self.special_key == 'partial' \
+                        and self.special_key  in self._key_candidates() and \
+                        k != self.special_key:
+                    continue
                 else:
                     # KeyError has a bad __repr__, use Exception
                     # Can this happen?
