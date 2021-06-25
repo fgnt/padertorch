@@ -104,11 +104,24 @@ def get_new_folder(
 
 class SimpleMakefile:
     """
+    An helper to write a Makefile.
+     - Use `m += ...` to add a line to the Makefile.
+     - Use `m[...] = ...` to add a Makefile command
+         - Use `m[...] = [...]` to add a Makefile command with multiple lines.
+         - Use `m[...] = [[...]]` to add a Makefile command with line breaks.
+     - Use `m.phony[...] = ...` to add a `.PHONY` command.
+        - Supporst the same multi line thinks as a normal command.
+     - Use `m.dump('.../Makefile')` to write the Makefile to the disk.
+        - You could use `m.text`, when you just want to have the content of the
+          Makefile.
+
+    Here and example to show how you could use this class:
+
     >>> m = SimpleMakefile(tab=' '*4)
     >>> m += 'SHELL := /bin/bash'
     >>> m['a'] = 'cmd to generate a'
     >>> m['b'] = ['cmd1', 'cmd2']
-    >>> m['c'] = [['multi', 'line', 'cmd']]
+    >>> m['c: a'] = [['multi', 'line', 'cmd']]
     >>> m.phony['d'] = 'cmd to generate d phony'
     >>> print(m.text)
     SHELL := /bin/bash
@@ -131,7 +144,6 @@ class SimpleMakefile:
     <BLANKLINE>
     """
     def __init__(self, data: dict=None, tab='\t'):
-        self.globals = []
         self.tab = tab
 
         if data is None:
@@ -154,7 +166,7 @@ class SimpleMakefile:
         assert isinstance(alias, str), (type(alias), alias)
         assert alias not in self.data, (alias, self.data.keys())
         if ':' not in alias:
-            k = f'{alias}:'
+            alias = f'{alias}:'
         self.data[alias] = value
 
     def __iadd__(self, value):
@@ -186,6 +198,26 @@ class SimpleMakefile:
                 text.append(f'{k}\n{v}')
 
         return '\n\n'.join(text) + '\n'
+
+    def dump(self, makefile_path, backup=True, log=None):
+        makefile_path = Path(makefile_path)
+        assert makefile_path.name == 'Makefile', makefile_path
+
+        text = self.text
+
+        if backup and makefile_path.exists():
+            if makefile_path.read_text() == text:
+                if log is not None:
+                    log.info(f"Makefile didn't changed: {makefile_path}")
+                return
+            import datetime
+            now = datetime.datetime.today().strftime('%Y_%m_%d_%H_%M_%S')
+            makefile_path.rename(makefile_path.parent / f'Makefile_{now}')
+            if log is not None:
+                log.info(f"Created backup of Makefile: Makefile_{now}")
+        makefile_path.write_text(text)
+        if log is not None:
+            log.info(f"Write Makefile: {makefile_path}")
 
 
 class Makefile:

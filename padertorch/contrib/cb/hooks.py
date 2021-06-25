@@ -1,5 +1,5 @@
 import signal
-from padertorch.train.hooks import StopTrainingHook, StopTraining
+from padertorch.train.hooks import StopTrainingHook, StopTraining, Hook
 from padertorch.train.trigger import Trigger, IntervalTrigger
 
 
@@ -47,11 +47,25 @@ class CPUTimeLimitExceededHookTrigger(Trigger):
         )
 
 
-
 class CPUTimeLimitExceededHook(StopTrainingHook):
     def __init__(self):
         # Do not call super, to prevent a copy of this trigger
         self.trigger = CPUTimeLimitExceededHookTrigger()
+
+
+class PyroHook(Hook):
+
+    pyro_inspector = None
+
+    def pre_step(self, trainer):
+        from cbj.pyro_inspect import PyroInspector
+        if self.pyro_inspector is None:
+            self.pyro_inspector = PyroInspector(2)
+            self.pyro_inspector.__enter__()
+
+    def close(self, trainer):
+        if self.pyro_inspector is not None:
+            self.pyro_inspector.__exit__()
 
 
 if __name__ == '__main__':

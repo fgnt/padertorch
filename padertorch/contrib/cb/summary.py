@@ -4,7 +4,7 @@ import collections
 import torch
 
 import einops
-from typing import re
+import cached_property
 
 import padertorch as pt
 
@@ -16,7 +16,7 @@ import padertorch as pt
 # images: dict =None,
 
 
-class ReviewSummary(collections.Mapping):
+class ReviewSummary(collections.abc.Mapping):
     """
     >>> review_summary = ReviewSummary()
     >>> review_summary
@@ -27,12 +27,13 @@ class ReviewSummary(collections.Mapping):
         'loss', 'losses'
     }
 
-    def __init__(self, prefix='', _data=None, sampling_rate=None):
+    def __init__(self, prefix='', _data=None, sampling_rate=None, visible_dB=60):
         if _data is None:
             _data = {}
         self.data = _data
         self.prefix = prefix
         self.sampling_rate = sampling_rate
+        self.visible_dB = visible_dB
 
     def add_to_loss(self, value):
         assert torch.isfinite(value), value
@@ -96,14 +97,14 @@ class ReviewSummary(collections.Mapping):
             self, name, signal,
             *, batch_first=None, color='viridis', rearrange=None):
         signal = self._rearrange(signal, rearrange)
-        image = pt.summary.stft_to_image(signal, batch_first=batch_first, color=color)
+        image = pt.summary.stft_to_image(signal, batch_first=batch_first, color=color, visible_dB=self.visible_dB)
         self.add_image(name, image)
 
     def add_spectrogram_image(
             self, name, signal,
             *, batch_first=None, color='viridis', rearrange=None):
         signal = self._rearrange(signal, rearrange)
-        image = pt.summary.spectrogram_to_image(signal, batch_first=batch_first, color=color)
+        image = pt.summary.spectrogram_to_image(signal, batch_first=batch_first, color=color, visible_dB=self.visible_dB)
         self.add_image(name, image)
 
     def add_mask_image(self, name, mask, *, batch_first=None, color='viridis', rearrange=None):
@@ -191,3 +192,74 @@ class ReviewSummary(collections.Mapping):
                     p.pretty(dict(self))
             p.breakable('')
             p.text(')')
+
+    class _Plotter:
+        def __init__(self, review: 'ReviewSummary'):
+            self.review = review
+
+        def image(
+                self, key, origin='lower', **kwargs
+        ):
+            import numpy as np
+            import matplotlib.pyplot as plt
+            kwargs = {
+                'origin': origin,
+                **kwargs,
+            }
+            if key not in self.review['images']:
+                from paderbox.utils.mapping import DispatchError
+                raise DispatchError(key, self.review['images'].keys())
+
+            X = np.einsum('chw->hwc', self.review['images'][key])
+
+            if origin == 'lower':
+                X = X[::-1]
+            else:
+                assert origin == 'upper'
+
+            # ToDo: Where is AxesImage defined?
+            ax: 'plt.AxesImage' = plt.imshow(
+                X,
+                **kwargs,
+            )
+            # ax.set_title(key)
+            plt.title(key)
+            plt.grid(False)
+            return ax
+
+        def images(
+                self,
+                columns=1,
+                font_scale=1.0,
+                line_width=3,
+                figure_size=(8.0, 6.0),
+        ):
+            from paderbox.visualization import axes_context
+            from paderbox.visualization.context_manager import _AxesHandler
+            with axes_context(
+                    columns=columns,
+                    font_scale=font_scale,
+                    line_width=line_width,
+                    figure_size=figure_size,
+            ) as axes:
+                axes: _AxesHandler
+                for k in self.review['images']:
+                    axes.new.grid(False)  # set gca
+
+                    self.image(k)
+
+    @cached_property.cached_property
+    def plot(self):
+        return self._Plotter(self)
+
+    def play(self, key=None):
+        if key is None:
+            for k in self['audios'].keys():
+                self.play(k)
+        elif key in self['audios']:
+            from paderbox.io.play import play
+            data, sample_rate = self['audios'][key]
+            play(data, sample_rate=sample_rate, name=key)
+        else:
+            from paderbox.utils.mapping import DispatchError
+            raise DispatchError(key, self['audios'].keys())
