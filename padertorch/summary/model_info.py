@@ -50,12 +50,7 @@ def num_parameters(module: nn.Module) -> ModelParameterSize:
 
     for parameter in module.parameters():
         size = parameter.numel()
-
-        try:
-            bits = torch.finfo(parameter.dtype).bits
-        except TypeError:
-            bits = torch.iinfo(parameter.dtype).bits
-        bytes = bits / 8
+        bytes = parameter.element_size()
 
         if parameter.requires_grad:
             result.trainable_count += size
