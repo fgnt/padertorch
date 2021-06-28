@@ -149,7 +149,7 @@ def main(_run, datasets, debug, experiment_dir, dump_audio,
                 db, dataset, 1,
                 chunk_size=-1,
                 prefetch=False,
-                shuffle=False
+                shuffle=False,
             )
 
             if dump_audio:
