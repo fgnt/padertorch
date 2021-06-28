@@ -19,6 +19,7 @@ from padertorch.data import example_to_device
 __all__ = [
     'Module',
     'Model',
+    'torch_dataclass',
 ]
 
 
@@ -337,6 +338,31 @@ class Model(Module, Configurable, abc.ABC):
             The `example`, either fully or partially transferred to the device.
         """
         return example_to_device(example, device)
+
+    def extra_repr(self) -> str:
+        """Set the extra representation of the module
+
+        The default `extra_repr` prints the model size (number of parameters).
+
+        To print customized extra information, you should re-implement
+        this method in your own model. Note that the size information is lost
+        if you don't add the output of `super().extra_repr()` to your custom
+        `extra_repr`.
+
+        >>> class MyModel(Model):
+        ...     def __init__(self):
+        ...         super().__init__()
+        ...         self.layer = nn.Linear(10, 10)
+        ...     def forward(self, *args, **kwargs): pass
+        ...     def review(self, inputs, outputs): pass
+        >>> print(repr(MyModel()))
+        MyModel(
+          size=ModelParameterSize(total_count=110, trainable_count=110, total_bytes=440 Bytes, trainable_bytes=440 Bytes)
+          (layer): Linear(in_features=10, out_features=10, bias=True)
+        )
+        """
+        from padertorch.summary import num_parameters
+        return f'size={num_parameters(self)}'
 
 
 def torch_dataclass(cls):
