@@ -62,8 +62,7 @@ def compute_mask(x, sequence_lengths, batch_axis=0, sequence_axis=1):
         sequence_axis = x.dim() + sequence_axis
     if not torch.is_tensor(sequence_lengths):
         sequence_lengths = torch.Tensor(sequence_lengths).long().to(x.device)
-    elif sequence_lengths.device != x.device:
-        sequence_lengths.to(x.device)
+    assert sequence_lengths.device == x.device, (sequence_lengths.device, x.device)
     for dim in range(batch_axis + 1, x.dim()):
         sequence_lengths = sequence_lengths.unsqueeze(-1)
     idx = torch.arange(x.shape[sequence_axis], device=x.device)
