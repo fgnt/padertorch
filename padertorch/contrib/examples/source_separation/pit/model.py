@@ -1,11 +1,12 @@
 import einops
 import torch
 from torch.nn.utils.rnn import PackedSequence
+import numpy as np
 
 import padertorch as pt
 from padertorch.ops.mappings import ACTIVATION_FN_MAP
 from padertorch.summary import mask_to_image, stft_to_image
-
+from paderbox.transform import istft
 
 class PermutationInvariantTrainingModel(pt.Model):
     """
@@ -111,24 +112,22 @@ class PermutationInvariantTrainingModel(pt.Model):
     def review(self, batch, model_out):
 
         pit_mse_loss = list()
-        for mask, observation, target in zip(
+        pit_ips_loss = list()
+
+        for mask, observation, target, cos_phase_diff in zip(
                 model_out,
                 batch['Y_abs'],
-                batch['X_abs']
+                batch['X_abs'],
+                batch['cos_phase_difference']
         ):
+            # MSE loss
             pit_mse_loss.append(pt.ops.losses.pit_loss(
                 mask * observation[:, None, :],
                 target,
                 axis=-2
             ))
-        # Ideal Phase Sensitive loss
-        pit_ips_loss = list()
-        for mask, observation, target, cos_phase_diff in zip(
-            model_out,
-            batch['Y_abs'],
-            batch['X_abs'],
-            batch['cos_phase_difference']
-        ):
+
+            # Ideal Phase Sensitive loss
             pit_ips_loss.append(pt.ops.losses.pit_loss(
                 mask * observation[:, None, :],
                 target * cos_phase_diff,
