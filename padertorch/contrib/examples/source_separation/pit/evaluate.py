@@ -67,7 +67,7 @@ def config():
     locals()  # Fix highlighting
 
     ex.observers.append(FileStorageObserver(
-        Path(Path(experiment_dir) / 'sacred')
+        Path(experiment_dir) / 'sacred'
     ))
     if database_json is None:
         raise MissingConfigError(
@@ -136,14 +136,15 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
                 db, dataset, batch_size,
                 return_keys=None,
                 prefetch=False,
+                shuffle=False
             )
 
-            for batch in dlp_mpi.split_managed(iterable, is_indexable=False,
+            for batch in dlp_mpi.split_managed(iterable, is_indexable=True,
                                                progress_bar=True,
                                                allow_single_worker=debug
                                                ):
                 entry = dict()
-                model_output = model(pt.data.example_to_device(batch))
+                model_output = model(model.example_to_device(batch))
 
                 example_id = batch['example_id'][0]
                 s = batch['s'][0]
