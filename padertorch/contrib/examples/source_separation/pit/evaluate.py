@@ -27,6 +27,7 @@ from sacred import Experiment
 from sacred.observers import FileStorageObserver
 from sacred.utils import InvalidConfigError, MissingConfigError
 import torch
+import operator
 
 import dlp_mpi
 import paderbox as pb
@@ -34,6 +35,7 @@ import padertorch as pt
 import pb_bss
 from paderbox.transform import istft
 from lazy_dataset.database import JsonDatabase
+from padertorch.contrib.neumann.evaluation import compute_means
 from padertorch.contrib.examples.source_separation.pit.data import \
     prepare_iterable
 from padertorch.contrib.examples.source_separation.pit.templates import \
@@ -172,13 +174,18 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
         for partial_summary in summary_list:
             for dataset, values in partial_summary.items():
                 summary[dataset].update(values)
-
         for dataset, values in summary.items():
             print(f'{dataset}: {len(values)}')
-
+            assert len(values) == len(db.get_dataset(dataset)), 'Number of results needs to match length of dataset!'
         result_json_path = experiment_dir / 'result.json'
         print(f"Exporting result: {result_json_path}")
         pb.io.dump_json(summary, result_json_path)
+
+        # Compute and save mean of metrics
+        means = compute_means(summary)
+        mean_json_path = experiment_dir / 'means.json'
+        print(f"Saveing means to: {mean_json_path}")
+        pb.io.dump_json(means, mean_json_path)
 
 
 if __name__ == '__main__':
