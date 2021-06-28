@@ -161,11 +161,36 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
 
                 s = s[:, :z.shape[1]]
                 z = z[:, :s.shape[1]]
-                entry['metrics'] \
-                    = pb_bss.evaluation.OutputMetrics(speech_prediction=z,
-                                                      speech_source=s).as_dict()
 
-        summary[dataset][example_id] = entry
+                input_metrics = pb_bss.evaluation.InputMetrics(
+                    observation=batch['y'][0][None,:],
+                    speech_source=s,
+                    sample_rate=8000,
+                    enable_si_sdr=False,
+                )
+
+                output_metrics = pb_bss.evaluation.OutputMetrics(
+                    speech_prediction=z,
+                    speech_source=s,
+                    sample_rate=8000,
+                    enable_si_sdr=False,
+                )
+                entry['input'] = dict(
+                    mir_eval=input_metrics.mir_eval,
+                )
+                entry['output'] = dict(
+                    mir_eval={
+                        k: v for k, v in output_metrics.mir_eval.items()
+                        if k != 'selection'
+                    },
+                )
+
+                entry['improvement'] = pb.utils.nested.nested_op(
+                    operator.sub, entry['output'], entry['input'],
+                )
+                entry['selection'] = output_metrics.mir_eval['selection']
+
+                summary[dataset][example_id] = entry
 
     summary_list = dlp_mpi.gather(summary, root=dlp_mpi.MASTER)
 
