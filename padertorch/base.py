@@ -19,6 +19,7 @@ from padertorch.data import example_to_device
 __all__ = [
     'Module',
     'Model',
+    'torch_dataclass',
 ]
 
 
