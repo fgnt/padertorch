@@ -4,7 +4,6 @@ from torch import nn
 
 __all__ = [
     'num_parameters',
-    'ModelParameterSize',
 ]
 
 
