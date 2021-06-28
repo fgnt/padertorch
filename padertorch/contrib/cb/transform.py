@@ -29,6 +29,7 @@ def stft(
     >>> import numpy as np
     >>> import random
     >>> from paderbox.transform.module_stft import stft as np_stft, istft as np_istft
+    >>> import torch.fft
     >>> kwargs = dict(
     ...     size=np.random.randint(100, 200),
     ...     shift=np.random.randint(40, 100),
@@ -46,12 +47,6 @@ def stft(
     assert isinstance(time_signal, torch.Tensor)
     if window_length is None:
         window_length = size
-    else:
-        if window_length != size:
-            raise NotImplementedError(
-                'Torch does not support window_length != size\n'
-                'window_length = {window_length} != {size} = size'
-            )
 
     # Pad with zeros to have enough samples for the window function to fade.
     assert fading in [None, True, False, 'full', 'half'], (fading, type(fading))
@@ -73,6 +68,7 @@ def stft(
         symmetric_window=symmetric_window,
         window_length=window_length,
     )
+    window = torch.from_numpy(window).to(time_signal.device)
 
     time_signal_seg = segment_axis(
         time_signal,
@@ -82,13 +78,23 @@ def stft(
         end='pad' if pad else 'cut'
     )
 
-    out =  torch.rfft(
-        time_signal_seg * window,
-        1,
-        # size,
-    )
-    assert out.shape[-1] == 2, out.shape
-    return torch_complex.ComplexTensor(out[..., 0], out[..., 1])
+    # if hasattr(torch, 'rfft'):
+    if callable(torch.fft):
+        if window_length != size:
+            raise NotImplementedError(
+                f'Old Torch does not support window_length != size\n'
+                f'window_length = {window_length} != {size} = size'
+            )
+
+        out = torch.rfft(
+            time_signal_seg * window,
+            1,
+            # size,
+        )
+        assert out.shape[-1] == 2, out.shape
+        return torch_complex.ComplexTensor(out[..., 0], out[..., 1])
+    else:
+        return torch.fft.rfft(time_signal_seg * window, size)
 
 
 def _complex_to_real(tensor):
@@ -121,45 +127,88 @@ def istft(
     
     >>> import numpy as np
     >>> import random
+    >>> import torch.fft
     >>> from paderbox.transform.module_stft import stft as np_stft, istft as np_istft
     >>> kwargs = dict(
     ...     size=np.random.randint(100, 200),
-    ...     shift=np.random.randint(40, 100),
+    ...     shift=np.random.randint(40, 70),
     ...     window=random.choice(['blackman', 'hann', 'hamming']),
     ...     fading=random.choice(['full', 'half', False]),
     ... )
     >>> num_samples = np.random.randint(200, 500)
     >>> a = np.random.rand(num_samples)
-    >>> A = np_stft(a, **kwargs)
-    >>> a_np = np_istft(A, **kwargs)
-    >>> a_pt = istft(torch_complex.ComplexTensor(A), **kwargs)
+    >>> A_np = np_stft(a, **kwargs)
+    >>> A_pt = stft(torch.tensor(a), **kwargs)
+    >>> np.testing.assert_allclose(
+    ...     A_np, A_pt.numpy(), err_msg=str(kwargs), atol=1e-10)
+    >>> a_np = np_istft(A_np, **kwargs)
+    >>> a_pt = istft(A_pt, **kwargs)
     >>> np.testing.assert_allclose(
     ...     a_np, a_pt.numpy(), err_msg=str(kwargs), atol=1e-10)
 
+    >>> kwargs['window_length'] = np.random.randint(70, kwargs['size'] - 1)
+    >>> num_samples = np.random.randint(200, 500)
+    >>> a = np.random.rand(num_samples)
+    >>> A_np = np_stft(a, **kwargs)
+    >>> A_pt = stft(torch.tensor(a), **kwargs)
+    >>> np.testing.assert_allclose(
+    ...     A_np, A_pt.numpy(), err_msg=str(kwargs), atol=1e-10)
+    >>> a_np = np_istft(A_np, **kwargs)
+    >>> a_pt = istft(A_pt, **kwargs)
+    >>> np.testing.assert_allclose(
+    ...     a_np, a_pt.numpy(), err_msg=str(kwargs), atol=1e-10)
+
+    >>> kwargs = dict(
+    ...     size=4,
+    ...     shift=2,
+    ...     window='hann',
+    ...     fading='full',
+    ... )
+    >>> num_samples = 8
+    >>> a = np.arange(num_samples).astype(np.float32)
+    >>> np_stft(a, **kwargs)
+    array([[ 0.5+0.j ,  0. +0.5j, -0.5+0.j ],
+           [ 4. +0.j , -2. +1.j ,  0. +0.j ],
+           [ 8. +0.j , -4. +1.j ,  0. +0.j ],
+           [12. +0.j , -6. +1.j ,  0. +0.j ],
+           [ 3.5+0.j ,  0. -3.5j, -3.5+0.j ]])
+    >>> a_pt_init = torch.tensor(a, requires_grad=True)
+    >>> A_pt = stft(a_pt_init, **kwargs)
+    >>> a_pt = istft(A_pt, **kwargs)
+    >>> A_pt.grad
+    >>> rnd_num = torch.randn(a_pt.shape)
+    >>> torch.sum(a_pt * rnd_num).backward()
+    >>> A_pt.grad
+    >>> print(rnd_num, '\\n', a_pt_init.grad)
     """
-    assert isinstance(stft_signal, torch_complex.ComplexTensor), type(
-        stft_signal)
 
     if window_length is None:
         window_length = size
 
     if biorthogonal_window is None:
-        window = torch.tensor(
+        window = torch.from_numpy(
             _biorthogonal_window_fastest(
                 _get_window(
                     window,
                     symmetric_window,
                     window_length
                 ),
-                shift), device=stft_signal.device)
+                shift)).to(device=stft_signal.device)
     else:
         window = biorthogonal_window
 
-    stft_signal = rearrange(_complex_to_real(
-        stft_signal
-    ), '... t f realimag -> ... t f realimag', realimag=2)
-
-    stft_signal = torch.irfft(stft_signal, 1, signal_sizes=(size,))
+    # if hasattr(torch, 'irfft'):
+    if callable(torch.fft):
+        assert isinstance(stft_signal, torch_complex.ComplexTensor), type(stft_signal)
+        stft_signal = rearrange(_complex_to_real(
+            stft_signal
+        ), '... t f realimag -> ... t f realimag', realimag=2)
+        stft_signal = torch.irfft(stft_signal, 1, signal_sizes=(size,))
+    else:
+        assert isinstance(stft_signal, torch.Tensor) and stft_signal.is_complex(), (type(stft_signal), stft_signal.dtype)
+        stft_signal = torch.fft.irfft(stft_signal, size)
+        if window_length != size:
+            stft_signal = stft_signal[..., :window_length]
 
     stft_signal = stft_signal * window
 
