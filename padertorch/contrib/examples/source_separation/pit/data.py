@@ -24,7 +24,7 @@ def prepare_iterable(
     iterable = (
         iterable
         .batch(batch_size)
-        .map(pt.data.batch.Sorter('num_samples'))
+        .map(pt.data.batch.Sorter('num_frames'))
         .map(pt.data.utils.collate_fn)
         .map(post_batch_transform)
     )
