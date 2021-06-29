@@ -245,7 +245,13 @@ def prepare_dataset(
     elif catch_exception:
         dataset = dataset.catch()
 
-    dataset = dataset.unbatch()
+    if chunk_size != -1:
+        dataset = dataset.unbatch()
+    else:
+        def unbatch(example):
+            assert len(example) == 1, example
+            return example[0]
+        dataset = dataset.map(unbatch)
     dataset = dataset.map(_set_num_samples)
 
     if shuffle:

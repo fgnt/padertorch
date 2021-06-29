@@ -150,16 +150,15 @@ def main(_run, datasets, debug, experiment_dir, dump_audio,
                 chunk_size=-1,
                 prefetch=False,
                 shuffle=False,
-                dataset_slice=slice(dlp_mpi.RANK, 20 if debug else None,
-                                     dlp_mpi.SIZE),
             )
 
             if dump_audio:
                 (experiment_dir / 'audio' / dataset).mkdir(
                     parents=True, exist_ok=True)
 
-            for batch in tqdm(iterable, total=len(iterable),
-                              disable=not dlp_mpi.IS_MASTER):
+            for batch in dlp_mpi.split_managed(
+                    iterable, is_indexable=True, allow_single_worker=True
+            ):
                 example_id = batch['example_id'][0]
                 results[dataset][example_id] = entry = dict()
 
