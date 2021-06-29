@@ -9,10 +9,10 @@ from paderbox.transform import stft
 
 
 def prepare_dataset(
-        db, dataset: str, batch_size, return_keys=None, prefetch=True, shuffle=True
+        db, dataset_name: str, batch_size, return_keys=None, prefetch=True, shuffle=True
 ):
     audio_keys = ['observation', 'speech_source']
-    dataset = db.get_dataset(dataset)
+    dataset = db.get_dataset(dataset_name)
 
     dataset = (
         dataset

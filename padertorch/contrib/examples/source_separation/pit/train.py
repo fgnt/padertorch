@@ -81,11 +81,11 @@ def config():
 
 @ex.capture
 def prepare_dataset_captured(
-        database, dataset, batch_size, debug
+        database, dataset_name, batch_size, debug
 ):
     return_keys = 'X_abs Y_abs cos_phase_difference num_frames Y'.split()
     return prepare_dataset(
-        database, dataset, batch_size, return_keys,
+        database, dataset_name, batch_size, return_keys,
         prefetch=not debug,
     )
 
