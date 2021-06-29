@@ -121,7 +121,7 @@ def init(_config, _run):
 
 
 @ex.main
-def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
+def main(_run, batch_size, datasets, debug, experiment_dir, database_json, _log):
     experiment_dir = Path(experiment_dir)
 
     if dlp_mpi.IS_MASTER:
@@ -195,21 +195,20 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
     summary_list = dlp_mpi.gather(summary, root=dlp_mpi.MASTER)
 
     if dlp_mpi.IS_MASTER:
-        print(f'len(summary_list): {len(summary_list)}')
-        for partial_summary in summary_list:
-            for dataset, values in partial_summary.items():
-                summary[dataset].update(values)
+        _log.info(f'len(summary_list): {len(summary_list)}')
+        summary = pb.utils.nested.nested_merge(*summary_list)
+
         for dataset, values in summary.items():
-            print(f'{dataset}: {len(values)}')
+            _log.info(f'{dataset}: {len(values)}')
             assert len(values) == len(db.get_dataset(dataset)), 'Number of results needs to match length of dataset!'
         result_json_path = experiment_dir / 'result.json'
-        print(f"Exporting result: {result_json_path}")
+        _log.info(f"Exporting result: {result_json_path}")
         pb.io.dump_json(summary, result_json_path)
 
         # Compute and save mean of metrics
         means = compute_means(summary)
         mean_json_path = experiment_dir / 'means.json'
-        print(f"Saveing means to: {mean_json_path}")
+        _log.info(f"Saving means to: {mean_json_path}")
         pb.io.dump_json(means, mean_json_path)
 
 
