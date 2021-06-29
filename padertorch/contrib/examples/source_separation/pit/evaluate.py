@@ -37,7 +37,7 @@ from paderbox.transform import istft
 from lazy_dataset.database import JsonDatabase
 from padertorch.contrib.neumann.evaluation import compute_means
 from padertorch.contrib.examples.source_separation.pit.data import \
-    prepare_iterable
+    prepare_dataset
 from padertorch.contrib.examples.source_separation.pit.templates import \
     MAKEFILE_TEMPLATE_EVAL as MAKEFILE_TEMPLATE
 
@@ -133,15 +133,15 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json, _log)
     model.eval()
     with torch.no_grad():
         summary = defaultdict(dict)
-        for dataset in datasets:
-            iterable = prepare_iterable(
-                db, dataset, batch_size,
+        for dataset_name in datasets:
+            dataset = prepare_dataset(
+                db, dataset_name, batch_size,
                 return_keys=None,
                 prefetch=False,
                 shuffle=False
             )
 
-            for batch in dlp_mpi.split_managed(iterable, is_indexable=True,
+            for batch in dlp_mpi.split_managed(dataset, is_indexable=True,
                                                progress_bar=True,
                                                allow_single_worker=debug
                                                ):

@@ -23,7 +23,7 @@ from lazy_dataset.database import JsonDatabase
 from sacred.observers.file_storage import FileStorageObserver
 from sacred.utils import InvalidConfigError, MissingConfigError
 
-from padertorch.contrib.examples.source_separation.pit.data import prepare_iterable
+from padertorch.contrib.examples.source_separation.pit.data import prepare_dataset
 from padertorch.contrib.examples.source_separation.pit.templates import MAKEFILE_TEMPLATE_TRAIN as MAKEFILE_TEMPLATE
 
 experiment_name = "pit"
@@ -80,11 +80,11 @@ def config():
 
 
 @ex.capture
-def prepare_iterable_captured(
+def prepare_dataset_captured(
         database, dataset, batch_size, debug
 ):
-    return_keys = 'X_abs Y_abs cos_phase_difference num_frames'.split()
-    return prepare_iterable(
+    return_keys = 'X_abs Y_abs cos_phase_difference num_frames Y'.split()
+    return prepare_dataset(
         database, dataset, batch_size, return_keys,
         prefetch=not debug,
     )
@@ -128,14 +128,14 @@ def prepare_and_train(_config, _run, train_dataset, validate_dataset, database_j
     print(repr(train_dataset), repr(validate_dataset))
 
     trainer.test_run(
-        prepare_iterable_captured(db, train_dataset),
-        prepare_iterable_captured(db, validate_dataset),
+        prepare_dataset_captured(db, train_dataset),
+        prepare_dataset_captured(db, validate_dataset),
     )
     trainer.register_validation_hook(
-        prepare_iterable_captured(db, validate_dataset)
+        prepare_dataset_captured(db, validate_dataset)
     )
     trainer.train(
-        prepare_iterable_captured(db, train_dataset),
+        prepare_dataset_captured(db, train_dataset),
         resume=checkpoint_path.is_file()
     )
 
@@ -149,8 +149,8 @@ def test_run(_config, _run, train_dataset, validate_dataset,
     db = JsonDatabase(json_path=database_json)
 
     trainer.test_run(
-        prepare_iterable_captured(db, train_dataset),
-        prepare_iterable_captured(db, validate_dataset),
+        prepare_dataset_captured(db, train_dataset),
+        prepare_dataset_captured(db, validate_dataset),
     )
 
 
