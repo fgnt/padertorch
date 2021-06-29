@@ -24,11 +24,7 @@ def prepare_iterable(
     iterable = (
         iterable
         .batch(batch_size)
-        .map(lambda batch: sorted(      # sorts batch in increasing lengths, needed for torch PackedSequence
-            batch,
-            key=lambda example: example["num_frames"],
-            reverse=True,
-        ))
+        .map(pt.data.batch.Sorter('num_samples'))
         .map(pt.data.utils.collate_fn)
         .map(post_batch_transform)
     )
