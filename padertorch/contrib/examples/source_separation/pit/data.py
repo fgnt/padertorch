@@ -8,31 +8,31 @@ import padertorch as pt
 from paderbox.transform import stft
 
 
-def prepare_iterable(
-        db, dataset: str, batch_size, return_keys=None, prefetch=True,
+def prepare_dataset(
+        db, dataset_name: str, batch_size, return_keys=None, prefetch=True, shuffle=True
 ):
     audio_keys = ['observation', 'speech_source']
-    iterator = db.get_dataset(dataset)
+    dataset = db.get_dataset(dataset_name)
 
-    iterator = (
-        iterator
+    dataset = (
+        dataset
         .map(partial(read_audio, audio_keys=audio_keys))
         .map(partial(pre_batch_transform, return_keys=return_keys))
-        .shuffle(reshuffle=True)
+    )
+    if shuffle:
+        dataset = dataset.shuffle(reshuffle=True)
+    dataset = (
+        dataset
         .batch(batch_size)
-        .map(lambda batch: sorted(      # sorts batch in increasing lengths, needed for torch PackedSequence
-            batch,
-            key=lambda example: example["num_frames"],
-            reverse=True,
-        ))
+        .map(pt.data.batch.Sorter('num_frames'))
         .map(pt.data.utils.collate_fn)
         .map(post_batch_transform)
     )
 
     if prefetch:
-        iterator = iterator.prefetch(4, 8)
+        dataset = dataset.prefetch(4, 8)
 
-    return iterator
+    return dataset
 
 
 def read_audio(example, src_key="audio_path", audio_keys=None):

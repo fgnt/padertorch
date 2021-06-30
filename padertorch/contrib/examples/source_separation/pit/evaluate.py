@@ -27,6 +27,7 @@ from sacred import Experiment
 from sacred.observers import FileStorageObserver
 from sacred.utils import InvalidConfigError, MissingConfigError
 import torch
+import operator
 
 import dlp_mpi
 import paderbox as pb
@@ -34,8 +35,9 @@ import padertorch as pt
 import pb_bss
 from paderbox.transform import istft
 from lazy_dataset.database import JsonDatabase
+from padertorch.contrib.neumann.evaluation import compute_means
 from padertorch.contrib.examples.source_separation.pit.data import \
-    prepare_iterable
+    prepare_dataset
 from padertorch.contrib.examples.source_separation.pit.templates import \
     MAKEFILE_TEMPLATE_EVAL as MAKEFILE_TEMPLATE
 
@@ -67,7 +69,7 @@ def config():
     locals()  # Fix highlighting
 
     ex.observers.append(FileStorageObserver(
-        Path(Path(experiment_dir) / 'sacred')
+        Path(experiment_dir) / 'sacred'
     ))
     if database_json is None:
         raise MissingConfigError(
@@ -119,7 +121,7 @@ def init(_config, _run):
 
 
 @ex.main
-def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
+def main(_run, batch_size, datasets, debug, experiment_dir, database_json, _log):
     experiment_dir = Path(experiment_dir)
 
     if dlp_mpi.IS_MASTER:
@@ -131,19 +133,20 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
     model.eval()
     with torch.no_grad():
         summary = defaultdict(dict)
-        for dataset in datasets:
-            iterable = prepare_iterable(
-                db, dataset, batch_size,
+        for dataset_name in datasets:
+            dataset = prepare_dataset(
+                db, dataset_name, batch_size,
                 return_keys=None,
                 prefetch=False,
+                shuffle=False
             )
 
-            for batch in dlp_mpi.split_managed(iterable, is_indexable=False,
+            for batch in dlp_mpi.split_managed(dataset, is_indexable=True,
                                                progress_bar=True,
                                                allow_single_worker=debug
                                                ):
                 entry = dict()
-                model_output = model(pt.data.example_to_device(batch))
+                model_output = model(model.example_to_device(batch))
 
                 example_id = batch['example_id'][0]
                 s = batch['s'][0]
@@ -158,26 +161,55 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json):
 
                 s = s[:, :z.shape[1]]
                 z = z[:, :s.shape[1]]
-                entry['metrics'] \
-                    = pb_bss.evaluation.OutputMetrics(speech_prediction=z,
-                                                      speech_source=s).as_dict()
 
-        summary[dataset][example_id] = entry
+                input_metrics = pb_bss.evaluation.InputMetrics(
+                    observation=batch['y'][0][None,:],
+                    speech_source=s,
+                    sample_rate=8000,
+                    enable_si_sdr=False,
+                )
+
+                output_metrics = pb_bss.evaluation.OutputMetrics(
+                    speech_prediction=z,
+                    speech_source=s,
+                    sample_rate=8000,
+                    enable_si_sdr=False,
+                )
+                entry['input'] = dict(
+                    mir_eval=input_metrics.mir_eval,
+                )
+                entry['output'] = dict(
+                    mir_eval={
+                        k: v for k, v in output_metrics.mir_eval.items()
+                        if k != 'selection'
+                    },
+                )
+
+                entry['improvement'] = pb.utils.nested.nested_op(
+                    operator.sub, entry['output'], entry['input'],
+                )
+                entry['selection'] = output_metrics.mir_eval['selection']
+
+                summary[dataset][example_id] = entry
 
     summary_list = dlp_mpi.gather(summary, root=dlp_mpi.MASTER)
 
     if dlp_mpi.IS_MASTER:
-        print(f'len(summary_list): {len(summary_list)}')
-        for partial_summary in summary_list:
-            for dataset, values in partial_summary.items():
-                summary[dataset].update(values)
+        _log.info(f'len(summary_list): {len(summary_list)}')
+        summary = pb.utils.nested.nested_merge(*summary_list)
 
         for dataset, values in summary.items():
-            print(f'{dataset}: {len(values)}')
-
+            _log.info(f'{dataset}: {len(values)}')
+            assert len(values) == len(db.get_dataset(dataset)), 'Number of results needs to match length of dataset!'
         result_json_path = experiment_dir / 'result.json'
-        print(f"Exporting result: {result_json_path}")
+        _log.info(f"Exporting result: {result_json_path}")
         pb.io.dump_json(summary, result_json_path)
+
+        # Compute and save mean of metrics
+        means = compute_means(summary)
+        mean_json_path = experiment_dir / 'means.json'
+        _log.info(f"Saving means to: {mean_json_path}")
+        pb.io.dump_json(means, mean_json_path)
 
 
 if __name__ == '__main__':
