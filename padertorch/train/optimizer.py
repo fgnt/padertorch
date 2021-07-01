@@ -90,6 +90,26 @@ class Adam(Optimizer):
         )
 
 
+class Adadelta(Optimizer):
+    optimizer_cls = optim.Adadelta
+
+    def __init__(
+            self,
+            gradient_clipping=1e10,
+            lr=1.0,
+            rho=0.9,
+            eps=1e-6,
+            weight_decay=0
+    ):
+        super().__init__(
+            gradient_clipping,
+            lr=lr,
+            rho=rho,
+            eps=eps,
+            weight_decay=weight_decay,
+        )
+
+
 class SGD(Optimizer):
     optimizer_cls = optim.SGD
 
