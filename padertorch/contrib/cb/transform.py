@@ -68,7 +68,7 @@ def stft(
         symmetric_window=symmetric_window,
         window_length=window_length,
     )
-    window = torch.from_numpy(window).to(time_signal.device)
+    window = torch.from_numpy(window).to(time_signal.device, dtype=time_signal.dtype)
 
     time_signal_seg = segment_axis(
         time_signal,
@@ -193,7 +193,10 @@ def istft(
                     symmetric_window,
                     window_length
                 ),
-                shift)).to(device=stft_signal.device)
+                shift)).to(
+            device=stft_signal.device,
+            dtype=stft_signal.real.dtype,
+        )
     else:
         window = biorthogonal_window
 
