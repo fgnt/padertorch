@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from typing import Union, Iterable
+import paderbox as pb
 
 __all__ = [
     'example_to_device',
@@ -32,77 +33,39 @@ def example_to_device(example, device=None):
         example on device
 
     """
+    def convert(value):
+        if isinstance(value, np.ndarray):
+            try:
+                value = torch.from_numpy(value)
+            except TypeError:
+                # Check if this is caused by an old pytorch version that can't
+                # convert complex-valued arrays to tensors. In that case: don't
+                # crash
+                if value.dtype not in [np.complex64, np.complex128]:
+                    raise
+        if isinstance(value, torch.Tensor):
+            value = value.to(device=device)
+        return value
 
-    if isinstance(example, dict):
-        return example.__class__({
-            key: example_to_device(value, device=device)
-            for key, value in example.items()
-        })
-    elif isinstance(example, (tuple, list)):
-        return example.__class__([
-            example_to_device(element, device=device)
-            for element in example
-        ])
-    elif torch.is_tensor(example):
-        return example.to(device=device)
-    elif isinstance(example, np.ndarray):
-        if example.dtype in [np.complex64, np.complex128]:
-            # complex is not supported
-            return example
-        else:
-            # TODO: Do we need to ensure tensor.is_contiguous()?
-            # TODO: If not, the representer of the tensor does not work.
-            return example_to_device(
-                torch.from_numpy(example), device=device
-            )
-    elif hasattr(example, '__dataclass_fields__'):
-        return example.__class__(
-            **{
-                f: example_to_device(getattr(example, f), device=device)
-                for f in example.__dataclass_fields__
-            }
-        )
-    else:
-        return example
+    return pb.utils.nested.nested_op(convert, example)
 
 
-def example_to_numpy(example, detach=False):
+def example_to_numpy(example, detach: bool = False):
     """
-    Moves a nested structure to numpy. Opposite of example_to_device.
-
-    Args:
-        example:
+    Moves a nested structure to numpy. Opposite of `example_to_device`.
 
     Returns:
-        example on where each tensor is converted to numpy
+        example where each tensor is converted to numpy
 
     """
     from padertorch.utils import to_numpy
 
-    if isinstance(example, dict):
-        return example.__class__({
-            key: example_to_numpy(value, detach=detach)
-            for key, value in example.items()
-        })
-    elif isinstance(example, (tuple, list)):
-        return example.__class__([
-            example_to_numpy(element, detach=detach)
-            for element in example
-        ])
-    elif torch.is_tensor(example) or 'ComplexTensor' in str(type(example)):
-        return to_numpy(example, detach=detach)
-    elif isinstance(example, np.ndarray):
-        return example
-    elif hasattr(example, '__dataclass_fields__'):
-        return example.__class__(
-            **{
-                f: example_to_numpy(getattr(example, f), detach=detach)
-                for f in example.__dataclass_fields__
-            }
-        )
-    else:
-        return example
+    def convert(value):
+        if torch.is_tensor(value) or 'ComplexTensor' in str(type(example)):
+            return to_numpy(example, detach=detach)
+        return value
 
+    return pb.utils.nested.nested_op(convert, example)
 
 class Sorter:
     # pb.database.keys.NUM_SAMPLES is 'num_samples'
