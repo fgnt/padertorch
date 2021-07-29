@@ -16,8 +16,20 @@ __all__ = [
 def example_to_device(example, device=None):
     """
     Moves a nested structure to the device.
-    Numpy arrays are converted to torch.Tensor, except complex numpy arrays
-    that aren't supported in the moment in torch.
+    Numpy arrays are converted to `torch.Tensor`. Complex numpy arrays are
+    converted if supported by the used torch version.
+
+    >>> import torch, numpy as np
+    >>> example_to_device(np.ones(5, dtype=np.float32))
+    tensor([1., 1., 1., 1., 1.])
+    >>> example_to_device({'signal': np.ones(5, dtype=np.float32)})
+    {'signal': tensor([1., 1., 1., 1., 1.])}
+    >>> example_to_device({'signal': [np.ones(5, dtype=np.float32)], 'a': 'b'})
+    {'signal': [tensor([1., 1., 1., 1., 1.])], 'a': 'b'}
+    >>> example_to_device({'signal': (np.ones(5, dtype=np.float32),)})
+    {'signal': (tensor([1., 1., 1., 1., 1.]),)}
+    >>> example_to_device({'signal': (torch.ones(5),)})
+    {'signal': (tensor([1., 1., 1., 1., 1.]),)}
 
     The original doctext from torch for `.to`:
     Tensor.to(device=None, dtype=None, non_blocking=False, copy=False) → Tensor
@@ -50,12 +62,22 @@ def example_to_device(example, device=None):
             value = value.to(device=device)
         return value
 
-    return pb.utils.nested.nested_op(convert, example)
+    return pb.utils.nested.nested_op(convert, example, handle_dataclass=True)
 
 
 def example_to_numpy(example, detach: bool = False):
     """
     Moves a nested structure to numpy. Opposite of `example_to_device`.
+
+    >>> import torch
+    >>> example_to_numpy(torch.ones(5))
+    array([1., 1., 1., 1., 1.], dtype=float32)
+    >>> example_to_numpy({'signal': torch.ones(5)})
+    {'signal': array([1., 1., 1., 1., 1.], dtype=float32)}
+    >>> example_to_numpy({'signal': [torch.ones(5)]})
+    {'signal': [array([1., 1., 1., 1., 1.], dtype=float32)]}
+    >>> example_to_numpy({'signal': (torch.ones(5),)})
+    {'signal': (array([1., 1., 1., 1., 1.], dtype=float32),)}
 
     Returns:
         example where each tensor is converted to numpy
@@ -64,11 +86,11 @@ def example_to_numpy(example, detach: bool = False):
     from padertorch.utils import to_numpy
 
     def convert(value):
-        if torch.is_tensor(value) or 'ComplexTensor' in str(type(example)):
-            return to_numpy(example, detach=detach)
+        if isinstance(value, torch.Tensor) or 'ComplexTensor' in str(type(value)):
+            value = to_numpy(value, detach=detach)
         return value
 
-    return pb.utils.nested.nested_op(convert, example)
+    return pb.utils.nested.nested_op(convert, example, handle_dataclass=True)
 
 
 @dataclass
