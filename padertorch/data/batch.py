@@ -1,3 +1,6 @@
+import operator
+from dataclasses import dataclass
+
 import numpy as np
 import torch
 from typing import Union, Iterable
@@ -67,38 +70,30 @@ def example_to_numpy(example, detach: bool = False):
 
     return pb.utils.nested.nested_op(convert, example)
 
+
+@dataclass
 class Sorter:
-    # pb.database.keys.NUM_SAMPLES is 'num_samples'
-    def __init__(
-            self,
-            key: Union[str, callable] = 'num_samples',
-            reverse: bool = True
-    ):
-        """
-        Sorts the example in a batch by `key`. Meant to be mapped to a lazy
-        dataset after batching and before collating like
-        `dataset.batch(4).map(Sorter('num_samples')).map(collate_fn)`.
+    """
+    Sorts the example in a batch by `key`. Meant to be mapped to a lazy
+    dataset after batching and before collating like
+    `dataset.batch(4).map(Sorter('num_samples')).map(collate_fn)`.
 
-        Examples:
-            >>> batch = [{'value': x} for x in [5, 1, 3, 2]]
-            >>> Sorter('value')(batch)
-            ({'value': 5}, {'value': 3}, {'value': 2}, {'value': 1})
+    Examples:
+        >>> batch = [{'value': x} for x in [5, 1, 3, 2]]
+        >>> Sorter('value')(batch)
+        ({'value': 5}, {'value': 3}, {'value': 2}, {'value': 1})
 
-        Args:
-            key: Key to sort by
-            reverse: If `True`, sorts in reverse order. The default `True` is
-                required if sorting by length for `PackedSequence`s.
-        """
-        if callable(key):
-            self.key = key
-        else:
-            self.key = lambda example: example[key]
+    Attributes:
+        key: Key to sort by
+        reverse: If `True`, sorts in reverse order. The default `True` is
+            required if sorting by length for `PackedSequence`s.
+    """
+    key: Union[str, callable] = 'num_samples'
+    reverse: bool = True
 
-        self.reverse = reverse
+    def __post_init__(self):
+        if not callable(self.key):
+            self.key = operator.itemgetter(self.key)
 
     def __call__(self, examples: Iterable) -> tuple:
-        return tuple(sorted(
-            examples,
-            key=self.key,
-            reverse=self.reverse,
-        ))
+        return tuple(sorted(examples, key=self.key, reverse=self.reverse))
