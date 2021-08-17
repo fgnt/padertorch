@@ -1,6 +1,10 @@
+import operator
+from dataclasses import dataclass
+
 import numpy as np
 import torch
 from typing import Union, Iterable
+import paderbox as pb
 
 __all__ = [
     'example_to_device',
@@ -12,8 +16,20 @@ __all__ = [
 def example_to_device(example, device=None):
     """
     Moves a nested structure to the device.
-    Numpy arrays are converted to torch.Tensor, except complex numpy arrays
-    that aren't supported in the moment in torch.
+    Numpy arrays are converted to `torch.Tensor`. Complex numpy arrays are
+    converted if supported by the used torch version.
+
+    >>> import torch, numpy as np
+    >>> example_to_device(np.ones(5, dtype=np.float32))
+    tensor([1., 1., 1., 1., 1.])
+    >>> example_to_device({'signal': np.ones(5, dtype=np.float32)})
+    {'signal': tensor([1., 1., 1., 1., 1.])}
+    >>> example_to_device({'signal': [np.ones(5, dtype=np.float32)], 'a': 'b'})
+    {'signal': [tensor([1., 1., 1., 1., 1.])], 'a': 'b'}
+    >>> example_to_device({'signal': (np.ones(5, dtype=np.float32),)})
+    {'signal': (tensor([1., 1., 1., 1., 1.]),)}
+    >>> example_to_device({'signal': (torch.ones(5),)})
+    {'signal': (tensor([1., 1., 1., 1., 1.]),)}
 
     The original doctext from torch for `.to`:
     Tensor.to(device=None, dtype=None, non_blocking=False, copy=False) → Tensor
@@ -32,110 +48,74 @@ def example_to_device(example, device=None):
         example on device
 
     """
+    def convert(value):
+        if isinstance(value, np.ndarray):
+            try:
+                value = torch.from_numpy(value)
+            except TypeError:
+                # Check if this is caused by an old pytorch version that can't
+                # convert complex-valued arrays to tensors. In that case: don't
+                # crash
+                if value.dtype not in [np.complex64, np.complex128]:
+                    raise
+        if isinstance(value, torch.Tensor):
+            value = value.to(device=device)
+        return value
 
-    if isinstance(example, dict):
-        return example.__class__({
-            key: example_to_device(value, device=device)
-            for key, value in example.items()
-        })
-    elif isinstance(example, (tuple, list)):
-        return example.__class__([
-            example_to_device(element, device=device)
-            for element in example
-        ])
-    elif torch.is_tensor(example):
-        return example.to(device=device)
-    elif isinstance(example, np.ndarray):
-        if example.dtype in [np.complex64, np.complex128]:
-            # complex is not supported
-            return example
-        else:
-            # TODO: Do we need to ensure tensor.is_contiguous()?
-            # TODO: If not, the representer of the tensor does not work.
-            return example_to_device(
-                torch.from_numpy(example), device=device
-            )
-    elif hasattr(example, '__dataclass_fields__'):
-        return example.__class__(
-            **{
-                f: example_to_device(getattr(example, f), device=device)
-                for f in example.__dataclass_fields__
-            }
-        )
-    else:
-        return example
+    return pb.utils.nested.nested_op(convert, example, handle_dataclass=True)
 
 
-def example_to_numpy(example, detach=False):
+def example_to_numpy(example, detach: bool = False):
     """
-    Moves a nested structure to numpy. Opposite of example_to_device.
+    Moves a nested structure to numpy. Opposite of `example_to_device`.
 
-    Args:
-        example:
+    >>> import torch
+    >>> example_to_numpy(torch.ones(5))
+    array([1., 1., 1., 1., 1.], dtype=float32)
+    >>> example_to_numpy({'signal': torch.ones(5)})
+    {'signal': array([1., 1., 1., 1., 1.], dtype=float32)}
+    >>> example_to_numpy({'signal': [torch.ones(5)]})
+    {'signal': [array([1., 1., 1., 1., 1.], dtype=float32)]}
+    >>> example_to_numpy({'signal': (torch.ones(5),)})
+    {'signal': (array([1., 1., 1., 1., 1.], dtype=float32),)}
 
     Returns:
-        example on where each tensor is converted to numpy
+        example where each tensor is converted to numpy
 
     """
     from padertorch.utils import to_numpy
 
-    if isinstance(example, dict):
-        return example.__class__({
-            key: example_to_numpy(value, detach=detach)
-            for key, value in example.items()
-        })
-    elif isinstance(example, (tuple, list)):
-        return example.__class__([
-            example_to_numpy(element, detach=detach)
-            for element in example
-        ])
-    elif torch.is_tensor(example) or 'ComplexTensor' in str(type(example)):
-        return to_numpy(example, detach=detach)
-    elif isinstance(example, np.ndarray):
-        return example
-    elif hasattr(example, '__dataclass_fields__'):
-        return example.__class__(
-            **{
-                f: example_to_numpy(getattr(example, f), detach=detach)
-                for f in example.__dataclass_fields__
-            }
-        )
-    else:
-        return example
+    def convert(value):
+        if isinstance(value, torch.Tensor) or 'ComplexTensor' in str(type(value)):
+            value = to_numpy(value, detach=detach)
+        return value
+
+    return pb.utils.nested.nested_op(convert, example, handle_dataclass=True)
 
 
+@dataclass
 class Sorter:
-    # pb.database.keys.NUM_SAMPLES is 'num_samples'
-    def __init__(
-            self,
-            key: Union[str, callable] = 'num_samples',
-            reverse: bool = True
-    ):
-        """
-        Sorts the example in a batch by `key`. Meant to be mapped to a lazy
-        dataset after batching and before collating like
-        `dataset.batch(4).map(Sorter('num_samples')).map(collate_fn)`.
+    """
+    Sorts the example in a batch by `key`. Meant to be mapped to a lazy
+    dataset after batching and before collating like
+    `dataset.batch(4).map(Sorter('num_samples')).map(collate_fn)`.
 
-        Examples:
-            >>> batch = [{'value': x} for x in [5, 1, 3, 2]]
-            >>> Sorter('value')(batch)
-            ({'value': 5}, {'value': 3}, {'value': 2}, {'value': 1})
+    Examples:
+        >>> batch = [{'value': x} for x in [5, 1, 3, 2]]
+        >>> Sorter('value')(batch)
+        ({'value': 5}, {'value': 3}, {'value': 2}, {'value': 1})
 
-        Args:
-            key: Key to sort by
-            reverse: If `True`, sorts in reverse order. The default `True` is
-                required if sorting by length for `PackedSequence`s.
-        """
-        if callable(key):
-            self.key = key
-        else:
-            self.key = lambda example: example[key]
+    Attributes:
+        key: Key to sort by
+        reverse: If `True`, sorts in reverse order. The default `True` is
+            required if sorting by length for `PackedSequence`s.
+    """
+    key: Union[str, callable] = 'num_samples'
+    reverse: bool = True
 
-        self.reverse = reverse
+    def __post_init__(self):
+        if not callable(self.key):
+            self.key = operator.itemgetter(self.key)
 
     def __call__(self, examples: Iterable) -> tuple:
-        return tuple(sorted(
-            examples,
-            key=self.key,
-            reverse=self.reverse,
-        ))
+        return tuple(sorted(examples, key=self.key, reverse=self.reverse))
