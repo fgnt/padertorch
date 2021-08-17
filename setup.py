@@ -11,9 +11,9 @@ from codecs import open
 from distutils.core import setup
 from os import path
 
-import numpy
+# import numpy
 from setuptools import find_packages
-from Cython.Build import cythonize
+# from Cython.Build import cythonize
 
 here = path.abspath(path.dirname(__file__))
 
@@ -118,9 +118,9 @@ setup(
         'all': test,
     },
 
-    ext_modules=cythonize(
-        [],
-        annotate=True,
-    ),
-    include_dirs=[numpy.get_include()],
+    # ext_modules=cythonize(
+    #     [],
+    #     annotate=True,
+    # ),
+    # include_dirs=[numpy.get_include()],
 )
