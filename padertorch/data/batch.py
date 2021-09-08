@@ -50,6 +50,7 @@ def example_to_device(example, device=None, memo=None):
     Args:
         example:
         device: None, 'cpu', 0, 1, ...
+        memo: See `copy.deepcopy`
 
     Returns:
         example on device
