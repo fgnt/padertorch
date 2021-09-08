@@ -13,7 +13,7 @@ __all__ = [
 ]
 
 
-def example_to_device(example, device=None):
+def example_to_device(example, device=None, memo=None):
     """
     Moves a nested structure to the device.
     Numpy arrays are converted to `torch.Tensor`. Complex numpy arrays are
@@ -55,7 +55,8 @@ def example_to_device(example, device=None):
         example on device
 
     """
-    memo = {}
+    if memo is None:
+        memo = {}
 
     def convert(value):
         id_ = id(value)
@@ -79,7 +80,7 @@ def example_to_device(example, device=None):
     return pb.utils.nested.nested_op(convert, example, handle_dataclass=True)
 
 
-def example_to_numpy(example, detach: bool = False):
+def example_to_numpy(example, detach: bool = False, memo: dict = None):
     """
     Moves a nested structure to numpy. Opposite of `example_to_device`.
 
@@ -106,7 +107,8 @@ def example_to_numpy(example, detach: bool = False):
     """
     from padertorch.utils import to_numpy
 
-    memo = {}
+    if memo is None:
+        memo = {}
 
     def convert(value):
         id_ = id(memo)
