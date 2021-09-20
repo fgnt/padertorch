@@ -318,7 +318,7 @@ class Model(Module, Configurable, abc.ABC):
 
         return summary
 
-    def example_to_device(self, example, device=None):
+    def example_to_device(self, example, device=None, memo=None):
         """
         Transfers `example` to `device` as required by the model. By default,
         the whole example is transferred to `device`, but subclasses can
@@ -333,11 +333,12 @@ class Model(Module, Configurable, abc.ABC):
         Args:
             example: The example to transfer to `device`
             device: The device to transfer `example` to.
+            memo: See `copy.deepcopy`
 
         Returns:
             The `example`, either fully or partially transferred to the device.
         """
-        return example_to_device(example, device)
+        return example_to_device(example, device, memo)
 
     def extra_repr(self) -> str:
         """Set the extra representation of the module

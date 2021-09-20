@@ -13,7 +13,7 @@ __all__ = [
 ]
 
 
-def example_to_device(example, device=None):
+def example_to_device(example, device=None, memo=None):
     """
     Moves a nested structure to the device.
     Numpy arrays are converted to `torch.Tensor`. Complex numpy arrays are
@@ -31,6 +31,13 @@ def example_to_device(example, device=None):
     >>> example_to_device({'signal': (torch.ones(5),)})
     {'signal': (tensor([1., 1., 1., 1., 1.]),)}
 
+    This function tracks already moved objects and like `copy.deepcopy` to
+    avoid multiple moves of the same object:
+    >>> a = np.ones(2)
+    >>> ex = example_to_device({'a': a, 'b': a})
+    >>> ex['a'] is ex['b']
+    True
+
     The original doctext from torch for `.to`:
     Tensor.to(device=None, dtype=None, non_blocking=False, copy=False) → Tensor
         Returns a Tensor with the specified device and (optional) dtype. If
@@ -43,12 +50,20 @@ def example_to_device(example, device=None):
     Args:
         example:
         device: None, 'cpu', 0, 1, ...
+        memo: See `copy.deepcopy`
 
     Returns:
         example on device
 
     """
+    if memo is None:
+        memo = {}
+
     def convert(value):
+        id_ = id(value)
+        if id_ in memo:
+            return memo[id_]
+
         if isinstance(value, np.ndarray):
             try:
                 value = torch.from_numpy(value)
@@ -60,12 +75,13 @@ def example_to_device(example, device=None):
                     raise
         if isinstance(value, torch.Tensor):
             value = value.to(device=device)
+        memo[id_] = value
         return value
 
     return pb.utils.nested.nested_op(convert, example, handle_dataclass=True)
 
 
-def example_to_numpy(example, detach: bool = False):
+def example_to_numpy(example, detach: bool = False, memo: dict = None):
     """
     Moves a nested structure to numpy. Opposite of `example_to_device`.
 
@@ -79,15 +95,29 @@ def example_to_numpy(example, detach: bool = False):
     >>> example_to_numpy({'signal': (torch.ones(5),)})
     {'signal': (array([1., 1., 1., 1., 1.], dtype=float32),)}
 
+    This function tracks already moved objects and like `copy.deepcopy` to
+    avoid multiple moves of the same object:
+    >>> a = torch.ones(2)
+    >>> ex = example_to_numpy({'a': a, 'b': a})
+    >>> ex['a'] is ex['b']
+    True
+
     Returns:
         example where each tensor is converted to numpy
 
     """
     from padertorch.utils import to_numpy
 
+    if memo is None:
+        memo = {}
+
     def convert(value):
+        id_ = id(memo)
+        if id_ in memo:
+            return memo[id_]
         if isinstance(value, torch.Tensor) or 'ComplexTensor' in str(type(value)):
             value = to_numpy(value, detach=detach)
+        memo[id_] = value
         return value
 
     return pb.utils.nested.nested_op(convert, example, handle_dataclass=True)
