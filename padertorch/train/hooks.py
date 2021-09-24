@@ -19,7 +19,8 @@ import torch
 from distutils.version import LooseVersion
 from natsort import natsorted
 from padertorch.train.trigger import IntervalTrigger, EndTrigger
-from tqdm import tqdm
+from tqdm.auto import tqdm
+
 
 tqdm.monitor_interval = 0
 
