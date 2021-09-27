@@ -85,6 +85,14 @@ def example_to_numpy(example, detach: bool = False, memo: dict = None):
     """
     Moves a nested structure to numpy. Opposite of `example_to_device`.
 
+    Args:
+        example:
+        detach: Must be true, when a tensor has a gradient.
+        memo: See `copy.deepcopy`
+
+    Returns:
+        example where each tensor is converted to numpy
+
     >>> import torch
     >>> example_to_numpy(torch.ones(5))
     array([1., 1., 1., 1., 1.], dtype=float32)
@@ -101,10 +109,9 @@ def example_to_numpy(example, detach: bool = False, memo: dict = None):
     >>> ex = example_to_numpy({'a': a, 'b': a})
     >>> ex['a'] is ex['b']
     True
-
-    Returns:
-        example where each tensor is converted to numpy
-
+    >>> ex = example_to_numpy({'a': a, 'b': a.clone()})
+    >>> ex['a'] is ex['b']
+    False
     """
     from padertorch.utils import to_numpy
 
@@ -112,7 +119,7 @@ def example_to_numpy(example, detach: bool = False, memo: dict = None):
         memo = {}
 
     def convert(value):
-        id_ = id(memo)
+        id_ = id(value)
         if id_ in memo:
             return memo[id_]
         if isinstance(value, torch.Tensor) or 'ComplexTensor' in str(type(value)):
