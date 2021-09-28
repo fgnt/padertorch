@@ -283,8 +283,9 @@ def source_aggregated_sdr_loss(
         target: torch.Tensor,
 ) -> torch.Tensor:
     """
-    The source-aggregated SDR loss. There is no `reduction` argument because the loss always
-    combines the losses for multiple paris of targets and estimates.
+    The source-aggregated SDR loss. There is no `reduction` argument because
+    the reduction takes place in before the SDR is computed and is always
+    required. Its value is the same for sum and mean.
     """
     # Calculate the source-aggregated SDR: Sum the squares of all targets and
     # all errors before computing the ratio.
