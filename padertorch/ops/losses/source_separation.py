@@ -284,13 +284,15 @@ def pit_loss_from_loss_matrix(
     # We have to detach here because pair_wise_loss_matrix should require grads
     pair_wise_loss_np = to_numpy(pair_wise_loss_matrix, detach=True)
 
-    if algorithm == 'optimal':
+    if algorithm in ('optimal', 'hungarian'):
         row_ind, col_ind = scipy.optimize.linear_sum_assignment(
             pair_wise_loss_np)
-    elif algorithm == 'greedy':
+    elif algorithm in ('greedy', 'brute_force'):
         from pb_bss.permutation_alignment import _mapping_from_score_matrix
+        if algorithm == 'brute_force':
+            algorithm = 'optimal'
         col_ind = _mapping_from_score_matrix(-pair_wise_loss_np,
-                                             algorithm='greedy')
+                                             algorithm=algorithm)
         row_ind = range(sources)
     else:
         raise ValueError(algorithm)

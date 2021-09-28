@@ -277,5 +277,36 @@ def log1p_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
         reduction=reduction
     )
 
-# TODO: Add log1p_mse loss from interspeech paper
+
+def source_aggregated_sdr_loss(
+        estimate: torch.Tensor,
+        target: torch.Tensor,
+) -> torch.Tensor:
+    """
+    The source-aggregated SDR loss. There is no `reduction` argument because
+    the reduction takes place in before the SDR is computed and is always
+    required. Its value is the same for sum and mean.
+
+    >>> estimate = [[1., 2, 3], [4, 5, 6]]
+    >>> target = [[2., 3, 4], [4, 0, 6]]
+    >>> source_aggregated_sdr_loss(torch.tensor(estimate), torch.tensor(target))
+    tensor(-4.6133)
+
+    Is equal to `sdr_loss` if the SDRs of each pair of estimate and target are
+    equal.
+    >>> estimate = torch.tensor([[1., 2, 3], [4, 2, 6]])
+    >>> target = torch.tensor([[2., 3, 4], [6, 4, 8]])
+    >>> sdr_loss(estimate, target)
+    tensor(-9.8528)
+    >>> source_aggregated_sdr_loss(estimate, target)
+    tensor(-9.8528)
+    """
+    # Calculate the source-aggregated SDR: Sum the squares of all targets and
+    # all errors before computing the ratio.
+    sa_sdr = 10 * torch.log10(
+        torch.sum(target**2) / torch.sum((estimate - target)**2)
+    )
+
+    return -sa_sdr
+
 # TODO: remove _reduce
