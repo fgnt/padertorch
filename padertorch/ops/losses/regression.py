@@ -325,6 +325,7 @@ def log1p_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
 def source_aggregated_sdr_loss(
         estimate: torch.Tensor,
         target: torch.Tensor,
+        soft_sdr_max: float = None,
 ) -> torch.Tensor:
     """
     The source-aggregated SDR loss. There is no `reduction` argument because
@@ -347,9 +348,11 @@ def source_aggregated_sdr_loss(
     """
     # Calculate the source-aggregated SDR: Sum the squares of all targets and
     # all errors before computing the ratio.
-    sa_sdr = 10 * torch.log10(
-        torch.sum(target**2) / torch.sum((estimate - target)**2)
-    )
+    target_norm = torch.sum(target**2)
+    denominator = torch.sum((estimate - target) ** 2)
+    if soft_sdr_max is not None:
+        denominator = denominator + _get_threshold(soft_sdr_max) * target_norm
+    sa_sdr = 10 * torch.log10(target_norm / denominator)
 
     return -sa_sdr
 
