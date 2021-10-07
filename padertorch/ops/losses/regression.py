@@ -73,6 +73,7 @@ def log_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
         estimate (... x T): The estimated signal
         target (... x T, same as estimate): The target signal
         reduction: 'mean', 'sum' or 'none'/None for batch dimensions
+        soft_sdr_max: Soft limit for the SDR loss value, see [2] and [3]
 
     Returns:
         The log-mse error between `estimate` and `target`
@@ -83,6 +84,18 @@ def log_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
             TasNet: A Dissecting Approach.” ArXiv:1911.08895
             [Cs, Eess], November 20, 2019.
             http://arxiv.org/abs/1911.08895.
+        [2] Wisdom, Scott, Efthymios Tzinis, Hakan Erdogan, Ron J. Weiss,
+            Kevin Wilson, and John R. Hershey. “Unsupervised Speech Separation
+            Using Mixtures of Mixtures.” In Advances in Neural Information
+            Processing Systems, 33:3846--3857. Curran Associates, Inc., 2020.
+            https://openreview.net/forum?id=qMMzJGRPT2d.
+        [3] Wisdom, Scott, Hakan Erdogan, Daniel P. W. Ellis, Romain Serizel,
+            Nicolas Turpault, Eduardo Fonseca, Justin Salamon,
+            Prem Seetharaman, and John R. Hershey. “What’s All the Fuss about
+            Free Universal Sound Separation Data?” In IEEE International
+            Conference on Acoustics, Speech and Signal Processing (ICASSP),
+            186–90, 2021. https://doi.org/10.1109/ICASSP39728.2021.9414774.
+
 
     >>> estimate = [[1., 2, 3], [4, 5, 6]]
     >>> target = [[2., 3, 4], [4, 0, 6]]
@@ -107,7 +120,7 @@ def sdr_loss(estimate: torch.Tensor, target: torch.Tensor,
         estimate (... x T): The estimated signal
         target (... x T, same as estimate): The target signal
         reduction: 'mean', 'sum' or 'none'/None for batch dimensions
-        soft_sdr_max: Soft limit for the SDR loss value
+        soft_sdr_max: Soft limit for the SDR loss value as proposed in [1]
 
     Returns:
 
@@ -119,6 +132,13 @@ def sdr_loss(estimate: torch.Tensor, target: torch.Tensor,
     tensor([-9.8528, -3.1806])
     >>> sdr_loss(torch.tensor(target), torch.tensor(target), soft_sdr_max=20)
     tensor(-20.)
+
+    References:
+        [1] Wisdom, Scott, Efthymios Tzinis, Hakan Erdogan, Ron J. Weiss,
+            Kevin Wilson, and John R. Hershey. “Unsupervised Speech Separation
+            Using Mixtures of Mixtures.” In Advances in Neural Information
+            Processing Systems, 33:3846--3857. Curran Associates, Inc., 2020.
+            https://openreview.net/forum?id=qMMzJGRPT2d.
 
     """
     # Calculate the SNR. The square in the power computation is moved to the
@@ -147,10 +167,16 @@ def si_sdr_loss(estimate, target, reduction='mean', offset_invariant=False,
             This makes the loss shift- and scale-invariant.
         grad_stop: If `True`, the gradient is not propagated through the
             calculation of the scaling factor.
+        soft_sdr_max: Soft limit for the SDR loss value as proposed in [2]
 
     References:
         [1] TASNET: TIME-DOMAIN AUDIO SEPARATION NETWORK FOR REAL-TIME,
             SINGLE-CHANNEL SPEECH SEPARATION
+        [2] Wisdom, Scott, Efthymios Tzinis, Hakan Erdogan, Ron J. Weiss,
+            Kevin Wilson, and John R. Hershey. “Unsupervised Speech Separation
+            Using Mixtures of Mixtures.” In Advances in Neural Information
+            Processing Systems, 33:3846--3857. Curran Associates, Inc., 2020.
+            https://openreview.net/forum?id=qMMzJGRPT2d.
 
     >>> estimate = [[1., 2, 3], [4, 5, 6]]
     >>> target = [[2., 3, 4], [4, 0, 6]]
