@@ -21,6 +21,13 @@ def _reduce(array, reduction):
             f'Unknown reduction: {reduction}. Choose from "sum", "mean".')
 
 
+def _get_threshold(sdr_max):
+    """Computes the threshold tau for the thresholded SDR"""
+    if sdr_max is None:
+        return 0
+    return 10 ** (-sdr_max / 10)
+
+
 def mse_loss(estimate: torch.Tensor, target: torch.Tensor,
              reduction: str = 'sum'):
     """
@@ -49,7 +56,7 @@ def mse_loss(estimate: torch.Tensor, target: torch.Tensor,
 
 
 def log_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
-                 reduction: str = 'sum'):
+                 reduction: str = 'sum', soft_sdr_max: float = None):
     """
     Computes the log-mse loss between `x` and `y` as defined in [1], eq. 11.
     The `reduction` only affects the speaker dimension; the time dimension is always
@@ -85,14 +92,14 @@ def log_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
     tensor([0.0000, 0.9208])
     """
     # Use the PyTorch implementation for MSE, should be the fastest
-    return _reduce(
-        F.mse_loss(estimate, target, reduction='none').mean(dim=-1).log10(),
-        reduction=reduction
-    )
+    loss = F.mse_loss(estimate, target, reduction='none').mean(dim=-1)
+    if soft_sdr_max:
+        loss = loss + _get_threshold(soft_sdr_max) * torch.sum(target**2, dim=-1)
+    return _reduce(torch.log10(loss), reduction=reduction)
 
 
 def sdr_loss(estimate: torch.Tensor, target: torch.Tensor,
-             reduction: str = 'mean'):
+             reduction: str = 'mean', soft_sdr_max: float = None):
     """
     The (scale dependent) SDR or SNR loss.
 
@@ -100,6 +107,7 @@ def sdr_loss(estimate: torch.Tensor, target: torch.Tensor,
         estimate (... x T): The estimated signal
         target (... x T, same as estimate): The target signal
         reduction: 'mean', 'sum' or 'none'/None for batch dimensions
+        soft_sdr_max: Soft limit for the SDR loss value
 
     Returns:
 
@@ -109,19 +117,25 @@ def sdr_loss(estimate: torch.Tensor, target: torch.Tensor,
     tensor(-6.5167)
     >>> sdr_loss(torch.tensor(estimate), torch.tensor(target), reduction=None)
     tensor([-9.8528, -3.1806])
+    >>> sdr_loss(torch.tensor(target), torch.tensor(target), soft_sdr_max=20)
+    tensor(-20.)
 
     """
     # Calculate the SNR. The square in the power computation is moved to the
     # front, thus the 20 in front of the log
-    snr = 20 * torch.log10(
-        torch.norm(target, dim=-1) / torch.norm(estimate - target, dim=-1)
-    )
+    target_norm = torch.sum(target ** 2, dim=-1)
+    denominator = torch.sum((estimate - target) ** 2, dim=-1)
 
-    return -_reduce(snr, reduction=reduction)
+    if soft_sdr_max is not None:
+        denominator = denominator + _get_threshold(soft_sdr_max) * target_norm
+
+    sdr = 10 * torch.log10(target_norm / denominator)
+
+    return -_reduce(sdr, reduction=reduction)
 
 
 def si_sdr_loss(estimate, target, reduction='mean', offset_invariant=False,
-                grad_stop=False):
+                grad_stop=False, soft_sdr_max: float = None):
     """
     Scale Invariant SDR (SI-SDR) or Scale Invariant SNR (SI-SNR) loss as defined in [1], section 2.2.4.
 
@@ -206,6 +220,8 @@ def si_sdr_loss(estimate, target, reduction='mean', offset_invariant=False,
     ...     torch.tensor([1., 0], dtype=torch.float64))  # never predict only zeros
     Torch loss: tensor(nan, dtype=torch.float64)
     Numpy metric: nan
+    >>> si_sdr_loss(torch.tensor(target), torch.tensor(target), soft_sdr_max=20)
+    tensor(-20.)
     """
     assert estimate.shape == target.shape, (estimate.shape, target.shape)
     assert len(estimate.shape) >= 1, estimate.shape
@@ -226,9 +242,11 @@ def si_sdr_loss(estimate, target, reduction='mean', offset_invariant=False,
     # Compute s_target ([1] eq. 13)
     s_target = scaling_factor * target
 
-    # The SNR loss computes e_noise ([1] eq. 14) and the ratio, here the
-    # SI-SNR ([1] eq. 15)
-    return sdr_loss(estimate, s_target, reduction=reduction)
+    # The SDR loss computes e_noise ([1] eq. 14) and the ratio, here the
+    # SI-SDR ([1] eq. 15)
+    return sdr_loss(
+        estimate, s_target, reduction=reduction, soft_sdr_max=soft_sdr_max
+    )
 
 
 def log1p_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
