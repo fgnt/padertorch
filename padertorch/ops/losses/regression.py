@@ -25,7 +25,7 @@ def _get_threshold(soft_sdr_max):
     """Computes the threshold tau for the thresholded SDR"""
     if soft_sdr_max is None:
         return
-    assert 0 < soft_sdr_max < 50, f'Uncommon value for soft_sdr_max: {soft_sdr_max}'
+    assert 1 < soft_sdr_max < 50, f'Uncommon value for soft_sdr_max: {soft_sdr_max}'
     return 10 ** (-soft_sdr_max / 10)
 
 
