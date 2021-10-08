@@ -1,13 +1,20 @@
 import torch
 
 
-def _sqnorm(x, dim=(), keepdim=False):
-    return torch.sum(x * x, dim=dim, keepdim=keepdim)
+def _sqnorm(x, dim=None, keepdim=False):
+    if dim is None:
+        assert not keepdim
+        return torch.sum(x * x)
+    else:
+        return torch.sum(x * x, dim=dim, keepdim=keepdim)
 
 
-def _mse(estimate, target, dim=()):
+def _mse(estimate, target, dim=None):
     error = estimate - target
-    return torch.mean(error * error, dim=dim)
+    if dim is None:
+        return torch.mean(error * error)
+    else:
+        return torch.mean(error * error, dim=dim)
 
 
 def _get_scaling_factor(target, estimate):
