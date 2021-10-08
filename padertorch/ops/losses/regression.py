@@ -116,12 +116,14 @@ def log_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
     >>> log_mse_loss(torch.tensor(estimate), torch.tensor(target), reduction=None)
     tensor([0.0000, 0.9208])
     >>> log_mse_loss(torch.tensor(target), torch.tensor(target), soft_sdr_max=20)
-    tensor(-0.8216)
+    tensor(-1.7758)
     """
     # Use the PyTorch implementation for MSE, should be the fastest
     loss = _mse(estimate, target, dim=-1)
     if soft_sdr_max:
-        loss = loss + _get_threshold(soft_sdr_max) * _sqnorm(target, dim=-1)
+        loss = loss + _get_threshold(soft_sdr_max) * torch.mean(
+            target*target, dim=-1
+        )
     return _reduce(torch.log10(loss), reduction=reduction)
 
 
