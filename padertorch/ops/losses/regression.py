@@ -21,11 +21,12 @@ def _reduce(array, reduction):
             f'Unknown reduction: {reduction}. Choose from "sum", "mean".')
 
 
-def _get_threshold(sdr_max):
+def _get_threshold(soft_sdr_max):
     """Computes the threshold tau for the thresholded SDR"""
-    if sdr_max is None:
-        return 0
-    return 10 ** (-sdr_max / 10)
+    if soft_sdr_max is None:
+        return
+    assert 0 < soft_sdr_max < 50, f'Uncommon value for soft_sdr_max: {soft_sdr_max}'
+    return 10 ** (-soft_sdr_max / 10)
 
 
 def mse_loss(estimate: torch.Tensor, target: torch.Tensor,
@@ -107,7 +108,7 @@ def log_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
     # Use the PyTorch implementation for MSE, should be the fastest
     loss = F.mse_loss(estimate, target, reduction='none').mean(dim=-1)
     if soft_sdr_max:
-        loss = loss + _get_threshold(soft_sdr_max) * torch.sum(target**2, dim=-1)
+        loss = loss + _get_threshold(soft_sdr_max) * torch.sum(target ** 2, dim=-1)
     return _reduce(torch.log10(loss), reduction=reduction)
 
 
@@ -348,7 +349,7 @@ def source_aggregated_sdr_loss(
     """
     # Calculate the source-aggregated SDR: Sum the squares of all targets and
     # all errors before computing the ratio.
-    target_norm = torch.sum(target**2)
+    target_norm = torch.sum(target ** 2)
     denominator = torch.sum((estimate - target) ** 2)
     if soft_sdr_max is not None:
         denominator = denominator + _get_threshold(soft_sdr_max) * target_norm
