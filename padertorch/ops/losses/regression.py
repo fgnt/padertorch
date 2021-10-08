@@ -1,12 +1,19 @@
-from functools import partial
 import torch
-from torch.nn import functional as F
+
+
+def _sqnorm(x, dim=(), keepdim=False):
+    return torch.sum(x * x, dim=dim, keepdim=keepdim)
+
+
+def _mse(estimate, target, dim=()):
+    error = estimate - target
+    return torch.mean(error * error, dim=dim)
 
 
 def _get_scaling_factor(target, estimate):
     return torch.unsqueeze(torch.einsum(
         '...t,...t->...', estimate, target
-    ), -1) / torch.sum(target * target, dim=-1, keepdim=True)
+    ), -1) / _sqnorm(target, dim=-1, keepdim=True)
 
 
 def _reduce(array, reduction):
@@ -50,10 +57,7 @@ def mse_loss(estimate: torch.Tensor, target: torch.Tensor,
     >>> mse_loss(torch.tensor(estimate), torch.tensor(target), reduction=None)
     tensor([1.0000, 8.3333])
     """
-    return _reduce(
-        F.mse_loss(estimate, target, reduction='none').mean(dim=-1),
-        reduction=reduction
-    )
+    return _reduce(_mse(estimate, target, dim=-1), reduction=reduction)
 
 
 def log_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
@@ -108,11 +112,9 @@ def log_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
     tensor(-0.8216)
     """
     # Use the PyTorch implementation for MSE, should be the fastest
-    loss = F.mse_loss(estimate, target, reduction='none').mean(dim=-1)
+    loss = _mse(estimate, target, dim=-1)
     if soft_sdr_max:
-        loss = loss + _get_threshold(soft_sdr_max) * torch.sum(
-            target * target, dim=-1
-        )
+        loss = loss + _get_threshold(soft_sdr_max) * _sqnorm(target, dim=-1)
     return _reduce(torch.log10(loss), reduction=reduction)
 
 
@@ -148,9 +150,8 @@ def sdr_loss(estimate: torch.Tensor, target: torch.Tensor,
     """
     # Calculate the SNR. The square in the power computation is moved to the
     # front, thus the 20 in front of the log
-    target_norm = torch.sum(target * target, dim=-1)
-    distortions = estimate - target
-    denominator = torch.sum(distortions * distortions, dim=-1)
+    target_norm = _sqnorm(target, dim=-1)
+    denominator = _sqnorm(estimate - target, dim=-1)
 
     if soft_sdr_max is not None:
         denominator = denominator + _get_threshold(soft_sdr_max) * target_norm
@@ -320,10 +321,8 @@ def log1p_mse_loss(estimate: torch.Tensor, target: torch.Tensor,
     >>> log1p_mse_loss(torch.tensor(estimate), torch.tensor(target), reduction=None)
     tensor([0.3010, 0.9700])
     """
-    # Use the PyTorch implementation for MSE, should be the fastest
     return _reduce(
-        torch.log10(
-            1 + F.mse_loss(estimate, target, reduction='none').mean(dim=-1)),
+        torch.log10(1 + _mse(estimate, target, dim=-1)),
         reduction=reduction
     )
 
@@ -354,9 +353,8 @@ def source_aggregated_sdr_loss(
     """
     # Calculate the source-aggregated SDR: Sum the squares of all targets and
     # all errors before computing the ratio.
-    target_norm = torch.sum(target * target)
-    distortions = (estimate - target)
-    denominator = torch.sum(distortions * distortions)
+    target_norm = _sqnorm(target)
+    denominator = _sqnorm(estimate - target)
     if soft_sdr_max is not None:
         denominator = denominator + _get_threshold(soft_sdr_max) * target_norm
     sa_sdr = 10 * torch.log10(target_norm / denominator)
