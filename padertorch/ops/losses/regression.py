@@ -2,6 +2,7 @@ import torch
 
 
 def _sqnorm(x, dim=None, keepdim=False):
+    x = torch.abs(x)
     if dim is None:
         assert not keepdim
         return torch.sum(x * x)
@@ -10,7 +11,7 @@ def _sqnorm(x, dim=None, keepdim=False):
 
 
 def _mse(estimate, target, dim=None):
-    error = estimate - target
+    error = torch.abs(estimate - target)
     if dim is None:
         return torch.mean(error * error)
     else:
@@ -147,6 +148,10 @@ def sdr_loss(estimate: torch.Tensor, target: torch.Tensor,
     >>> sdr_loss(torch.tensor(estimate), torch.tensor(target), reduction=None)
     tensor([-9.8528, -3.1806])
     >>> sdr_loss(torch.tensor(target), torch.tensor(target), soft_sdr_max=20)
+    tensor(-20.)
+    >>> sdr_loss(torch.tensor([1, 2+3j, 4j]), torch.tensor([2, 3+3j, 5j]))
+    tensor(-11.9498)
+    >>> sdr_loss(torch.tensor([1, 2+3j, 4j]), torch.tensor([1, 2+3j, 4j]), soft_sdr_max=20)
     tensor(-20.)
 
     References:
