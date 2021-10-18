@@ -348,6 +348,18 @@ class Configurable:
         pass
 
     @classmethod
+    def new(
+            cls,
+            updates=None,
+    ):
+        """Produce a Configurable instance.
+
+        The updates are used to create a config and this config is then used to
+        create the instance.
+        """
+        return cls.from_config(cls.get_config(updates))
+
+    @classmethod
     def get_config(
             cls,
             updates=None,
