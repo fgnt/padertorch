@@ -22,6 +22,7 @@ import collections
 import functools
 import importlib
 import inspect
+import dataclasses
 from pathlib import Path
 import copy
 
@@ -581,6 +582,117 @@ def _test_config(config, updates):
             'below the sub config:\n'
             f'{pretty_config}'
         )
+
+
+def dataclass_to_config(cls, depth=0, force_valid_config=True):
+    """ Create a config from a dataclass. Follows fields and consides functools
+    partial to create the config.
+
+    This is a utility that is used in Configurable, but it can also be used as
+    standalone function.
+
+    Args:
+        cls:
+        depth: Helper for RecursionError.
+        force_valid_config:
+
+    Returns:
+
+
+    >>> fix_doctext_import_class(locals())
+    >>> import dataclasses, functools
+    >>> from paderbox.utils.pretty import pprint
+    >>> @dataclasses.dataclass
+    ... class Foo:
+    ...     arg: int = 1
+    ...     l: None = dataclasses.field(default_factory=list)
+    ...     d: None = dataclasses.field(default_factory=functools.partial(dict, key=2))
+    >>> @dataclasses.dataclass
+    ... class A:
+    ...     p: None = dataclasses.field(default_factory=functools.partial(Foo, arg=3))
+    ...     f: None = dataclasses.field(default_factory=Foo)
+    ...     c: None = 4
+    >>> config = dataclass_to_config(A)
+    >>> pprint(config)
+    {'factory': configurable.A,
+     'p': {'factory': configurable.Foo,
+      'arg': 3,
+      'l': {'factory': list},
+      'd': {'factory': dict, 'key': 2}},
+     'f': {'factory': configurable.Foo,
+      'arg': 1,
+      'l': {'factory': list},
+      'd': {'factory': dict, 'key': 2}},
+     'c': 4}
+    >>> Configurable.from_config(config)
+    A(p=Foo(arg=3, l=[], d={'key': 2}), f=Foo(arg=1, l=[], d={'key': 2}), c=4)
+
+    >>> @dataclasses.dataclass
+    ... class B:
+    ...     no_default: None
+    ...     missing_in_init: None = dataclasses.field(init=False, default_factory=Foo)
+    >>> config = dataclass_to_config(B)  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+    ...
+    RuntimeError: ('no_default', Field(name='no_default',type=None,default=<..._MISSING_TYPE...>,default_factory=<..._MISSING_TYPE...>,init=True,repr=True,hash=None,compare=True,metadata=mappingproxy({}),_field_type=_FIELD), <class 'configurable.B'>)
+    >>> config = dataclass_to_config(B, force_valid_config=False)
+    >>> pprint(config)
+    {'factory': configurable.B}
+    """
+    import dataclasses
+    import functools
+
+    if depth > 20:
+        raise RecursionError(cls)
+
+    def is_dataclass(obj):
+        return dataclasses.is_dataclass(obj) and isinstance(obj, type)
+
+    config = {'factory': cls}
+    for k, f in cls.__dataclass_fields__.items():
+        assert f.default is dataclasses.MISSING or f.default_factory is dataclasses.MISSING, f
+
+        if not f.init:
+            # Skip fields that are marked as not part of the __init__
+            pass
+        elif f.default is not dataclasses.MISSING:
+            config[k] = f.default
+        elif f.default_factory is not dataclasses.MISSING:
+            if isinstance(f.default_factory, functools.partial):
+                assert f.default_factory.args == (), (f.default_factory.args, f)
+                assert 'factory' not in f.default_factory.keywords, (f.default_factory.keywords, f)
+                if is_dataclass(f.default_factory.func):
+                    config[k] = dataclass_to_config(
+                        f.default_factory.func, depth=depth + 1,
+                        force_valid_config=force_valid_config)
+                    config[k].update(**f.default_factory.keywords)
+                else:
+                    config[k] = {
+                        'factory': f.default_factory.func,
+                        **f.default_factory.keywords,
+                    }
+
+                if f.default_factory.args != ():
+                    raise NotImplementedError(
+                        'Found functools.partial with a positional'
+                        'arguments. This is not yet supported for a'
+                        'config.\n'
+                        f'f: {f}\n'
+                        f'f.default_factory: {f.default_factory}\n'
+                        f'f.default_factory.args: {f.default_factory.args}\n'
+                        f'f.default_factory.keywords: {f.default_factory.keywords}'
+                    )
+            else:
+                if is_dataclass(f.default_factory):
+                    config[k] = dataclass_to_config(
+                        f.default_factory, depth=depth + 1,
+                        force_valid_config=force_valid_config,)
+                else:
+                    config[k] = {'factory': f.default_factory}
+        else:
+            if force_valid_config:
+                raise RuntimeError(k, f, cls)
+    return config
 
 
 def fix_doctext_import_class(locals_dict):
@@ -1604,8 +1716,13 @@ class _DogmaticConfig:
         mutable_idx_old = self.data.mutable_idx
         self.data.mutable_idx = len(self.data.maps) - 1
 
-        # Get the defaults from the factory signature
-        defaults = self.get_signature(factory)
+        if dataclasses.is_dataclass(factory) and isinstance(factory, type):
+            # dataclasses.is_dataclass returns True for instance and class.
+            # The isinstance(factory, type) makes it True for only class
+            defaults = dataclass_to_config(factory, force_valid_config=False)
+        else:
+            # Get the defaults from the factory signature
+            defaults = self.get_signature(factory)
         for k, v in defaults.items():
             self[k] = v
 
