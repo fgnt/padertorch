@@ -1728,7 +1728,13 @@ class _DogmaticConfig:
                 v = class_to_str(v)
             if isinstance(v, self.__class__):
                 v = v.to_dict()
+
+            assert not hasattr(v, 'to_dict'), (k, v, result_dict)
             result_dict[k] = v
+
+        if 'factory' in result_dict:
+            assert isinstance(result_dict['factory'], str), result_dict
+            _test_config(result_dict, {})
 
         return result_dict
 
