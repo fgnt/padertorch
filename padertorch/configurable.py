@@ -1565,11 +1565,7 @@ class _DogmaticConfig:
                 )
 
     def __contains__(self, item):
-        raise NotImplementedError(
-            f'{self.__class__.__name__}.__contains__\n'
-            f'Use `key in {self.__class__.__name__}.keys()`\n instead of\n'
-            f'`key in {self.__class__.__name__}`'
-        )
+        return item in self.data
 
     def __setitem__(self, key, value):
         self.data[key] = self.normalize(value)
