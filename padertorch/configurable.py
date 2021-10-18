@@ -929,7 +929,10 @@ def recursive_class_to_str(config, sort=False):
     Args:
         config:
 
-    Returns: config where each factory value is a str.
+    Returns:
+        config where each factory value is a str and each pathlib.Path
+        is converted to str.
+
 
     >>> import torch.nn
     >>> cfg = {'factory': torch.nn.Linear, 'in_features': 1, 'out_features': 2}
@@ -950,6 +953,8 @@ def recursive_class_to_str(config, sort=False):
     >>> cfg = {'inplace': False, 'negative_slope': 0.01, 'partial': torch.nn.LeakyReLU}
     >>> recursive_class_to_str(cfg, sort=True)
     {'partial': 'torch.nn.modules.activation.LeakyReLU', 'negative_slope': 0.01, 'inplace': False}
+    >>> recursive_class_to_str(Path('/pathlib/Path/object'), sort=True)
+    '/pathlib/Path/object'
 
     """
     # ToDo: Support tuple and list?
@@ -977,6 +982,8 @@ def recursive_class_to_str(config, sort=False):
         return config.__class__([
             recursive_class_to_str(l) for l in config
         ])
+    elif isinstance(config, Path):
+        return str(config)
     else:
         return config
 
