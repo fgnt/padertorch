@@ -613,13 +613,13 @@ def dataclass_to_config(cls, depth=0, force_valid_config=True):
     ...     f: None = dataclasses.field(default_factory=Foo)
     ...     c: None = 4
     >>> config = dataclass_to_config(A)
-    >>> pprint(config)
-    {'factory': configurable.A,
-     'p': {'factory': configurable.Foo,
+    >>> pprint(config)  # doctest: +ELLIPSIS
+    {'factory': ...configurable.A,
+     'p': {'factory': ...configurable.Foo,
       'arg': 3,
       'l': {'factory': list},
       'd': {'factory': dict, 'key': 2}},
-     'f': {'factory': configurable.Foo,
+     'f': {'factory': ...configurable.Foo,
       'arg': 1,
       'l': {'factory': list},
       'd': {'factory': dict, 'key': 2}},
@@ -634,10 +634,10 @@ def dataclass_to_config(cls, depth=0, force_valid_config=True):
     >>> config = dataclass_to_config(B)  # doctest: +ELLIPSIS
     Traceback (most recent call last):
     ...
-    RuntimeError: ('no_default', Field(name='no_default',type=None,default=<..._MISSING_TYPE...>,default_factory=<..._MISSING_TYPE...>,init=True,repr=True,hash=None,compare=True,metadata=mappingproxy({}),_field_type=_FIELD), <class 'configurable.B'>)
+    RuntimeError: ('no_default', Field(name='no_default',type=None,default=<..._MISSING_TYPE...>,default_factory=<..._MISSING_TYPE...>,init=True,repr=True,hash=None,compare=True,metadata=mappingproxy({}),_field_type=_FIELD), <class '...configurable.B'>)
     >>> config = dataclass_to_config(B, force_valid_config=False)
-    >>> pprint(config)
-    {'factory': configurable.B}
+    >>> pprint(config)  # doctest: +ELLIPSIS
+    {'factory': ...configurable.B}
     """
     import dataclasses
     import functools
@@ -1138,7 +1138,7 @@ def _check_factory_signature_and_kwargs(factory, kwargs, strict, special_key):
     >>> config_to_instance({'factory': 'list'})
     []
     """
-    if factory is dict:  # dict has no signature
+    if factory in [dict, list, tuple]:  # Buildins has no signature
         return
     sig = inspect.signature(factory)
     # Remove annotation, sometimes they are to verbose and in python
