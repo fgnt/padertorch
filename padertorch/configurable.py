@@ -16,6 +16,7 @@ used for that instance in your modified `finalize_docmatic_config`.
 
 """
 import sys
+import builtins
 import os
 import collections
 import functools
@@ -691,6 +692,8 @@ def import_class(name: [str, callable]):
     <bound method Configurable.from_file of <class 'padertorch.base.Model'>>
     >>> import_class('padertorch.Model.from_file')
     <bound method Configurable.from_file of <class 'padertorch.base.Model'>>
+    >>> import_class('dict')
+    <class 'dict'>
     >>> import_class('padertorch.Model.typo')
     Traceback (most recent call last):
     ...
@@ -735,7 +738,17 @@ def import_class(name: [str, callable]):
         return name
 
     if '.' not in name:
-        name = '__main__.' + name
+        main = importlib.import_module('__main__')
+        if hasattr(main, name):
+            return getattr(main, name)
+        elif hasattr(builtins, name):
+            return getattr(builtins, name)
+        else:
+            raise ImportError(
+                f"Could not import {name!r},\n"
+                f"It is not in __main__ nor __builtins__.\n"
+                f"Have you forgot the module?\n"
+            )
 
     splitted = name.split('.')
 
@@ -1006,6 +1019,15 @@ def _get_special_key(config):
 
 
 def _check_factory_signature_and_kwargs(factory, kwargs, strict, special_key):
+    """
+    Buildins are can be problematic, becuase they may have no signature
+    >>> config_to_instance({'factory': 'dict', 'A': 3})
+    {'A': 3}
+    >>> config_to_instance({'factory': 'list'})
+    []
+    """
+    if factory is dict:  # dict has no signature
+        return
     sig = inspect.signature(factory)
     # Remove annotation, sometimes they are to verbose and in python
     # 3.7 they changed the `__str__` function, when an annotation is
