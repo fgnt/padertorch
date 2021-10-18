@@ -464,7 +464,7 @@ class Configurable:
 
         Args:
             config_path:
-            in_config_path:
+            in_config_path: e.g. 'trainer.model'
             consider_mpi:
                 If True and mpi is used, only read config_path and
                 checkpoint_path once and broadcast the content with mpi.
