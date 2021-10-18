@@ -1277,7 +1277,7 @@ class NestedChainMap(collections.ChainMap):
             return self.subs[item]
 
         is_mapping = [
-            isinstance(m[item], collections.Mapping)
+            isinstance(m[item], collections.abc.Mapping)
             for m in self.maps
             if item in m
         ]
@@ -1285,7 +1285,7 @@ class NestedChainMap(collections.ChainMap):
             if not all(is_mapping):
                 for m in self.maps:
                     if item in m:
-                        if not isinstance(m[item], collections.Mapping):
+                        if not isinstance(m[item], collections.abc.Mapping):
                             # delete the value, because it has the wrong type
                             del m[item]
             #     from IPython.lib.pretty import pretty
