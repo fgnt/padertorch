@@ -16,11 +16,13 @@ used for that instance in your modified `finalize_docmatic_config`.
 
 """
 import sys
+import builtins
 import os
 import collections
 import functools
 import importlib
 import inspect
+import dataclasses
 from pathlib import Path
 import copy
 
@@ -348,6 +350,18 @@ class Configurable:
         pass
 
     @classmethod
+    def new(
+            cls,
+            updates=None,
+    ):
+        """Produce a Configurable instance.
+
+        The updates are used to create a config and this config is then used to
+        create the instance.
+        """
+        return cls.from_config(cls.get_config(updates))
+
+    @classmethod
     def get_config(
             cls,
             updates=None,
@@ -452,7 +466,7 @@ class Configurable:
 
         Args:
             config_path:
-            in_config_path:
+            in_config_path: e.g. 'trainer.model'
             consider_mpi:
                 If True and mpi is used, only read config_path and
                 checkpoint_path once and broadcast the content with mpi.
@@ -570,6 +584,117 @@ def _test_config(config, updates):
         )
 
 
+def dataclass_to_config(cls, depth=0, force_valid_config=True):
+    """ Create a config from a dataclass. Follows fields and consides functools
+    partial to create the config.
+
+    This is a utility that is used in Configurable, but it can also be used as
+    standalone function.
+
+    Args:
+        cls:
+        depth: Helper for RecursionError.
+        force_valid_config:
+
+    Returns:
+
+
+    >>> fix_doctext_import_class(locals())
+    >>> import dataclasses, functools
+    >>> from paderbox.utils.pretty import pprint
+    >>> @dataclasses.dataclass
+    ... class Foo:
+    ...     arg: int = 1
+    ...     l: None = dataclasses.field(default_factory=list)
+    ...     d: None = dataclasses.field(default_factory=functools.partial(dict, key=2))
+    >>> @dataclasses.dataclass
+    ... class A:
+    ...     p: None = dataclasses.field(default_factory=functools.partial(Foo, arg=3))
+    ...     f: None = dataclasses.field(default_factory=Foo)
+    ...     c: None = 4
+    >>> config = dataclass_to_config(A)
+    >>> pprint(config)
+    {'factory': configurable.A,
+     'p': {'factory': configurable.Foo,
+      'arg': 3,
+      'l': {'factory': list},
+      'd': {'factory': dict, 'key': 2}},
+     'f': {'factory': configurable.Foo,
+      'arg': 1,
+      'l': {'factory': list},
+      'd': {'factory': dict, 'key': 2}},
+     'c': 4}
+    >>> Configurable.from_config(config)
+    A(p=Foo(arg=3, l=[], d={'key': 2}), f=Foo(arg=1, l=[], d={'key': 2}), c=4)
+
+    >>> @dataclasses.dataclass
+    ... class B:
+    ...     no_default: None
+    ...     missing_in_init: None = dataclasses.field(init=False, default_factory=Foo)
+    >>> config = dataclass_to_config(B)  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+    ...
+    RuntimeError: ('no_default', Field(name='no_default',type=None,default=<..._MISSING_TYPE...>,default_factory=<..._MISSING_TYPE...>,init=True,repr=True,hash=None,compare=True,metadata=mappingproxy({}),_field_type=_FIELD), <class 'configurable.B'>)
+    >>> config = dataclass_to_config(B, force_valid_config=False)
+    >>> pprint(config)
+    {'factory': configurable.B}
+    """
+    import dataclasses
+    import functools
+
+    if depth > 20:
+        raise RecursionError(cls)
+
+    def is_dataclass(obj):
+        return dataclasses.is_dataclass(obj) and isinstance(obj, type)
+
+    config = {'factory': cls}
+    for k, f in cls.__dataclass_fields__.items():
+        assert f.default is dataclasses.MISSING or f.default_factory is dataclasses.MISSING, f
+
+        if not f.init:
+            # Skip fields that are marked as not part of the __init__
+            pass
+        elif f.default is not dataclasses.MISSING:
+            config[k] = f.default
+        elif f.default_factory is not dataclasses.MISSING:
+            if isinstance(f.default_factory, functools.partial):
+                assert f.default_factory.args == (), (f.default_factory.args, f)
+                assert 'factory' not in f.default_factory.keywords, (f.default_factory.keywords, f)
+                if is_dataclass(f.default_factory.func):
+                    config[k] = dataclass_to_config(
+                        f.default_factory.func, depth=depth + 1,
+                        force_valid_config=force_valid_config)
+                    config[k].update(**f.default_factory.keywords)
+                else:
+                    config[k] = {
+                        'factory': f.default_factory.func,
+                        **f.default_factory.keywords,
+                    }
+
+                if f.default_factory.args != ():
+                    raise NotImplementedError(
+                        'Found functools.partial with a positional'
+                        'arguments. This is not yet supported for a'
+                        'config.\n'
+                        f'f: {f}\n'
+                        f'f.default_factory: {f.default_factory}\n'
+                        f'f.default_factory.args: {f.default_factory.args}\n'
+                        f'f.default_factory.keywords: {f.default_factory.keywords}'
+                    )
+            else:
+                if is_dataclass(f.default_factory):
+                    config[k] = dataclass_to_config(
+                        f.default_factory, depth=depth + 1,
+                        force_valid_config=force_valid_config,)
+                else:
+                    config[k] = {'factory': f.default_factory}
+        else:
+            if force_valid_config:
+                raise RuntimeError(k, f, cls)
+    return config
+
+
 def fix_doctext_import_class(locals_dict):
     """Allow classes defined in a doctest to be imported.
 
@@ -679,6 +804,8 @@ def import_class(name: [str, callable]):
     <bound method Configurable.from_file of <class 'padertorch.base.Model'>>
     >>> import_class('padertorch.Model.from_file')
     <bound method Configurable.from_file of <class 'padertorch.base.Model'>>
+    >>> import_class('dict')
+    <class 'dict'>
     >>> import_class('padertorch.Model.typo')
     Traceback (most recent call last):
     ...
@@ -723,7 +850,17 @@ def import_class(name: [str, callable]):
         return name
 
     if '.' not in name:
-        name = '__main__.' + name
+        main = importlib.import_module('__main__')
+        if hasattr(main, name):
+            return getattr(main, name)
+        elif hasattr(builtins, name):
+            return getattr(builtins, name)
+        else:
+            raise ImportError(
+                f"Could not import {name!r},\n"
+                f"It is not in __main__ nor __builtins__.\n"
+                f"Have you forgot the module?\n"
+            )
 
     splitted = name.split('.')
 
@@ -917,7 +1054,10 @@ def recursive_class_to_str(config, sort=False):
     Args:
         config:
 
-    Returns: config where each factory value is a str.
+    Returns:
+        config where each factory value is a str and each pathlib.Path
+        is converted to str.
+
 
     >>> import torch.nn
     >>> cfg = {'factory': torch.nn.Linear, 'in_features': 1, 'out_features': 2}
@@ -938,6 +1078,8 @@ def recursive_class_to_str(config, sort=False):
     >>> cfg = {'inplace': False, 'negative_slope': 0.01, 'partial': torch.nn.LeakyReLU}
     >>> recursive_class_to_str(cfg, sort=True)
     {'partial': 'torch.nn.modules.activation.LeakyReLU', 'negative_slope': 0.01, 'inplace': False}
+    >>> recursive_class_to_str(Path('/pathlib/Path/object'), sort=True)
+    '/pathlib/Path/object'
 
     """
     # ToDo: Support tuple and list?
@@ -965,6 +1107,8 @@ def recursive_class_to_str(config, sort=False):
         return config.__class__([
             recursive_class_to_str(l) for l in config
         ])
+    elif isinstance(config, Path):
+        return str(config)
     else:
         return config
 
@@ -987,6 +1131,15 @@ def _get_special_key(config):
 
 
 def _check_factory_signature_and_kwargs(factory, kwargs, strict, special_key):
+    """
+    Buildins are can be problematic, becuase they may have no signature
+    >>> config_to_instance({'factory': 'dict', 'A': 3})
+    {'A': 3}
+    >>> config_to_instance({'factory': 'list'})
+    []
+    """
+    if factory is dict:  # dict has no signature
+        return
     sig = inspect.signature(factory)
     # Remove annotation, sometimes they are to verbose and in python
     # 3.7 they changed the `__str__` function, when an annotation is
@@ -1236,7 +1389,7 @@ class NestedChainMap(collections.ChainMap):
             return self.subs[item]
 
         is_mapping = [
-            isinstance(m[item], collections.Mapping)
+            isinstance(m[item], collections.abc.Mapping)
             for m in self.maps
             if item in m
         ]
@@ -1244,7 +1397,7 @@ class NestedChainMap(collections.ChainMap):
             if not all(is_mapping):
                 for m in self.maps:
                     if item in m:
-                        if not isinstance(m[item], collections.Mapping):
+                        if not isinstance(m[item], collections.abc.Mapping):
                             # delete the value, because it has the wrong type
                             del m[item]
             #     from IPython.lib.pretty import pretty
@@ -1524,11 +1677,7 @@ class _DogmaticConfig:
                 )
 
     def __contains__(self, item):
-        raise NotImplementedError(
-            f'{self.__class__.__name__}.__contains__\n'
-            f'Use `key in {self.__class__.__name__}.keys()`\n instead of\n'
-            f'`key in {self.__class__.__name__}`'
-        )
+        return item in self.data
 
     def __setitem__(self, key, value):
         self.data[key] = self.normalize(value)
@@ -1567,8 +1716,13 @@ class _DogmaticConfig:
         mutable_idx_old = self.data.mutable_idx
         self.data.mutable_idx = len(self.data.maps) - 1
 
-        # Get the defaults from the factory signature
-        defaults = self.get_signature(factory)
+        if dataclasses.is_dataclass(factory) and isinstance(factory, type):
+            # dataclasses.is_dataclass returns True for instance and class.
+            # The isinstance(factory, type) makes it True for only class
+            defaults = dataclass_to_config(factory, force_valid_config=False)
+        else:
+            # Get the defaults from the factory signature
+            defaults = self.get_signature(factory)
         for k, v in defaults.items():
             self[k] = v
 
@@ -1691,7 +1845,13 @@ class _DogmaticConfig:
                 v = class_to_str(v)
             if isinstance(v, self.__class__):
                 v = v.to_dict()
+
+            assert not hasattr(v, 'to_dict'), (k, v, result_dict)
             result_dict[k] = v
+
+        if 'factory' in result_dict:
+            assert isinstance(result_dict['factory'], str), result_dict
+            _test_config(result_dict, {})
 
         return result_dict
 
