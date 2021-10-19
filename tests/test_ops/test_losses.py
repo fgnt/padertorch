@@ -179,7 +179,7 @@ class TestKLLoss(unittest.TestCase):
         K2 = 4
         D = 16
 
-        scale = torch.randn((K1, K2, D, D))
+        scale = torch.randn((K1, K2, D, D)) + 0.001
         cov = scale @ scale.transpose(-2, -1) + torch.diag(0.1*torch.ones(D))
         p = MultivariateNormal(torch.randn((K1, K2, D)), covariance_matrix=cov)
         p_ = MultivariateNormal(
@@ -189,7 +189,7 @@ class TestKLLoss(unittest.TestCase):
 
         q = Normal(
             loc=torch.randn((B1, B2, D)),
-            scale=torch.rand((B1, B2, D))
+            scale=torch.rand((B1, B2, D)) + 0.001
         )
         q_ = Normal(
             loc=q.loc.view(-1, D),

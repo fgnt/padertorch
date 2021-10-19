@@ -40,7 +40,7 @@ ACTIVATION_FN_MAP = _CallableDispatcher(
     tanh=torch.nn.Tanh,
     sigmoid=torch.nn.Sigmoid,
     softmax=torch.nn.Softmax,  # Defaults to softmax along last dimension
-    identity=torch.nn.Sequential,  # https://github.com/pytorch/pytorch/issues/9160
+    identity=torch.nn.Identity,
 )
 
 
