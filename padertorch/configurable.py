@@ -1543,7 +1543,11 @@ def _get_signature(cls, drop_positional_only=False):
     ValueError: no signature found for builtin type <class 'set'>
 
     """
-    if cls in [set]:  # set missing signature
+    if cls in [
+        set,  # py38: set missing signature
+        tuple,  # py36: tuple missing signature (available in py37)
+        list,  # py36: list missing signature (available in py37)
+    ]:
         sig = inspect.Signature(
             parameters=[inspect.Parameter(
                 'iterable', inspect.Parameter.POSITIONAL_ONLY,
