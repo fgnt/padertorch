@@ -640,7 +640,7 @@ def dataclass_to_config(cls, depth=0, force_valid_config=True):
       'l': {'factory': list},
       'd': {'factory': dict, 'key': 2}},
      'c': 4,
-     'g': {'partial': <function configurable.bar(e=5, f=6)>}}
+     'g': {'partial': <function ...configurable.bar(e=5, f=6)>}}
     >>> Configurable.from_config(config)  # doctest: +ELLIPSIS
     A(p=Foo(arg=3, l=[], d={'key': 2}), f=Foo(arg=1, l=[], d={'key': 2}), c=4, g=<function bar at 0x...>)
 
