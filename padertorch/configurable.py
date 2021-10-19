@@ -511,17 +511,31 @@ class Configurable:
 
 
 def _test_config(config, updates):
-    """Test if the config updates are valid."""
+    """Test if the config updates are valid.
+
+    >>> _test_config({'factory': 'dict', 'a': 'abc'}, None)
+    >>> _test_config({'factory': 'list'}, None)
+    >>> _test_config({'factory': 'set'}, None)
+    >>> _test_config({'factory': 'tuple'}, None)
+
+    """
     # Rename this function, when it is nessesary to make it public.
     # The name test_config without an leading `_` confuses pytest.
-    sig = inspect.signature(import_class(config['factory']))
+    cls = import_class(config['factory'])
+
+    sig = _get_signature(
+        cls,
+        drop_positional_only=True,  # not supported
+    )
 
     # Remove default -> force completely described
     sig = sig.replace(
-        parameters=[p.replace(
-            default=inspect.Parameter.empty
-        ) for p in sig.parameters.values()]
+        parameters=[
+            p.replace(default=inspect.Parameter.empty)
+            for p in sig.parameters.values()
+        ]
     )
+
     factory, kwargs = _split_factory_kwargs(config)
     try:
         bound_arguments: inspect.BoundArguments = sig.bind(
@@ -602,6 +616,7 @@ def dataclass_to_config(cls, depth=0, force_valid_config=True):
     >>> fix_doctext_import_class(locals())
     >>> import dataclasses, functools
     >>> from paderbox.utils.pretty import pprint
+    >>> def bar(e=5, f=6): pass
     >>> @dataclasses.dataclass
     ... class Foo:
     ...     arg: int = 1
@@ -612,6 +627,7 @@ def dataclass_to_config(cls, depth=0, force_valid_config=True):
     ...     p: None = dataclasses.field(default_factory=functools.partial(Foo, arg=3))
     ...     f: None = dataclasses.field(default_factory=Foo)
     ...     c: None = 4
+    ...     g: None = bar
     >>> config = dataclass_to_config(A)
     >>> pprint(config)  # doctest: +ELLIPSIS
     {'factory': ...configurable.A,
@@ -623,9 +639,23 @@ def dataclass_to_config(cls, depth=0, force_valid_config=True):
       'arg': 1,
       'l': {'factory': list},
       'd': {'factory': dict, 'key': 2}},
-     'c': 4}
-    >>> Configurable.from_config(config)
-    A(p=Foo(arg=3, l=[], d={'key': 2}), f=Foo(arg=1, l=[], d={'key': 2}), c=4)
+     'c': 4,
+     'g': {'partial': <function configurable.bar(e=5, f=6)>}}
+    >>> Configurable.from_config(config)  # doctest: +ELLIPSIS
+    A(p=Foo(arg=3, l=[], d={'key': 2}), f=Foo(arg=1, l=[], d={'key': 2}), c=4, g=<function bar at 0x...>)
+
+    >>> pprint(Configurable.get_config({'factory': A}))
+    {'factory': 'padertorch.configurable.A',
+     'p': {'factory': 'padertorch.configurable.Foo',
+      'arg': 3,
+      'l': {'factory': 'list'},
+      'd': {'factory': 'dict', 'key': 2}},
+     'f': {'factory': 'padertorch.configurable.Foo',
+      'arg': 1,
+      'l': {'factory': 'list'},
+      'd': {'factory': 'dict', 'key': 2}},
+     'c': 4,
+     'g': {'partial': 'padertorch.configurable.bar', 'e': 5, 'f': 6}}
 
     >>> @dataclasses.dataclass
     ... class B:
@@ -656,7 +686,10 @@ def dataclass_to_config(cls, depth=0, force_valid_config=True):
             # Skip fields that are marked as not part of the __init__
             pass
         elif f.default is not dataclasses.MISSING:
-            config[k] = f.default
+            if callable(f.default):
+                config[k] = {'partial': f.default}
+            else:
+                config[k] = f.default
         elif f.default_factory is not dataclasses.MISSING:
             if isinstance(f.default_factory, functools.partial):
                 assert f.default_factory.args == (), (f.default_factory.args, f)
@@ -1020,13 +1053,20 @@ def class_to_str(cls, fix_module=False):
     >>> class_to_str(torch.nn.Linear, fix_module=True)
     'torch.nn.modules.linear.Linear'
 
+    >>> class_to_str(dict, fix_module=True)
+    'dict'
+    >>> class_to_str(list, fix_module=True)
+    'list'
+
     TODO: fix __main__ for scripts in packages that are called with shell
           path (path/to/script.py) and not python path (path.to.script).
     """
     if isinstance(cls, str):
         cls = import_class(cls)
 
-    if fix_module and '.' not in cls.__module__:
+    if fix_module \
+            and '.' not in cls.__module__ \
+            and cls.__module__ not in ['builtins']:
         module = _get_correct_module_str_for_callable(cls)
     else:
         module = cls.__module__
@@ -1036,7 +1076,7 @@ def class_to_str(cls, fix_module=False):
         # Could be done, when the script is started with "python -m ..."
         module = resolve_main_python_path()
 
-    if module != '__main__':
+    if module not in ['__main__', 'builtins']:
         return f'{module}.{cls.__qualname__}'
     else:
         return f'{cls.__qualname__}'
@@ -1091,7 +1131,10 @@ def recursive_class_to_str(config, sort=False):
             # Force the special key to be the first key
             d[special_key] = None  # will be set later
             imported = import_class(config[special_key])
-            arg_names = inspect.signature(imported).parameters.keys()
+            arg_names = _get_signature(
+                imported,
+                drop_positional_only=True,  # not supported
+            ).parameters.keys()
             # This ensure that the keys are in the same order as the signature
             for k in arg_names:
                 if k in config:
@@ -1137,8 +1180,9 @@ def _check_factory_signature_and_kwargs(factory, kwargs, strict, special_key):
     {'A': 3}
     >>> config_to_instance({'factory': 'list'})
     []
+    >>> _check_factory_signature_and_kwargs(list, {}, True, 'factory')
     """
-    if factory in [dict, list, tuple]:  # Buildins has no signature
+    if factory in [dict]:  # Buildins has no signature
         return
     sig = inspect.signature(factory)
     # Remove annotation, sometimes they are to verbose and in python
@@ -1146,9 +1190,11 @@ def _check_factory_signature_and_kwargs(factory, kwargs, strict, special_key):
     # known (e.g. '(inplace:bool)' -> '(inplace: bool)').
     # This breaks doctests across python versions.
     sig = sig.replace(
-        parameters=[p.replace(
-            annotation=inspect.Parameter.empty
-        ) for p in sig.parameters.values()]
+        parameters=[
+            p.replace(annotation=inspect.Parameter.empty)
+            for p in sig.parameters.values()
+            if p.kind != inspect.Parameter.POSITIONAL_ONLY  # not supported
+        ]
     )
 
     # Define key specific check_func since factory requires all keys of the
@@ -1475,6 +1521,57 @@ def _sacred_dogmatic_to_dict(config):
         return config
 
 
+def _get_signature(cls, drop_positional_only=False):
+    """
+
+    >>> _get_signature(dict)
+    <Signature (**kwargs)>
+    >>> _get_signature(list)
+    <Signature (iterable=(), /)>
+    >>> _get_signature(tuple)
+    <Signature (iterable=(), /)>
+    >>> _get_signature(set)
+    <Signature (iterable=(), /)>
+
+    >>> inspect.signature(dict)
+    Traceback (most recent call last):
+    ...
+    ValueError: no signature found for builtin type <class 'dict'>
+    >>> inspect.signature(set)
+    Traceback (most recent call last):
+    ...
+    ValueError: no signature found for builtin type <class 'set'>
+
+    """
+    if cls in [set]:  # set missing signature
+        sig = inspect.Signature(
+            parameters=[inspect.Parameter(
+                'iterable', inspect.Parameter.POSITIONAL_ONLY,
+                default=(),
+            )]
+        )
+    elif cls in [dict]:
+        # Dict has no correct signature, hence return the signature, that is
+        # needed here.
+        sig = inspect.Signature(
+            parameters=[inspect.Parameter(
+                'kwargs', inspect.Parameter.VAR_KEYWORD,
+            )]
+        )
+    else:
+        sig = inspect.signature(cls)
+
+    if drop_positional_only:
+        sig = sig.replace(
+            parameters=[
+                p
+                for p in sig.parameters.values()
+                if p.kind != inspect.Parameter.POSITIONAL_ONLY
+            ]
+        )
+    return sig
+
+
 class _DogmaticConfig:
     """This class is an implementation detail of Configurable."""
 
@@ -1486,7 +1583,15 @@ class _DogmaticConfig:
 
         Returns:
 
+        >>> _DogmaticConfig.get_signature(Configurable.get_config)
+        {'updates': None}
+        >>> _DogmaticConfig.get_signature(list)  # Wrong signature
+        {}
+        >>> _DogmaticConfig.get_signature(dict)  # Has no signature
+        {}
         """
+        if factory in [tuple, list, set, dict]:
+            return {}
         sig = inspect.signature(factory)
         defaults = {}
         param: inspect.Parameter
@@ -1619,7 +1724,10 @@ class _DogmaticConfig:
     def _key_candidates(self):
         if self.special_key:
             factory = import_class(self.data[self.special_key])
-            parameters = inspect.signature(factory).parameters.values()
+            parameters = _get_signature(
+                factory,
+                drop_positional_only=True,  # not supported
+            ).parameters.values()
             p: inspect.Parameter
 
             parameter_names = tuple([self.special_key]) + tuple([
@@ -1649,7 +1757,10 @@ class _DogmaticConfig:
     def _check_redundant_keys(self, msg):
         assert self.special_key, f'Missing factory or partial in {self.data}'
         imported = import_class(self.data[self.special_key])
-        parameters = inspect.signature(imported).parameters.values()
+        parameters = _get_signature(
+            imported,
+            drop_positional_only=True,  # not supported
+        ).parameters.values()
         p: inspect.Parameter
 
         if inspect.Parameter.VAR_KEYWORD in [p.kind for p in parameters]:
