@@ -189,11 +189,11 @@ class TestKLLoss(unittest.TestCase):
 
         q = Normal(
             loc=torch.randn((B1, B2, D)),
-            scale=torch.rand((B1, B2, D))
+            scale=torch.rand((B1, B2, D)) + 0.001
         )
         q_ = Normal(
             loc=q.loc.view(-1, D),
-            scale=q.scale.view(-1, D)
+            scale=q.scale.view(-1, D) + 0.001
         )
 
         actual_loss = pt.ops.gaussian_kl_divergence(q, p)
