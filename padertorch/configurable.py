@@ -833,10 +833,10 @@ def import_class(name: [str, callable]):
     <class 'padertorch.base.Model'>
     >>> import_class('padertorch.base.Model')
     <class 'padertorch.base.Model'>
-    >>> import_class(padertorch.Model.from_file)
-    <bound method Configurable.from_file of <class 'padertorch.base.Model'>>
-    >>> import_class('padertorch.Model.from_file')
-    <bound method Configurable.from_file of <class 'padertorch.base.Model'>>
+    >>> import_class(padertorch.Model.from_file)  # doctest: +ELLIPSIS
+    <bound method ...Configurable.from_file of <class 'padertorch.base.Model'>>
+    >>> import_class('padertorch.Model.from_file')  # doctest: +ELLIPSIS
+    <bound method ...Configurable.from_file of <class 'padertorch.base.Model'>>
     >>> import_class('dict')
     <class 'dict'>
     >>> import_class('padertorch.Model.typo')
