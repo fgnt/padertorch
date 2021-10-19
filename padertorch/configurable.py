@@ -1182,9 +1182,10 @@ def _check_factory_signature_and_kwargs(factory, kwargs, strict, special_key):
     []
     >>> _check_factory_signature_and_kwargs(list, {}, True, 'factory')
     """
-    if factory in [dict]:  # Buildins has no signature
-        return
-    sig = inspect.signature(factory)
+    sig = _get_signature(
+        factory,
+        drop_positional_only=True,  # not supported
+    )
     # Remove annotation, sometimes they are to verbose and in python
     # 3.7 they changed the `__str__` function, when an annotation is
     # known (e.g. '(inplace:bool)' -> '(inplace: bool)').
@@ -1193,7 +1194,6 @@ def _check_factory_signature_and_kwargs(factory, kwargs, strict, special_key):
         parameters=[
             p.replace(annotation=inspect.Parameter.empty)
             for p in sig.parameters.values()
-            if p.kind != inspect.Parameter.POSITIONAL_ONLY  # not supported
         ]
     )
 
@@ -1787,7 +1787,7 @@ class _DogmaticConfig:
                     f'{msg}\n'
                     f'Too many keywords for the factory {imported}.\n'
                     f'Redundant keys: {redundant_keys}\n'
-                    f'Signature: {inspect.signature(imported)}\n'
+                    f'Signature: {_get_signature(imported)}\n'
                     f'Current config with fallbacks:\n{pretty(self.data)}'
                 )
 
@@ -1871,7 +1871,7 @@ class _DogmaticConfig:
             raise Exception(
                 f'Too many keywords for the factory {factory}.\n'
                 f'Delta: {delta}\n'
-                f'signature: {inspect.signature(factory)}\n'
+                f'signature: {_get_signature(factory)}\n'
                 f'current config with fallbacks:\n{pretty(self.data)}'
             )
 
@@ -1901,7 +1901,7 @@ class _DogmaticConfig:
             raise Exception(
                 f'Got the old key "cls" (value: {factory_str}).\n'
                 f'Use the new key: factory\n'
-                f'Signature: {inspect.signature(factory)}\n'
+                f'Signature: {_get_signature(factory)}\n'
                 f'Current config with fallbacks:\n{pretty(self.data)}'
             )
 
@@ -1939,7 +1939,7 @@ class _DogmaticConfig:
                     missing_keys = set(self._key_candidates()) - set(self.data.keys())
                     raise Exception(
                         f'KeyError: {k}\n'
-                        f'signature: {inspect.signature(self[self.special_key])}\n'
+                        f'signature: {_get_signature(self[self.special_key])}\n'
                         f'missing keys: {missing_keys}\n'
                         f'self:\n{pretty(self)}'
                     ) from ex
@@ -1952,7 +1952,7 @@ class _DogmaticConfig:
                     # Can this happen?
                     raise Exception(
                         f'{k}\n'
-                        f'signature: {inspect.signature(self[self.special_key])}'
+                        f'signature: {_get_signature(self[self.special_key])}'
                         f'self:\n{pretty(self)}'
                     ) from ex
 
