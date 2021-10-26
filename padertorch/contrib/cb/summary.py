@@ -66,7 +66,17 @@ class ReviewSummary(collections.abc.Mapping):
             'audios',
             {}
         )[f'{self.prefix}{name}'] = audio
-        
+
+    def add_buffer(self, name, data):
+        data = pt.data.batch.example_to_numpy(data, detach=True)
+        self.data.setdefault(
+            'buffers',
+            {}
+        ).setdefault(
+            f'{self.prefix}{name}',
+            []
+        ).append(data)
+
     def add_text(self, name, text):
         assert isinstance(text, str), (type(text), text)
         self.data.setdefault(
