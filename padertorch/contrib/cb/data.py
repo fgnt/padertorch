@@ -147,3 +147,21 @@ class ExampleToDeviceNativeComplex(ExampleToDevice):
                 **category_register
             },
         )
+
+
+def add_batch_dim_to_dataset(dataset, batch_size, length_key='num_samples'):
+    import padertorch as pt
+
+    if batch_size is None:
+        return dataset
+
+    assert isinstance(batch_size, int), (type(batch_size), batch_size)
+    dataset = dataset.batch(batch_size)
+    if batch_size > 1:
+        dataset = dataset.map(pt.data.batch.Sorter(length_key))
+    else:
+        assert batch_size == 1, batch_size
+
+    dataset = dataset.map(pt.data.utils.collate_fn)
+
+    return dataset
