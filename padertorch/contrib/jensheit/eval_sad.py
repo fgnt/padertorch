@@ -1,5 +1,4 @@
 import numpy as np
-import dlp_mpi
 from paderbox.array import segment_axis
 
 
@@ -55,6 +54,7 @@ def adjust_annotation_fn(annotation, sample_rate, buffer_zone=1.):
     for start, end in start_end:
         start += 1
         end += 1
+        start = min(start-buffer_zone, 0)
         start_slice = slice(start - buffer_zone, start, 1)
         annotation[start_slice][annotation[start_slice] != 1] = 5
         end_slice = slice(end, end + buffer_zone, 1)
@@ -68,15 +68,15 @@ def get_tp_fp_tn_fn(
     """
     >>> annotation = np.array([0, 1, 1, 1, 0, 0, 0, 1])
     >>> vad = np.array([0, 1, 1, 1, 0, 0, 0, 1])
-    >>> get_tp_fp_tn_fn(annotation, vad, 1)
+    >>> get_tp_fp_tn_fn(annotation, vad, 1, False)
     (4, 0, 4, 0)
     >>> annotation = np.array([0, 1, 1, 1, 0, 0, 0, 1])
     >>> vad = np.array([1, 1, 1, 1, 0, 0, 0, 1])
-    >>> get_tp_fp_tn_fn(annotation, vad, 1)
+    >>> get_tp_fp_tn_fn(annotation, vad, 1, True)
     (4, 0, 3, 0)
     >>> annotation = np.array([0, 1, 1, 1, 0, 0, 0, 1])
     >>> vad = np.array([0, 1, 1, 1, 0, 1, 0, 1])
-    >>> get_tp_fp_tn_fn(annotation, vad, 1)
+    >>> get_tp_fp_tn_fn(annotation, vad, 1, False)
     (4, 1, 3, 0)
     >>> annotation = np.array([0, 1, 1, 1, 0, 0, 0, 1])
     >>> vad = np.array([0, 1, 1, 1, 0, 0, 0, 0])
@@ -93,7 +93,7 @@ def get_tp_fp_tn_fn(
     >>> rng = np.random.RandomState(seed=3)
     >>> annotation = rng.randint(0, 2, size=(32000))
     >>> vad = rng.randint(0, 2, size=(32000))
-    >>> get_tp_fp_tn_fn(annotation, vad)
+    >>> get_tp_fp_tn_fn(annotation, vad, False)
     (8090, 2, 7937, 7978)
 
     :param annotation:
@@ -124,6 +124,8 @@ def evaluate_model(dataset, model, get_sad_fn,
                    sample_rate=8000):
 
     tp_fp_tn_fn = np.zeros((num_thresholds, 4), dtype=int)
+
+    import dlp_mpi
     for example in dlp_mpi.split_managed(
         dataset, is_indexable=is_indexable,
         allow_single_worker=allow_single_worker,
