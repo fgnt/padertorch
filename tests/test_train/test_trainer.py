@@ -309,7 +309,7 @@ def test_single_model():
                 assert expect == set(checkpoints_files_name), (
                     expect, checkpoints_files_name
                 )
-                ckpt_ranking = torch.load(file / 'ckpt_latest.pth')['hooks']['BackOffValidationHook']['ckpt_ranking']
+                ckpt_ranking = torch.load(str(file / 'ckpt_latest.pth'))['hooks']['BackOffValidationHook']['ckpt_ranking']
                 assert ckpt_ranking[0][1] > 0, ckpt_ranking
                 for i, ckpt in enumerate(ckpt_ranking):
                     ckpt_ranking[i] = (ckpt[0], -1)
@@ -572,6 +572,9 @@ def test_released_tensors():
         def get_all_parameters(self, trainer):
             return list(trainer.model.parameters())
 
+        def get_all_parameter_grads(self, trainer):
+            return [p.grad for p in trainer.model.parameters() if p.grad is not None]
+
         def get_all_optimizer_tensors(self, trainer):
             def get_tensors(obj):
                 if isinstance(obj, (dict, tuple, list)):
@@ -603,7 +606,7 @@ def test_released_tensors():
                                 o, depth - 1,
                                 ignore=ignore + [referrers, o, obj]
                         ):
-                            l.append(textwrap.indent(s, '  '))
+                            l.append(textwrap.indent(s, ' '*4))
 
             if inspect.isframe(obj):
                 frame_info = inspect.getframeinfo(obj, context=1)
@@ -611,14 +614,19 @@ def test_released_tensors():
                     pass
                 else:
                     info = f' {frame_info.function}, {frame_info.filename}:{frame_info.lineno}'
-                    l.append(str(type(obj)) + str(info))
+                    l.append(f'Frame: {type(obj)} {info}')
             else:
-                l.append(str(type(obj)) + str(obj)[:200].replace('\n', ' '))
+                l.append(str(type(obj)) + str(obj)[:80].replace('\n', ' '))
             return l
 
         def pre_step(self, trainer: 'pt.Trainer'):
             all_tensors = self.get_all_tensors()
             parameters = self.get_all_parameters(trainer)
+
+            # In torch 1.10 https://github.com/pytorch/pytorch/pull/56017 was
+            # merged and grads are now visible for the garbage collector.
+            grads = self.get_all_parameter_grads(trainer)
+
             optimizer_tensors = self.get_all_optimizer_tensors(trainer)
 
             for p in all_tensors:
@@ -635,13 +643,17 @@ def test_released_tensors():
             ]
 
             import textwrap
-            assert len(all_tensors) == len(parameters) + len(optimizer_tensors), (
+            print(len(all_tensors), len(parameters), len(optimizer_tensors))
+
+            assert len(all_tensors) == len(parameters) + len(optimizer_tensors) + len(grads), (
                 f'pre_step\n'
                 f'{summary}\n'
                 f'all_tensors: {len(all_tensors)}\n'
                 + textwrap.indent("\n".join(map(str, all_tensors)), " "*8) + f'\n'
                 f'parameters: {len(parameters)}\n'
                 + textwrap.indent("\n".join(map(str, parameters)), " "*8) + f'\n'
+                f'parameters: {len(grads)}\n'
+                + textwrap.indent("\n".join(map(str, grads)), " "*8) + f'\n'
                 f'optimizer_tensors: {len(optimizer_tensors)}\n'
                 + textwrap.indent("\n".join(map(str, optimizer_tensors)), " "*8) + f'\n'
             )

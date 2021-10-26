@@ -314,7 +314,7 @@ class _ChunkRNN(torch.nn.Module):
                 [0., 0., 0., 0., 0.],
                 [0., 0., 0., 0., 0.],
                 [0., 0., 0., 0., 0.],
-                [0., 0., 0., 0., 0.]], grad_fn=<SelectBackward>)
+                [0., 0., 0., 0., 0.]], grad_fn=<SelectBackward0>)
 
         And for this case as well output and input shapes match
         >>> out.shape == a.shape
@@ -334,7 +334,7 @@ class _ChunkRNN(torch.nn.Module):
                 [0., 0., 0., 0., 0.],
                 [0., 0., 0., 0., 0.],
                 [0., 0., 0., 0., 0.],
-                [0., 0., 0., 0., 0.]], grad_fn=<SelectBackward>)
+                [0., 0., 0., 0., 0.]], grad_fn=<SelectBackward0>)
 
         Input and output are the same with and without sequence length. By
         default, handling of sequence lengths is disabled when all examples in
