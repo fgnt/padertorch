@@ -39,6 +39,15 @@ def stft(
     >>> np.testing.assert_allclose(
     ...     A_np, A_pt.numpy(), err_msg=str(kwargs), atol=1e-10)
 
+    >>> kwargs['size'] = 100
+    >>> kwargs['shift'] = 25
+    >>> num_samples = 200
+    >>> a = np.random.rand(num_samples)
+    >>> A_np = np_stft(a, **kwargs)
+    >>> A_pt = stft(torch.tensor(a), **kwargs)
+    >>> np.testing.assert_allclose(
+    ...     A_np, A_pt.numpy(), err_msg=str(kwargs), atol=1e-10)
+
     Some profiling code
 
     import torch
@@ -93,7 +102,7 @@ def stft(
                 window_length - shift,
             ]
         if pad:
-            pad_width[1] += shift - ((time_signal.shape[axis] + pad_width[0] + pad_width[1] + shift - window_length) % shift)
+            pad_width[1] += (shift - (time_signal.shape[axis] + pad_width[0] + pad_width[1] + shift - window_length)) % shift
             # segment_axis_end = None
         # else:
             # segment_axis_end = 'cut'
