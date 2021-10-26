@@ -46,11 +46,16 @@ def main(*files, prefix=None):
     if prefix is None:
         prefix = os.path.commonpath(files)
     print('Common Prefix', prefix)
+    print('Create')
     for file in files:
         file = Path(file)
         link_name = file.relative_to(prefix)
         link_name.parent.mkdir(exist_ok=True)
-        pb.io.symlink(os.path.relpath(file, link_name.parent), link_name)
+        source = os.path.relpath(file, link_name.parent)
+        if not link_name.exists():
+            print(f'\t{link_name} -> {source}')
+        pb.io.symlink(source, link_name)
+    print('Finish')
 
 
 if __name__ == '__main__':
