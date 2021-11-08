@@ -879,21 +879,8 @@ def import_class(name: [str, callable]):
     if not isinstance(name, str):
         if not callable(name):
             raise TypeError(
-                'expects string or callcable but got', type(name), name)
+                'expects string or callable but got', type(name), name)
         return name
-
-    if '.' not in name:
-        main = importlib.import_module('__main__')
-        if hasattr(main, name):
-            return getattr(main, name)
-        elif hasattr(builtins, name):
-            return getattr(builtins, name)
-        else:
-            raise ImportError(
-                f"Could not import {name!r},\n"
-                f"It is not in __main__ nor __builtins__.\n"
-                f"Have you forgot the module?\n"
-            )
 
     splitted = name.split('.')
 
@@ -901,16 +888,25 @@ def import_class(name: [str, callable]):
         module_name = '.'.join(splitted[:i])
         try:
             module = importlib.import_module(module_name)
+            break
         except ModuleNotFoundError:
             continue
+    else:
+        if hasattr(builtins, name):
+            return getattr(builtins, name)
+        else:
+            module_name = '__main__'  # Fallback
+            module = importlib.import_module(module_name)
+            i = 0
 
-        qualname = splitted[i:]
-        cls = module
-        for part in qualname:
-            try:
-                cls = getattr(cls, part)
-            except AttributeError as e:
-                qualname = '.'.join(qualname)
+    qualname = splitted[i:]
+    cls = module
+    for part in qualname:
+        try:
+            cls = getattr(cls, part)
+        except AttributeError as e:
+            qualname = '.'.join(qualname)
+            if name.startswith(module_name):
                 raise ImportError(
                     f'Could not import {qualname!r} from {module_name!r},\n'
                     f'because {e}\n\n'
@@ -920,17 +916,17 @@ def import_class(name: [str, callable]):
                     f' 3. The module exists and has been installed with pip.\n'
                     f' 4. You can import the module (and class) in ipython.\n'
                 ) from None
+            else:
+                raise ImportError(
+                    f'Could not import {name!r}.\n\n'
+                    f'Make sure that\n'
+                    f' 1. This is the class you want to import.\n'
+                    f' 2. You activated the right environment.\n'
+                    f' 3. The module exists and has been installed with pip.\n'
+                    f' 4. You can import the module (and class) in ipython.\n'
+                )
 
-        return cls
-
-    raise ImportError(
-        f'Could not import {name!r}.\n\n'
-        f'Make sure that\n'
-        f' 1. This is the class you want to import.\n'
-        f' 2. You activated the right environment.\n'
-        f' 3. The module exists and has been installed with pip.\n'
-        f' 4. You can import the module (and class) in ipython.\n'
-    )
+    return cls
 
 
 def get_module_name_from_file(file):
