@@ -1054,6 +1054,9 @@ def class_to_str(cls, fix_module=False):
     >>> class_to_str(list, fix_module=True)
     'list'
 
+    >>> class_to_str(padertorch.Model.get_config)
+    'padertorch.configurable.Model.get_config'
+
     TODO: fix __main__ for scripts in packages that are called with shell
           path (path/to/script.py) and not python path (path.to.script).
     """
@@ -1072,10 +1075,19 @@ def class_to_str(cls, fix_module=False):
         # Could be done, when the script is started with "python -m ..."
         module = resolve_main_python_path()
 
+    def fixed_qualname(cls):
+        try:
+            # https://stackoverflow.com/a/59924144/5766934
+            # inherited method has wrong `__qualname__`
+            # `cls.__self__` is only defined for bound methods
+            return f'{cls.__self__.__qualname__}.{cls.__name__}'
+        except AttributeError:
+            return cls.__qualname__
+
     if module not in ['__main__', 'builtins']:
-        return f'{module}.{cls.__qualname__}'
+        return f'{module}.{fixed_qualname(cls)}'
     else:
-        return f'{cls.__qualname__}'
+        return f'{fixed_qualname(cls)}'
 
 
 def recursive_class_to_str(config, sort=False):
