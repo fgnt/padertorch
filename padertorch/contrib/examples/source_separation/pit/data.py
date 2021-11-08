@@ -48,9 +48,7 @@ def read_audio(example):
     Loading of the audio data for an element of the dataset.
 
     Args:
-        example:
-        src_key:
-        audio_keys:
+        example: for which the audio is loaded
 
     Returns:
         example with loaded audio data
