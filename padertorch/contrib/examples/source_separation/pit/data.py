@@ -1,5 +1,3 @@
-from functools import partial
-
 import einops
 import numpy as np
 
@@ -8,25 +6,34 @@ import padertorch as pt
 from paderbox.transform import stft
 
 
-def prepare_dataset(
-        db, dataset_name: str, batch_size, return_keys=None, prefetch=True, shuffle=True
-):
-    audio_keys = ['observation', 'speech_source']
+def prepare_dataset(db, dataset_name: str, batch_size, prefetch=True, shuffle=True):
+    """
+    Prepares the dataset for the training process (loading audio data, SFTF)
+
+    Args:
+        db: database object
+        dataset_name: name of the dataset that should be used
+        batch_size: batch size for the training
+        prefetch: should the data be prefetched
+        shuffle: should the data be shuffeled
+
+    Returns:
+        desired dataset of the database in prepared for the training
+    """
     dataset = db.get_dataset(dataset_name)
 
-    dataset = (
-        dataset
-        .map(partial(read_audio, audio_keys=audio_keys))
-        .map(partial(pre_batch_transform, return_keys=return_keys))
-    )
+    #Loading of the dataset and preparation of the data (STFT), the lambda function fixes the audio keys for read_audio
+    dataset = (dataset.map(read_audio).map(pre_batch_transform))
+
     if shuffle:
         dataset = dataset.shuffle(reshuffle=True)
+
+    #Splitting the dataset in batches and sorting the frames in the batch
     dataset = (
         dataset
         .batch(batch_size)
         .map(pt.data.batch.Sorter('num_frames'))
         .map(pt.data.utils.collate_fn)
-        .map(post_batch_transform)
     )
 
     if prefetch:
@@ -35,49 +42,59 @@ def prepare_dataset(
     return dataset
 
 
-def read_audio(example, src_key="audio_path", audio_keys=None):
+
+def read_audio(example):
+    """
+    Loading of the audio data for an element of the dataset.
+
+    Args:
+        example:
+        src_key:
+        audio_keys:
+
+    Returns:
+        example with loaded audio data
+    """
+
+    audio_keys = ['observation', 'speech_source']
+
     data = {
         audio_key: pb.io.audioread.recursive_load_audio(
-            example[src_key][audio_key],
+            example['audio_path'][audio_key],
         )
         for audio_key in audio_keys
     }
-    example["audio_data"] = data
+    example['audio_data'] = data
     return example
 
 
-def pre_batch_transform(inputs, return_keys=None):
+def pre_batch_transform(inputs):
+    """
+    Prepares the data through creating a dictionary with various data, which is computed through STFT.
+    Args:
+        inputs: element of the database
+    Returns:
+        dictionary with data from the STFT
+    """
     s = inputs['audio_data']['speech_source']
     y = inputs['audio_data']['observation']
-    S = stft(s, 512, 128)
-    Y = stft(y, 512, 128)
-    Y = einops.rearrange(Y, 't f -> t f')
-    S = einops.rearrange(S, 'k t f -> t k f')
+    Y = einops.rearrange(stft(y, 512, 128), 't f -> t f')
+    S = einops.rearrange(stft(s, 512, 128), 'k t f -> t k f')
     X = S  # Same for WSJ0_2MIX database
     num_frames = Y.shape[0]
 
     return_dict = dict()
 
-    def maybe_add(key, value):
-        if return_keys is None or key in return_keys:
-            return_dict[key] = value
-
-    maybe_add('example_id', inputs['example_id'])
-    maybe_add('s', np.ascontiguousarray(s, np.float32))
-    maybe_add('S', np.ascontiguousarray(S, np.float32))
-    maybe_add('y', np.ascontiguousarray(y, np.float32))
-    maybe_add('Y', np.ascontiguousarray(Y, np.complex64))
-    maybe_add('X_abs', np.ascontiguousarray(np.abs(X), np.float32))
-    maybe_add('Y_abs', np.ascontiguousarray(np.abs(Y), np.float32))
-    maybe_add('num_frames', num_frames)
-    maybe_add('cos_phase_difference', np.ascontiguousarray(
-        np.cos(np.angle(Y[:, None, :]) - np.angle(X)), np.float32)
-    )
+    return_dict['example_id'] = inputs['example_id']
+    return_dict['s'] = np.ascontiguousarray(s, np.float32)
+    return_dict['S'] = np.ascontiguousarray(S, np.float32)
+    return_dict['y'] = np.ascontiguousarray(y, np.float32)
+    return_dict['Y'] = np.ascontiguousarray(Y, np.complex64)
+    return_dict['X_abs'] = np.ascontiguousarray(np.abs(X), np.float32)
+    return_dict['Y_abs'] = np.ascontiguousarray(np.abs(Y), np.float32)
+    return_dict['num_frames'] = num_frames
+    return_dict['cos_phase_difference'] = np.ascontiguousarray(np.cos(np.angle(Y[:, None, :]) - np.angle(X)), np.float32)
 
     return return_dict
-
-
-def post_batch_transform(batch):
-    return batch
 
 

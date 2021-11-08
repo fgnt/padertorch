@@ -1,4 +1,4 @@
-One-and-Rest-PIT
+utterance-level PIT
 ================
 
 This directory contains scripts to train and evaluate the basic utterance-level permutation
