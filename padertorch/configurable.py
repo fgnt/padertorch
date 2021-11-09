@@ -1055,7 +1055,7 @@ def class_to_str(cls, fix_module=False):
     'list'
 
     >>> class_to_str(padertorch.Model.get_config)
-    'padertorch.configurable.Model.get_config'
+    'padertorch.base.Model.get_config'
 
     TODO: fix __main__ for scripts in packages that are called with shell
           path (path/to/script.py) and not python path (path.to.script).
@@ -1063,12 +1063,17 @@ def class_to_str(cls, fix_module=False):
     if isinstance(cls, str):
         cls = import_class(cls)
 
-    if fix_module \
-            and '.' not in cls.__module__ \
-            and cls.__module__ not in ['builtins']:
-        module = _get_correct_module_str_for_callable(cls)
-    else:
+    try:
+        # https://stackoverflow.com/a/59924144/5766934
+        # `cls.__self__` is only defined for bound methods
+        module = cls.__self__.__module__
+    except AttributeError:
         module = cls.__module__
+
+    if fix_module \
+            and '.' not in module \
+            and module not in ['builtins']:
+        module = _get_correct_module_str_for_callable(cls)
 
     if module == '__main__':
         # Try to figure out the module.
