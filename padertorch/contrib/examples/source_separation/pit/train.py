@@ -90,9 +90,6 @@ def init(_config, _run):
     Args:
         _config: Configuration dict of the experiment
         _run: Run object of the current run of the experiment
-
-    Returns:
-        None
     """
 
     # Creates/Updates the config.json
@@ -115,7 +112,7 @@ def init(_config, _run):
 
 def prepare(_config):
     """
-    Preparation of the train and validation datasets for the training and initialisation of the padertorch trainer,
+    Preparation of the train and validation datasets for the training and initialization of the padertorch trainer,
     using the configuration dict.
     Args:
         _config: Configuration dict of the experiment
@@ -132,7 +129,7 @@ def prepare(_config):
     validate_dataset_name = _config['validate_dataset_name']
     database_json = _config['database_json']
 
-    # Initialisation of the trainer
+    # Initialization of the trainer
     trainer = pt.Trainer.from_config(_config["trainer"])
     db = JsonDatabase(json_path=database_json)
 
@@ -169,11 +166,11 @@ def train(_config, trainer, train_dataset, validate_dataset):
     # Test run to detects possible errors in the trainer/datasets
     trainer.test_run(train_dataset, validate_dataset)
 
-    # path where the checkpoints of the training are stored
+    # Path where the checkpoints of the training are stored
     checkpoint_path = trainer.checkpoint_dir / 'ckpt_latest.pth'
 
     # Start of the training
-    trainer.register_validation_hook(validate_dataset)
+    trainer.register_validation_hook(validate_dataset, metric = 'loss', maximize=False, max_checkpoints=1)
     trainer.train(train_dataset, resume=checkpoint_path.is_file())
 
 @ex.command
@@ -189,7 +186,7 @@ def test_run(_config, _run):
         None
     """
     init(_config, _run)
-    (trainer, train_dataset, validate_dataset) = prepare(_config)
+    trainer, train_dataset, validate_dataset = prepare(_config)
 
     trainer.test_run(train_dataset, validate_dataset)
 
