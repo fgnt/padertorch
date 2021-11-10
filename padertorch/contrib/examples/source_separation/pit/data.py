@@ -8,7 +8,7 @@ from paderbox.transform import stft
 
 def prepare_dataset(db, dataset_name: str, batch_size, prefetch=True, shuffle=True):
     """
-    Prepares the dataset for the training process (loading audio data, SFTF)
+    Prepares the dataset for the training process (loading audio data, STFT)
 
     Args:
         db: database object
@@ -18,7 +18,7 @@ def prepare_dataset(db, dataset_name: str, batch_size, prefetch=True, shuffle=Tr
         shuffle: should the data be shuffeled
 
     Returns:
-        desired dataset of the database in prepared for the training
+        desired dataset of the database, the dataset is prepared for training
     """
     dataset = db.get_dataset(dataset_name)
 
@@ -28,7 +28,7 @@ def prepare_dataset(db, dataset_name: str, batch_size, prefetch=True, shuffle=Tr
     if shuffle:
         dataset = dataset.shuffle(reshuffle=True)
 
-    #Splitting the dataset in batches and sorting the frames in the batch
+    #Splitting the dataset in batches and sorts examples in a batch w.r.t. their duration
     dataset = (
         dataset
         .batch(batch_size)
@@ -68,11 +68,17 @@ def read_audio(example):
 
 def pre_batch_transform(inputs):
     """
-    Prepares the data through creating a dictionary with various data, which is computed through STFT.
+    Prepares the data by creating a dictionary with all data that is necessary for the model (e.g. STFT of observation).
+    Explanation of some keys:
+        s: speech source
+        x: speech image
+        y: observation
+        Capital letters: STFT of signal
+        
     Args:
         inputs: element of the database
     Returns:
-        dictionary with data from the STFT
+        dictionary with necessary data
     """
     s = inputs['audio_data']['speech_source']
     y = inputs['audio_data']['observation']
