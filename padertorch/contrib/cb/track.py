@@ -11,6 +11,8 @@ __all__ = [
     'tracker_list',
     # Examples:
     'ShapeTracker',
+    'DTypeTracker',
+    'DeviceTracker',
     'ParameterTracker',
     'TimeTracker',
     'CPUMemTracker',
@@ -21,7 +23,7 @@ __all__ = [
 
 
 class Tracker:
-    def __init__(self, count, depth, leaf, shared_dict):
+    def __init__(self, count, depth, leaf, shared_dict, module):
         """
 
         Args:
@@ -36,6 +38,7 @@ class Tracker:
         self.depth = depth
         self.leaf = leaf
         self.shared_dict = shared_dict
+        self.module = module
 
     def pre(self, module, input) -> None:
         pass
@@ -43,106 +46,183 @@ class Tracker:
     def post(self, module, input, output) -> None:
         pass
 
+    @property
+    def prefix(self):
+        name = ' ' * self.depth * 2 + self.module.__class__.__name__ + ':'
+        return f'{self.count:3} {name:20}'
 
-@contextlib.contextmanager
-def track(
-        net: torch.nn.Module,
-        tracker_factory: typing.Callable[[int, int, bool, dict], Tracker],
-        leaf_types=tuple(),
-):
-    """
+    @property
+    def data(self):
+        """
 
-    Args:
-        net:
-        tracker_factory:
-        leaf_types:
+        Returns:
+            dict:
+                header: Column header
+                align: left ('<'), right('>') or center ('^')
+                data: Data in column
+            Example:
+                {
+                    'header': ['input', '', 'output'],
+                    'align': '^^^',
+                    'data': [self.input_shape, '->', 'self.output_shape'],
+                }
 
-    Returns:
+        """
+        raise NotImplementedError()
 
-    >>> import psutil, os
-    >>> from torch.nn import Sequential, ReLU, Linear
-    >>> net = Sequential(Linear(3, 1000), ReLU(), Sequential(Linear(1000, 2), ReLU()))
-    >>> net
-    Sequential(
-      (0): Linear(in_features=3, out_features=1000, bias=True)
-      (1): ReLU()
-      (2): Sequential(
-        (0): Linear(in_features=1000, out_features=2, bias=True)
-        (1): ReLU()
-      )
-    )
-
-    >>> with track(net, ShapeTracker) as trackers:
-    ...     _ = net(torch.randn(7, 3))
-    >>> for t in trackers:
-    ...     print(t)
-    0 Sequential          : ([7, 3],) -> [7, 2]
-    1   Linear            : ([7, 3],) -> [7, 1000]
-    2   ReLU              : ([7, 1000],) -> [7, 1000]
-    3   Sequential        : ([7, 1000],) -> [7, 2]
-    4     Linear          : ([7, 1000],) -> [7, 2]
-    5     ReLU            : ([7, 2],) -> [7, 2]
-
-    >>> with track(net, ParameterTracker) as trackers:
-    ...     _ = net(torch.randn(7, 3))
-    >>> for t in trackers:
-    ...     print(t)
-    0 Sequential          : 0
-    1   Linear            : 4000
-    2   ReLU              : 0
-    3   Sequential        : 0
-    4     Linear          : 2002
-    5     ReLU            : 0
-    >>> sum([t.num_params for t in trackers])
-    6002
+    def __repr__(self):
+        return f'{self.prefix} {" ".join([str(d) for d in self.data["data"]])}'
 
 
-    """
-    def register_hook(module, leaf):
-        def pre_hook(module, input):
-            tracker = tracker_factory(
-                len(all_trackers),
-                len(tracker_stack),
-                leaf,
-                shared_dict,
-            )
-            tracker.pre(module, input)
-            tracker_stack.append(tracker)
-            all_trackers.append(tracker)
+class track:
+    def __init__(
+            self,
+            net: torch.nn.Module,
+            tracker_factory: typing.Callable[[int, int, bool, dict], Tracker],
+            leaf_types=tuple(),
+    ):
+        """
 
-        def hook(module, input, output):
-            tracker = tracker_stack.pop()
-            tracker.post(module, input, output)
+        Args:
+            net:
+            tracker_factory:
+            leaf_types:
 
-        hooks.append(module.register_forward_pre_hook(pre_hook))
-        hooks.append(module.register_forward_hook(hook))
+        Returns:
 
-    shared_dict = {}
-    all_trackers = []
-    tracker_stack = []
-    hooks = []
+        >>> import psutil, os
+        >>> from torch.nn import Sequential, ReLU, Linear
+        >>> net = Sequential(Linear(3, 1000), ReLU(), Sequential(Linear(1000, 2), ReLU()))
+        >>> net
+        Sequential(
+          (0): Linear(in_features=3, out_features=1000, bias=True)
+          (1): ReLU()
+          (2): Sequential(
+            (0): Linear(in_features=1000, out_features=2, bias=True)
+            (1): ReLU()
+          )
+        )
 
-    def apply_filtered(self, fn):
-        is_leaf = True
-        for module in self.children():
-            is_leaf = False
-            if module.__class__ in leaf_types:
-                fn(module, leaf=True)
-            else:
-                apply_filtered(module, fn)
-        fn(self, leaf=is_leaf)
+        >>> with track(net, ShapeTracker) as trackers:
+        ...     _ = net(torch.randn(7, 3))
+        >>> for t in trackers:
+        ...     print(t)
+          0 Sequential:          ([7, 3],) -> [7, 2]
+          1   Linear:            ([7, 3],) -> [7, 1000]
+          2   ReLU:              ([7, 1000],) -> [7, 1000]
+          3   Sequential:        ([7, 1000],) -> [7, 2]
+          4     Linear:          ([7, 1000],) -> [7, 2]
+          5     ReLU:            ([7, 2],) -> [7, 2]
+        >>> print(trackers)
+                                    input         output
+          0 Sequential:           ([7, 3],)   ->  [7, 2]
+          1   Linear:             ([7, 3],)   -> [7, 1000]
+          2   ReLU:              ([7, 1000],) -> [7, 1000]
+          3   Sequential:        ([7, 1000],) ->  [7, 2]
+          4     Linear:          ([7, 1000],) ->  [7, 2]
+          5     ReLU:             ([7, 2],)   ->  [7, 2]
+
+        >>> with track(net, ParameterTracker) as trackers:
+        ...     _ = net(torch.randn(7, 3))
+        >>> print(trackers)
+                                 #Params
+          0 Sequential:                0
+          1   Linear:              4_000
+          2   ReLU:                    0
+          3   Sequential:              0
+          4     Linear:            2_002
+          5     ReLU:                  0
+
+        >>> sum([t.num_params for t in trackers])
+        6002
+
+        """
+        self.net = net
+        self.tracker_factory = tracker_factory
+        self.leaf_types = leaf_types
+
+        self.shared_dict = {}
+        self.all_trackers = []
+        self.tracker_stack = []
+        self.hooks = []
+
+    def __enter__(self):
+        self.apply_filtered(self.net, self.register_hook)
         return self
 
-    apply_filtered(net, register_hook)
-
-    try:
-        yield all_trackers
-    finally:
-        # remove these hooks
-        for h in hooks:
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        for h in self.hooks:
             h.remove()
 
+    def __getitem__(self, item):
+        return self.all_trackers[item]
 
+    def register_hook(self, module, leaf):
+        def pre_hook(module, input):
+            tracker = self.tracker_factory(
+                len(self.all_trackers),
+                len(self.tracker_stack),
+                leaf,
+                self.shared_dict,
+                module,
+            )
+            tracker.pre(module, input)
+            self.tracker_stack.append(tracker)
+            self.all_trackers.append(tracker)
+
+        def hook(module, input, output):
+            tracker = self.tracker_stack.pop()
+            tracker.post(module, input, output)
+
+        self.hooks.append(module.register_forward_pre_hook(pre_hook))
+        self.hooks.append(module.register_forward_hook(hook))
+
+    def apply_filtered(self, module, fn):
+        is_leaf = True
+        for child in module.children():
+            is_leaf = False
+            if child.__class__ in self.leaf_types:
+                fn(child, leaf=True)
+            else:
+                self.apply_filtered(child, fn)
+        fn(module, leaf=is_leaf)
+        return module
+
+    @staticmethod
+    def as_tabular_data(data, align: '"<^>"' = "<", sep=' '):
+        column_width = {}
+
+        data = [
+            [str(entry) for entry in row]
+            for row in data
+        ]
+
+        for row in data:
+            for i, entry in enumerate(row):
+                column_width[i] = max(len(str(entry)), column_width.get(i, -1))
+
+        rows = []
+        for row in data:
+            # ''.join([f'{entry:^{column_width[i]}}' for i, entry in enumerate(row)])
+
+            line = []
+            for i, entry in enumerate(row):
+                try:
+                    a = align[i]
+                except IndexError:
+                    a = align[-1]
+                line.append(f'{entry:{a}{column_width[i]}}')
+            rows.append(sep.join(line).rstrip(' '))
+        return '\n'.join(rows)
+
+    def __repr__(self):
+        assert len(self.all_trackers), self.all_trackers
+        rows = [
+            [' ', *self.all_trackers[0].data['header']]
+        ]
+        for t in self.all_trackers:
+            rows.append([t.prefix, *t.data['data']])
+        return self.as_tabular_data(rows, '<' + self.all_trackers[0].data['align'])
 
 
 def tracker_list(*tracker_factories):
@@ -157,23 +237,33 @@ def tracker_list(*tracker_factories):
     >>> net = Sequential(Linear(3, 1000), ELU(), Sequential(Linear(1000, 2), ELU()))
     >>> with track(net, tracker_list(ShapeTracker, ParameterTracker)) as trackers:
     ...     _ = net(torch.randn(7, 3))
+    >>> print(trackers)
+                                input         output   #Params
+      0 Sequential:           ([7, 3],)   ->  [7, 2]         0
+      1   Linear:             ([7, 3],)   -> [7, 1000]   4_000
+      2   ELU:               ([7, 1000],) -> [7, 1000]       0
+      3   Sequential:        ([7, 1000],) ->  [7, 2]         0
+      4     Linear:          ([7, 1000],) ->  [7, 2]     2_002
+      5     ELU:              ([7, 2],)   ->  [7, 2]         0
+
+    Manual print:
     >>> for ts in zip(*trackers):
     ...     for t in ts:
     ...         print(t)
     ...     print()
-    0 Sequential          : ([7, 3],) -> [7, 2]
-    1   Linear            : ([7, 3],) -> [7, 1000]
-    2   ELU               : ([7, 1000],) -> [7, 1000]
-    3   Sequential        : ([7, 1000],) -> [7, 2]
-    4     Linear          : ([7, 1000],) -> [7, 2]
-    5     ELU             : ([7, 2],) -> [7, 2]
+      0 Sequential:          ([7, 3],) -> [7, 2]
+      1   Linear:            ([7, 3],) -> [7, 1000]
+      2   ELU:               ([7, 1000],) -> [7, 1000]
+      3   Sequential:        ([7, 1000],) -> [7, 2]
+      4     Linear:          ([7, 1000],) -> [7, 2]
+      5     ELU:             ([7, 2],) -> [7, 2]
     <BLANKLINE>
-    0 Sequential          : 0
-    1   Linear            : 4000
-    2   ELU               : 0
-    3   Sequential        : 0
-    4     Linear          : 2002
-    5     ELU             : 0
+      0 Sequential:          0
+      1   Linear:            4_000
+      2   ELU:               0
+      3   Sequential:        0
+      4     Linear:          2_002
+      5     ELU:             0
     <BLANKLINE>
 
     You can run the following in a ipynb with GPU
@@ -216,9 +306,10 @@ def tracker_list(*tracker_factories):
 
     """
     class TrackerList(Tracker):
-        def __init__(self, count, depth, leaf, shared_dict):
+        def __init__(self, count, depth, leaf, shared_dict, module):
+            super().__init__(count, depth, leaf, shared_dict, module)
             self.instances = [
-                tf(count, depth, leaf, shared_dict.setdefault(i, {}))
+                tf(count, depth, leaf, shared_dict.setdefault(i, {}), module)
                 for i, tf in enumerate(tracker_factories)
             ]
 
@@ -229,6 +320,21 @@ def tracker_list(*tracker_factories):
         def post(self, module, input, output):
             for i in self.instances:
                 i.post(module, input, output)
+
+        @property
+        def data(self):
+            data = {
+                'header': [],
+                'align': '',
+                'data': [],
+            }
+            for i in self.instances:
+                i_data = i.data
+                assert len(i_data['header']) == len(i_data['data']), (len(i_data['header']), len(i_data['align']), len(i_data['data']))
+                assert len(i_data['header']) == len(i_data['align']), (len(i_data['header']), len(i_data['align']), len(data))
+                for k in data.keys():
+                    data[k] += i_data[k]
+            return data
 
         def __getitem__(self, item):
             return self.instances[item]
@@ -261,29 +367,60 @@ class ShapeTracker(Tracker):
                 return None
 
     def pre(self, module, input):
-        self.module_name = module.__class__.__name__
         self.input_shape = self.get_shape(input)
 
     def post(self, module, input, output):
         self.output_shape = self.get_shape(output)
 
-    def __repr__(self):
-        name = ' ' * self.depth * 2 + self.module_name
-        return f'{self.count} {name:20}: ' \
-               f'{self.input_shape} -> {self.output_shape}'
+    @property
+    def data(self):
+        return {
+            'header': ['input', '', 'output'],
+            'align': '^^^',
+            'data': [self.input_shape, '->', self.output_shape],
+        }
+
+
+class DTypeTracker(ShapeTracker):
+    def get_shape(self, obj):
+        if isinstance(obj, (tuple, list, dict)):
+            return super().get_shape(obj)
+        else:
+            try:
+                return obj.dtype
+            except AttributeError:
+                return None
+
+
+class DeviceTracker(ShapeTracker):
+    def get_shape(self, obj):
+        if isinstance(obj, (tuple, list, dict)):
+            return super().get_shape(obj)
+        else:
+            try:
+                return str(obj.device)
+                # str: 'cuda:0'
+                # repr: device(type='cuda', index=0)
+                # The input will always use repr, hence convert to str.
+            except AttributeError:
+                return None
 
 
 class ParameterTracker(Tracker):
     def pre(self, module, input):
-        self.module_name = module.__class__.__name__
+        pass
 
     def post(self, module, input, output):
         self.num_params = sum([
             p.numel() for p in module.parameters(recurse=self.leaf)])
 
-    def __repr__(self):
-        name = ' ' * self.depth * 2 + self.module_name
-        return f'{self.count} {name:20}: {self.num_params}'
+    @property
+    def data(self):
+        return {
+            'header': ['#Params'],
+            'align': '>',
+            'data': [f'{self.num_params:_}'],
+        }
 
 
 class TimeTracker(Tracker):
@@ -293,27 +430,30 @@ class TimeTracker(Tracker):
     >>> net = Sequential(Linear(3, 1000), ReLU(), Sequential(Linear(1000, 2), ReLU()))
     >>> with track(net, TimeTracker) as trackers:
     ...     _ = net(torch.randn(7, 3))
-    >>> for t in trackers:  # doctest: +SKIP
-    ...      print(t)
-    0 Sequential          : 0.00044976104982197285
-    1   Linear            : 0.00024844298604875803
-    2   ReLU              : 6.943498738110065e-05
-    3   Sequential        : 9.508198127150536e-05
-    4     Linear          : 5.5750017054378986e-05
-    5     ReLU            : 1.9772909581661224e-05
+    >>> print(trackers)  # doctest: +SKIP
+                                               Time
+      0 Sequential:           0.0005062560085207224
+      1   Linear:            0.00027760001830756664
+      2   ReLU:               8.528295438736677e-05
+      3   Sequential:          9.90619882941246e-05
+      4     Linear:           5.891895852982998e-05
+      5     ReLU:            1.8481980077922344e-05
     """
     timestamp = time.perf_counter  # time.process_time
 
     def pre(self, module, input):
-        self.module_name = module.__class__.__name__
         self.start = self.timestamp()
 
     def post(self, module, input, output):
         self.end = self.timestamp()
 
-    def __repr__(self):
-        name = ' ' * self.depth * 2 + self.module_name
-        return f'{self.count} {name:20}: {self.end - self.start}'
+    @property
+    def data(self):
+        return {
+            'header': ['Time'],
+            'align': '>',
+            'data': [f'{self.end - self.start}'],
+        }
 
 
 class CPUMemTracker(Tracker):
@@ -327,13 +467,12 @@ class CPUMemTracker(Tracker):
     ...     _ = net(torch.randn(7, 3))
     >>> for t in trackers:  # doctest: +SKIP
     ...      print(t)
-    0 Sequential          : 1859584 B
-    1   Linear            : 1859584 B
-    2   ReLU              : 0 B
-    3   Sequential        : 0 B
-    4     Linear          : 0 B
-    5     ReLU            : 0 B
-
+      0 Sequential:          1_724_416 B
+      1   Linear:            1_724_416 B
+      2   ReLU:              0 B
+      3   Sequential:        0 B
+      4     Linear:          0 B
+      5     ReLU:            0 B
     """
     def get_mem(self):
         # return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -341,15 +480,18 @@ class CPUMemTracker(Tracker):
         return psutil.Process(os.getpid()).memory_info().rss
 
     def pre(self, module, input):
-        self.module_name = module.__class__.__name__
         self.pre_mem = self.get_mem()
 
     def post(self, module, input, output):
         self.post_mem = self.get_mem()
 
-    def __repr__(self):
-        name = ' ' * self.depth * 2 + self.module_name
-        return f'{self.count} {name:20}: {self.post_mem - self.pre_mem} B'
+    @property
+    def data(self):
+        return {
+            'header': ['CPU Mem'],
+            'align': '>',
+            'data': [f'{self.post_mem - self.pre_mem:_} B'],
+        }
 
 
 class GPUMemTracker(Tracker):
@@ -361,14 +503,15 @@ class GPUMemTracker(Tracker):
     >>> net = Sequential(Linear(3, 1000), ReLU(), Sequential(Linear(1000, 2), ReLU()))
     >>> with track(net, GPUMemTracker) as trackers:
     ...     _ = net(torch.randn(7, 3))
-    >>> for t in trackers:
-    ...      print(t)
-    0 Sequential          : 0 B
-    1   Linear            : 0 B
-    2   ReLU              : 0 B
-    3   Sequential        : 0 B
-    4     Linear          : 0 B
-    5     ReLU            : 0 B
+    >>> print(trackers)
+                             CPU Mem
+      0 Sequential:              0 B
+      1   Linear:                0 B
+      2   ReLU:                  0 B
+      3   Sequential:            0 B
+      4     Linear:              0 B
+      5     ReLU:                0 B
+
 
     """
     device = 0  # Use export CUDA_VISIBLE_DEVICES=1 to switch device
@@ -377,15 +520,18 @@ class GPUMemTracker(Tracker):
         return torch.cuda.memory_allocated(device=self.device)
 
     def pre(self, module, input):
-        self.module_name = module.__class__.__name__
         self.pre_mem = self.get_mem()
 
     def post(self, module, input, output):
         self.post_mem = self.get_mem()
 
-    def __repr__(self):
-        name = ' ' * self.depth * 2 + self.module_name
-        return f'{self.count} {name:20}: {self.post_mem - self.pre_mem} B'
+    @property
+    def data(self):
+        return {
+            'header': ['GPU Mem'],
+            'align': '>',
+            'data': [f'{self.post_mem - self.pre_mem:_} B'],
+        }
 
 
 class IOPNumTracker(Tracker):
@@ -405,15 +551,16 @@ class IOPNumTracker(Tracker):
     >>> net = Sequential(Linear(3, 1000), ReLU(), Sequential(Linear(1000, 2), ReLU()))
     >>> with track(net, IOPNumTracker) as trackers:
     ...     _ = net(torch.randn(7, 3))
-    >>> for t in trackers:
-    ...      print(t)
-    0 Sequential          : P:      0 (requires_grad:      0) IO:     35 (requires_grad:     14)
-    1   Linear            : P:   4000 (requires_grad:   4000) IO:   7021 (requires_grad:   7000)
-    2   ReLU              : P:      0 (requires_grad:      0) IO:  14000 (requires_grad:  14000)
-    3   Sequential        : P:      0 (requires_grad:      0) IO:   7014 (requires_grad:   7014)
-    4     Linear          : P:   2002 (requires_grad:   2002) IO:   7014 (requires_grad:   7014)
-    5     ReLU            : P:      0 (requires_grad:      0) IO:     28 (requires_grad:     28)
-    >>> print(t.total_repr())
+    >>> print(trackers)
+                             #Parameters                       #IO Tensors
+      0 Sequential:          P:      0 (requires_grad:      0) IO:     35 (requires_grad:     14)
+      1   Linear:            P:   4000 (requires_grad:   4000) IO:   7021 (requires_grad:   7000)
+      2   ReLU:              P:      0 (requires_grad:      0) IO:  14000 (requires_grad:  14000)
+      3   Sequential:        P:      0 (requires_grad:      0) IO:   7014 (requires_grad:   7014)
+      4     Linear:          P:   2002 (requires_grad:   2002) IO:   7014 (requires_grad:   7014)
+      5     ReLU:            P:      0 (requires_grad:      0) IO:     28 (requires_grad:     28)
+
+    >>> print(trackers[0].total_repr())
     P:   6002 (requires_grad:   6002) IO:  14049 (requires_grad:  14028)
     """
     local_dict = None
@@ -468,8 +615,6 @@ class IOPNumTracker(Tracker):
                 self.local_dict[fixed_key] += self.get_size(tensor)
 
     def pre(self, module, input):
-
-        self.module_name = module.__class__.__name__
         self.maybe_init()
 
         for p in module.parameters(recurse=self.leaf):
@@ -485,16 +630,21 @@ class IOPNumTracker(Tracker):
     def _to_str(self, value):
         return f'{value:6}'
 
-    def __repr__(self):
-        name = ' ' * self.depth * 2 + self.module_name
+    @property
+    def data(self):
         l = self.local_dict
         pl = l['parameters_learnable']
         pf = l['parameters_fixed']
         tl = l['tensors_learnable']
         tf = l['tensors_fixed']
-        return f'{self.count} {name:20}: ' \
-               f'P: {self._to_str(pl+pf)} (requires_grad: {self._to_str(pl)}) ' \
-               f'IO: {self._to_str(tl+tf)} (requires_grad: {self._to_str(tl)})'
+        return {
+            'header': ['#Parameters', '#IO Tensors'],
+            'align': '<<',
+            'data': [
+                f'P: {self._to_str(pl+pf)} (requires_grad: {self._to_str(pl)})',
+                f'IO: {self._to_str(tl + tf)} (requires_grad: {self._to_str(tl)})',
+            ],
+        }
 
     def total_repr(self):
         l = self.shared_dict
@@ -513,15 +663,16 @@ class IOPMemTracker(IOPNumTracker):
     >>> net = Sequential(Linear(3, 1000), ReLU(), Sequential(Linear(1000, 2), ReLU()))
     >>> with track(net, IOPMemTracker) as trackers:
     ...     _ = net(torch.randn(7, 3))
-    >>> for t in trackers:
-    ...      print(t)
-    0 Sequential          : P:      0 B (requires_grad:      0 B) IO:    140 B (requires_grad:     56 B)
-    1   Linear            : P:  16000 B (requires_grad:  16000 B) IO:  28084 B (requires_grad:  28000 B)
-    2   ReLU              : P:      0 B (requires_grad:      0 B) IO:  56000 B (requires_grad:  56000 B)
-    3   Sequential        : P:      0 B (requires_grad:      0 B) IO:  28056 B (requires_grad:  28056 B)
-    4     Linear          : P:   8008 B (requires_grad:   8008 B) IO:  28056 B (requires_grad:  28056 B)
-    5     ReLU            : P:      0 B (requires_grad:      0 B) IO:    112 B (requires_grad:    112 B)
-    >>> print(t.total_repr())
+    >>> print(trackers)
+                             Mem Parameters                        Mem IO Tensors
+      0 Sequential:          P:      0 B (requires_grad:      0 B) IO:    140 B (requires_grad:     56 B)
+      1   Linear:            P:  16000 B (requires_grad:  16000 B) IO:  28084 B (requires_grad:  28000 B)
+      2   ReLU:              P:      0 B (requires_grad:      0 B) IO:  56000 B (requires_grad:  56000 B)
+      3   Sequential:        P:      0 B (requires_grad:      0 B) IO:  28056 B (requires_grad:  28056 B)
+      4     Linear:          P:   8008 B (requires_grad:   8008 B) IO:  28056 B (requires_grad:  28056 B)
+      5     ReLU:            P:      0 B (requires_grad:      0 B) IO:    112 B (requires_grad:    112 B)
+
+    >>> print(trackers[0].total_repr())
     P:  24008 B (requires_grad:  24008 B) IO:  56196 B (requires_grad:  56112 B)
     """
     def get_size(self, tensor):
@@ -529,6 +680,12 @@ class IOPMemTracker(IOPNumTracker):
 
     def _to_str(self, value):
         return f'{value:6} B'
+
+    @property
+    def data(self):
+        data = super().data
+        data['header'] = ['Mem Parameters', 'Mem IO Tensors']
+        return data
 
 
 class _IDBasedWeakSet:
