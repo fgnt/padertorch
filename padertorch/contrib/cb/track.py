@@ -2,6 +2,8 @@ import contextlib
 import typing
 import weakref
 import time
+import re
+import itertools
 
 import torch
 
@@ -191,13 +193,37 @@ class track:
         return module
 
     @staticmethod
-    def as_tabular_data(data, align: '"<^>"' = "<", sep=' '):
+    def as_tabular_data(data, align: '"<^>"' = "<", sep=' ', max_cell_width=40):
+        """
+        >>> import string
+        >>> print(track.as_tabular_data([['ab', 'abcde'], ['abcd', 'abc']]))
+        ab   abcde
+        abcd abc
+        >>> print(track.as_tabular_data([
+        ...     [string.ascii_letters, string.ascii_uppercase],
+        ...     [string.digits, string.ascii_lowercase]], max_cell_width=20))
+        abcdefghijklmnopqrst ABCDEFGHIJKLMNOPQRST
+        uvwxyzABCDEFGHIJKLMN UVWXYZ
+        OPQRSTUVWXYZ
+        0123456789           abcdefghijklmnopqrst
+                             uvwxyz
+        """
         column_width = {}
 
-        data = [
-            [str(entry) for entry in row]
-            for row in data
-        ]
+        data = [[str(entry) for entry in row] for row in data]
+
+        # Add linebreaks
+        rows = []
+        r = re.compile(f'(.{{{max_cell_width}}})')
+        for row in data:
+            if max([len(e) for e in row]) > max_cell_width:
+                rows.extend(itertools.zip_longest(*[
+                    [part for part in r.split(cell) if part]
+                    for cell in row
+                ], fillvalue=''))
+            else:
+                rows.append(row)
+        data = rows
 
         for row in data:
             for i, entry in enumerate(row):
@@ -205,8 +231,6 @@ class track:
 
         rows = []
         for row in data:
-            # ''.join([f'{entry:^{column_width[i]}}' for i, entry in enumerate(row)])
-
             line = []
             for i, entry in enumerate(row):
                 try:
