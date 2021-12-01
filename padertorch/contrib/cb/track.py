@@ -350,9 +350,10 @@ def tracker_list(*tracker_factories):
 class ShapeTracker(Tracker):
 
     def get_shape(self, obj):
-        if isinstance(obj, (tuple, list)):
-            return obj.__class__(
-                filter(None, [self.get_shape(e) for e in obj]))
+        if isinstance(obj, tuple):
+            return tuple([self.get_shape(e) for e in obj])
+        elif isinstance(obj, list):
+            return [self.get_shape(e) for e in obj]
         elif isinstance(obj, dict):
             return {
                 k: shape
@@ -364,7 +365,7 @@ class ShapeTracker(Tracker):
             try:
                 return list(obj.shape)
             except AttributeError:
-                return None
+                return 'unknown'
 
     def pre(self, module, input):
         self.input_shape = self.get_shape(input)
@@ -389,7 +390,7 @@ class DTypeTracker(ShapeTracker):
             try:
                 return obj.dtype
             except AttributeError:
-                return None
+                return 'unknown'
 
 
 class DeviceTracker(ShapeTracker):
@@ -403,7 +404,7 @@ class DeviceTracker(ShapeTracker):
                 # repr: device(type='cuda', index=0)
                 # The input will always use repr, hence convert to str.
             except AttributeError:
-                return None
+                return 'unknown'
 
 
 class ParameterTracker(Tracker):
