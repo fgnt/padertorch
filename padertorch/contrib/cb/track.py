@@ -138,6 +138,8 @@ class track:
 
         """
         self.net = net
+        if isinstance(tracker_factory, (tuple, list)):
+            tracker_factory = tracker_list(*tracker_factory)
         self.tracker_factory = tracker_factory
         self.leaf_types = leaf_types
 
