@@ -154,7 +154,6 @@ def convnet():
         'input_size': feat_size,
         'num_blocks': 8,
         'num_repeats': 4,
-        'in_channels': 256,
         'hidden_channels': 512,
         'kernel_size': 3,
         'norm': "gLN",
