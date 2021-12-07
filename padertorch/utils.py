@@ -120,7 +120,7 @@ def to_numpy(array, detach: bool = False, copy: bool = False) -> np.ndarray:
     # if isinstance(array, torch.Tensor):
 
     try:
-        # Torch 1.10 introduced `resolve_conj`, which can cause the foillowing
+        # Torch 1.10 introduced `resolve_conj`, which can cause the following
         # exception:
         #
         #     RuntimeError: Can't call numpy() on Tensor that has conjugate bit
