@@ -177,7 +177,6 @@ class ConvNet(pt.Module):
             input_size=256,
             num_blocks=8,
             num_repeats=4,
-            in_channels=256,
             hidden_channels=512,
             kernel_size=3,
             norm="gLN",
@@ -189,25 +188,24 @@ class ConvNet(pt.Module):
             num_blocks: number of _Conv1DBlock with dilation between
                         1 and 2**(num_blocks-1) per repitition
             num_repeats: number of repitition of num_blocks
-            in_channels:
+            input_size:
             hidden_channels:
             kernel_size:
             norm:
         """
         super().__init__()
-        self.input_size = input_size
 
-        self.layer_norm = build_norm('cLN', input_size)
-        self.projection = Conv1d(input_size, in_channels, 1, pad_type=None)
+        self.input_size = input_size
+        self.hidden_size = input_size
+
         # repeat blocks
         self.conv_blocks = self._build_repeats(
             num_repeats,
             num_blocks,
-            in_channels=in_channels,
+            in_channels=input_size,
             hidden_channels=hidden_channels,
             kernel_size=kernel_size,
             norm=norm)
-        self.hidden_size = in_channels
 
     def _build_blocks(self, num_blocks, **block_kwargs):
         blocks = [
