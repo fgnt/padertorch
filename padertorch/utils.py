@@ -65,9 +65,9 @@ def to_list(x, length=None):
         x = to_list_helper(x)
     elif isinstance(x, str):
         x = to_list_helper(x)
-    elif isinstance(x, collections.Sequence):
+    elif isinstance(x, collections.abc.Sequence):
         pass
-    elif isinstance(x, collections.Iterable):
+    elif isinstance(x, collections.abc.Iterable):
         x = list(x)
     else:
         x = to_list_helper(x)
@@ -106,12 +106,34 @@ def to_numpy(array, detach: bool = False, copy: bool = False) -> np.ndarray:
     >>> to_numpy(t, detach=True), np.zeros(2, dtype=np.float32)
     (array([0., 0.], dtype=float32), array([0., 0.], dtype=float32))
 
+
     >>> from torch_complex.tensor import ComplexTensor
     >>> to_numpy(ComplexTensor(t), detach=True)
     array([0.+0.j, 0.+0.j], dtype=complex64)
 
+    >>> from torch_complex.tensor import ComplexTensor
+    >>> to_numpy(torch.tensor([1+1j]), detach=True)
+    array([1.+1.j], dtype=complex64)
+    >>> to_numpy(torch.tensor([1+1j]).conj(), detach=True)
+    array([1.-1.j], dtype=complex64)
     """
     # if isinstance(array, torch.Tensor):
+
+    try:
+        # Torch 1.10 introduced `resolve_conj`, which can cause the following
+        # exception:
+        #
+        #     RuntimeError: Can't call numpy() on Tensor that has conjugate bit
+        #     set. Use tensor.resolve_conj().numpy() instead.
+        #
+        #     It is likely, that you are evaluating a model in train mode.
+        #     You may want to call `model.eval()` first and use a context
+        #     manager, which disables gradients: `with torch.no_grad(): ...`.
+        #     If you want to detach anyway, use `detach=True` as argument.
+        array = array.resolve_conj()
+    except AttributeError:
+        pass
+
     try:
         array = array.cpu()
     except AttributeError:
