@@ -297,6 +297,36 @@ def test_validation_hook_create_snapshot_flag():
     assert model.validation_create_snapshot_log == [True, False] * 11
 
 
+def test_validation_hook_modify_summary_training_flag():
+    class Model(DummyModel):
+        def review(self, example, output):
+            summary = super().review(example, output)
+            summary.setdefault('scalars', {})['training'] = self.training
+            return summary
+
+        def modify_summary(self, summary):
+            if len(summary['scalars']['training']) == 0:
+                # The first validation triggers to write the training summary,
+                # which is empty.
+                assert self.training is True
+            else:
+                assert set(summary['scalars']['training']) == {self.training}
+            # self.modify_summary_log.append(self.training)
+            return super().modify_summary(summary)
+
+    ds_train = [0., 1., 2.]
+    ds_valid = [0., 1.]
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        optimizer = pt.optimizer.Adam()
+        model = Model([1, 2, 3, 4, 5] * 10, tmp_dir, optimizer)
+        trainer = pt.Trainer(
+            model, tmp_dir, optimizer, stop_trigger=(10, 'epoch'),
+            summary_trigger=(1, 'epoch')
+        )
+        trainer.register_validation_hook(ds_valid)
+        trainer.train(ds_train)
+
+
 def test_backoff():
     ds = [0]
     with tempfile.TemporaryDirectory() as tmp_dir:

@@ -549,7 +549,13 @@ class ValidationHook(SummaryHook):
             raise Exception(
                 f'Got an empty validation iterator: {self.iterator}'
             )
-        self.finalize_summary(trainer)
+
+        trainer.model.eval()
+        try:
+            # trainer.model.modify_summary should be called in eval mode
+            self.finalize_summary(trainer)
+        finally:
+            trainer.model.train()
         assert self.metric in self.summary['scalars'].keys(), (
             f'The chosen validation metric {self.metric} is not included in '
             f'the scalars dictionary provided by the models review function. '
