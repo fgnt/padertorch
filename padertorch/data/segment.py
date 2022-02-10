@@ -546,7 +546,9 @@ def _get_segment_length_for_mode(
         shift = length
     if mode == 'constant':
         if padding:
-            num_samples += shift - ((num_samples - length) % shift)
+            remainder = ((num_samples - length) % shift)
+            if remainder > 0:
+                num_samples += shift - remainder
         return length, shift, num_samples
     elif mode in ['min', 'max']:
         overlap = length - shift
