@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 from pathlib import Path
 import inspect
@@ -122,6 +123,10 @@ class TriggerMock(pt.train.trigger.Trigger):
 
 
 def test_single_model():
+    if sys.platform.startswith('win'):
+        pytest.skip('this doctest does not work on Windows, '
+                    'training is not possible on Windows due to symlinks being unavailable')
+
     tr_dataset, dt_dataset = get_dataset()
     tr_dataset = tr_dataset[:2]
     dt_dataset = dt_dataset[:2]
@@ -476,6 +481,9 @@ def test_single_model():
 
 
 def test_virtual_minibatch_few__examples():
+    if sys.platform.startswith('win'):
+        pytest.skip('this doctest does not work on Windows, '
+                    'training is not possible on Windows due to symlinks being unavailable')
     test_virtual_minibatch(3, 1)
     test_virtual_minibatch(4, 1)
 
@@ -498,6 +506,10 @@ def test_virtual_minibatch(
     The second call to train (where stop_trigger is increased) runs once the
     optimizer step, so the parameters are changed.
     """
+
+    if sys.platform.startswith('win'):
+        pytest.skip('this doctest does not work on Windows, '
+                    'training is not possible on Windows due to symlinks being unavailable')
 
     it_tr, it_dt = get_dataset()
     it_tr = it_tr[:no_of_examples]
@@ -553,6 +565,10 @@ def test_virtual_minibatch(
 
 
 def test_released_tensors():
+    if sys.platform.startswith('win'):
+        pytest.skip('this doctest does not work on Windows, '
+                    'training is not possible on Windows due to symlinks being unavailable')
+
     import gc
     gc.collect()
 
@@ -684,6 +700,10 @@ def test_released_tensors():
 
 
 def test_log_error_state():
+    if sys.platform.startswith('win'):
+        pytest.skip('this doctest does not work on Windows, '
+                    'training is not possible on Windows due to symlinks being unavailable')
+
     with tempfile.TemporaryDirectory() as tmp_dir:
         t = pt.Trainer(
             Model(),
