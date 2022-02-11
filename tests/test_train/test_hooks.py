@@ -312,6 +312,10 @@ def test_validation_hook_create_snapshot_flag():
 
 
 def test_validation_hook_modify_summary_training_flag():
+    if sys.platform.startswith('win'):
+        pytest.skip('this doctest does not work on Windows, '
+                    'training is not possible on Windows due to symlinks being unavailable')
+
     class Model(DummyModel):
         def review(self, example, output):
             summary = super().review(example, output)
