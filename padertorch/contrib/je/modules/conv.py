@@ -143,6 +143,12 @@ class _Conv(Module):
             if self.gated:
                 torch.nn.init.zeros_(self.gate_conv.bias)
 
+    def freeze(self):
+        for param in self.parameters():
+            param.requires_grad = False
+        if self.norm is not None:
+            self.norm.freeze()
+
     def forward(self, x, sequence_lengths=None):
         """
 
@@ -580,6 +586,27 @@ class _CNN(Module):
             self.convs[i].reset_parameters(output_activation_fn)
         for conv in self.residual_skip_convs.values():
             conv.reset_parameters('linear')
+
+    def freeze(self, num_layers=None):
+        num_layers = len(self.convs) if num_layers is None else min(num_layers, len(self.convs))
+        if num_layers == 0:
+            return
+        assert num_layers > 0, num_layers
+        if self.input_norm is not None:
+            self.input_norm.freeze()
+        if isinstance(self.input_activation_fn, torch.nn.PReLU):
+            self.input_activation_fn.weight.requires_grad = False
+        for i in range(num_layers):
+            self.convs[i].freeze()
+        for key, conv in self.residual_skip_convs.items():
+            dst_idx = key.split('->')[1]
+            if dst_idx <= num_layers:
+                conv.freeze()
+        if num_layers >= len(self.convs):
+            if self.output_norm is not None:
+                self.output_norm.freeze()
+            if isinstance(self.output_activation_fn, torch.nn.PReLU):
+                self.output_activation_fn.weight.requires_grad = False
 
     def forward(
             self, x, sequence_lengths=None,

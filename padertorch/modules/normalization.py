@@ -148,6 +148,8 @@ class Normalization(Module):
             self.gamma = None
             self.beta = None
 
+        self.frozen = False
+
     @property
     def running_var(self):
         n = torch.max(
@@ -176,8 +178,18 @@ class Normalization(Module):
         if self.beta is not None:
             nn.init.zeros_(self.beta.shift)
 
+    def freeze(self):
+        for param in self.parameters():
+            param.requires_grad = False
+        self.frozen = True
+
+    def unfreeze(self):
+        for param in self.parameters():
+            param.requires_grad = True
+        self.frozen = False
+
     def forward(self, x, sequence_lengths=None):
-        if self.training or not self.track_running_stats:
+        if (self.training and not self.frozen) or not self.track_running_stats:
             x, mean, power, n_values = normalize(
                 x, gamma=self.gamma, beta=self.beta,
                 statistics_axis=self.statistics_axis,
@@ -390,14 +402,14 @@ class _Normalize(Function):
                 grad_mean_ = (
                     grad_mean_ / scale
                     - 2 * grad_power_
-                        * x.sum(ctx.statistics_axis, keepdim=True) / n_values
+                        * x.sum(ctx.statistics_axis, keepdim=True) / torch.clamp(n_values, min=1)
                 )
 
         grad_x = grad_x_hat
         if ctx.scale:
-            grad_x = grad_x / scale + grad_power_ * 2 * x / n_values
+            grad_x = grad_x / scale + grad_power_ * 2 * x / torch.clamp(n_values, min=1)
         if ctx.shift:
-            grad_x = grad_x + grad_mean_ / n_values
+            grad_x = grad_x + grad_mean_ / torch.clamp(n_values, min=1)
         return grad_x * mask, grad_gamma, grad_beta, None, None, None, None, None, None, None
 
 
@@ -457,10 +469,6 @@ def mask_and_compute_stats(
     # compute statistics
     n_values = mask.sum(dim=statistics_axis, keepdim=True)
     x = x * mask
-    mean = x.sum(dim=statistics_axis, keepdim=True) / torch.max(
-        n_values, torch.ones_like(n_values)
-    )
-    power = (x ** 2).sum(dim=statistics_axis, keepdim=True) / torch.max(
-        n_values, torch.ones_like(n_values)
-    )
+    mean = x.sum(dim=statistics_axis, keepdim=True) / torch.clamp(n_values, min=1)
+    power = (x ** 2).sum(dim=statistics_axis, keepdim=True) / torch.clamp(n_values, min=1)
     return x, mask, mean, power, n_values
