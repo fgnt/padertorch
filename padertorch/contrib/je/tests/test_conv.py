@@ -6,7 +6,7 @@ from padertorch.contrib.je.modules.conv import CNN1d, CNNTranspose1d
 from padertorch.contrib.je.modules.conv import CNN2d, CNNTranspose2d
 from padertorch.contrib.je.modules.conv import Conv1d, ConvTranspose1d
 from padertorch.contrib.je.modules.conv import Conv2d, ConvTranspose2d
-from padertorch.contrib.je.modules.hybrid import HybridCNN, HybridCNNTranspose
+from padertorch.contrib.je.modules.hybrid import CNN, CNNTranspose
 
 
 def get_input_1d(num_frames=129):
@@ -391,7 +391,7 @@ def test_get_transpose_config():
         assert transpose_transpose_config == config
 
     config = dict(
-        factory=HybridCNN,
+        factory=CNN,
         cnn_2d={
             'factory': CNN2d,
             'in_channels': 3,
@@ -406,7 +406,7 @@ def test_get_transpose_config():
         }
     )
     expected_transpose_config = dict(
-        factory=HybridCNNTranspose,
+        factory=CNNTranspose,
         cnn_transpose_2d={
             'factory': CNNTranspose2d,
             'in_channels': 10,
@@ -420,7 +420,7 @@ def test_get_transpose_config():
             'kernel_size': 3,
         }
     )
-    transpose_config = HybridCNN.get_transpose_config(config)
+    transpose_config = CNN.get_transpose_config(config)
     assert transpose_config == expected_transpose_config
-    transpose_transpose_config = HybridCNNTranspose.get_transpose_config(transpose_config)
+    transpose_transpose_config = CNNTranspose.get_transpose_config(transpose_config)
     assert transpose_transpose_config == config

@@ -6,7 +6,7 @@ from paderbox.transform.module_fbank import get_fbanks
 from paderbox.utils.random_utils import TruncatedExponential
 from padertorch.base import Module
 from padertorch.contrib.je.modules.augment import (
-    TimeWarping, GaussianBlur2d, Mixup, Mask, AdditiveNoise,
+    Scale, Superpose, TimeWarping, GaussianBlur2d, Mixup, Mask, AdditiveNoise,
 )
 from padertorch.modules.normalization import Normalization, InputNormalization
 from torch import nn
@@ -30,6 +30,8 @@ class NormalizedLogMelExtractor(nn.Module):
             clamp=6,
             ipd_pairs=(),
             # augmentation
+            scale_sampling_fn=None,
+            superposition_prob=0.,
             frequency_warping_fn=None, time_warping_fn=None,
             blur_sigma=0, blur_kernel_size=5,
             mixup_prob=0., mixup_alpha=1.,
@@ -80,10 +82,23 @@ class NormalizedLogMelExtractor(nn.Module):
         self.clamp = clamp
 
         # augmentation
-        if time_warping_fn is not None:
-            self.time_warping = TimeWarping(warping_fn=time_warping_fn)
+        if scale_sampling_fn is None:
+            scale_fn = None
         else:
+            scale_fn = Scale(scale_sampling_fn=scale_sampling_fn)
+
+        assert 0. <= superposition_prob <= 1., superposition_prob
+        if superposition_prob > 0.:
+            self.superpose = Superpose(p=superposition_prob, scale_fn=scale_fn)
+            self.scale = None
+        else:
+            self.superpose = None
+            self.scale = scale_fn
+
+        if time_warping_fn is None:
             self.time_warping = None
+        else:
+            self.time_warping = TimeWarping(warping_fn=time_warping_fn)
 
         if blur_sigma > 0:
             self.blur = GaussianBlur2d(
@@ -126,6 +141,14 @@ class NormalizedLogMelExtractor(nn.Module):
 
     def forward(self, x, seq_len=None, targets=None):
         with torch.no_grad():
+            if self.scale is not None:
+                x = self.scale(x)
+
+            if self.superpose is not None:
+                x, targets, seq_len = self.superpose(
+                    x, targets, seq_len=seq_len
+                )
+
             if self.ipd_pairs:
                 x_re = x[..., self.filter_max_indices, 0]
                 x_im = x[..., self.filter_max_indices, 1]
@@ -164,7 +187,9 @@ class NormalizedLogMelExtractor(nn.Module):
                 x = torch.cat((x, torch.cos(ipds), torch.sin(ipds)), dim=1)
 
             if self.mixup is not None:
-                x, seq_len, targets = self.mixup(x, seq_len, targets)
+                x, targets, seq_len = self.mixup(
+                    x, seq_len=seq_len, targets=targets
+                )
 
             if self.time_masking is not None:
                 x = self.time_masking(x, seq_len=seq_len)

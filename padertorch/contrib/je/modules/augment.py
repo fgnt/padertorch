@@ -122,6 +122,44 @@ class TimeWarping(nn.Module):
         return (*tensors, seq_len)
 
 
+class Superpose(nn.Module):
+    """
+    >>> x = torch.cumsum(torch.ones((3, 4, 5)), 0)
+    >>> y = torch.eye(3).float()
+    >>> superpose = Superpose(p=1.)
+    >>> superpose(x, seq_len=[3,4,5], targets=y)
+    """
+    def __init__(self, p, scale_fn=None):
+        super().__init__()
+        self.p = p
+        self.scale_fn = scale_fn
+
+    def forward(self, x, targets, seq_len=None):
+        if self.training:
+            B = x.shape[0]
+            shuffle_idx = np.roll(np.arange(B, dtype=np.int), np.random.choice(B-1)+1)
+            lambda_ = np.random.binomial(1, self.p, B)
+            if seq_len is not None:
+                seq_len = np.maximum(seq_len, (lambda_ > 0.) * np.array(seq_len)[shuffle_idx])
+            lambda_ = torch.from_numpy(lambda_).float().to(x.device)
+            assert all(lambda_ >= 0.) and all(lambda_ <= 1.)
+            lambda_x = lambda_[(...,) + (x.dim() - 1) * (None,)]
+            x_shuffled = x[shuffle_idx]
+            if self.scale_fn is not None:
+                x = self.scale_fn(x)
+                x_shuffled = self.scale_fn(x_shuffled)
+            x = x + lambda_x * x_shuffled
+            if isinstance(targets, (list, tuple)):
+                targets = list(targets)
+                for i in range(len(targets)):
+                    lambda_t = lambda_[(...,) + (targets[i].dim() - 1) * (None,)]
+                    targets[i] = targets[i] + lambda_t * (1 - targets[i]) * targets[i][shuffle_idx]
+            elif targets is not None:
+                lambda_t = lambda_[(...,) + (targets.dim() - 1) * (None,)]
+                targets = targets + lambda_t * (1 - targets) * targets[shuffle_idx]
+        return x, targets, seq_len
+
+
 class Mixup(nn.Module):
     """
     >>> x = torch.cumsum(torch.ones((3, 4, 5)), 0)
@@ -134,10 +172,10 @@ class Mixup(nn.Module):
         self.p = p
         self.alpha = alpha
 
-    def forward(self, x, seq_len=None, targets=None):
+    def forward(self, x, targets=None, seq_len=None):
         if self.training:
             B = x.shape[0]
-            shuffle_idx = ((np.arange(B)+1) % B).astype(np.int)
+            shuffle_idx = np.roll(np.arange(B, dtype=np.int), np.random.choice(B))
             lambda_ = np.maximum(
                 np.random.binomial(1, 1 - self.p, B),
                 np.random.beta(self.alpha, self.alpha, B)
@@ -148,11 +186,15 @@ class Mixup(nn.Module):
             assert all(lambda_ >= 0.) and all(lambda_ <= 1.)
             lambda_x = lambda_[(...,) + (x.dim() - 1) * (None,)]
             x = lambda_x * x + (1. - lambda_x) * x[shuffle_idx]
-            if targets is not None:
-                assert ((targets == 0.) | (targets == 1.)).all(), 'Targets must be one-/multi-hot encoded'
+            if isinstance(targets, (list, tuple)):
+                targets = list(targets)
+                for i in range(len(targets)):
+                    lambda_t = lambda_[(...,) + (targets[i].dim() - 1) * (None,)]
+                    targets[i] = lambda_t * targets[i] + (1. - lambda_t) * targets[i][shuffle_idx]
+            elif targets is not None:
                 lambda_t = lambda_[(...,) + (targets.dim() - 1) * (None,)]
                 targets = lambda_t * targets + (1. - lambda_t) * targets[shuffle_idx]
-        return x, seq_len, targets
+        return x, targets, seq_len
 
 
 class Mask(nn.Module):

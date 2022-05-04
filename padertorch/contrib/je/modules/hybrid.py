@@ -9,23 +9,25 @@ from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
-class HybridCNN(Module):
+class CNN(Module):
     """
     Combines CNN2d and CNN1d sequentially.
 
-    >>> config = HybridCNN.get_config(dict(\
-            factory=HybridCNN,\
-            input_size=80,\
+    >>> config = CNN.get_config(dict(\
+            factory=CNN,\
+            input_height=80,\
+            conditional_dims=10,\
             cnn_2d=dict(\
-                in_channels=1, out_channels=3*[32], kernel_size=3, \
+                in_channels=11, out_channels=3*[32], kernel_size=3, \
             ), \
             cnn_1d=dict(\
                 out_channels=3*[32], kernel_size=3\
             ),\
         ))
-    >>> cnn = HybridCNN.from_config(config)
+    >>> cnn = CNN.from_config(config)
     >>> x = torch.randn((3, 1, 80, 11))
-    >>> y, seq_len = cnn(x)
+    >>> c = torch.randn((3, 10, 11))
+    >>> y, seq_len = cnn(x, 3*[11], c)
     >>> y.shape
     torch.Size([3, 32, 11])
     """
@@ -35,7 +37,9 @@ class HybridCNN(Module):
             cnn_1d: CNN1d,
             *,
             input_height=None,
-            return_pool_indices=False
+            positional_encoding=False,
+            conditional_dims=0,
+            return_pool_indices=False,
     ):
         super().__init__()
         assert cnn_2d.return_pool_indices == cnn_1d.return_pool_indices == return_pool_indices, (
@@ -44,15 +48,50 @@ class HybridCNN(Module):
         self.cnn_2d = cnn_2d
         self.cnn_1d = cnn_1d
         self.input_height = input_height
+        self.positional_encoding = positional_encoding
+        self.conditional_dims = conditional_dims
         self.return_pool_indices = return_pool_indices
 
-    def forward(self, x, sequence_lengths=None):
+    def add_positional_encoding(self, x):
+        b, c, f, t = x.shape
+        encoding = torch.broadcast_to(
+            torch.linspace(0, 1, f, device=x.device)[:, None],
+            (b, 1, f, t)
+        )
+        return torch.cat([x, encoding], dim=1)
+
+    def add_condition(self, x, condition):
+        if condition.dim() == 2:
+            condition = condition.unsqueeze(-1)
+        if x.dim() == 3:
+            b, f, t = x.shape
+            assert condition.dim() == 3, condition.shape
+            condition = torch.broadcast_to(condition, (b, condition.shape[1], t))
+            return torch.cat([x, condition], dim=1)
+        elif x.dim() == 4:
+            b, _, f, t = x.shape
+            if condition.dim() == 3:
+                condition = condition.unsqueeze(2)
+            assert condition.dim() == 4, condition.shape
+            condition = torch.broadcast_to(condition, (b, condition.shape[1], f, t))
+            return torch.cat([x, condition], dim=1)
+        else:
+            raise ValueError('x must be 3- or 4- dimensional')
+
+    def forward(self, x, sequence_lengths=None, condition=None):
+        assert x.dim() == 4, x.shape
+        if self.positional_encoding:
+            x = self.add_positional_encoding(x)
+        if condition is not None:
+            x = self.add_condition(x, condition)
         if self.cnn_2d.return_pool_indices:
             x, sequence_lengths, pool_indices_2d = self.cnn_2d(x, sequence_lengths)
         else:
             x, sequence_lengths = self.cnn_2d(x, sequence_lengths)
             pool_indices_2d = None
         x = rearrange(x, 'b c f t -> b (c f) t')
+        if condition is not None:
+            x = self.add_condition(x, condition)
         if self.cnn_1d.return_pool_indices:
             x, sequence_lengths, pool_indices_1d = self.cnn_1d(x, sequence_lengths)
         else:
@@ -75,14 +114,14 @@ class HybridCNN(Module):
         if config['input_height'] is not None:
             cnn_2d = config['cnn_2d']['factory'].from_config(config['cnn_2d'])
             _, out_channels, output_size, _ = cnn_2d.get_shapes((1, config['cnn_2d']['in_channels'], config['input_height'], 1000))[-1]
-            config['cnn_1d']['in_channels'] = out_channels * output_size
+            config['cnn_1d']['in_channels'] = out_channels * output_size + config['conditional_dims']
 
     @classmethod
     def get_transpose_config(cls, config, transpose_config=None):
         assert config['factory'] == cls, (config['factory'], cls)
         if transpose_config is None:
             transpose_config = dict()
-        transpose_config['factory'] = HybridCNNTranspose
+        transpose_config['factory'] = CNNTranspose
         transpose_config['cnn_transpose_1d'] = config['cnn_1d']['factory'].get_transpose_config(config['cnn_1d'])
         transpose_config['cnn_transpose_2d'] = config['cnn_2d']['factory'].get_transpose_config(config['cnn_2d'])
         return transpose_config
@@ -99,7 +138,7 @@ class HybridCNN(Module):
         return cnn_2d_lengths, cnn_1d_lengths
 
 
-class HybridCNNTranspose(Module):
+class CNNTranspose(Module):
     """
     Combines CNNTranspose1d and CNNTranspose2d sequentially.
     """
@@ -160,7 +199,7 @@ class HybridCNNTranspose(Module):
         assert config['factory'] == cls
         if transpose_config is None:
             transpose_config = dict()
-        transpose_config['factory'] = HybridCNN
+        transpose_config['factory'] = CNN
         transpose_config['cnn_2d'] = config['cnn_transpose_2d']['factory'].get_transpose_config(config['cnn_transpose_2d'])
         transpose_config['cnn_1d'] = config['cnn_transpose_1d']['factory'].get_transpose_config(config['cnn_transpose_1d'])
         return transpose_config

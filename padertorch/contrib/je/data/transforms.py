@@ -1,6 +1,7 @@
 import json
 from math import ceil
 from pathlib import Path
+from typing import Callable
 
 import dataclasses
 import numpy as np
@@ -167,7 +168,7 @@ class AudioReader:
         if self.alignment_keys is not None:
             for ali_key in self.alignment_keys:
                 if f'{ali_key}_start_times' in example or f'{ali_key}_stop_times' in example:
-                    assert ali_key in example and f'{ali_key}_start_times' in example and f'{ali_key}_stop_times' in example, example.keys()
+                    assert f'{ali_key}_start_times' in example and f'{ali_key}_stop_times' in example, example.keys()
                     example[f'{ali_key}_start_samples'] = [
                         int(self.target_sample_rate*t)
                         for t in example[f'{ali_key}_start_times']
@@ -191,7 +192,7 @@ class AudioReader:
 @dataclasses.dataclass
 class STFT(BaseSTFT):
     """
-    >>> stft = STFT(200, 801, alignment_keys=['labels'], pad=False, fading='half')
+    >>> stft = STFT(200, 1024, 800, alignment_keys=['labels'], pad=False, fading='half')
     >>> out = stft({'audio_data': np.random.rand(32000), 'labels': ['a','b','c'], 'labels_start_samples': [99, 12000, 24000], 'labels_stop_samples': [10000, 16000, 32000]})
     >>> out['stft'].shape
     >>> out['labels_start_frames']
@@ -225,42 +226,96 @@ class STFT(BaseSTFT):
 
 
 @dataclasses.dataclass
-class AugmentedSTFT:
+class TimeWarpedSTFT:
     """
-    >>> stft = STFT(200, 800, alignment_keys=['labels'], pad=False, fading='full')
-    >>> out = stft({'audio_data': np.random.rand(80000)[None], 'labels': ['a','b','c'], 'labels_start_samples': [100, 12000, 24000], 'labels_stop_samples': [10000, 16000, 32000]})
+    >>> stft = STFT(200, 1024, 800, alignment_keys=['labels'], pad=True, fading='full')
+    >>> out = stft({'audio_data': np.random.rand(80000)[None], 'labels': ['a','b','c'], 'labels_start_samples': [100, 12000, 24000], 'labels_stop_samples': [40000, 60000, 80000]})
     >>> out['stft'].shape
     >>> out['labels']
+    >>> out['labels_start_samples']
+    >>> out['labels_stop_samples']
     >>> out['labels_start_frames']
     >>> out['labels_stop_frames']
-    >>> augmented_stft = AugmentedSTFT(stft, 1., lambda n: (np.random.choice([0.75, 1.25], n)), 8000, lambda: (np.random.choice([0.5, 1.5])), 1.)
-    >>> out = augmented_stft({'audio_data': np.random.rand(80000)[None], 'labels': ['a','b','c'], 'labels_start_samples': [100, 12000, 24000], 'labels_stop_samples': [10000, 16000, 32000]})
+    >>> time_warped_stft = TimeWarpedSTFT(stft, lambda: (np.random.choice([.5,])), lambda: (np.random.choice([0.1,])))
+    >>> out = time_warped_stft({'audio_data': np.random.rand(80000)[None], 'labels': ['a','b','c'], 'labels_start_samples': [100, 12000, 24000], 'labels_stop_samples': [40000, 60000, 80000]})
     >>> out['stft'].shape
     >>> out['labels']
+    >>> out['labels_start_samples']
+    >>> out['labels_stop_samples']
     >>> out['labels_start_frames']
     >>> out['labels_stop_frames']
     """
     base_stft: STFT
-    warp_prob: float = 1.
-    warp_factor_sampling_fn: callable = None
-    warp_segment_length: int = None
-    scale_sample_fn: callable = None
-    roll_prob: float = 0.
+    anchor_sampling_fn: Callable
+    anchor_shift_sampling_fn: Callable
 
     def __call__(self, example):
-        example = self.maybe_roll(example)
-        example = self.stft(example)
-        example = self.maybe_scale(example)
+        assert callable(self.anchor_sampling_fn), type(self.anchor_sampling_fn)
+        assert callable(self.anchor_shift_sampling_fn), type(self.anchor_shift_sampling_fn)
+        anchor = self.anchor_sampling_fn()
+        shift = self.anchor_shift_sampling_fn()
+        warp_factor = (anchor + shift) / anchor
+        overlap = self.base_stft.window_length - self.base_stft.shift
+        audio = self.pad_audio(example["audio_data"])
+        num_samples = audio.shape[-1]
+        shifts = [
+            round(self.base_stft.shift / warp_factor),
+            round(self.base_stft.shift * (1 - anchor)/(1 - anchor*warp_factor))
+        ]
+        warp_factor = self.base_stft.shift / shifts[0]
+        boundary_sample = (num_samples - overlap) * anchor
+        boundary_sample = round(boundary_sample/shifts[0]) * shifts[0] + overlap
+        onsets = [0, boundary_sample - overlap]
+        seg_lens = [boundary_sample, num_samples - boundary_sample + overlap]
+
+        x = []
+        for i, (onset, seg_len, shift) in enumerate(zip(onsets, seg_lens, shifts)):
+            offset = onset + seg_len
+            stft = STFT(
+                shift=shift,
+                size=self.base_stft.size,
+                window_length=self.base_stft.window_length,
+                window=self.base_stft.window,
+                symmetric_window=self.base_stft.symmetric_window,
+                pad=(i == 1) and self.base_stft.pad,
+                fading=None,
+                alignment_keys=self.base_stft.alignment_keys,
+            )
+            x.append(stft(audio[..., onset:offset]))
+        x = np.concatenate(x, axis=1)
+        example["stft"] = np.stack([x.real, x.imag], axis=-1).astype(np.float32)
+        num_frames = example["stft"].shape[1]
+        # print(num_frames, boundary_frame)
+        if self.base_stft.alignment_keys is not None:
+            self.base_stft.add_start_stop_frames(example)
+            boundary_frame = self.base_stft.sample_index_to_frame_index(boundary_sample)
+            for ali_key in self.base_stft.alignment_keys:
+                if f'{ali_key}_start_frames' in example:
+                    example[f'{ali_key}_start_frames'] = [
+                        round(start_frame*warp_factor) if start_frame < boundary_frame
+                        else round(
+                            boundary_frame*warp_factor
+                            + (start_frame - boundary_frame)
+                            * (num_frames - boundary_frame*warp_factor)
+                            / (num_frames - boundary_frame)
+                        )
+                        for start_frame in example[f'{ali_key}_start_frames']
+                    ]
+                if f'{ali_key}_stop_frames' in example:
+                    example[f'{ali_key}_stop_frames'] = [
+                        round(stop_frame*warp_factor) if stop_frame < boundary_frame
+                        else round(
+                            boundary_frame*warp_factor
+                            + (stop_frame - boundary_frame)
+                            * (num_frames - boundary_frame*warp_factor)
+                            / (num_frames - boundary_frame)
+                        )
+                        for stop_frame in example[f'{ali_key}_stop_frames']
+                    ]
         return example
 
-    def stft(self, example):
-        if np.random.rand() > self.warp_prob:
-            return self.base_stft(example)
-        assert self.warp_factor_sampling_fn is not None
-        audio = example["audio_data"]
+    def pad_audio(self, audio):
         pad_widths = [0, 0]
-        if self.base_stft.pad:
-            pad_widths[-1] = self.base_stft.shift - 1
         if self.base_stft.fading == "full":
             pad_widths[0] += self.base_stft.window_length - self.base_stft.shift
             pad_widths[-1] += self.base_stft.window_length - self.base_stft.shift
@@ -271,132 +326,7 @@ class AugmentedSTFT:
             raise ValueError(f'Invalid fading {self.base_stft.fading}.')
         if sum(pad_widths) > 0:
             audio = np.pad(audio, [[0, 0], pad_widths], mode='constant')
-        num_samples = audio.shape[-1]
-        if self.warp_segment_length is None:
-            n_segments = 1
-            segment_length = num_samples
-        else:
-            n_segments = ceil(num_samples / self.warp_segment_length)
-            segment_length = ceil(num_samples / n_segments)
-        shifts = (self.base_stft.shift / self.warp_factor_sampling_fn(n_segments)).astype(np.int)
-        n_frames = (segment_length - (self.base_stft.window_length - shifts) + self.base_stft.window_length - 1) // shifts
-        segment_lengths = (self.base_stft.window_length - shifts) + n_frames * shifts
-        segments = []
-        total_shifts = n_frames*shifts
-        onsets = np.cumsum(total_shifts) - total_shifts
-        for onset, seg_len, shift in zip(onsets, segment_lengths, shifts):
-            offset = onset + seg_len
-            segments.append({
-                'audio_data': audio[..., onset:offset],
-            })
-            if self.base_stft.alignment_keys is not None:
-                for ali_key in self.base_stft.alignment_keys:
-                    if f'{ali_key}_start_samples' in example or f'{ali_key}_stop_samples' in example:
-                        assert f'{ali_key}_start_samples' in example and f'{ali_key}_stop_samples' in example, example.keys()
-                        segments[-1].update({
-                            ali_key: [],
-                            f'{ali_key}_start_samples': [],
-                            f'{ali_key}_stop_samples': [],
-                        })
-                        for label, start_sample, stop_sample in zip(
-                                example[ali_key],
-                                example[f'{ali_key}_start_samples'],
-                                example[f'{ali_key}_stop_samples'],
-                        ):
-                            start_sample = start_sample + pad_widths[0]
-                            stop_sample = stop_sample + pad_widths[0]
-                            if (
-                                    stop_sample > (onset + self.base_stft.window_length//2)
-                                    and start_sample < (offset - self.base_stft.window_length//2)
-                            ):
-                                segments[-1][ali_key].append(label)
-                                segments[-1][f'{ali_key}_start_samples'].append(max(start_sample-onset, 0))
-                                segments[-1][f'{ali_key}_stop_samples'].append(min(stop_sample, offset)-onset)
-            stft = STFT(
-                shift=shift,
-                size=self.base_stft.size,
-                window_length=self.base_stft.window_length,
-                window=self.base_stft.window,
-                symmetric_window=self.base_stft.symmetric_window,
-                pad=False,
-                fading=None,
-                alignment_keys=self.base_stft.alignment_keys,
-            )
-            segments[-1] = stft(segments[-1])
-
-        example['stft'] = np.concatenate([segment['stft'] for segment in segments], axis=1)
-        n_frames = [segment['stft'].shape[1] for segment in segments]
-        frame_onsets = np.cumsum(n_frames) - n_frames
-        if self.base_stft.alignment_keys is not None:
-            for ali_key in self.base_stft.alignment_keys:
-                if f'{ali_key}_start_samples' in example or f'{ali_key}_stop_samples' in example:
-                    example[f'{ali_key}_start_frames'] = []
-                    example[f'{ali_key}_stop_frames'] = []
-                    for segment, seg_onset in zip(segments, frame_onsets):
-                        for start, stop in zip(
-                            segment[f'{ali_key}_start_frames'],
-                            segment[f'{ali_key}_stop_frames'],
-                        ):
-                            # if stop == start:
-                            #     raise Exception
-                            start += seg_onset
-                            stop += seg_onset
-                            if len(example[f'{ali_key}_stop_frames']) > 0 and example[f'{ali_key}_stop_frames'][-1] >= start:
-                                example[f'{ali_key}_stop_frames'][-1] = stop
-                            else:
-                                example[f'{ali_key}_start_frames'].append(start)
-                                example[f'{ali_key}_stop_frames'].append(stop)
-        return example
-
-    def maybe_roll(self, example):
-        if np.random.rand() < self.roll_prob:
-            example = self.roll(example, key='audio_data')
-        return example
-
-    def roll(self, example, key):
-        assert key in ['audio_data', 'stft']
-        seq_len = example[key].shape[1]
-        n_roll = int(np.random.rand()*seq_len)
-        if n_roll != 0:
-            example[key] = np.roll(example[key], n_roll, axis=1)
-            if self.base_stft.alignment_keys is not None:
-                unit = 'samples' if key == 'audio_data' else 'frames'
-                for ali_key in self.base_stft.alignment_keys:
-                    labels = example.pop(ali_key)
-                    starts = example.pop(f'{ali_key}_start_{unit}')
-                    stops = example.pop(f'{ali_key}_stop_{unit}')
-                    example[ali_key] = []
-                    example[f'{ali_key}_start_{unit}'] = []
-                    example[f'{ali_key}_stop_{unit}'] = []
-                    for label, start, stop in zip(labels, starts, stops):
-                        assert stop >= start, (start, stop)
-                        start = (start + n_roll) % seq_len
-                        stop = (stop + n_roll) % seq_len
-                        if stop < start:
-                            example[ali_key].append(label)
-                            example[f'{ali_key}_start_{unit}'].append(start)
-                            example[f'{ali_key}_stop_{unit}'].append(seq_len)
-                            start = 0
-                        example[ali_key].append(label)
-                        example[f'{ali_key}_start_{unit}'].append(start)
-                        example[f'{ali_key}_stop_{unit}'].append(stop)
-                    sort_idx = np.argsort(example[f'{ali_key}_start_{unit}']).flatten().tolist()
-                    example[ali_key] = [example[ali_key][i] for i in sort_idx]
-                    example[f'{ali_key}_start_{unit}'] = [
-                        example[f'{ali_key}_start_{unit}'][i]
-                        for i in sort_idx
-                    ]
-                    example[f'{ali_key}_stop_{unit}'] = [
-                        example[f'{ali_key}_stop_{unit}'][i]
-                        for i in sort_idx
-                    ]
-        return example
-
-    def maybe_scale(self, example):
-        if self.scale_sample_fn is not None:
-            scale = self.scale_sample_fn()
-            example['stft'] = example['stft'] * scale
-        return example
+        return audio
 
 
 class MelTransform(BaseMelTransform):
@@ -511,18 +441,24 @@ class MultiHotAlignmentEncoder(LabelEncoder):
     to_array: bool = False
 
     def __call__(self, example):
-        labels = super().__call__(example)[self.label_key]
-        n_frames = example['stft'].shape[1]
-        ali = np.zeros((n_frames, len(self.label_mapping)), dtype=np.float32)
         assert f'{self.label_key}_start_frames' in example, (example['dataset'], example.keys())
-        for label, onset, offset in zip(
-                labels,
+        labels = super().__call__(example)[self.label_key]
+        seq_len = example['stft'].shape[1]
+        example[self.label_key] = self.encode_alignment(
+            zip(
                 example[f'{self.label_key}_start_frames'],
-                example[f'{self.label_key}_stop_frames']
-        ):
-            ali[onset:offset, label] = 1
-        example[self.label_key] = ali
+                example[f'{self.label_key}_stop_frames'],
+                labels
+            ),
+            seq_len=seq_len,
+        )
         return example
+
+    def encode_alignment(self, onset_offset_label, seq_len):
+        ali = np.zeros((seq_len, len(self.label_mapping)), dtype=np.float32)
+        for onset, offset, label in onset_offset_label:
+            ali[onset:offset, label] = 1
+        return ali
 
 
 @dataclasses.dataclass
