@@ -36,6 +36,7 @@ __all__ = [
     'LossWeightAnnealingHook',
     'ModelAttributeAnnealingHook',
     'LRAnnealingHook',
+    'EmissionsTrackerHook',
 ]
 
 
@@ -1022,3 +1023,46 @@ class LRAnnealingHook(AnnealingHook):
         optimizer = self.get_optimizer(trainer)
         for param_group in optimizer.param_groups:
             param_group['lr'] = value
+
+
+class EmissionsTrackerHook(TriggeredHook):
+    @property
+    def priority(self):
+        return Priority.SUMMARY
+
+    def __init__(self, trigger, prefix='x_emissions', storage_dir=None):
+        super().__init__(trigger)
+        self.prefix = prefix
+        self.storage_dir = storage_dir
+        from codecarbon import EmissionsTracker
+        self.tracker = EmissionsTracker(
+            output_dir=storage_dir, on_csv_write="update", log_level='error')
+        self.tracker.start()
+
+    def pre_step(self, trainer: 'pt.Trainer'):
+        if self.trigger(iteration=trainer.iteration, epoch=trainer.epoch):
+            self.tracker.flush()
+            self.dump_emissions(trainer)
+
+    def dump_emissions(self, trainer):
+        emissions_file = Path(self.storage_dir) / 'emissions.csv'
+        with emissions_file.open() as fid:
+            lines = fid.read().split('\n')
+        if len(lines) < 3:
+            return
+        lines = lines[:-1]
+        emissions = {
+            key: value for key, value in zip(
+                lines[0].split(','), lines[-1].split(','))
+        }
+        for key in [
+            'emissions', 'cpu_energy', 'gpu_energy', 'ram_energy',
+            'energy_consumed'
+        ]:
+            tag = f'{self.prefix}/{key}'
+            trainer.writer.add_scalar(
+                tag, float(emissions[key]), trainer.iteration)
+
+    def close(self, trainer: 'pt.Trainer'):
+        self.tracker.stop()
+        self.dump_emissions(trainer)
