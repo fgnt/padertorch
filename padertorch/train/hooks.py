@@ -1026,6 +1026,10 @@ class LRAnnealingHook(AnnealingHook):
 
 
 class EmissionsTrackerHook(TriggeredHook):
+    """
+    Estimates overall emissions and cpu-, gpu-, ram- and overall power consumption
+    (since training start) using codecarbon and reports values in tensorboard.
+    """
     @property
     def priority(self):
         return Priority.SUMMARY
