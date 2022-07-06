@@ -139,6 +139,7 @@ class Trainer(Configurable):
             CheckpointHook(checkpoint_trigger),
             StopTrainingHook(stop_trigger),
         ]
+        self._summary_trigger = summary_trigger
         self._stop_trigger = stop_trigger
         self._checkpoint_trigger = checkpoint_trigger
 
@@ -199,6 +200,7 @@ class Trainer(Configurable):
             train_dataset,
             *,
             progress_bar=True,
+            track_emissions=False,
             resume=False,
             device=None,
     ):
@@ -222,13 +224,14 @@ class Trainer(Configurable):
         (e.g. see test_runtime_tests.py DictTrainer for multi model trainer)
 
         Args:
-            train_iterator:
-                The train_iterator is python iterable (e.g. tuple, list, ...)
+            train_dataset:
+                The train_dataset is python iterable (e.g. tuple, list, ...)
                 that can consumed multiple times (i.e. not generator).
 
                 Usually it will be paderbox.database.BaseIterator that is
                 returned from a database in paderbox.database.
             progress_bar: flag whether to show a progress bar or not.
+            track_emissions: flag whether to track emissions using codecarbon.
             resume:
                 Whether to resume a training or start a fresh one.
             device:
@@ -298,6 +301,9 @@ class Trainer(Configurable):
             # set_last updates the iteration counter in case of resume
             progressbar_hook.set_last(self.iteration, self.epoch)
             hooks.append(progressbar_hook)
+        if track_emissions:
+            hooks.append(EmissionsTrackerHook(
+                self._summary_trigger, storage_dir=self.storage_dir))
         hooks = sorted(hooks, key=lambda h: h.priority, reverse=True)
 
         if len(device) >= 2:
