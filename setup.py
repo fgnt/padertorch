@@ -36,6 +36,7 @@ test = [
     'torch_complex',  # https://github.com/kamo-naoyuki/pytorch_complex
     'pyyaml',
     'humanize',
+    'codecarbon',
 ]
 
 setup(
