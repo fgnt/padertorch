@@ -11,7 +11,6 @@ import torch
 
 import paderbox as pb
 import padertorch as pt
-import padercontrib as pc
 
 from padertorch.contrib.cb.transform import stft as pt_stft, istft as pt_istft
 from padertorch.contrib.cb import complex as pt_complex
