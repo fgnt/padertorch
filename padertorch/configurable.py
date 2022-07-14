@@ -1332,6 +1332,10 @@ def config_to_instance(config, strict=False):
     >>> config_to_instance(config)
     <class 'torch.nn.modules.linear.Linear'>
     """
+
+    if isinstance(config, _DogmaticConfig):
+        config = config.to_dict()  # if called in finalize_dogmatic dict
+
     if isinstance(config, dict):
         special_key = _get_special_key(config)
         if special_key:
