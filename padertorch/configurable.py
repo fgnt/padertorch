@@ -434,10 +434,21 @@ class Configurable:
         """Produce a Configurable instance from a valid config."""
         # TODO: assert do not use defaults
 
+
         if isinstance(config, _DogmaticConfig):
             config = config.to_dict()  # if called in finalize_dogmatic dict
         assert 'factory' in config, (cls, config)
         if cls is not Configurable:
+
+            if cls.__module__ == '__main__':
+                # When a class is defined in the main script, it will be
+                # __main__.<ModelName>, but it should be <script>.<ModelName>.
+                # This fix is active when the script is called with
+                # "python -m <script> ..."
+                # but not when it is called with "python <script>.py ..."
+                # pylint: disable=self-cls-assignment
+                cls = import_class(class_to_str(cls))
+
             assert issubclass(import_class(config['factory']), cls), \
                 (config['factory'], cls)
 
