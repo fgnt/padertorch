@@ -391,7 +391,7 @@ class ShapeTracker(Tracker):
             try:
                 return list(obj.shape)
             except AttributeError:
-                return 'unknown'
+                return '?'
 
     def pre(self, module, input):
         self.input_shape = self.get_shape(input)
@@ -655,7 +655,7 @@ class IOPNumTracker(Tracker):
             self.maybe_add(t, 'tensors_learnable', 'tensors_fixed')
 
     def _to_str(self, value):
-        return f'{value:6}'
+        return f'{value:6_}'
 
     @property
     def data(self):
@@ -706,7 +706,7 @@ class IOPMemTracker(IOPNumTracker):
         return tensor.nelement() * tensor.element_size()
 
     def _to_str(self, value):
-        return f'{value:6} B'
+        return f'{value:6_} B'
 
     @property
     def data(self):
