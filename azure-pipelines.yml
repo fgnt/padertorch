@@ -12,9 +12,6 @@ trigger:
 
 strategy:
   matrix:
-    Python36:
-      IMAGE_NAME: 'ubuntu-18.04'
-      python.version: '3.6'
     Python37:
       IMAGE_NAME: 'ubuntu-18.04'
       python.version: '3.7'

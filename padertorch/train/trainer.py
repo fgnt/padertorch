@@ -156,6 +156,9 @@ class Trainer(Configurable):
             temporary_directory=None,
             deterministic_atol=1e-5,
             deterministic_rtol=1e-5,
+            loss_atol=1e-6,
+            loss_rtol=1e-6,
+            virtual_minibatch_size=None,
     ):
         """
         Run a test on the trainer instance (i.e. model test).
@@ -193,6 +196,9 @@ class Trainer(Configurable):
             temporary_directory=temporary_directory,
             deterministic_atol=deterministic_atol,
             deterministic_rtol=deterministic_rtol,
+            loss_atol=loss_atol,
+            loss_rtol=loss_rtol,
+            virtual_minibatch_size=virtual_minibatch_size,
         )
 
     def train(

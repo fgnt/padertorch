@@ -81,6 +81,9 @@ def test_run(
         *,
         deterministic_atol=1e-5,
         deterministic_rtol=1e-5,
+        loss_atol=1e-6,
+        loss_rtol=1e-6,
+        virtual_minibatch_size=None,
 ):
     """
 
@@ -139,6 +142,13 @@ def test_run(
             'epoch',
             new=-1,
         ))
+        if virtual_minibatch_size is not None:
+            assert virtual_minibatch_size > 0, virtual_minibatch_size
+            exit_stack.enter_context(mock.patch.object(
+                trainer,
+                'virtual_minibatch_size',
+                new=virtual_minibatch_size,
+            ))
 
         class SpyMagicMock(mock.MagicMock):
             def __init__(self, *args, **kw):
@@ -316,8 +326,8 @@ def test_run(
         # nested_test_assert_allclose(dt4['review'], dt8['review'])
 
         # Expect that the initial loss is equal for two runs
-        nested_test_assert_allclose(dt1['loss'], dt5['loss'], rtol=1e-6, atol=1e-6)
-        nested_test_assert_allclose(dt2['loss'], dt6['loss'], rtol=1e-6, atol=1e-6)
+        nested_test_assert_allclose(dt1['loss'], dt5['loss'], rtol=loss_rtol, atol=loss_atol)
+        nested_test_assert_allclose(dt2['loss'], dt6['loss'], rtol=loss_rtol, atol=loss_atol)
         try:
             with np.testing.assert_raises(AssertionError):
                 # Expect that the loss changes after training.

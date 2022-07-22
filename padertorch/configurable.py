@@ -434,10 +434,21 @@ class Configurable:
         """Produce a Configurable instance from a valid config."""
         # TODO: assert do not use defaults
 
+
         if isinstance(config, _DogmaticConfig):
             config = config.to_dict()  # if called in finalize_dogmatic dict
         assert 'factory' in config, (cls, config)
         if cls is not Configurable:
+
+            if cls.__module__ == '__main__':
+                # When a class is defined in the main script, it will be
+                # __main__.<ModelName>, but it should be <script>.<ModelName>.
+                # This fix is active when the script is called with
+                # "python -m <script> ..."
+                # but not when it is called with "python <script>.py ..."
+                # pylint: disable=self-cls-assignment
+                cls = import_class(class_to_str(cls))
+
             assert issubclass(import_class(config['factory']), cls), \
                 (config['factory'], cls)
 
@@ -1321,6 +1332,10 @@ def config_to_instance(config, strict=False):
     >>> config_to_instance(config)
     <class 'torch.nn.modules.linear.Linear'>
     """
+
+    if isinstance(config, _DogmaticConfig):
+        config = config.to_dict()  # if called in finalize_dogmatic dict
+
     if isinstance(config, dict):
         special_key = _get_special_key(config)
         if special_key:
@@ -1534,7 +1549,7 @@ def _sacred_dogmatic_to_dict(config):
         return config
 
 
-def _get_signature(cls, drop_positional_only=False):
+def _get_signature(cls, drop_positional_only=False, drop_type_annotations=False):
     """
 
     >>> _get_signature(dict)
@@ -1555,6 +1570,12 @@ def _get_signature(cls, drop_positional_only=False):
     ...
     ValueError: no signature found for builtin type <class 'set'>
 
+
+    >>> _get_signature(Configurable.from_file)
+    <Signature (config_path: pathlib.Path, in_config_path: str = '', consider_mpi=False)>
+    >>> _get_signature(Configurable.from_file, drop_type_annotations=True)
+    <Signature (config_path, in_config_path='', consider_mpi=False)>
+
     """
     if cls in [
         set,  # py38: set missing signature
@@ -1567,7 +1588,7 @@ def _get_signature(cls, drop_positional_only=False):
                 default=(),
             )]
         )
-    elif cls in [dict]:
+    elif cls.__init__ in [dict.__init__]:
         # Dict has no correct signature, hence return the signature, that is
         # needed here.
         sig = inspect.Signature(
@@ -1586,6 +1607,15 @@ def _get_signature(cls, drop_positional_only=False):
                 if p.kind != inspect.Parameter.POSITIONAL_ONLY
             ]
         )
+    if drop_type_annotations:
+        sig = sig.replace(
+            parameters=[
+                p.replace(annotation=p.empty)
+                for p in sig.parameters.values()
+            ],
+            return_annotation=sig.empty
+        )
+
     return sig
 
 
@@ -1609,7 +1639,16 @@ class _DogmaticConfig:
         """
         if factory in [tuple, list, set, dict]:
             return {}
-        sig = inspect.signature(factory)
+        try:
+            sig = inspect.signature(factory)
+        except ValueError:
+            if factory.__init__ in [tuple.__init__, list.__init__, set.__init__, dict.__init__]:
+                # Buildin type is in MRO and __init__ is not overwritten. e.g.
+                # ValueError: no signature found for builtin type <class 'paderbox.utils.mapping.Dispatcher'>
+                return {}
+            else:
+                raise
+
         defaults = {}
         param: inspect.Parameter
         for name, param in sig.parameters.items():
@@ -1800,7 +1839,7 @@ class _DogmaticConfig:
                     f'{msg}\n'
                     f'Too many keywords for the factory {imported}.\n'
                     f'Redundant keys: {redundant_keys}\n'
-                    f'Signature: {_get_signature(imported)}\n'
+                    f'Signature: {_get_signature(imported, drop_type_annotations=True)}\n'
                     f'Current config with fallbacks:\n{pretty(self.data)}'
                 )
 
@@ -1946,7 +1985,7 @@ class _DogmaticConfig:
             except KeyError as ex:
                 from IPython.lib.pretty import pretty
                 if self.special_key == 'factory' \
-                        and self.special_key  in self._key_candidates() and \
+                        and self.special_key in self._key_candidates() and \
                         k != self.special_key:
                     # KeyError has a bad __repr__, use Exception
                     missing_keys = set(self._key_candidates()) - set(self.data.keys())
