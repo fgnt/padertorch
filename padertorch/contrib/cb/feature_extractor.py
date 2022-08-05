@@ -175,8 +175,11 @@ def interchannel_phase_differences(signal, second_channel=None, concatenate=Fals
     import itertools, random
 
     if second_channel is None:
-        D = signal.shape[-3]
-        assert D == 6, (D, signal.shape)
+        try:
+            D = signal.shape[-3]
+        except IndexError:
+            raise IndexError(signal.shape)
+        assert D >= 2, (D, signal.shape)
         l = list(itertools.permutations(range(D), 2))
         np.random.shuffle(l)
         second_channel = np.array(sorted(dict(l).items()))[:, 1]
@@ -295,6 +298,7 @@ class STFT(AbstractFeatureExtractor):
             output_size=None,
             window='blackman'
     ):
+        super().__init__()
         self.size = size
         self.shift = shift
         if window_length is None:
@@ -325,6 +329,7 @@ class STFT(AbstractFeatureExtractor):
                 'bohman': signal.windows.bohman,
                 'kaiser2': functools.partial(signal.windows.kaiser, beta=2),
                 'kaiser3': functools.partial(signal.windows.kaiser, beta=2),
+                'povey': lambda *args: signal.windows.hann(*args)**0.85,
             }[window]
         else:
             raise ValueError(window)
