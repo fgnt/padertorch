@@ -28,7 +28,7 @@ endif
 	$(eval override LIBRI_PATH=$(addsuffix /LibriSpeech,$(LIBRI_PATH)))
 	python create_jsons.py with rir_path=$(RIR_PATH) rir_json_path=$(RIR_JSON) libri_path=$(LIBRI_PATH) libri_json_path=$(LIBRI_JSON) vad_json_path=$(VAD_JSON)
 
-rir: #assumes that LibriSpeech already exists
+rir: #assumes that LibriSpeech already exists and should be updated with VAD information
 ifndef LIBRI_JSON
 	$(error 'Please specify LIBRI_JSON; the path, where the LibriSpeech JSON is stored or fill out the constants in the Makefile')
 endif

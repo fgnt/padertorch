@@ -265,7 +265,7 @@ class DistanceEstimator(Model):
         self.d_min = d_min
 
     def forward(self, inputs):
-        # Rund the forward path of the network
+        # Run the forward path of the network
         return self.net(inputs['features'])
 
     def review(self, inputs, outputs):

@@ -20,10 +20,10 @@ import numpy as np
 from sacred import Experiment as Exp, SETTINGS
 from sacred.observers import FileStorageObserver
 
-from data import AudioPreparation, FeatureExtraction, DataProvider
+from .data import AudioPreparation, FeatureExtraction, DataProvider
 import lazy_dataset
 from lazy_dataset.database import JsonDatabase
-from model import CRNN, DistanceEstimator
+from .model import CRNN, DistanceEstimator
 from paderbox.utils.nested import deflatten
 from paderbox.transform.module_stft import get_stft_center_frequencies
 import padertorch as pt
@@ -232,6 +232,7 @@ def prepare_data_iterator(data_provider_conf, rir_json,
                 Path to the json of the database with the RIRs
             dataset_key (str):
                 Key for the dataset that should be prepared
+                like "train", "dev" or "eval"
             mic_pairs (list of tuples):
                 The pairs of microphones which microphone signals should be
                 considered for the feature extraction
@@ -266,9 +267,19 @@ def prepare_data_iterator(data_provider_conf, rir_json,
     if dataset_key == "train":
         data_provider_conf["feature_extractor"]["audio_preparator"][
             "random_speech_samples"] = True
-    else:
+        data_provider_conf["feature_extractor"]["audio_preparator"][
+            "speech_db_part"] = "train_clean_100"
+    elif dataset_key == "dev":
         data_provider_conf["feature_extractor"]["audio_preparator"][
             "random_speech_samples"] = False
+        data_provider_conf["feature_extractor"]["audio_preparator"][
+            "speech_db_part"] = "dev_clean"
+    elif dataset_key == "eval":
+        data_provider_conf["feature_extractor"]["audio_preparator"][
+            "random_speech_samples"] = False
+        data_provider_conf["feature_extractor"]["audio_preparator"][
+            "speech_db_part"] = "test_clean"
+
     data_provider = DataProvider.from_config(data_provider_conf)
     iterator = data_provider.prepare_iterable(dataset)
     return iterator

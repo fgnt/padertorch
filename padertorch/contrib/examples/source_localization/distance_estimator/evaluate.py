@@ -28,10 +28,10 @@ import torch
 from torch import nn
 
 import dlp_mpi
-from model import DistanceEstimator
+from .model import DistanceEstimator
 import paderbox as pb
 import padertorch as pt
-from train import prepare_data_iterator
+from .train import prepare_data_iterator
 
 ex = Experiment('Evaluate Distance Estimator')
 

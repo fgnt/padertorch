@@ -10,8 +10,9 @@ requirements or have to be downloaded.
 
 If only one path is specified, only the corresponding database is downloaded.
 
-The JSON for the VAD information regarding the LibriSpeech train_clean_100
-dataset has to be downloaded in any case, so its path must be specified.
+The JSON for the VAD information regarding the necessary LibriSpeech datasets
+train_clean_100, dev-clean and test-clean has to be downloaded in any case
+if LibriSpeech should be used, so its path must then be specified.
 The path for this file is assumed to be the same as for the LibriSpeech
 database, unless otherwise stated, which can be done by adding the suffix
 "with vad_json_path=/PATH/TO/VAD_JSON" to the call.
@@ -37,11 +38,15 @@ def config():
     libri_path = None
     rir_path = None
     vad_json_path = None
-    if vad_json_path is None:
+    if vad_json_path is None and libri_path is not None:
         vad_json_path = Path(libri_path) / "speech_activity_librispeech.json"
         msg = "Please specify a path where to store the VAD information JSON"
         assert vad_json_path is not None, msg
-    libri_url = 'http://www.openslr.org/resources/12/train-clean-100.tar.gz'
+    libri_urls = [
+        'http://www.openslr.org/resources/12/train-clean-100.tar.gz',
+        'https://www.openslr.org/resources/12/dev-clean.tar.gz',
+        'https://www.openslr.org/resources/12/test-clean.tar.gz'
+        ]
     vad_json_url = 'https://zenodo.org/record/7071619/files/' \
                    'speech_activity_librispeech.json?download=1'
     rir_url = 'https://zenodo.org/record/5679070/files/async_wasn.tar.gz'
@@ -76,22 +81,30 @@ def check_files(rir_path, libri_path):
                     download_list.append("rir")
                     break
         else:
-            if not Path(Path(libri_path) / 'train-clean-100').exists():
-                download_list.append("librispeech")
+            requirements = ["train-clean-100", "dev-clean", "test-clean"]
+            for item in requirements:
+                if not Path(Path(libri_path) / item).exists():
+                    download_list.append("librispeech")
+                    break
     return download_list
 
 
 @ex.automain
 def download(rir_path, libri_path, rir_url,
-             libri_url, vad_json_url, vad_json_path):
-    if not Path(vad_json_path).suffix == '.json':
-        vad_json_path = \
-            Path(vad_json_path) / "speech_activity_librispeech.json"
-    download_file(vad_json_url, vad_json_path, exist_ok=True)
-    print(f"Downloaded VAD-JSON to {vad_json_path}")
+             libri_urls, vad_json_url, vad_json_path):
+    if vad_json_path is not None:
+        if not Path(vad_json_path).suffix == '.json':
+            vad_json_path = \
+                Path(vad_json_path) / "speech_activity_librispeech.json"
+        download_file(vad_json_url, vad_json_path, exist_ok=True)
+        print(f"Downloaded VAD-JSON to {vad_json_path}")
     if libri_path is None and rir_path is None:
         return
-    lut = dict(rir=[rir_path, rir_url], librispeech=[libri_path, libri_url])
     for dataset in check_files(rir_path, libri_path):
-        download_file_list([lut[dataset][1]], lut[dataset][0], exist_ok=True)
-        print(f'Successfully downloaded "{dataset}" to "{lut[dataset][0]}"')
+        if dataset == "librispeech":
+            for dataset_url in libri_urls:
+                download_file_list([dataset_url], libri_path, exist_ok=True)
+            print(f'Successfully downloaded "{dataset}" to "{libri_path}"')
+        elif dataset == "rir":
+            download_file_list([rir_url], rir_path, exist_ok=True)
+            print(f'Successfully downloaded "{dataset}" to "{rir_path}"')

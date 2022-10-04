@@ -76,7 +76,8 @@ class Diffuseness:
     def __init__(self, psd_smoothing_factor=0.95, d_mic=0.05,
                  fft_length=1024, sample_rate=16000, sound_velocity=343):
         """
-        Calculate the coherent-to-diffuse power ratio (CDR).
+        Calculate the diffuseness based on the
+        coherent-to-diffuse power ratio (CDR).
         The result is in time-frequency-domain.
 
             Args:
@@ -162,9 +163,10 @@ class AudioPreparation:
             msg = "To generate the audio data, a path to a source signal" \
                   " database is needed"
             assert source_sig_path is not None, msg
-            speech_db_part = kwargs.get('speech_db_part', 'train_clean_100')
-            assert speech_db_part in ["dev_clean", "test_clean",
-                                      "train_clean_100", "train_clean_360"]
+            speech_db_part = kwargs.get('speech_db_part', None)
+            msg = "To generate the audio data, a name of a dataset with " \
+                  "source signals is needed."
+            assert speech_db_part is not None, msg
             self.speech_set = \
                 JsonDatabase(source_sig_path).get_dataset(speech_db_part)
         self.random_speech_samples = random_speech_samples
@@ -202,12 +204,12 @@ class AudioPreparation:
         min_len = self.signal_length + len_rirs - 1
         start_offset = 0
         end = -1
-        if self.random_speech_samples:
+        if not self.random_speech_samples:
             speech_key = str_to_random_generator(
                 example["example_id"]).choice(len(self.speech_set))
             counter = 0
         while end <= min_len + start_offset:
-            if self.random_speech_samples:
+            if not self.random_speech_samples:
                 speech_sample = self.speech_set[speech_key + counter]
                 counter += 1
             else:
@@ -216,7 +218,11 @@ class AudioPreparation:
             start_offset = speech_sample['onset']
         audio_path = speech_sample['audio_path']['observation']
         audio = load_audio(audio_path, dtype=np.float32)
-        slice_start = np.random.randint(start_offset, end - min_len)
+        if not self.random_speech_samples:
+            slice_start = str_to_random_generator(
+                example["example_id"]).integers(start_offset, end - min_len)
+        else:
+            slice_start = np.random.randint(start_offset, end - min_len)
         prepared_audio = audio[slice_start:slice_start + min_len]
         return prepared_audio
 
@@ -241,8 +247,13 @@ class AudioPreparation:
             # desired signal length
             # example is skipped later during prefetch or catch
             raise FilterException
-        slice_start = \
-            np.random.randint(start_offset, recording_len - self.signal_length)
+        if not self.random_speech_samples:
+            slice_start = str_to_random_generator(
+                example["example_id"]).integers(
+                start_offset, end - self.signal_length)
+        else:
+            slice_start = np.random.randint(
+                start_offset, recording_len - self.signal_length)
         prepared_audio = audio[:, slice_start:slice_start + self.signal_length]
         return prepared_audio
 
@@ -386,7 +397,7 @@ class DataProvider(Configurable):
                 Instance of FeatureExtraction to get the input features
             prefetch_buffer (int):
                 Number of elements that are prefetched and buffered
-            num_workers (int):
+            max_workers (int):
                 Number of threads/processes used by the backend of lazy_dataset
             shuffle_buffer (int):
                 If set, only a shuffles a window this size is shuffled

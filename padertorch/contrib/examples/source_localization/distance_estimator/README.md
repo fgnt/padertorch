@@ -198,9 +198,9 @@ class which varies a lot from the original one.
 
 input feature      | mae / m | rmse / m | segment length / ms  | accuracy / % | pseudo accuracy / % |
 :-----------------:|:-------:|:--------:|:--------------------:|:------------:| :------------------:|
-Diffuseness        | 0.091   |   0.345  |       1000           |      82.7    |          93.4       |
-ILD                | 0.096   |   0.347  |       1000           |      83.8    |          93.1       |
-STFT               | 0.061   |   0.247  |       1000           |      87.8    |          96.4       |
+Diffuseness        | 0.079   |   0.279  |       1000           |      83.4    |          93.9       |
+ILD                | 0.093   |   0.343  |       1000           |      84.2    |          93.4      |
+STFT               | 0.058   |   0.251  |       1000           |      88.3    |          97.1       |
 
 The pseudo accuracy takes also confusions with direct neighbour classes into account (the next higher as well as the next lower distance class),
 since this only evokes a small distance error and is a result of the unavoidable quantization error.

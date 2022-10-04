@@ -75,7 +75,7 @@ def config():
         assert libri_json_path and vad_json_path is not None, msg
     if libri_mode == "update":
         msg = \
-            'You have to define the path where the LibriSpeech JSON is stored.'
+            'You have to define the path where the LibriSpeech-JSON is stored.'
         assert libri_json_path is not None, msg
     elif libri_mode == "full":
         msg = 'You have to define the path where LibriSpeech is stored.'
@@ -152,28 +152,30 @@ def get_vad_json(vad_json_path):
     if not vad_json_path.suffix == '.json':
         vad_json_path = vad_json_path / "speech_activity_librispeech.json"
     assert vad_json_path.exists(), vad_json_path
-    return load_json(vad_json_path)["train_clean_100"]
+    return load_json(vad_json_path)
 
 
 def create_json_librispeech(database_path, libri_json_path,
                             vad_json_path, wav=False):
     vad_json = get_vad_json(vad_json_path)
-    temp_json = dict()
     if wav:
         identifier = ".wav"
     else:
         identifier = ".flac"
-    for key in vad_json.keys():
-        key_information = key.split("-")
-        audio_file = Path(database_path) / "train-clean-100" / \
-            key_information[0] / key_information[1] / (key+identifier)
-        temp_json[key] = {"speaker_id": key_information[0],
-                          "chapter_id": key_information[1],
-                          "num_samples": audio_length(str(audio_file)),
-                          "audio_path": {"observation": str(audio_file)},
-                          "onset": vad_json[key]["onset"],
-                          "offset": vad_json[key]["offset"]}
-    librispeech_json = {"datasets": {"train_clean_100": temp_json}}
+    librispeech_json = {"datasets": {}}
+    for dataset in ["train_clean_100", "dev_clean", "test_clean"]:
+        temp_json = {}
+        for key in vad_json[dataset].keys():
+            key_information = key.split("-")
+            audio_file = Path(database_path) / dataset.replace("_", "-") / \
+                key_information[0] / key_information[1] / (key+identifier)
+            temp_json[key] = {"speaker_id": key_information[0],
+                              "chapter_id": key_information[1],
+                              "num_samples": audio_length(str(audio_file)),
+                              "audio_path": {"observation": str(audio_file)},
+                              "onset": vad_json[dataset][key]["onset"],
+                              "offset": vad_json[dataset][key]["offset"]}
+        librispeech_json["datasets"][dataset] = temp_json
     if libri_json_path == "" or libri_json_path is None:
         libri_json_path = Path(database_path) / "librispeech.json"
     dump_json(librispeech_json, libri_json_path)
@@ -183,17 +185,21 @@ def create_json_librispeech(database_path, libri_json_path,
 def add_vad_information(libri_json_path, vad_json_path):
     vad_json = get_vad_json(vad_json_path)
     full_libri_json = load_json(libri_json_path)
-    try:
-        libri_json = full_libri_json["datasets"]["train_clean_100"]
-    except KeyError:
+    for dataset in ["train-clean-100", "dev-clean", "test-clean"]:
         try:
-            libri_json = full_libri_json["datasets"]["train-clean-100"]
+            libri_json = full_libri_json["datasets"][dataset]
         except KeyError:
-            print("Inappropriate LibriSpeech-JSON naming scheme")
-            return
-    for key in vad_json.keys():
-        libri_json[key]["onset"] = vad_json[key]["onset"]
-        libri_json[key]["offset"] = vad_json[key]["offset"]
+            try:
+                dataset = dataset.replace("-", "_")
+                libri_json = \
+                    full_libri_json["datasets"][dataset.replace("-", "_")]
+            except KeyError:
+                print("Inappropriate LibriSpeech-JSON naming scheme")
+                return
+        for key in vad_json[dataset].keys():
+            libri_json[key]["onset"] = vad_json[dataset][key]["onset"]
+            libri_json[key]["offset"] = vad_json[dataset][key]["offset"]
+        full_libri_json["datasets"][dataset] = libri_json
     dump_json(full_libri_json, libri_json_path)
     print(f"VAD information were added to existing LibriSpeech-JSON "
           f"at '{libri_json_path}'")
