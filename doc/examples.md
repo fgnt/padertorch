@@ -116,6 +116,8 @@ For most purposes, the structure of the examples should also serve as a good tem
   - [Speaker Classification](../padertorch/contrib/examples/speaker_classification/supervised/README.md):
   - Speech Enhancement:
     - [Mask Estimator](../padertorch/contrib/examples/speech_enhancement/mask_estimator/README.md): 
+  - Source Localization:
+    - [Distance Estimator](../padertorch/contrib/examples/source_localization/distance_estimator/README.md): Implementation based on https://ieeexplore.ieee.org/document/9657505
   - Toy Examples:
     - MNIST: Small toy example showing the application of Padertorch to image data
     - Multi-GPU: Basic description and code example of Padertorch's Multi-GPU support
