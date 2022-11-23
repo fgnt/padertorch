@@ -424,3 +424,28 @@ def test_get_transpose_config():
     assert transpose_config == expected_transpose_config
     transpose_transpose_config = CNNTranspose.get_transpose_config(transpose_config)
     assert transpose_transpose_config == config
+
+
+def test_return_state():
+    cnn2d = CNN2d(
+        in_channels=1, out_channels=[16, 32, 64], kernel_size=3,
+        return_state=True, pad_type=3*[('both', None)],
+    )
+    cnn1d = CNN1d(
+        in_channels=320, out_channels=[64, 128, 256], kernel_size=3,
+        return_state=True, pad_type=3*[None],
+    )
+    cnn = CNN(cnn2d, cnn1d, return_state=True)
+    x = torch.randn((3, 1, 5, 17))
+    y1, seq_len, state = cnn(x, sequence_lengths=None)
+    y1 = y1.detach().numpy()
+
+    y2_1, seq_len, state = cnn(x[..., :13], sequence_lengths=None)
+    y2_2, seq_len, state = cnn(x[..., 13:], sequence_lengths=None, state=state)
+    y2 = torch.cat((y2_1, y2_2), dim=-1).detach().numpy()
+    assert (np.abs(y2 - y1) < 1e-5).all(), np.abs(y2 - y1).max()
+
+    y3_1, seq_len, state = cnn(x[..., :13], sequence_lengths=None, state=state)
+    y3_2, seq_len, state = cnn(x[..., 13:], sequence_lengths=None, state=state)
+    y3 = torch.cat((y3_1[..., 12:], y3_2), dim=-1).detach().numpy()
+    assert (np.abs(y3 - y1) < 1e-5).all(), np.abs(y3 - y1).max()

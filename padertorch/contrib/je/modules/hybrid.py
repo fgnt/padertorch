@@ -40,6 +40,7 @@ class CNN(Module):
             positional_encoding=False,
             conditional_dims=0,
             return_pool_indices=False,
+            return_state=False,
     ):
         super().__init__()
         assert cnn_2d.return_pool_indices == cnn_1d.return_pool_indices == return_pool_indices, (
@@ -51,6 +52,7 @@ class CNN(Module):
         self.positional_encoding = positional_encoding
         self.conditional_dims = conditional_dims
         self.return_pool_indices = return_pool_indices
+        self.return_state = return_state
 
     def add_positional_encoding(self, x):
         b, c, f, t = x.shape
@@ -78,38 +80,55 @@ class CNN(Module):
         else:
             raise ValueError('x must be 3- or 4- dimensional')
 
-    def forward(self, x, sequence_lengths=None, condition=None):
+    def forward(self, x, sequence_lengths=None, condition=None, state=None):
         assert x.dim() == 4, x.shape
         if self.positional_encoding:
             x = self.add_positional_encoding(x)
         if condition is not None:
             x = self.add_condition(x, condition)
-        if self.cnn_2d.return_pool_indices:
-            x, sequence_lengths, pool_indices_2d = self.cnn_2d(x, sequence_lengths)
+        if state is None:
+            state_2d = state_1d = None
         else:
-            x, sequence_lengths = self.cnn_2d(x, sequence_lengths)
+            state_2d, state_1d = state
+        x, sequence_lengths, *more_outputs = self.cnn_2d(x, sequence_lengths, state=state_2d)
+        if self.cnn_2d.return_pool_indices:
+            pool_indices_2d = more_outputs[0]
+        else:
             pool_indices_2d = None
+        if self.cnn_2d.return_state:
+            state_2d = more_outputs[-1]
+        else:
+            state_2d = None
         x = rearrange(x, 'b c f t -> b (c f) t')
         if condition is not None:
             x = self.add_condition(x, condition)
+        x, sequence_lengths, *more_outputs = self.cnn_1d(x, sequence_lengths, state=state_1d)
         if self.cnn_1d.return_pool_indices:
-            x, sequence_lengths, pool_indices_1d = self.cnn_1d(x, sequence_lengths)
+            pool_indices_1d = more_outputs[0]
         else:
-            x, sequence_lengths = self.cnn_1d(x, sequence_lengths)
             pool_indices_1d = None
+        if self.cnn_1d.return_state:
+            state_1d = more_outputs[-1]
+        else:
+            state_1d = None
+        outputs = [x, sequence_lengths]
         if self.return_pool_indices:
-            return x, sequence_lengths, (pool_indices_2d, pool_indices_1d)
-        return x, sequence_lengths
+            outputs.append((pool_indices_2d, pool_indices_1d))
+        if self.return_state:
+            outputs.append((state_2d, state_1d))
+        return tuple(outputs)
 
     @classmethod
     def finalize_dogmatic_config(cls, config):
         config['cnn_2d'] = {
             'factory': CNN2d,
-            'return_pool_indices': config['return_pool_indices']
+            'return_pool_indices': config['return_pool_indices'],
+            'return_state': config['return_state'],
         }
         config['cnn_1d'] = {
             'factory': CNN1d,
-            'return_pool_indices': config['return_pool_indices']
+            'return_pool_indices': config['return_pool_indices'],
+            'return_state': config['return_state'],
         }
         if config['input_height'] is not None:
             cnn_2d = config['cnn_2d']['factory'].from_config(config['cnn_2d'])

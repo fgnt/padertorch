@@ -49,6 +49,7 @@ class _Conv(Module):
             activation_fn='relu',
             pre_activation=False,
             gated=False,
+            return_state=False,
     ):
         """
 
@@ -84,6 +85,7 @@ class _Conv(Module):
         self.activation_fn = map_activation_fn(activation_fn)
         self.pre_activation = pre_activation
         self.gated = gated
+        self.return_state = return_state
 
         self.conv = self.conv_cls(
             in_channels, out_channels,
@@ -143,18 +145,19 @@ class _Conv(Module):
             if self.gated:
                 torch.nn.init.zeros_(self.gate_conv.bias)
 
-    def freeze(self):
+    def freeze(self, freeze_norm_stats=True):
         for param in self.parameters():
             param.requires_grad = False
         if self.norm is not None:
-            self.norm.freeze()
+            self.norm.freeze(freeze_stats=freeze_norm_stats)
 
-    def forward(self, x, sequence_lengths=None):
+    def forward(self, x, sequence_lengths=None, state=None):
         """
 
         Args:
             x: input tensor of shape b,c,(f,)t
             sequence_lengths: input sequence lengths for each sequence in the mini-batch
+            state:
 
         Returns:
 
@@ -168,12 +171,15 @@ class _Conv(Module):
                 x = self.norm(x, sequence_lengths=sequence_lengths)
             x = self.activation_fn(x)
 
-        if not self.is_transpose():
-            x = self.pad(x)
+        if self.is_transpose():
+            assert state is None
+            assert self.return_state is False
+        else:
+            x, state = self.pad(x, state)
 
         y = self.conv(x)
         if sequence_lengths is not None:
-            sequence_lengths = self.get_output_sequence_lengths(sequence_lengths)
+            sequence_lengths = self.get_output_sequence_lengths(sequence_lengths, state)
 
         if not self.pre_activation:
             if self.norm is not None:
@@ -186,32 +192,49 @@ class _Conv(Module):
         if self.is_transpose():
             y = self.trim_padding(y)
 
+        if self.return_state:
+            return y, sequence_lengths, state
         return y, sequence_lengths
 
-    def pad(self, x):
+    def pad(self, x, state=None):
         """
         adds padding
         Args:
             x: input tensor of shape b,c,(f,)t
+            state: optional input tensor of shape b,c,(f,)k_t-s_t
 
         Returns:
 
         """
         assert not self.is_transpose()
+        kernel_size = to_list(self.kernel_size, 1+self.is_2d())
+        dilation = to_list(self.dilation, 1+self.is_2d())
+        stride = to_list(self.stride, 1+self.is_2d())
+        pad_type = list(to_list(self.pad_type, 1+self.is_2d()))
+        state_len = 1 + (kernel_size[-1] - 1) * dilation[-1] - stride[-1]
+        if state is not None:
+            *bcf, t = x.shape
+            expected_shape = (*bcf, state_len)
+            assert state.shape == expected_shape, (state.shape, expected_shape)
+            if state_len > 0:
+                x = torch.cat((state, x), dim=-1)
+            pad_type[-1] = None
+        pad_type = tuple(pad_type)
+        if self.return_state:
+            state = x[..., x.shape[-1]-state_len:]
+        else:
+            state = None
         front_pad, end_pad = list(zip(*[
             compute_pad_size(k, d, s, t)
             for k, d, s, t in zip(
-                to_list(self.kernel_size, 1+self.is_2d()),
-                to_list(self.dilation, 1+self.is_2d()),
-                to_list(self.stride, 1+self.is_2d()),
-                to_list(self.pad_type, 1+self.is_2d()),
+                kernel_size, dilation, stride, pad_type,
             )
         ]))
         if any(np.array(front_pad) > 0):
             x = Pad(side='front')(x, size=front_pad)
         if any(np.array(end_pad) > 0):
             x = Pad(side='end')(x, size=end_pad)
-        return x
+        return x, state
 
     def trim_padding(self, x):
         """
@@ -307,7 +330,7 @@ class _Conv(Module):
             transpose=not self.is_transpose()
         )
 
-    def get_output_sequence_lengths(self, input_sequence_lengths):
+    def get_output_sequence_lengths(self, input_sequence_lengths, state):
         """
         Compute output sequence lengths for each sequence in the mini-batch
 
@@ -319,11 +342,14 @@ class _Conv(Module):
         """
         input_sequence_lengths = np.array(input_sequence_lengths)
         assert input_sequence_lengths.ndim == 1, input_sequence_lengths.ndim
+        pad_type = list(to_list(self.pad_type, 1+self.is_2d()))
+        if state is not None:
+            pad_type[-1] = 'front'
         return compute_conv_output_sequence_lengths(
             input_sequence_lengths,
             kernel_size=self.kernel_size, dilation=self.dilation,
-            stride=self.stride, pad_type=self.pad_type,
-            transpose=self.is_transpose()
+            stride=self.stride, pad_type=pad_type,
+            transpose=self.is_transpose(),
         )
 
     def get_input_sequence_lengths(self, output_sequence_lengths):
@@ -407,6 +433,7 @@ class _CNN(Module):
             pool_size=1,
             pool_stride=None,
             return_pool_indices=False,
+            return_state=False,
     ):
         """
 
@@ -471,8 +498,9 @@ class _CNN(Module):
         self.pool_sizes = to_list(pool_size, num_layers)
         self.pool_strides = self.pool_sizes if pool_stride is None else to_list(pool_stride, num_layers)
         self.return_pool_indices = return_pool_indices
-        self.activation_fn = to_list(activation_fn, num_layers+1)
-        self.norm = to_list(norm, num_layers+1)
+        self.return_state = return_state
+        self.activation_fn = list(to_list(activation_fn, num_layers+1))
+        self.norm = list(to_list(norm, num_layers+1))
         self.gated = to_list(gated, num_layers)
         self.pre_activation = pre_activation
 
@@ -522,6 +550,7 @@ class _CNN(Module):
                 activation_fn=self.activation_fn[i + (not pre_activation)],
                 pre_activation=pre_activation,
                 gated=self.gated[i],
+                return_state=return_state,
             ))
         self.convs = nn.ModuleList(convs)
 
@@ -587,30 +616,31 @@ class _CNN(Module):
         for conv in self.residual_skip_convs.values():
             conv.reset_parameters('linear')
 
-    def freeze(self, num_layers=None):
+    def freeze(self, num_layers=None, freeze_norm_stats=True):
         num_layers = len(self.convs) if num_layers is None else min(num_layers, len(self.convs))
         if num_layers == 0:
             return
         assert num_layers > 0, num_layers
         if self.input_norm is not None:
-            self.input_norm.freeze()
+            self.input_norm.freeze(freeze_stats=freeze_norm_stats)
         if isinstance(self.input_activation_fn, torch.nn.PReLU):
             self.input_activation_fn.weight.requires_grad = False
         for i in range(num_layers):
-            self.convs[i].freeze()
+            self.convs[i].freeze(freeze_norm_stats=freeze_norm_stats)
         for key, conv in self.residual_skip_convs.items():
-            dst_idx = key.split('->')[1]
+            dst_idx = int(key.split('->')[1])
             if dst_idx <= num_layers:
-                conv.freeze()
+                conv.freeze(freeze_norm_stats=freeze_norm_stats)
         if num_layers >= len(self.convs):
             if self.output_norm is not None:
-                self.output_norm.freeze()
+                self.output_norm.freeze(freeze_stats=freeze_norm_stats)
             if isinstance(self.output_activation_fn, torch.nn.PReLU):
                 self.output_activation_fn.weight.requires_grad = False
 
     def forward(
             self, x, sequence_lengths=None,
             target_shape=None, target_sequence_lengths=None, pool_indices=None,
+            state=None,
     ):
         """
 
@@ -620,11 +650,16 @@ class _CNN(Module):
             target_shape:
             target_sequence_lengths:
             pool_indices:
+            state:
 
         Returns:
 
         """
         assert x.dim() == (3 + self.is_2d()), (x.shape, self.is_2d())
+        if state is None:
+            state = len(self.convs)*[None]
+        else:
+            assert len(state) == len(self.convs)
         if not self.is_transpose():
             assert target_shape is None, target_shape
             assert target_sequence_lengths is None, target_sequence_lengths
@@ -667,7 +702,10 @@ class _CNN(Module):
                 x = self.input_activation_fn(x)
             skip_signals.append(None if not (self.residual_connections[i]+self.dense_connections[i]) else x)
 
-            x, sequence_lengths = conv(x, sequence_lengths=sequence_lengths)
+            if conv.return_state:
+                x, sequence_lengths, state[i] = conv(x, sequence_lengths=sequence_lengths, state=state[i])
+            else:
+                x, sequence_lengths = conv(x, sequence_lengths=sequence_lengths, state=state[i])
             for src_idx, x_ in enumerate(skip_signals):
                 if x_ is None:
                     continue
@@ -742,9 +780,12 @@ class _CNN(Module):
                 assert self.is_transpose()
                 sequence_lengths = output_sequence_lengths[i]
 
+        outputs = [x, sequence_lengths]
         if self.return_pool_indices:
-            return x, sequence_lengths, pool_indices
-        return x, sequence_lengths
+            outputs.append(pool_indices)
+        if self.return_state:
+            outputs.append(state)
+        return tuple(outputs)
 
     @classmethod
     def get_transpose_config(cls, config, transpose_config=None):
@@ -903,7 +944,7 @@ class _CNN(Module):
             receptive_field *= np.array(self.pool_strides[i])
             receptive_field += np.array(self.pool_sizes[i]) - np.array(self.pool_strides[i])
             receptive_field *= np.array(self.strides[i])
-            receptive_field += np.array(self.kernel_sizes[i]) - np.array(self.strides[i])
+            receptive_field += 1 + (np.array(self.kernel_sizes[i])-1) * self.dilations[i] - np.array(self.strides[i])
         return receptive_field
 
 
