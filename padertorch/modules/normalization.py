@@ -148,17 +148,15 @@ class Normalization(Module):
             self.gamma = None
             self.beta = None
 
-        self.frozen = False
+        self.frozen_stats = False
 
     @property
     def running_var(self):
-        n = torch.max(
-            self.num_tracked_values,
-            2. * torch.ones_like(self.num_tracked_values)
-        )
+        n = torch.clip(self.num_tracked_values, min=2)
         running_var = self.running_power
         if self.shift:
-            running_var = n / (n-1) * (running_var - self.running_mean ** 2)
+            running_var = n / (n-1) * running_var - self.running_mean ** 2
+        running_var = torch.clamp(running_var, min=0.)
         running_var = running_var + self.eps
         assert (running_var >= 0).all(), running_var.min()
         return running_var
@@ -178,18 +176,18 @@ class Normalization(Module):
         if self.beta is not None:
             nn.init.zeros_(self.beta.shift)
 
-    def freeze(self):
+    def freeze(self, freeze_stats=True):
         for param in self.parameters():
             param.requires_grad = False
-        self.frozen = True
+        self.frozen_stats = freeze_stats
 
     def unfreeze(self):
         for param in self.parameters():
             param.requires_grad = True
-        self.frozen = False
+        self.frozen_stats = False
 
     def forward(self, x, sequence_lengths=None):
-        if (self.training and not self.frozen) or not self.track_running_stats:
+        if (self.training and not self.frozen_stats) or not self.track_running_stats:
             x, mean, power, n_values = normalize(
                 x, gamma=self.gamma, beta=self.beta,
                 statistics_axis=self.statistics_axis,
@@ -349,6 +347,7 @@ class _Normalize(Function):
             power_scale = power - mean**2
         else:
             power_scale = power
+        power_scale = torch.clamp(power_scale, min=0.)
         if scale:
             y = y / torch.sqrt(power_scale + eps)
         ctx.save_for_backward(x, gamma, beta, mean, power_scale)
@@ -369,7 +368,7 @@ class _Normalize(Function):
         x, gamma, beta, mean, power_scale = ctx.saved_tensors
         # compute mask
         mask = compute_mask(x, ctx.seq_len, ctx.batch_axis, ctx.sequence_axis)
-        n_values = mask.sum(dim=ctx.statistics_axis, keepdim=True)
+        n_values = torch.clamp(mask.sum(dim=ctx.statistics_axis, keepdim=True), min=1)
 
         grad_y = grad_y * mask
         x_hat = x
@@ -395,21 +394,20 @@ class _Normalize(Function):
             grad_mean_ = -grad_x_hat.sum(ctx.statistics_axis, keepdim=True)
         if ctx.scale:
             grad_power_ = (
-                    (grad_x_hat * x).sum(ctx.statistics_axis, keepdim=True)
-                    * (-1 / 2) * (power_scale + ctx.eps) ** (-3 / 2)
+                (grad_x_hat * x).sum(ctx.statistics_axis, keepdim=True)
+                * (-1 / 2) * (power_scale + ctx.eps) ** (-3 / 2)
             )
             if ctx.shift:
                 grad_mean_ = (
                     grad_mean_ / scale
-                    - 2 * grad_power_
-                        * x.sum(ctx.statistics_axis, keepdim=True) / torch.clamp(n_values, min=1)
+                    - 2 * grad_power_ * x.sum(ctx.statistics_axis, keepdim=True) / n_values
                 )
 
         grad_x = grad_x_hat
         if ctx.scale:
-            grad_x = grad_x / scale + grad_power_ * 2 * x / torch.clamp(n_values, min=1)
+            grad_x = grad_x / scale + grad_power_ * 2 * x / n_values
         if ctx.shift:
-            grad_x = grad_x + grad_mean_ / torch.clamp(n_values, min=1)
+            grad_x = grad_x + grad_mean_ / n_values
         return grad_x * mask, grad_gamma, grad_beta, None, None, None, None, None, None, None
 
 
