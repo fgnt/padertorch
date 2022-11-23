@@ -22,6 +22,7 @@ def normalize_ref(x, gamma, beta, statistics_axis, batch_axis, sequence_axis, se
             power_scale = power - mean**2
         else:
             power_scale = power
+        power_scale = torch.clamp(power_scale, min=0.)
         if scale:
             y = y / torch.sqrt(power_scale + eps)
 
