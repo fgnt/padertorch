@@ -23,21 +23,21 @@ class NormalizedLogMelExtractor(nn.Module):
     torch.Size([10, 3, 40, 100])
     """
     def __init__(
-            self, sample_rate, stft_size, number_of_filters, num_channels=1,
+            self, sample_rate, stft_size, number_of_filters, *,
+            num_channels=1,
             lowest_frequency=50, highest_frequency=None, htk_mel=True,
             add_deltas=False, add_delta_deltas=False,
             norm_statistics_axis='bt', norm_eps=1e-5, batch_norm=False,
-            clamp=6,
-            ipd_pairs=(),
+            clamp=6, ipd_pairs=(),
             # augmentation
             scale_sampling_fn=None,
             superposition_prob=0.,
             frequency_warping_fn=None, time_warping_fn=None,
             blur_sigma=0, blur_kernel_size=5,
             mixup_prob=0., mixup_alpha=1.,
-            n_time_masks=0, max_masked_time_steps=70, max_masked_time_rate=.2,
-            n_frequency_masks=0, max_masked_frequency_bands=20, max_masked_frequency_rate=.2,
             max_noise_scale=0.,
+            n_time_masks=0, max_masked_time_steps=70, max_masked_time_rate=1.,
+            n_frequency_masks=0, max_masked_frequency_bands=20, max_masked_frequency_rate=1.,
     ):
         super().__init__()
         self.mel_transform = MelTransform(
@@ -191,14 +191,16 @@ class NormalizedLogMelExtractor(nn.Module):
                     x, seq_len=seq_len, targets=targets
                 )
 
-            if self.time_masking is not None:
-                x = self.time_masking(x, seq_len=seq_len)
-            if self.mel_masking is not None:
-                x = self.mel_masking(x)
-
             if self.noise is not None:
                 # print(torch.std(x, dim=-1))
                 x = self.noise(x)
+
+            if self.time_masking is not None:
+                x = self.time_masking(x, seq_len=seq_len)
+
+            if self.mel_masking is not None:
+                x = self.mel_masking(x)
+
         if targets is None:
             return x, seq_len
         return x, seq_len, targets
