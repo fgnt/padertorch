@@ -1,4 +1,4 @@
-One-and-Rest-PIT
+BLSTM-based Permutation Invariant Training (PIT)
 ================
 
 This directory contains scripts to train and evaluate the basic utterance-level permutation
