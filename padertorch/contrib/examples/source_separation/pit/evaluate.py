@@ -190,7 +190,7 @@ def main(_run, batch_size, datasets, debug, experiment_dir, database_json, _log)
                 )
                 entry['selection'] = output_metrics.mir_eval['selection']
 
-                summary[dataset][example_id] = entry
+                summary[dataset_name][example_id] = entry
 
     summary_list = dlp_mpi.gather(summary, root=dlp_mpi.MASTER)
 
