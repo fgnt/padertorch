@@ -31,7 +31,12 @@ def stft(
     ...     shift=np.random.randint(40, 100),
     ...     window=random.choice(['blackman', 'hann', 'hamming']),
     ...     fading=random.choice(['full', 'half', False]),
+    ...     pad=random.choice([True, False]),
     ... )
+    >>> kwargs['window_length'] = np.random.choice([
+    ...     kwargs['size'],
+    ...     np.random.randint(kwargs['size']//2, kwargs['size'])
+    ... ])
     >>> num_samples = np.random.randint(200, 500)
     >>> a = np.random.rand(num_samples)
     >>> A_np = np_stft(a, **kwargs)
@@ -108,9 +113,10 @@ def stft(
             # segment_axis_end = 'cut'
         time_signal = torch.nn.functional.pad(time_signal, pad_width, mode='constant')
     else:
-        pad_width = shift - ((time_signal.shape[axis] + shift - window_length) % shift)
-        pad_width = [0, pad_width]
-        time_signal = torch.nn.functional.pad(time_signal, pad_width, mode='constant')
+        if pad:
+            pad_width = shift - ((time_signal.shape[axis] + shift - window_length) % shift)
+            pad_width = [0, pad_width]
+            time_signal = torch.nn.functional.pad(time_signal, pad_width, mode='constant')
 
         # segment_axis_end = 'pad' if pad else 'cut'
 
