@@ -24,6 +24,7 @@ with open(path.join(here, 'DESCRIPTION.rst'), encoding='utf-8') as f:
 # testing dependencies
 test = [
     'pytest',
+    'pytest-cov',
     'mock',
     'coverage',
     'pylint',
