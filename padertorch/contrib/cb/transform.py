@@ -115,8 +115,13 @@ def stft(
     else:
         if pad:
             pad_width = shift - ((time_signal.shape[axis] + shift - window_length) % shift)
-            pad_width = [0, pad_width]
-            time_signal = torch.nn.functional.pad(time_signal, pad_width, mode='constant')
+            if pad_width > 0:
+                pad_width = [0, pad_width]
+                time_signal = torch.nn.functional.pad(time_signal, pad_width, mode='constant')
+            elif pad_width == 0:
+                pass
+            else:
+                raise RuntimeError(f'pad_width={pad_width}. Cannot happen.')
 
         # segment_axis_end = 'pad' if pad else 'cut'
 
