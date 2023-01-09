@@ -45,11 +45,16 @@ def stft(
     ...     A_np, A_pt.numpy(), err_msg=str(kwargs), atol=1e-10)
 
     >>> kwargs['size'] = 100
+    >>> kwargs['window_length'] = 100
     >>> kwargs['shift'] = 25
+    >>> kwargs['fading'] = False
+    >>> kwargs['pad'] = True
     >>> num_samples = 200
     >>> a = np.random.rand(num_samples)
     >>> A_np = np_stft(a, **kwargs)
     >>> A_pt = stft(torch.tensor(a), **kwargs)
+    >>> A_pt.shape
+    torch.Size([5, 51])
     >>> np.testing.assert_allclose(
     ...     A_np, A_pt.numpy(), err_msg=str(kwargs), atol=1e-10)
 
@@ -114,7 +119,7 @@ def stft(
         time_signal = torch.nn.functional.pad(time_signal, pad_width, mode='constant')
     else:
         if pad:
-            pad_width = shift - ((time_signal.shape[axis] + shift - window_length) % shift)
+            pad_width = (shift - (time_signal.shape[axis] + shift - window_length)) % shift
             if pad_width > 0:
                 pad_width = [0, pad_width]
                 time_signal = torch.nn.functional.pad(time_signal, pad_width, mode='constant')
