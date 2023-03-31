@@ -145,11 +145,12 @@ class _Conv(Module):
             if self.gated:
                 torch.nn.init.zeros_(self.gate_conv.bias)
 
-    def freeze(self, freeze_norm_stats=True):
-        for param in self.parameters():
-            param.requires_grad = False
-        if self.norm is not None:
-            self.norm.freeze(freeze_stats=freeze_norm_stats)
+    def freeze(self, freeze_conv_params=True, freeze_norm_stats=True, freeze_norm_params=True):
+        if freeze_conv_params:
+            for param in self.parameters():
+                param.requires_grad = False
+        if self.norm is not None and (freeze_norm_params or freeze_norm_stats):
+            self.norm.freeze(freeze_stats=freeze_norm_stats, freeze_params=freeze_norm_params)
 
     def forward(self, x, sequence_lengths=None, state=None):
         """
@@ -619,24 +620,24 @@ class _CNN(Module):
         for conv in self.residual_skip_convs.values():
             conv.reset_parameters('linear')
 
-    def freeze(self, num_layers=None, freeze_norm_stats=True):
+    def freeze(self, num_layers=None, freeze_conv_params=True, freeze_norm_stats=True, freeze_norm_params=True):
         num_layers = len(self.convs) if num_layers is None else min(num_layers, len(self.convs))
         if num_layers == 0:
             return
         assert num_layers > 0, num_layers
         if self.input_norm is not None:
-            self.input_norm.freeze(freeze_stats=freeze_norm_stats)
+            self.input_norm.freeze(freeze_stats=freeze_norm_stats, freeze_params=freeze_norm_params)
         if isinstance(self.input_activation_fn, torch.nn.PReLU):
             self.input_activation_fn.weight.requires_grad = False
         for i in range(num_layers):
-            self.convs[i].freeze(freeze_norm_stats=freeze_norm_stats)
+            self.convs[i].freeze(freeze_conv_params=freeze_conv_params, freeze_norm_stats=freeze_norm_stats, freeze_norm_params=freeze_norm_params)
         for key, conv in self.residual_skip_convs.items():
             dst_idx = int(key.split('->')[1])
             if dst_idx <= num_layers:
-                conv.freeze(freeze_norm_stats=freeze_norm_stats)
+                conv.freeze(freeze_conv_params=freeze_conv_params, freeze_norm_stats=freeze_norm_stats, freeze_norm_params=freeze_norm_params)
         if num_layers >= len(self.convs):
             if self.output_norm is not None:
-                self.output_norm.freeze(freeze_stats=freeze_norm_stats)
+                self.output_norm.freeze(freeze_stats=freeze_norm_stats, freeze_params=freeze_norm_params)
             if isinstance(self.output_activation_fn, torch.nn.PReLU):
                 self.output_activation_fn.weight.requires_grad = False
 
@@ -949,6 +950,13 @@ class _CNN(Module):
             receptive_field *= np.array(self.strides[i])
             receptive_field += 1 + (np.array(self.kernel_sizes[i])-1) * self.dilations[i] - np.array(self.strides[i])
         return receptive_field
+
+    def get_total_stride(self):
+        total_stride = 1
+        for i in range(self.num_layers):
+            total_stride = total_stride * np.array(self.strides[i])
+            total_stride = total_stride * np.array(self.pool_strides[i])
+        return total_stride
 
 
 class CNN1d(_CNN):
