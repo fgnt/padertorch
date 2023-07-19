@@ -4,7 +4,13 @@ from typing import Union
 import re
 import logging
 
-import textgrids
+try:
+    import textgrids
+except ImportError as exc:
+    raise ImportError(
+        'Could not import textgrids. Install via pip: '
+        'pip install praat-textgrids'
+    ) from exc
 from lazy_dataset import FilterException
 import numpy as np
 
