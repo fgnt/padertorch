@@ -1703,7 +1703,7 @@ class _DogmaticConfig:
           'partial': 'torch.nn.Linear'},
          'storage_dir': 'abc'}
         """
-        if isinstance(dictionary, collections.Mapping):
+        if isinstance(dictionary, collections.abc.Mapping):
             special_key = _get_special_key(dictionary)
             if special_key:
                 dictionary[special_key] = cls._force_factory_type(
