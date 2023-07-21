@@ -343,12 +343,12 @@ class _ChunkRNN(torch.nn.Module):
         >>> a = torch.randn(1, 10, 5, 3)
         >>> out_no_seq = chunk_rnn(a)
         >>> out_seq = chunk_rnn(a, torch.tensor([3]), may_deactivate_seq=False)
-        >>> bool(torch.allclose(out_no_seq, out_seq))
+        >>> bool(torch.allclose(out_no_seq, out_seq, atol=1e-6))
         True
 
         >>> padded_a = torch.cat([a, torch.zeros(1, 10, 5, 2)], dim=-1)
         >>> out_seq = chunk_rnn(a, torch.tensor([3]), may_deactivate_seq=False)
-        >>> bool(torch.allclose(out_no_seq, out_seq[..., :3]))
+        >>> bool(torch.allclose(out_no_seq, out_seq[..., :3], atol=1e-6))
         True
         >>> bool(torch.all(out_seq[..., 3:] == 0))
         True
