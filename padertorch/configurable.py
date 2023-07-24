@@ -675,7 +675,7 @@ def dataclass_to_config(cls, depth=0, force_valid_config=True):
     >>> config = dataclass_to_config(B)  # doctest: +ELLIPSIS
     Traceback (most recent call last):
     ...
-    RuntimeError: ('no_default', Field(name='no_default',type=None,default=<..._MISSING_TYPE...>,default_factory=<..._MISSING_TYPE...>,init=True,repr=True,hash=None,compare=True,metadata=mappingproxy({}),_field_type=_FIELD), <class '...configurable.B'>)
+    RuntimeError: ('no_default', Field(name='no_default',type=None,default=<..._MISSING_TYPE...>,default_factory=<..._MISSING_TYPE...>,init=True,repr=True,hash=None,compare=True,metadata=mappingproxy({}),..._field_type=_FIELD), <class '...configurable.B'>)
     >>> config = dataclass_to_config(B, force_valid_config=False)
     >>> pprint(config)  # doctest: +ELLIPSIS
     {'factory': ...configurable.B}
