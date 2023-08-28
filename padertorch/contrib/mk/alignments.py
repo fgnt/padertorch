@@ -14,11 +14,13 @@ except ImportError as exc:
 from lazy_dataset import FilterException
 import numpy as np
 
+import padertorch as pt
+
 LOG = logging.getLogger('pt.contrib.mk.labels')
 
 
 @dataclass
-class TextGridAlignmentReader:
+class TextGridAlignmentReader(pt.Configurable):
     """
     Load alignments (phone, syllables, ...) from Praat TextGrid files.
     `ali_root` must adhere to following structure:
