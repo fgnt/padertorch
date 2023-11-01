@@ -163,7 +163,7 @@ class TestKLLoss(unittest.TestCase):
         q = MultivariateNormal(
             loc=torch.randn((B, 1, D)),
             scale_tril=torch.Tensor(
-                np.broadcast_to(np.diag(np.random.rand(D)), (B, 1, D, D))
+                np.broadcast_to(np.diag(np.random.rand(D)), (B, 1, D, D)).copy()
             )
         )
         q_ = Normal(loc=q.loc[:, 0], scale=pt.ops.losses.kl_divergence._batch_diag(q.scale_tril[:, 0]))

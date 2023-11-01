@@ -1,3 +1,5 @@
+import sys
+
 import tempfile
 from pathlib import Path
 import contextlib
@@ -52,6 +54,9 @@ def get_datasets():
 
 
 def test_single_model():
+    if sys.platform.startswith('win'):
+        pytest.skip('this doctest does not work on Windows, '
+                    'training is not possible on Windows due to symlinks being unavailable')
     tr_dataset, dt_dataset = get_datasets()
 
     config = pt.Trainer.get_config(
@@ -87,6 +92,9 @@ def assert_dir_unchanged_after_context(tmp_dir):
 
 
 def test_single_model_dir_unchanged():
+    if sys.platform.startswith('win'):
+        pytest.skip('this doctest does not work on Windows, '
+                    'training is not possible on Windows due to symlinks being unavailable')
     tr_dataset, dt_dataset = get_datasets()
     model = Model()
 
@@ -101,6 +109,9 @@ def test_single_model_dir_unchanged():
 
 
 def test_single_model_with_back_off_validation():
+    if sys.platform.startswith('win'):
+        pytest.skip('this doctest does not work on Windows, '
+                    'training is not possible on Windows due to symlinks being unavailable')
     tr_dataset, dt_dataset = get_datasets()
     model = Model()
 
@@ -170,6 +181,9 @@ class ZeroGradModel(pt.Model):
 
 
 def test_single_grad_check():
+    if sys.platform.startswith('win'):
+        pytest.skip('this doctest does not work on Windows, '
+                    'training is not possible on Windows due to symlinks being unavailable')
     tr_dataset, dt_dataset = get_datasets()
 
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -193,6 +207,9 @@ def test_single_grad_check():
 
 
 def test_single_virtual_minibatch():
+    if sys.platform.startswith('win'):
+        pytest.skip('this doctest does not work on Windows, '
+                    'training is not possible on Windows due to symlinks being unavailable')
     tr_dataset, dt_dataset = get_datasets()
     model = Model()
 
@@ -238,6 +255,9 @@ class AE(pt.Model):
 
 
 def test_multiple_optimizers():
+    if sys.platform.startswith('win'):
+        pytest.skip('this doctest does not work on Windows, '
+                    'training is not possible on Windows due to symlinks being unavailable')
     tr_dataset, dataset_dt = get_datasets()
 
     model = AE()

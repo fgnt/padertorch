@@ -71,10 +71,12 @@ def get_new_storage_dir(
     >>> import tempfile
     >>> with tempfile.TemporaryDirectory() as tmp_dir:
     ...     os.environ['STORAGE_ROOT'] = tmp_dir  # simulate enviroment variable for doctest
-    ...     print(get_new_storage_dir('fance_nn_experiment').relative_to(tmp_dir))
-    ...     print(get_new_storage_dir('fance_nn_experiment').relative_to(tmp_dir))
-    fance_nn_experiment/1
-    fance_nn_experiment/2
+    ...     # on Windows the temporary directory may be shortened, resulting in an error in relative_to
+    ...     tmp_dir_path = Path(tmp_dir).resolve()
+    ...     print(get_new_storage_dir('fancy_nn_experiment').relative_to(tmp_dir_path).as_posix())
+    ...     print(get_new_storage_dir('fancy_nn_experiment').relative_to(tmp_dir_path).as_posix())
+    fancy_nn_experiment/1
+    fancy_nn_experiment/2
 
     """
     basedir = Path(os.environ['STORAGE_ROOT']) / experiment_name
