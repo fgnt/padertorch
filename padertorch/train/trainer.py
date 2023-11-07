@@ -863,6 +863,22 @@ class Trainer(Configurable):
             str(checkpoint_path), map_location=map_location
         )
 
+        if torch.__version__ == "1.12.0":
+            warnings.warn("This torch version (1.12.0) has a bug, for more information"
+                          " see https://github.com/pytorch/pytorch/issues/80809,"
+                          " the capturable flag of the parameter groups in the optimizer"
+                          " state_dicts will be set to True.")
+            optimizer_state_dict = checkpoint_dict['optimizer']
+            if isinstance(self.optimizer, dict):
+                for opt_dict in optimizer_state_dict.values():
+                    param_groups = opt_dict['param_groups']
+                    for group in param_groups:
+                        group['capturable'] = True
+            else:
+                param_groups = optimizer_state_dict['param_groups']
+                for group in param_groups:
+                    group['capturable'] = True
+        
         self.load_state_dict(checkpoint_dict)
 
         print(f"Loaded checkpoint '{checkpoint_path}' (iteration {self.iteration})")
