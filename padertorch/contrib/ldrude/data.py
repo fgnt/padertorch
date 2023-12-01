@@ -6,7 +6,7 @@ import padertorch as pt
 from padercontrib.database.iterator import AudioReader
 from padercontrib.database.keys import *
 from paderbox.transform import stft
-from paderbox.speech_enhancement import ideal_binary_mask
+from pb_bss.extraction import ideal_binary_mask
 
 
 def pre_batch_transform(inputs, return_keys=None):
