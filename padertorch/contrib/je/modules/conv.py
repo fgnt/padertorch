@@ -434,6 +434,8 @@ class _CNN(Module):
             pool_stride=None,
             return_pool_indices=False,
             return_state=False,
+            skip_connection_pre_activation=False,
+            skip_connection_norm=False
     ):
         """
 
@@ -569,10 +571,10 @@ class _CNN(Module):
                         dropout=dropout,
                         dilation=1,
                         stride=1,
-                        pad_type=None,
-                        norm=None,
+                        pad_side=None,
+                        norm=norm if skip_connection_norm else None,
                         activation_fn='identity',
-                        pre_activation=False,
+                        pre_activation=skip_connection_pre_activation,
                         gated=False,
                     )
         self.residual_skip_convs = nn.ModuleDict(residual_skip_convs)
