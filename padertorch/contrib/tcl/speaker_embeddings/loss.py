@@ -28,6 +28,18 @@ class AngularPenaltySMLoss(pt.Module):
         ArcFace: https://arxiv.org/abs/1801.07698
         SphereFace: https://arxiv.org/abs/1704.08063
         Angular Additional Margin (AAM) : https://arxiv.org/abs/1801.05599
+
+        Args:
+            in_features: Size of embedding dimension
+            out_features: Number of target classes
+            loss_type: Variant of angular softmax used for loss computation ['arcface', 'sphereface', 'aam']
+            s: scale
+            m: margin
+            reduce: reduction type
+
+        Returns:
+            Angular Margin loss
+
         '''
         super(AngularPenaltySMLoss, self).__init__()
         loss_type = loss_type.lower()
