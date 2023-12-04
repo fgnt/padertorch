@@ -9,21 +9,32 @@ import padertorch as pt
 
 
 class AugmentationHelper:
+
     def __init__(self,
-                 augmentation_sets: Dict = None,
+                 augmentation_datasets: Dict = None,
                  p_augment: float = 0.,
                  p_reverb=None,
-                 augmentation_type: Union[str, Iterable] = ('noise', 'music', 'speech'),
+                 augmentation_type: Union[str, Iterable] = ('noise', 'music', 'speech', 'reverb'),
                  deterministic: bool = False,
                  augmentation_key='observation',
                  target_key='speech_image'
                  ):
-        self.augmentation_dataset = augmentation_sets
+        """
+        Wrapper to allow dynamic data aumentation. Currently only supports additive augmentation and reverberation.
+        Args:
+            augmentation_datasets:
+            p_augment: probability to apply augmentation
+            p_reverb: probability to reverberate the input signal if 'reverb' in augmentation_types, defaults to p_augment
+            augmentation_type: types of data augmentation that are used, supports ('noise', 'music', 'speech', 'speech_single', 'reverb')
+            deterministic: If set to true, chooses augmentation based on example_id
+            augmentation_key: audio key under which the augmentation is saved
+            target_key: audio key on which the augmentation is applied
+        """
+        self.augmentation_dataset = augmentation_datasets
         for k, v in self.augmentation_dataset.items():
             if isinstance(v, list):
                 self.augmentation_dataset[k] = lazy_dataset.concatenate(*v)
-            assert isinstance(self.augmentation_dataset[k], lazy_dataset.Dataset), \
-                f'expected dataset of type lazy_dataset.Dataset, got {repr(v)} for dataset {k}'
+            assert isinstance(self.augmentation_dataset[k], lazy_dataset.Dataset), f'expected dataset of type lazy_dataset.Dataset, got {repr(v)} for dataset {k}'
         self.p_augment = p_augment
         if p_reverb is None:
             self.p_reverb = p_augment
