@@ -84,13 +84,13 @@ class AngularPenaltySMLoss(pt.Module):
         logits = self.fc(logits)
 
         if self.loss_type == 'aam':
-            numerator = self.s * (torch.diagonal(logits.transpose(0, 1)[labels]) - self.m)
+            numerator = self.s * (torch.diagonal(logits.transpose(1, 0)[labels]) - self.m)
         elif self.loss_type == 'arcface':
             numerator = self.s * torch.cos(torch.acos(
-                torch.clamp(torch.diagonal(logits.transpose(0, 1)[labels]), -1. + self.eps, 1 - self.eps)) + self.m)
+                torch.clamp(torch.diagonal(logits.transpose(1, 0)[labels]), -1. + self.eps, 1 - self.eps)) + self.m)
         elif self.loss_type == 'sphereface':
             numerator = self.s * torch.cos(self.m * torch.acos(
-                torch.clamp(torch.diagonal(logits.transpose(0, 1)[labels]), -1. + self.eps, 1 - self.eps)))
+                torch.clamp(torch.diagonal(logits.transpose(1, 0)[labels]), -1. + self.eps, 1 - self.eps)))
         else:
             return NotImplementedError
         excl = torch.cat([torch.cat((logits[i, :y], logits[i, y + 1:])).unsqueeze(0) for i, y in enumerate(labels)],
