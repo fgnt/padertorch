@@ -92,99 +92,6 @@ class TeacherStudentEmbeddings(pt.Model):
         config['student'] = {'factory': StudentdVectors}
         config['teacher'] = {'factory': ResNet34}
 
-    def prepare_example(self, example):
-        """
-        Takes an example dictionary and prepares it for use in the model.
-        The forward method receives a batched/collated version of outputs of
-        this method.
-        """
-        # Extract fbank features from observation signal
-        c = -1  # Only use first channel
-        observation = example['audio_data']['observation']
-        image = example['audio_data'][self.teacher_signal]
-
-        if observation.ndim > 1:
-            observation = observation[c]
-        if observation.shape[-1] < 8000:
-            raise FilterException()
-      # Normalize signal: VoxCeleb has large variations in its variance
-        observation = (observation - np.mean(observation)) / (np.std(observation) + 1e-7)
-        if isinstance(image, np.ndarray):
-            if image.ndim > 2:
-                image = image[:, c, :]
-            image = (image - np.mean(image, axis=-1, keepdims=True)) / (np.std(image, axis=-1, keepdims=True) + 1e-7)
-
-            fbank_features_teacher = pb.transform.logfbank(
-                image, sample_rate=16000,
-                number_of_filters=80,
-            )
-            frames_teacher = [fbank_features_teacher.shape[-2]]*image.shape[0]
-            fbank_features_teacher = einops.rearrange(fbank_features_teacher, 'k t f -> k t f').astype(np.float32)
-        else:
-            image = [(i - np.mean(i, axis=-1, keepdims=True)) / (np.std(i, axis=-1, keepdims=True) + 1e-7)
-                     for i in image]
-            fbank_features_teacher = [pb.transform.logfbank(
-                i, sample_rate=16000,
-                number_of_filters=80,
-            ).astype(np.float32) for i in image]
-            frames_teacher = [features.shape[-2] for features in fbank_features_teacher]
-        # Extract 80 log-fbank features
-        if observation.ndim > 1:
-            observation = observation[0]
-
-        fbank_features_student = pb.transform.logfbank(
-            observation, sample_rate=16000,
-            number_of_filters=80, window_length=1024,
-            stft_size=1024, window='hann', stft_shift=256
-        )
-
-        if fbank_features_student.ndim > 2:
-            fbank_features_student = fbank_features_student[0, ...]
-
-        fbank_features_student = einops.rearrange(fbank_features_student, 't f -> t f')
-        if isinstance(example['speaker_id'], int):
-            example['speaker_id'] = (example['speaker_id'], )
-
-        if len(example['speaker_id']) == 2:
-            #
-            if 'overlap_boundaries' in example.keys():
-                ov_boundaries = example['overlap_boundaries']
-            else:
-                segment_start = example['segment_start']
-                segment_stop = example['segment_stop']
-                #
-                offset_start = example['offset']['original_source'][-1]
-                offset_stop = example['offset']['original_source'][0] + example['num_samples']['original_source'][0]
-                if offset_start < segment_stop and offset_stop > segment_start:
-                    offset_start = max(offset_start - segment_start, 0)
-                    offset_stop = min(offset_stop - segment_start, segment_stop)
-                else:
-                    if segment_start < offset_start:
-                        offset_start = 0
-                        offset_stop = 0
-                    else:
-                        offset_start = example['segment_stop'] - example['segment_start']
-                        offset_stop = example['segment_stop'] - example['segment_start']
-                offset_start = max(pb.transform.module_stft.sample_index_to_stft_frame_index(
-                    offset_start, window_length=400, shift=160, fading=None), 0)
-
-                offset_stop = pb.transform.module_stft.sample_index_to_stft_frame_index(
-                    offset_stop, window_length=400, shift=160, fading=None)
-                ov_boundaries = (offset_start, offset_stop)
-        else:
-            ov_boundaries = (0, 0)
-
-        return {
-            'observation': observation.astype(np.float32),
-            'features_teacher': fbank_features_teacher,
-            'features_student': fbank_features_student.astype(np.float32),
-            'num_frames_teacher': frames_teacher,
-            'num_frames_student': fbank_features_student.shape[-2],
-            'speaker_id': example['speaker_id'],
-            'overlap_boundaries': ov_boundaries,
-            'example_id': example['example_id'],
-            'num_speaker': len(example['speaker_id'])
-        }
 
     def get_teacher_embeddings(self, example):
         """
@@ -259,14 +166,10 @@ class TeacherStudentEmbeddings(pt.Model):
         B, K, E, T = embeddings.shape
 
         # obtain teacher embeddings
-        if self.target in ['dvector', 'embedding']:
-            teacher_d_vectors, teacher_embeddings = self.get_teacher_embeddings(example)
-        else:
-            print('obtain prototypes')
-            teacher_d_vectors = self.get_prototypes(example)
+        teacher_d_vectors, teacher_embeddings = self.get_teacher_embeddings(example)
+
         teacher_d_vectors = torch.split(teacher_d_vectors, example['num_speaker'])
 
-        # Compute frame-wise loss
         embeddings_weights = []
         framewise_loss = []
         utterance_loss = []
@@ -318,18 +221,9 @@ class TeacherStudentEmbeddings(pt.Model):
 
             utterance_loss.append(self.d_vector_loss_fn(d_vector, teacher_d_vectors[b][:, 0, :]))
 
-            # Compute prototype loss
-            speaker_idx = example['speaker_id'][b]
-
             if K > 1:
                 student = pt.utils.to_numpy(d_vector, detach=True)
                 teacher = pt.utils.to_numpy(teacher_d_vectors[b][:,0,:], detach=True)
-                if self.prototypes is not None:
-                    prototype = pt.utils.to_numpy(prototype, detach=True)
-                    [similarities['prot_same_speaker'].append(1 - cosine(prototype[k, :], student[k, :]))
-                     for k in range(self.num_spk)]
-                    [similarities['prot_different_speaker'].append(1 - cosine(prototype[k - 1, :], student[k, :]))
-                     for k in range(self.num_spk)]
 
                 [similarities['same_speaker'].append(1 - cosine(teacher[k, :], student[k, :]))
                  for k in range(self.num_spk)]
@@ -355,11 +249,9 @@ class TeacherStudentEmbeddings(pt.Model):
             summary.add_histogram('geodesic_weight_2', np.mean(embeddings_weights[1]))
 
         if K > 1:
+            # Track cross-speaker similarities for more than one output channel
             summary.add_histogram('same_speaker_similarities', similarities['same_speaker'])
             summary.add_histogram('different_speaker_similarities', similarities['different_speaker'])
-            if self.prototypes is not None:
-                summary.add_histogram('prototype_similarities', similarities['prot_same_speaker'])
-                summary.add_histogram('prototype_divergence', similarities['prot_different_speaker'])
             summary.add_scalar('same_speaker_score', np.mean(np.stack(similarities['same_speaker'])))
             summary.add_scalar('different_speaker_score', np.mean(np.stack(similarities['different_speaker'])))
         if self.create_snapshot:
