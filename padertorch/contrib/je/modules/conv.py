@@ -571,7 +571,7 @@ class _CNN(Module):
                         dropout=dropout,
                         dilation=1,
                         stride=1,
-                        pad_side=None,
+                        pad_type=None,
                         norm=norm if skip_connection_norm else None,
                         activation_fn='identity',
                         pre_activation=skip_connection_pre_activation,
