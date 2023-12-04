@@ -1,7 +1,3 @@
-"""
-Resnet taken from torchvision.models
-See https://github.com/pytorch/vision/blob/main/torchvision/models/resnet.py
-"""
 import warnings
 
 import numpy as np

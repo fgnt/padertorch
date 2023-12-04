@@ -11,7 +11,6 @@ import padertorch as pt
 class AugmentationHelper:
     def __init__(self,
                  augmentation_sets: Dict = None,
-                 reverb_set: Union[lazy_dataset.Dataset, List] = None,
                  p_augment: float = 0.,
                  p_reverb=None,
                  augmentation_type: Union[str, Iterable] = ('noise', 'music', 'speech'),
@@ -20,10 +19,10 @@ class AugmentationHelper:
                  target_key='speech_image'
                  ):
         self.augmentation_dataset = augmentation_sets
-        for k, v in self.augmentation_dataset:
+        for k, v in self.augmentation_dataset.items():
             if isinstance(v, list):
                 self.augmentation_dataset[k] = lazy_dataset.concatenate(*v)
-            assert self.augmentation_dataset[k] is lazy_dataset.Dataset, \
+            assert isinstance(self.augmentation_dataset[k], lazy_dataset.Dataset), \
                 f'expected dataset of type lazy_dataset.Dataset, got {repr(v)} for dataset {k}'
         self.p_augment = p_augment
         if p_reverb is None:
