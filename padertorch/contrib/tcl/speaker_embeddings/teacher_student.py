@@ -44,6 +44,7 @@ class TeacherStudentEmbeddings(pt.Model):
         [2]Cord-Landwehr, T., Boeddeker, C., Zorilă, C., Doddipatla, R., & Haeb-Umbach, R. (2023).
         "A Teacher-Student approach for extracting informative speaker embeddings from speech mixtures"
          arXiv preprint arXiv:2306.00634.
+
         """
         super().__init__()
         self.teacher = teacher
@@ -125,7 +126,8 @@ class TeacherStudentEmbeddings(pt.Model):
 
     def compute_geodesic_loss(self, embeddings, targets, ov_boundaries, single_speaker_targets):
         """
-        Solve Constrained least squares problem to find optimal point between both target embeddings
+        Solve Constrained least squares problem to find optimal interpolation point between two target embeddings
+        Used for training a single-speaker embedding extractor on speech mixtures
         """
 
         ov_boundaries = [ov//self.reduction for ov in ov_boundaries]
