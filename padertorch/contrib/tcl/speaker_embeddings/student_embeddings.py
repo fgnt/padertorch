@@ -60,8 +60,7 @@ class StudentdVectors(pt.Module):
             activation_fn=activation_fn,
             pre_activation=pre_activation,
             norm=norm,
-            skip_connection_norm=True,
-            skip_connection_pre_activation=True
+            normalize_skip_convs=True
         )
         self.output_convolution = Conv2d(channels[-1], dvec_dim * num_spk, kernel_size=3, stride=(2, 1), bias=False,
                                          activation_fn='relu', norm=norm, pre_activation=True)
