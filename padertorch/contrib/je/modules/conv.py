@@ -434,6 +434,7 @@ class _CNN(Module):
             pool_stride=None,
             return_pool_indices=False,
             return_state=False,
+            normalize_skip_convs=False,
     ):
         """
 
@@ -562,6 +563,7 @@ class _CNN(Module):
             for dst_idx in destination_indices:
                 assert dst_idx > src_idx, (src_idx, dst_idx)
                 if layer_in_channels[dst_idx] != layer_in_channels[src_idx]:
+                    skip_norm = self.norm[src_idx if pre_activation else dst_idx] if normalize_skip_convs else None
                     residual_skip_convs[f'{src_idx}->{dst_idx}'] = self.conv_cls(
                         in_channels=layer_in_channels[src_idx],
                         out_channels=layer_in_channels[dst_idx],
@@ -570,9 +572,10 @@ class _CNN(Module):
                         dilation=1,
                         stride=1,
                         pad_type=None,
-                        norm=None,
+                        norm=skip_norm,
+                        norm_kwargs=None if skip_norm is None else norm_kwargs,
                         activation_fn='identity',
-                        pre_activation=False,
+                        pre_activation=pre_activation,
                         gated=False,
                     )
         self.residual_skip_convs = nn.ModuleDict(residual_skip_convs)
