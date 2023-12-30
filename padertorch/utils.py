@@ -1,6 +1,7 @@
 import collections
 
 import numpy as np
+import scipy
 import torch
 
 
@@ -77,7 +78,7 @@ def to_list(x, length=None):
     return x
 
 
-def to_numpy(array, detach: bool = False, copy: bool = False) -> np.ndarray:
+def to_numpy(array, detach: bool = False, copy: bool = False, force_dense=False) -> np.ndarray:
     """
     Transforms `array` to a numpy array. `array` can be anything that
     `np.asarray` can handle and torch tensors.
@@ -141,6 +142,20 @@ def to_numpy(array, detach: bool = False, copy: bool = False) -> np.ndarray:
     else:
         if detach:
             array = array.detach()
+
+    if isinstance(array, torch.Tensor) and array.is_sparse:
+        if force_dense:
+            array = array.to_dense()
+        else:
+            raise NotImplementedError
+    if scipy.sparse.issparse(array):
+        if force_dense:
+            try:
+                array = array.toarray()
+            except AttributeError:
+                pass
+        else:
+            return array
 
     try:
         # torch only supports np.asarray for cpu tensors
