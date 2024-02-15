@@ -35,7 +35,7 @@ database JSONs (they are set to use WSJ0-2mix and WSJ0-3mix by default).
 The fine-tune experiment can be initialized with:
 
 ```bash
-$ make fine-tune
+$ make finetune
 ```
 
 This command creates a new storage dir and uses the same configuration (including number of epochs, data, etc.) as the base training.
