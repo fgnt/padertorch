@@ -1,4 +1,23 @@
+"""
+
+How I use this code:
+
+from padertorch.contrib.cb.track import track, tracker_list, ShapeTracker, ParameterTracker, TimeTracker, GPUMemTracker, OBackwardMemTracker
+with track(trainer.model, tracker_list(
+        ShapeTracker,
+        ParameterTracker,
+        TimeTracker,
+        GPUMemTracker,
+        OBackwardMemTracker,
+)) as trackers:
+    trainer.test_run(...)
+Path(log_file).write_text(str(trackers))
+
+"""
+
+
 import contextlib
+import dataclasses
 import typing
 import weakref
 import time
@@ -449,6 +468,28 @@ class ParameterTracker(Tracker):
             'data': [f'{self.num_params:_}'],
         }
 
+def get_ParameterTracker(
+        name='#Params',
+        num_or_bytes='num',
+        include_require_grad=True,
+        include_not_require_grad=True,
+):
+    class ParameterTracker(Tracker):
+        def pre(self, module, input):
+            pass
+
+        def post(self, module, input, output):
+            self.num_params = sum([
+                p.numel() for p in module.parameters(recurse=self.leaf)])
+
+        @property
+        def data(self):
+            return {
+                'header': ['#Params'],
+                'align': '>',
+                'data': [f'{self.num_params:_}'],
+            }
+
 
 class TimeTracker(Tracker):
     """
@@ -539,7 +580,7 @@ class GPUMemTracker(Tracker):
       4     Linear:              0 B
       5     ReLU:                0 B
 
-
+cc
     """
     device = 0  # Use export CUDA_VISIBLE_DEVICES=1 to switch device
 
@@ -558,6 +599,26 @@ class GPUMemTracker(Tracker):
             'header': ['GPU Mem'],
             'align': '>',
             'data': [f'{self.post_mem - self.pre_mem:_} B'],
+        }
+
+
+class GPUTotPreMemTracker(GPUMemTracker):
+    @property
+    def data(self):
+        return {
+            'header': ['GPU Pre Mem'],
+            'align': '>',
+            'data': [f'{self.pre_mem:_} B'],
+        }
+
+
+class GPUTotPostMemTracker(GPUMemTracker):
+    @property
+    def data(self):
+        return {
+            'header': ['GPU Post Mem'],
+            'align': '>',
+            'data': [f'{self.post_mem:_} B'],
         }
 
 
@@ -592,16 +653,22 @@ class IOPNumTracker(Tracker):
     """
     local_dict = None
 
-    def flat_tensors(self, obj):
+    @classmethod
+    def flat_tensors(cls, obj):
         if isinstance(obj, (tuple, list)):
             for o in obj:
-                yield from self.flat_tensors(o)
+                yield from cls.flat_tensors(o)
         elif isinstance(obj, dict):
             for v in obj.values():
-                yield from self.flat_tensors(v)
+                yield from cls.flat_tensors(v)
         else:
             if isinstance(obj, torch.Tensor):
                 yield obj
+            elif dataclasses.is_dataclass(obj):
+                yield from cls.flat_tensors([
+                    getattr(obj, field.name)
+                    for field in dataclasses.fields(obj)
+                ])
 
     def maybe_init(self):
         import weakref
@@ -620,7 +687,8 @@ class IOPNumTracker(Tracker):
             self.local_dict['tensors_fixed'] = 0
             self.local_dict['visited'] = _IDBasedWeakSet()
 
-    def get_size(self, tensor):
+    @classmethod
+    def get_size(cls, tensor):
         return tensor.numel()
 
     def maybe_add(self, tensor, learnable_key, fixed_key):
@@ -702,7 +770,8 @@ class IOPMemTracker(IOPNumTracker):
     >>> print(trackers[0].total_repr())
     P:  24008 B (requires_grad:  24008 B) IO:  56196 B (requires_grad:  56112 B)
     """
-    def get_size(self, tensor):
+    @classmethod
+    def get_size(cls, tensor):
         return tensor.nelement() * tensor.element_size()
 
     def _to_str(self, value):
@@ -713,6 +782,41 @@ class IOPMemTracker(IOPNumTracker):
         data = super().data
         data['header'] = ['Mem Parameters', 'Mem IO Tensors']
         return data
+
+
+class OBackwardMemTracker(Tracker):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hooks = []
+        self.grad_sizes = []
+
+    def post(self, module, input, output) -> None:
+        for t in IOPNumTracker.flat_tensors(output):
+            if t.requires_grad:
+                self.hooks.append(t.register_hook(self._callback))
+
+    def _callback(self, grad):
+        if grad is None:
+            self.grad_sizes.append('None')
+        else:
+            size = IOPMemTracker.get_size(grad)
+            self.grad_sizes.append(f'{size:_}')
+        return grad
+
+    @property
+    def data(self):
+        if len(self.grad_sizes) == 0:
+            grad_sizes = 'Missing'
+            # grad_sizes = f'{self.grad_sizes[0]:_}'
+        else:
+            grad_sizes = ' + '.join(self.grad_sizes)
+            grad_sizes += ' B'
+
+        return {
+            'header': ['Out Grad Mem'],
+            'align': '>',
+            'data': [f'{grad_sizes}'],
+        }
 
 
 class _IDBasedWeakSet:
