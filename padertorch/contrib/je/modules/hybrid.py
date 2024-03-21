@@ -1,9 +1,8 @@
+import numpy as np
 import torch
 from einops import rearrange
 from padertorch import Module
-from padertorch.contrib.je.modules.conv import (
-    CNN2d, CNN1d, CNNTranspose2d, CNNTranspose1d
-)
+from padertorch.contrib.je.modules.conv import CNN2d, CNN1d
 from padertorch.modules.fully_connected import fully_connected_stack
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
@@ -151,10 +150,17 @@ class CNN(Module):
         cnn_1d_shapes = self.cnn_1d.get_shapes((out_shape[0], out_shape[1]*out_shape[2], out_shape[3]))
         return cnn_2d_shapes, cnn_1d_shapes
 
-    def get_seq_lens(self, in_lengths):
-        cnn_2d_lengths = self.cnn_2d.get_seq_lens(in_lengths)
-        cnn_1d_lengths = self.cnn_1d.get_seq_lens(cnn_2d_lengths[-1])
+    def get_sequence_lengths(self, in_lengths):
+        cnn_2d_lengths = self.cnn_2d.get_sequence_lengths(in_lengths)
+        cnn_1d_lengths = self.cnn_1d.get_sequence_lengths(cnn_2d_lengths[-1])
         return cnn_2d_lengths, cnn_1d_lengths
+
+    def get_total_stride(self):
+        total_stride = list(self.cnn_2d.get_total_stride())
+        for i in [0, 1]:
+            if not np.isscalar(total_stride[i]):
+                total_stride[i] = total_stride[i][-1]
+        return (np.array(total_stride) * self.cnn_1d.get_total_stride()).tolist()
 
 
 class CNNTranspose(Module):
@@ -163,8 +169,8 @@ class CNNTranspose(Module):
     """
     def __init__(
             self,
-            cnn_transpose_1d: CNNTranspose1d,
-            cnn_transpose_2d: CNNTranspose2d
+            cnn_transpose_1d: CNN1d,
+            cnn_transpose_2d: CNN2d
     ):
         super().__init__()
         self.cnn_transpose_1d = cnn_transpose_1d
@@ -210,8 +216,10 @@ class CNNTranspose(Module):
 
     @classmethod
     def finalize_dogmatic_config(cls, config):
-        config['cnn_transpose_1d']['factory'] = CNNTranspose1d
-        config['cnn_transpose_2d']['factory'] = CNNTranspose2d
+        config['cnn_transpose_1d']['factory'] = CNN1d
+        config['cnn_transpose_1d']['transpose'] = True
+        config['cnn_transpose_2d']['factory'] = CNN2d
+        config['cnn_transpose_2d']['transpose'] = True
 
     @classmethod
     def get_transpose_config(cls, config, transpose_config=None):
@@ -320,7 +328,7 @@ class CRNN(Module):
             in_channels = config['cnn_2d']['in_channels']
             cnn_2d = config['cnn_2d']['factory'].from_config(config['cnn_2d'])
             output_size = cnn_2d.get_shapes((1, in_channels, input_size, 1000))[2]
-            input_size = cnn_2d.out_channels[-1] * output_size
+            input_size = cnn_2d.out_channels_per_in_channel[-1] * output_size
 
         if config['cnn_1d'] is not None:
             if input_size is not None:
