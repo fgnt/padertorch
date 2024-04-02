@@ -98,6 +98,8 @@ class STFT(_STFT):
             paderbox.transform.module_fbank.fbank. Defaults to False.
         log_base (str, int, float, bool, optional): See Logarithm. Defaults to
             False.
+        sequence_last (bool): If True, move the sequence axis to the last
+            position. Defaults to True.
         normalization (InputNormalization, optional): InputNormalization
             instance to perform z-normalization. Defaults to None.
     """
@@ -116,6 +118,7 @@ class STFT(_STFT):
         power: float = 1.,
         scale_spec: bool = False,
         log_base: tp.Union[None, str, int, float, bool] = False,
+        sequence_last: bool = True,
         normalization: tp.Union[InputNormalization, None] = None,
     ):
         if not spectrogram and log_base:
@@ -139,6 +142,7 @@ class STFT(_STFT):
         self.power = power
         self.scale_spec = scale_spec
         self.log = Logarithm(log_base=log_base)
+        self.sequence_last = sequence_last
         self.normalization = normalization
 
     def __call__(
@@ -155,11 +159,12 @@ class STFT(_STFT):
                 time signals in `inputs`. Defaults to None.
 
         Returns:
-            encoded (Tensor): Spectrogram of shape (batch, time, bins) if
+            encoded (Tensor): Spectrogram of shape (batch, bins, time) if
                 `spectrogram` is True else STFT of shape
-                - (batch, time, bins) if `complex_representation` is 'complex',
-                - (batch, time, bins, 2) if `complex_representation` is 'stacked', or
-                - (batch, channels, time, 2*bins) if `complex_representation` is 'concat'.
+                    - (batch, bins, time) if `complex_representation` is 'complex',
+                    - (batch, bins, time, 2) if `complex_representation` is 'stacked', or
+                    - (batch, channels, 2*bins, time) if `complex_representation` is 'concat'.
+                If `sequence_last` is False, the time and bins axis are swapped.
             sequence_lengths (list, optional): List of number of frames of
                 spectrograms in `encoded` if input `sequence_lengths` is not
                 None.
@@ -183,6 +188,14 @@ class STFT(_STFT):
             sequence_lengths = self.samples_to_frames(
                 np.asarray(sequence_lengths)
             )
+        if self.sequence_last:
+            if (
+                self.complex_representation == 'stacked'
+                and not self.spectrogram
+            ):
+                encoded = encoded.transpose(-2, -3)
+            else:
+                encoded = encoded.transpose(-2, -1)  # (..., bins, time)
         if self.normalization is not None:
             encoded = self.normalization(
                 encoded, sequence_lengths=sequence_lengths
@@ -236,6 +249,8 @@ class MelTransform(pt.Module):
             filter banks are used.
         squeeze_channel_axis (bool): If True, squeeze the channel axis and
             always return a 3D tensor. Defaults to False.
+        sequence_last (boo): If True, move the sequence axis to the last
+            position. Defaults to True.
         normalization (InputNormalization, optional): InputNormalization
             instance to perform z-normalization. Defaults to None.
     """
@@ -255,6 +270,7 @@ class MelTransform(pt.Module):
         warping_fn=None,
         independent_axis: tp.Union[int, tp.Sequence[int]] = 0,
         squeeze_channel_axis: bool = False,
+        sequence_last: bool = True,
         normalization: tp.Union[InputNormalization, None] = None,
     ):
         super().__init__()
@@ -314,6 +330,7 @@ class MelTransform(pt.Module):
         )
 
         self.squeeze_channel_axis = squeeze_channel_axis
+        self.sequence_last = sequence_last
         self.normalization = normalization
 
     @classmethod
@@ -323,6 +340,7 @@ class MelTransform(pt.Module):
             'window': 'hann',
             'spectrogram': True,
             'size': config['stft_size'],
+            'sequence_last': False,
         }
 
     def _normalize(self, mel_basis):
@@ -366,7 +384,8 @@ class MelTransform(pt.Module):
                 spectrograms or number of samples in `x`.
         Returns:
             x (Tensor): Mel spectrogram of shape
-                (batch, ..., time, number_of_filters).
+                (batch, ..., number_of_filters, time). If `sequence_last` is
+                False, the time and number_of_filters axis are swapped.
             sequence_lengths (list, optional): List of number of frames of
                 mel spectrograms in `x` if input `sequence_lengths` is not None.
         """
@@ -374,6 +393,8 @@ class MelTransform(pt.Module):
 
         if self.stft is not None:
             x, sequence_lengths = self.stft(x, sequence_lengths)
+            if self.stft.sequence_last:
+                x = x.transpose(-2, -1)
 
         if not self.training or self.warping_fn is None:
             x = torch.matmul(x, self.mel_basis.to(x.device))
@@ -410,6 +431,9 @@ class MelTransform(pt.Module):
 
         if x.ndim == 4 and self.squeeze_channel_axis:
             x = x.squeeze(1)
+
+        if self.sequence_last:
+            x = x.transpose(-2, -1)  # (..., bins, time)
 
         if self.normalization is not None:
             x = self.normalization(x, sequence_lengths=sequence_lengths)
