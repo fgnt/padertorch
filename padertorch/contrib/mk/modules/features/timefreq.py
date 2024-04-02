@@ -71,6 +71,7 @@ class Logarithm(pt.Module):
         x = self.log_fn(torch.maximum(
             torch.tensor(self.eps).to(x.device), x
         ))
+        return x
 
     def inverse(self, x: torch.Tensor) -> torch.Tensor:
         return self.power_fn(x)
