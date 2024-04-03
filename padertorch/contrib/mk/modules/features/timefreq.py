@@ -145,6 +145,21 @@ class STFT(_STFT):
         self.sequence_last = sequence_last
         self.normalization = normalization
 
+    def to_spectrogram(self, stft_signal: Tensor) -> Tensor:
+        if self.complex_representation == 'complex':
+            spect = torch.abs(stft_signal)
+        elif self.complex_representation == 'stacked':
+            spect = stft_signal.pow(2).sum(-1).sqrt()
+        else:
+            real, imag = torch.split(
+                stft_signal, stft_signal.shape[-1] // 2, dim=-1
+            )
+            spect = (real.pow(2) + imag.pow(2)).sqrt()
+        spect = spect ** self.power
+        if self.scale_spec:
+            spect /= self.size
+        return spect
+
     def __call__(
         self,
         inputs: Tensor,
@@ -171,18 +186,7 @@ class STFT(_STFT):
         """
         encoded = super().__call__(inputs)
         if self.spectrogram:
-            if self.complex_representation == 'complex':
-                encoded = torch.abs(encoded)
-            elif self.complex_representation == 'stacked':
-                encoded = encoded.pow(2).sum(-1).sqrt()
-            else:
-                real, imag = torch.split(
-                    encoded, encoded.shape[-1] // 2, dim=-1
-                )
-                encoded = (real.pow(2) + imag.pow(2)).sqrt()
-            encoded = encoded ** self.power
-            if self.scale_spec:
-                encoded /= self.size
+            encoded = self.to_spectrogram(encoded)
         encoded = self.log(encoded)
         if sequence_lengths is not None:
             sequence_lengths = self.samples_to_frames(
@@ -278,10 +282,6 @@ class MelTransform(pt.Module):
         self.stft_size = stft_size
 
         self.stft = stft
-        if self.stft is not None and not self.stft.spectrogram:
-            raise ValueError(
-                f'stft.spectrogram must be True but is {stft.spectrogram}'
-            )
 
         self.number_of_filters = number_of_filters
         self.lowest_frequency = lowest_frequency
@@ -393,6 +393,8 @@ class MelTransform(pt.Module):
 
         if self.stft is not None:
             x, sequence_lengths = self.stft(x, sequence_lengths)
+            if not self.stft.spectrogram:
+                x = self.stft.to_spectrogram(x)
             if self.stft.sequence_last:
                 x = x.transpose(-2, -1)
 
