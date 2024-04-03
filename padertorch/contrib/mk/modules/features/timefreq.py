@@ -19,7 +19,7 @@ from padertorch.contrib.je.modules.augment import Mask
 from padertorch.contrib.mk.typing import TSeqLen, TSeqReturn
 
 __all__ = [
-    'Sequential',
+    'Identity',
     'Logarithm',
     'STFT',
     'MelTransform',
@@ -27,7 +27,7 @@ __all__ = [
 ]
 
 
-class Sequential(pt.Module):
+class Identity(pt.Module):
     def forward(
         self, x: Tensor, sequence_lengths: TSeqLen = None
     ) -> TSeqReturn:
