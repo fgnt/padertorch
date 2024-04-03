@@ -480,7 +480,7 @@ class MelTransform(pt.Module):
 class MFCC(pt.Module):
     def __init__(
         self,
-        number_of_filters: int,
+        number_of_bins: int,
         transform: tp.Optional[tp.Union[MelTransform, STFT]] = None,
         axis: int = -1,
         channel_axis: int = 1,
@@ -492,24 +492,28 @@ class MFCC(pt.Module):
         """Extract mel-cepstral coefficients from audio.
 
         Args:
-            number_of_filters: Number of filters in the filterbank.
-            mel_transform: Optional `MelTransform` instance. If not None,
-                expect time signal as input and compute the log (mel)
+            number_of_bins (int): Number of frequency bins in the time-frequency
+                representation.
+            transform: Optional `MelTransform` or `STFT` instance. If not
+                None, expect time signal as input and compute the log (mel)
                 spectrogram before extracting the cepstral coefficients.
-            axis: Position of the frequency axis.
-            channel_axis: Position of the channel axis. Can be set to None if
-                the input has no channel axis.
-            num_cep: Number of cepstral coefficients to keep. If None, all
-                coefficients are kept.
-            low_pass: If True and `num_cep` is not None, keep the lowest
+            axis (int): Position of the frequency axis. Defaults to -1.
+            channel_axis (int): Position of the channel axis. Can be set to
+                None if the input has no channel axis. Defaults to 1.
+            num_cep (int, optional): Number of cepstral coefficients to keep.
+                If None, all coefficients are kept. Defaults to None.
+            low_pass (bool): If True and `num_cep` is not None, keep the lowest
                 `num_cep` coefficients and discard the rest (default behavior).
                 If False, keep the highest `number_of_filters-num_cep`
-                coefficients (high-pass behavior).
-            lifter_coeff: Liftering in the cepstral domain. See
+                coefficients (high-pass behavior). Defaults to True.
+            lifter_coeff (int): Liftering in the cepstral domain. See
                 `paderbox.transform.module_mfcc`. If 0, no liftering is applied.
+                Defaults to 0.
+            normalization (InputNormalization, optional): InputNormalization
+                instance to perform z-normalization. Defaults to None.
         """
         super().__init__()
-        self.number_of_filters = number_of_filters
+        self.number_of_bins = number_of_bins
         self.transform = transform
         self.axis = axis
         self.channel_axis = channel_axis
@@ -596,7 +600,7 @@ class MFCC(pt.Module):
         if self.num_cep is not None:
             shape = list(x_mfcc.shape)
             if self.low_pass:
-                shape[self.axis] = self.number_of_filters - self.num_cep
+                shape[self.axis] = self.number_of_bins - self.num_cep
                 x_mfcc = torch.cat(
                     (x_mfcc, torch.zeros(shape).to(x_mfcc.device)),
                     dim=self.axis
@@ -609,7 +613,7 @@ class MFCC(pt.Module):
                 )
         spect = torch.index_select(
             torch.fft.irfft(x_mfcc, axis=self.axis, norm='ortho'),
-            self.axis, torch.arange(self.number_of_filters).to(x_mfcc.device)
+            self.axis, torch.arange(self.number_of_bins).to(x_mfcc.device)
         )
         return spect
 
