@@ -89,6 +89,8 @@ class STFT(_STFT):
         pad (bool): See paderbox.transform.module_stft.stft.
         symmetric_window (bool): See paderbox.transform.module_stft.stft.
         complex_representation (str): See padertorch.ops._stft.STFT.
+        preemphasis (float, optional): If not None, apply pre-emphasis with
+            this value to the input signals. Defaults to None.
         spectrogram (bool): If True, return the magnitude spectrogram. Defaults
             to False.
         power (float): If `spectrogram` is True, raise magnitude to `power`.
@@ -114,6 +116,7 @@ class STFT(_STFT):
         pad: bool = True,
         symmetric_window: bool = False,
         complex_representation: str = 'complex',
+        preemphasis: tp.Optional[float] = None,
         spectrogram: bool = False,
         power: float = 1.,
         scale_spec: bool = False,
@@ -138,6 +141,26 @@ class STFT(_STFT):
         # Keep references to window and symmetric_window
         self.window = window
         self.symmetric_window = symmetric_window
+
+        if preemphasis is not None:
+            try:
+                from torchaudio.transforms import Preemphasis
+            except ImportError as e:
+                try:
+                    import torchaudio
+                    raise ImportError(
+                        f"Your torchaudio version ({torchaudio.__version__}) "
+                        "does not support pre-emphasis. If you want to use "
+                        "pre-emphasis, install torchaudio>=2.0.1."
+                    ) from e
+                except ImportError as e2:
+                    raise ImportError(
+                        "You need to install torchaudio>=2.0.1 to use "
+                        "pre-emphasis."
+                    ) from e2
+            self.preemphasis = Preemphasis(preemphasis)
+        else:
+            self.preemphasis = None
         self.spectrogram = spectrogram
         self.power = power
         self.scale_spec = scale_spec
@@ -184,6 +207,9 @@ class STFT(_STFT):
                 spectrograms in `encoded` if input `sequence_lengths` is not
                 None.
         """
+        if self.preemphasis is not None:
+            inputs = self.preemphasis(inputs)
+
         encoded = super().__call__(inputs)
         if self.spectrogram:
             encoded = self.to_spectrogram(encoded)
