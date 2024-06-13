@@ -1,10 +1,7 @@
 import numpy as np
 import torch
-import torch_complex
-from torch_complex import ComplexTensor
 
 __all__ = {
-    'ComplexTensor',
 }
 
 
@@ -19,8 +16,11 @@ def is_torch(obj):
     >>> is_torch(ComplexTensor(np.zeros(3)))
     True
     """
-    if torch.is_tensor(obj) or isinstance(obj, ComplexTensor):
+    if torch.is_tensor(obj):
         return True
-    else:
-        return False
+    if type(obj).__name__ == 'ComplexTensor':
+        from torch_complex import ComplexTensor
+        if isinstance(obj, ComplexTensor):
+            return True
+    return False
 
