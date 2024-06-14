@@ -197,7 +197,7 @@ def cepstrum(
         size: int=1024,
         shift: int=256,
         *,
-        window: typing.Callable=signal.blackman,
+        window: typing.Callable=signal.windows.blackman,
         window_length: int=None,
         fading: bool=True,
         pad: bool=True,
