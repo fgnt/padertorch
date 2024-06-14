@@ -211,6 +211,10 @@ class AnyTrigger(Trigger):
             [t(iteration, epoch) for t in self.triggers]
         )
 
+    @property
+    def last(self):
+        return self.triggers[0].last
+
     def set_last(self, iteration, epoch):
         for t in self.triggers:
             assert not isinstance(t, tuple), self.triggers
