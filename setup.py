@@ -24,8 +24,9 @@ from setuptools import find_packages
 here = path.abspath(path.dirname(__file__))
 
 # Get the long description from the relevant file
-with open(path.join(here, 'DESCRIPTION.rst'), encoding='utf-8') as f:
+with open(path.join(here, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
+
 
 # testing dependencies
 test = [
@@ -45,6 +46,17 @@ test = [
     'humanize',
     'codecarbon',
 ]
+
+if sys.argv != ['setup.py', 'sdist']:
+    # Remove git dependencies for sdist, because they are not supported on
+    # pypi.
+    # Can't have direct dependency: pb_bss@ git+http://github.com/fgnt/pb_bss ; extra == "test".
+    # https://packaging.python.org/specifications/core-metadata for more information.
+    test = [
+        d
+        for d in test
+        if '@ git+http://' not in d
+    ]
 
 setup(
     name='padertorch',
