@@ -346,7 +346,7 @@ def _get_rand_int(rng, *args, **kwargs):
 
 def get_anchor(
         num_samples: int, length: int, shift: int = None,
-        mode: str = 'left', rng=np.random
+        mode: str = 'left', rng: 'np.random.RandomState' = np.random
 ) -> int:
     """
     Calculates anchor for the boundaries for segmentation of a signal
@@ -372,6 +372,9 @@ def get_anchor(
             random_max_segments: Randomly chooses the anchor such that
                 the maximum number of segments are created
         rng: random number generator (`numpy.random`)
+            e.g. `np.random.RandomState(0)` or `np.random.default_rng(0)`.
+            Not, that `np.random.default_rng` differs from `np.random` and has
+            sometimes other return types (e.g. python `int` vs `np.int64`)
 
     Returns:
        integer value describing the anchor
@@ -387,7 +390,7 @@ def get_anchor(
     1
     >>> get_anchor(24, 10, 3, mode='random')
     10
-    >>> get_anchor(24, 10, 3, mode='random', rng=np.random.default_rng(seed=4))
+    >>> get_anchor(24, 10, 3, mode='random', rng=np.random.RandomState(seed=4))
     10
     >>> get_anchor(24, 10, 3, mode='random_max_segments')
     3
