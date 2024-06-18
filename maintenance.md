@@ -38,9 +38,6 @@ pip install --upgrade bump2version
 
 
 ## Publish
-To add the wheels for Windows to the release, trigger the wheels_windows pipeline on Github (via the web UI or by creating a version tag) and download the wheels into the dist/ directory.
-
-ToDO: Repair the windows wheels.
 
 ```bash
 bump2version --verbose --tag patch  # major, minor or patch
