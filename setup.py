@@ -5,6 +5,12 @@ https://packaging.python.org/en/latest/distributing.html
 https://github.com/pypa/sampleproject
 """
 
+# Allow editable install into user site directory.
+# See https://github.com/pypa/pip/issues/7953.
+import site
+import sys
+site.ENABLE_USER_SITE = '--user' in sys.argv[1:]
+
 # To use a consistent encoding
 from codecs import open
 # Always prefer setuptools over distutils
@@ -54,10 +60,10 @@ setup(
     long_description=long_description,
 
     # The project's main homepage.
-    url='https://ei.uni-paderborn.de/nt/',
+    url='https://github.com/fgnt/padertorch/',
 
     # Author details
-    author='Department of Communications Engineering',
+    author='Department of Communications Engineering, Paderborn University',
     author_email='sek@nt.upb.de',
 
     # Choose your license
