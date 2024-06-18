@@ -47,7 +47,7 @@ test = [
     'codecarbon',
 ]
 
-if sys.argv != ['setup.py', 'sdist']:
+if sys.argv == ['setup.py', 'sdist']:
     # Remove git dependencies for sdist, because they are not supported on
     # pypi.
     # Can't have direct dependency: pb_bss@ git+http://github.com/fgnt/pb_bss ; extra == "test".
