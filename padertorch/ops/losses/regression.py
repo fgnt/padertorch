@@ -220,7 +220,7 @@ def si_sdr_loss(estimate, target, reduction='mean', offset_invariant=False,
     ...     print('Numpy metric:', si_sdr(estimate.numpy(), target.numpy()))
 
     Perfect estimation
-    >>> si_sdr(reference.numpy(), reference.numpy())
+    >>> print(si_sdr(reference.numpy(), reference.numpy()))
     inf
     >>> sdr_loss(reference, reference)
     tensor(-inf, dtype=torch.float64)
@@ -228,7 +228,7 @@ def si_sdr_loss(estimate, target, reduction='mean', offset_invariant=False,
     tensor(True)
     >>> si_sdr_loss(reference.to(torch.float32), reference.to(torch.float32)) < -130  # Torch CPU is not hardware independent
     tensor(True)
-    >>> si_sdr(reference.numpy(), (reference * 2).numpy())
+    >>> print(si_sdr(reference.numpy(), (reference * 2).numpy()))
     inf
     >>> si_sdr_loss(reference, reference * 2) < -300  # Torch CPU is not hardware independent
     tensor(True)
