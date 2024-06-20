@@ -49,8 +49,8 @@ def to_list(x, length=None):
     >>> to_list('ab')
     ['ab']
     >>> from pathlib import Path
-    >>> to_list(Path('/foo/bar'))
-    [PosixPath('/foo/bar')]
+    >>> to_list(Path('/foo/bar')) # doctest: +ELLIPSIS
+    [...Path('/foo/bar')]
     """
     # Important cases (change type):
     #  - generator -> list
