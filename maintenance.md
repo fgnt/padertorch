@@ -40,6 +40,7 @@ pip install --upgrade bump2version
 ## Publish
 
 ```bash
+export SETUP_PY_IGNORE_GIT_DEPENDENCIES=1
 bump2version --verbose --tag patch  # major, minor or patch
 python setup.py sdist  # bdist_wheel  # It is difficult to get bdist_wheel working with binary files
 git push origin --tags
