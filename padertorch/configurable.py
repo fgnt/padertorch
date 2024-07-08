@@ -359,7 +359,8 @@ class Configurable:
         The updates are used to create a config and this config is then used to
         create the instance.
         """
-        return cls.from_config(cls.get_config(updates))
+        new: cls = cls.from_config(cls.get_config(updates))
+        return new
 
     @classmethod
     def get_config(
@@ -430,7 +431,7 @@ class Configurable:
     def from_config(
             cls,
             config,
-    ) -> 'Configurable':
+    ):
         """Produce a Configurable instance from a valid config."""
         # TODO: assert do not use defaults
 
@@ -462,7 +463,7 @@ class Configurable:
                     f'{pretty(config)}'
                 )
 
-        new = config_to_instance(config)
+        new: cls = config_to_instance(config)
         return new
 
     @classmethod
