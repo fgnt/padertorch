@@ -280,8 +280,10 @@ def _finalize_norm_kwargs(norm_kwargs, norm, num_channels, is_2d):
         }
     if norm == 'batch':
         norm_kwargs["statistics_axis"] = 'btf' if is_2d else 'bt'
-    elif norm == 'sequence':
-        norm_kwargs["statistics_axis"] = 't'
+    elif norm == 'instance':
+        norm_kwargs["statistics_axis"] = 'tf' if is_2d else 't'
+    elif norm == 'layer':
+        norm_kwargs["statistics_axis"] = 'c'
     else:
         raise ValueError(f'{norm} normalization not known.')
     return norm_kwargs
