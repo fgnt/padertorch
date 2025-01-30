@@ -4,6 +4,12 @@ See:
 https://packaging.python.org/en/latest/distributing.html
 https://github.com/pypa/sampleproject
 """
+import os
+# Allow editable install into user site directory.
+# See https://github.com/pypa/pip/issues/7953.
+import site
+import sys
+site.ENABLE_USER_SITE = '--user' in sys.argv[1:]
 
 # To use a consistent encoding
 from codecs import open
@@ -18,8 +24,9 @@ from setuptools import find_packages
 here = path.abspath(path.dirname(__file__))
 
 # Get the long description from the relevant file
-with open(path.join(here, 'DESCRIPTION.rst'), encoding='utf-8') as f:
+with open(path.join(here, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
+
 
 # testing dependencies
 test = [
@@ -40,24 +47,47 @@ test = [
     'codecarbon',
 ]
 
+if os.environ.get('SETUP_PY_IGNORE_GIT_DEPENDENCIES', False):
+    # Remove git dependencies for sdist, because they are not supported on
+    # pypi.
+    # Can't have direct dependency: pb_bss@ git+http://github.com/fgnt/pb_bss ; extra == "test".
+    # https://packaging.python.org/specifications/core-metadata for more information.
+    test = [
+        d
+        for d in test
+        if '@ git+http://' not in d
+    ]
+
 setup(
     name='padertorch',
 
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='0.0.0',
+    version='0.0.1',
 
     description='A collection of common functionality to simplify the design, '
     'training and evaluation of machine learning models based on pytorch '
     'with an emphasis on speech processing.',
     long_description=long_description,
 
+    # Denotes that our long_description is in Markdown; valid values are
+    # text/plain, text/x-rst, and text/markdown
+    #
+    # Optional if long_description is written in reStructuredText (rst) but
+    # required for plain-text or Markdown; if unspecified, "applications should
+    # attempt to render [the long_description] as text/x-rst; charset=UTF-8 and
+    # fall back to text/plain if it is not valid rst" (see link below)
+    #
+    # This field corresponds to the "Description-Content-Type" metadata field:
+    # https://packaging.python.org/specifications/core-metadata/#description-content-type-optional
+    long_description_content_type='text/markdown',  # Optional (see note above)
+
     # The project's main homepage.
-    url='https://ei.uni-paderborn.de/nt/',
+    url='https://github.com/fgnt/padertorch/',
 
     # Author details
-    author='Department of Communications Engineering',
+    author='Department of Communications Engineering, Paderborn University',
     author_email='sek@nt.upb.de',
 
     # Choose your license
@@ -80,7 +110,7 @@ setup(
 
         # Specify the Python versions you support here. In particular, ensure
         # that you indicate whether you support Python 2, Python 3 or both.
-        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.10',
     ],
 
     # What does your project relate to?
@@ -102,7 +132,7 @@ setup(
         'natsort',
         'lazy_dataset',
         'IPython',
-        'paderbox @ git+http://github.com/fgnt/paderbox',
+        'paderbox',
     ],
 
     # Installation problems in a clean, new environment:

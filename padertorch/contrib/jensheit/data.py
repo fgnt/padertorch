@@ -20,9 +20,9 @@ from scipy import signal
 from collections import Generator
 
 WINDOW_MAP = Dispatcher(
-    blackman=signal.blackman,
-    hamming=signal.hamming,
-    hann=signal.hann
+    blackman=signal.windows.blackman,
+    hamming=signal.windows.hamming,
+    hann=signal.windows.hann
 )
 
 
