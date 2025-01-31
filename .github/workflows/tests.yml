@@ -9,24 +9,16 @@ on:
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        python-version: [3.8, 3.9, "3.10", "3.11", "3.12"]
+        os: [ubuntu-latest]
         include:
-          - python-version: 3.7
-            runs-on: ubuntu-22.04
-          - python-version: 3.8
-            runs-on: ubuntu-latest
-          - python-version: 3.9
-            runs-on: ubuntu-latest
-          - python-version: 3.10
-            runs-on: ubuntu-latest
-          - python-version: 3.11
-            runs-on: ubuntu-latest
-          - python-version: 3.12
-            runs-on: ubuntu-latest
-          - python-version: 3.12
-            runs-on: macos-latest
+          - os: ubuntu-22.04
+            python-version: 3.7
+          - os: macos-latest
+            python-version: "3.12"
 
     steps:
     - uses: actions/checkout@v3
