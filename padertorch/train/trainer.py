@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 import functools
 import collections
+from packaging import version
 
 import numpy as np
 import torch
@@ -29,6 +30,35 @@ __all__ = [
     'Trainer',
     'InteractiveTrainer',
 ]
+
+
+# https://github.com/huggingface/transformers/pull/34632
+def _safe_globals():
+    # Starting from version 2.4 PyTorch introduces a check for the objects
+    # loaded with torch.load(weights_only=True). Starting from 2.6
+    # weights_only=True becomes a default and requires allowlisting of objects
+    # being loaded.
+    # See: https://github.com/pytorch/pytorch/pull/137602
+    # See: https://pytorch.org/docs/stable/notes/serialization.html#torch.serialization.add_safe_globals
+    # See: https://github.com/huggingface/accelerate/pull/3036
+    if (
+        version.parse(torch.__version__).release
+        < version.parse("2.6").release
+    ):
+        return contextlib.nullcontext()
+
+    np_core = (
+        np._core if version.parse(np.__version__)
+        >= version.parse("2.0.0") else np.core
+    )
+    allowlist = [
+        np_core.multiarray.scalar, type(np.dtype(np.float64)), np.dtype
+    ]
+    # Additional types that were allowed by huggingface transformers
+    # allowlist.extend([np_core.multiarray._reconstruct, , np.dtype])
+    # allowlist += [type(np.dtype(np.uint32))]
+    allowlist += []
+    return torch.serialization.safe_globals(allowlist)
 
 
 class Trainer(Configurable):
@@ -859,9 +889,10 @@ class Trainer(Configurable):
         checkpoint_path = self.checkpoint_dir / 'ckpt_latest.pth'
         assert checkpoint_path.is_file(), checkpoint_path
 
-        checkpoint_dict = torch.load(
-            str(checkpoint_path), map_location=map_location
-        )
+        with _safe_globals():
+            checkpoint_dict = torch.load(
+                str(checkpoint_path), map_location=map_location
+            )
 
         if torch.__version__ == "1.12.0":
             warnings.warn("This torch version (1.12.0) has a bug, for more information"
