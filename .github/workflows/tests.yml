@@ -11,6 +11,7 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false  # Let other jobs keep running even if one fails
       matrix:
         python-version: [3.8, 3.9, "3.10", "3.11", "3.12"]
         os: [ubuntu-latest]
@@ -33,6 +34,7 @@ jobs:
     - name: Install macos dependencies
       run: |
         brew install libsndfile
+        export TMPDIR=/private/tmp  # Default TMPDIR on macOS is /var which pathlib.Path resolves to /private/var
       if: matrix.os == 'macos-latest'
     - name: Install python dependencies
       run: |
