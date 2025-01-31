@@ -21,6 +21,9 @@ jobs:
           - os: macos-latest
             python-version: "3.12"
 
+    env:
+      TMPDIR: /private/tmp  # Default TMPDIR on macOS is /var which pathlib.Path resolves to /private/var
+      if: matrix.os == 'macos-latest'
     steps:
     - uses: actions/checkout@v3
     - name: Set up Python ${{ matrix.python-version }}
@@ -34,7 +37,7 @@ jobs:
     - name: Install macos dependencies
       run: |
         brew install libsndfile
-        export TMPDIR=/private/tmp  # Default TMPDIR on macOS is /var which pathlib.Path resolves to /private/var
+        echo $TMPDIR
       if: matrix.os == 'macos-latest'
     - name: Install python dependencies
       run: |
