@@ -1,4 +1,4 @@
-import typing
+import typing as tp
 
 import numpy as np
 from padertorch.utils import to_numpy
@@ -8,14 +8,16 @@ from torch import Tensor
 from torchvision.utils import make_grid
 
 
-def tensor_to_image(signal: Tensor, input_type: str):
+def tensor_to_image(
+    signal: Tensor, input_type: str, sequence_last: bool = True
+):
     x = to_numpy(signal, detach=True)
     if input_type == 'image':
         x = (x * 255).astype(np.uint8)
     elif input_type == 'spectrogram':
-        x = spectrogram_to_image(
-            x.transpose(-1, -2), batch_first=None, log=False
-        )
+        if sequence_last:
+            x = x.transpose(-1, -2)
+        x = spectrogram_to_image(x, batch_first=None, log=False)
     else:
         raise ValueError(f'Unknown input type {input_type}')
     return x
@@ -23,10 +25,11 @@ def tensor_to_image(signal: Tensor, input_type: str):
 
 def batch_image_to_grid(
     batch_image: torch.Tensor,
-    input_shape_format: str = 'b c h w',
-    height_axis: str = 'h',
-    width_axis: str = 'w',
-    stack: typing.Optional[str] = None,
+    input_shape_format: str = 'bchw',
+    height_axis: tp.Optional[str] = None,
+    width_axis: tp.Optional[str] = None,
+    sequence_axis: tp.Optional[str] = None,
+    stack: tp.Optional[str] = None,
     origin: str = 'upper',
     normalize: bool = True,
     scale_each: bool = False,
@@ -59,8 +62,22 @@ def batch_image_to_grid(
     if origin not in ('upper', 'lower'):
         raise ValueError(f'"origin" should be "upper" or "lower" but got {origin}')
 
+    dims = list(input_shape_format)
+    if height_axis is None:
+        height_axis = dims[-2]
+    if width_axis is None:
+        width_axis = dims[-1]
+    if height_axis == width_axis:
+        raise ValueError(
+            f'Height and width axis should be different but got {height_axis} '
+            'for both "height_axis" and "width_axis"'
+        )
     if stack is None:
-        stack = height_axis
+        if sequence_axis is not None:
+            sequence_last = dims[-1] == sequence_axis
+            stack = height_axis if sequence_last else width_axis
+        else:
+            stack = height_axis
 
     if stack not in (height_axis, width_axis):
         raise ValueError(
@@ -68,7 +85,6 @@ def batch_image_to_grid(
             f'"{width_axis}" but got {stack}'
         )
 
-    dims = input_shape_format.split()
     if len(dims) != batch_image.ndim:
         raise ValueError(f'Shape format {input_shape_format} does not match input shape {batch_image.shape}')
 

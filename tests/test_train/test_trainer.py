@@ -20,6 +20,7 @@ import torch
 
 from padertorch.testing.test_db import MnistDatabase
 from padertorch.summary.tfevents import load_events_as_dict
+from padertorch.train.trainer import _safe_globals
 
 import padertorch as pt
 import paderbox as pb
@@ -309,7 +310,8 @@ def test_single_model():
                 assert expect == set(checkpoints_files_name), (
                     expect, checkpoints_files_name
                 )
-                ckpt_ranking = torch.load(str(file / 'ckpt_latest.pth'))['hooks']['BackOffValidationHook']['ckpt_ranking']
+                with _safe_globals():
+                    ckpt_ranking = torch.load(str(file / 'ckpt_latest.pth'))['hooks']['BackOffValidationHook']['ckpt_ranking']
                 assert ckpt_ranking[0][1] > 0, ckpt_ranking
                 for i, ckpt in enumerate(ckpt_ranking):
                     ckpt_ranking[i] = (ckpt[0], -1)
