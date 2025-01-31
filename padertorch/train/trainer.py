@@ -55,9 +55,7 @@ def _safe_globals():
         np_core.multiarray.scalar, type(np.dtype(np.float64)), np.dtype
     ]
     # Additional types that were allowed by huggingface transformers
-    # allowlist.extend([np_core.multiarray._reconstruct, , np.dtype])
-    # allowlist += [type(np.dtype(np.uint32))]
-    allowlist += []
+    # allowlist.extend([np_core.multiarray._reconstruct, np.ndarray, type(np.dtype(np.uint32))])
     return torch.serialization.safe_globals(allowlist)
 
 
