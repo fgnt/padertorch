@@ -1,19 +1,19 @@
-import os
-from pathlib import Path
-import typing
 from collections import namedtuple
-import natsort
 from distutils.version import LooseVersion
 import io
-import importlib.util
+import natsort
+import os
+from pathlib import Path
 import tempfile
+import typing as tp
 
-import numpy as np
-import torch
 from einops import rearrange
+import numpy as np
+from paderbox.io import load_yaml
+import torch
 import yaml
 try:
-    from parallel_wavegan.utils import load_model, download_pretrained_model
+    from parallel_wavegan.utils import download_pretrained_model
 except ImportError:
     raise ImportError(
         '`parallel_wavegan` package was not found. '
@@ -21,7 +21,6 @@ except ImportError:
         'https://github.com/kan-bayashi/ParallelWaveGAN'
     )
 
-from paderbox.io import load_yaml
 import padertorch as pt
 
 from ..base import Synthesis
@@ -106,7 +105,7 @@ def _pwg_load_model(checkpoint, config=None, stats=None, consider_mpi=False):
 
 
 def load_vocoder_model(
-    vocoder_base_path: typing.Union[str, Path], config_name: str = 'config.yml',
+    vocoder_base_path: tp.Union[str, Path], config_name: str = 'config.yml',
     vocoder_stats: str = 'stats.h5', vocoder_checkpoint: str = None,
     consider_mpi=False,
 ):
@@ -150,15 +149,30 @@ def load_vocoder_model(
     )
     vocoder.remove_weight_norm()
     vocoder = vocoder.eval()
-    audio_params = namedtuple(
-        'AudioParams', ['sampling_rate', 'shift', 'window_length'])
-    window_length = config['win_length']
-    if window_length is None:
-        window_length = config['fft_size']
-    window_length = window_length / config['sampling_rate'] * 1000
-    shift = config['hop_size'] / config['sampling_rate'] * 1000
-    return vocoder, audio_params(
-        config['sampling_rate'], shift, window_length
+    vocoder_params = namedtuple(
+        'VocoderParams', [
+            'sampling_rate',
+            'hop_size',
+            'win_size',
+            'n_fft',
+            'fmin',
+            'fmax',
+            'num_mels',
+        ]
+    )
+    # window_length = config['win_length']
+    # if window_length is None:
+    #     window_length = config['fft_size']
+    # window_length = window_length / config['sampling_rate'] * 1000
+    # shift = config['hop_size'] / config['sampling_rate'] * 1000
+    return vocoder, vocoder_params(
+        config['sampling_rate'],
+        config['hop_size'],
+        config['win_length'],
+        config['fft_size'],
+        config['fmin'],
+        config['fmax'],
+        config['num_mels'],
     )
 
 
@@ -180,16 +194,16 @@ class Vocoder(Synthesis):
     def __init__(
         self,
         database: str = 'libritts',
-        pwg_base_dir: typing.Optional[typing.Union[str, Path]] = \
+        base_dir: tp.Optional[tp.Union[str, Path]] = \
             os.environ.get('PWG_BASE_DIR', None),
         vocoder_model: str = 'hifigan',
-        vocoder_tag: typing.Optional[str] = None,
-        normalize_before: bool = False,
-        device: typing.Union[str, int] = 'cpu',
+        vocoder_tag: tp.Optional[str] = None,
+        normalize_before: bool = True,
+        device: tp.Union[str, int] = 'cpu',
         consider_mpi: bool = False,
         batch_axis: int = 0,
         sequence_axis: int = -1,
-        postprocessing: typing.Optional[typing.Callable] = None,
+        postprocessing: tp.Optional[tp.Callable] = None,
      ):
         """
         Args:
@@ -197,7 +211,7 @@ class Vocoder(Synthesis):
                 https://github.com/kan-bayashi/ParallelWaveGAN). Used to
                 infer the vocoder model. If `vocoder_tag` is not None, this
                 argument will be ignored
-            pwg_base_dir: Path to folder where vocoders will be downloaded to.
+            base_dir: Path to folder where vocoders will be downloaded to.
                 Vocoders will be dumped as directories indexed by their vocoder
                 tag. If a vocoder is already downloaded, it will be loaded from
                 disk instead of being downloaded again
@@ -208,11 +222,11 @@ class Vocoder(Synthesis):
                 argument will be ignored
             vocoder_tag: Vocoder tag of the form
                 <database>_<vocoder_model>.<version_no.>. If not None, will
-                first look under `pwg_base_dir` and then try to download it
+                first look under `base_dir` and then try to download it
                 from https://github.com/kan-bayashi/ParallelWaveGAN
             normalize_before: If True, perform z-normalization with vocoder
                 train statistics. If False, `mel_spec` should be normalized
-                with test statistics. Defaults to False
+                with test statistics. Defaults to True
             device: Device (CPU, GPU) used for inference
             consider_mpi: If True, load the weights on the master and distribute
                 to all workers
@@ -223,7 +237,7 @@ class Vocoder(Synthesis):
                 the synthesized waveform
         """
         super().__init__(postprocessing=postprocessing)
-        self.pwg_base_dir = pwg_base_dir
+        self.base_dir = base_dir
         self.vocoder_tag = vocoder_tag
         self.normalize_before = normalize_before
         self.device = device
@@ -233,12 +247,12 @@ class Vocoder(Synthesis):
         if self.vocoder_tag is None:
             self.vocoder_tag = str(Path(
                 '_'.join((database, vocoder_model))).with_suffix('.v1'))
-        if self.pwg_base_dir is None:
-            self.pwg_base_dir = Path(tempfile.gettempdir()) / 'pwg_models'
+        if self.base_dir is None:
+            self.base_dir = Path(tempfile.gettempdir()) / 'pwg_models'
         else:
-            self.pwg_base_dir = Path(self.pwg_base_dir)
-        if not (self.pwg_base_dir / self.vocoder_tag).exists():
-            # Download vocoder and store it under `self.pwg_base_dir`
+            self.base_dir = Path(self.base_dir)
+        if not (self.base_dir / self.vocoder_tag).exists():
+            # Download vocoder and store it under `self.base_dir`
             if consider_mpi:
                 try:
                     import dlp_mpi
@@ -252,20 +266,20 @@ class Vocoder(Synthesis):
                 dlp_mpi.barrier()
             else:
                 self._download()
-        self.vocoder_model, vocoder_audio_params = load_vocoder_model(
-            self.pwg_base_dir / self.vocoder_tag, consider_mpi=consider_mpi)
-        self.sampling_rate = vocoder_audio_params.sampling_rate
+        self.vocoder_model, self.vocoder_params = load_vocoder_model(
+            self.base_dir / self.vocoder_tag, consider_mpi=consider_mpi)
+        self.sampling_rate = self.vocoder_params.sampling_rate
         self.vocoder_model.to(self.device).eval()
 
     def _download(self):
         try:
-            download_pretrained_model(self.vocoder_tag, str(self.pwg_base_dir))
-            print(f'Downloaded {self.vocoder_tag} to {self.pwg_base_dir}')
+            download_pretrained_model(self.vocoder_tag, str(self.base_dir))
+            print(f'Downloaded {self.vocoder_tag} to {self.base_dir}')
         except KeyError as e:
             raise KeyError(
                 f'Could not find {self.vocoder_tag} in pretrained models!\n'
-                'list(self.pwg_base_dir.iterdir()): '
-                f'{[p for p in self.pwg_base_dir.iterdir() if p.is_dir()]}\n'
+                'list(self.base_dir.iterdir()): '
+                f'{[p for p in self.base_dir.iterdir() if p.is_dir()]}\n'
                 'Check parallel_wavegan.PRETRAINED_MODEL_LIST or '
                 'https://github.com/kan-bayashi/ParallelWaveGAN#results for'
                 'more pretrained models.\n'
@@ -275,15 +289,21 @@ class Vocoder(Synthesis):
 
     def __call__(
         self,
-        mel_spec: typing.Union[torch.Tensor, np.ndarray],
-        sequence_lengths: typing.Optional[typing.List[int]] = None,
-        target_sampling_rate: typing.Optional[int] = None,
-    ) -> typing.Union[
-        torch.Tensor, np.ndarray, typing.List[np.ndarray],
-        typing.List[torch.Tensor]
+        mel_spec: tp.Union[torch.Tensor, np.ndarray],
+        sequence_lengths: tp.Optional[tp.List[int]] = None,
+        target_sampling_rate: tp.Optional[int] = None,
+    ) -> tp.Union[
+        torch.Tensor, np.ndarray, tp.List[np.ndarray],
+        tp.List[torch.Tensor]
     ]:
         """
         Synthesize waveform from log-mel spectrogram with a neural vocoder
+
+        >>> vocoder = Vocoder()
+        >>> mel_spec = torch.zeros((1, 80, 100))
+        >>> wav_gen = vocoder(mel_spec)
+        >>> wav_gen.shape
+        torch.Size([1, 30000])
 
         Args:
             mel_spec: (Batched) mel-spectrograms where shape must match as
@@ -299,7 +319,6 @@ class Vocoder(Synthesis):
         to_numpy = isinstance(mel_spec, np.ndarray)
         if to_numpy:
             mel_spec = torch.from_numpy(mel_spec).to(self.device)
-        mel_spec = mel_spec.squeeze()
         sequence_axis = self.sequence_axis % mel_spec.ndim
         batch_axis = self.batch_axis % mel_spec.ndim
         if mel_spec.ndim == 2:
@@ -350,4 +369,4 @@ class Vocoder(Synthesis):
                 'Expected 2- or 3-dim. spectrogram but got '
                 f'{mel_spec.ndim}-dim. input with shape {mel_spec.shape}'
             )
-        return super(Vocoder, self).__call__(y, target_sampling_rate)
+        return super().__call__(y, target_sampling_rate)
