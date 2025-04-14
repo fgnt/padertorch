@@ -8,6 +8,7 @@ E.g., adding a learning rate schedule without adding further conditions to the
 trainer.
 
 """
+import time
 import types
 from collections import defaultdict
 from enum import IntEnum
@@ -914,6 +915,14 @@ class AnnealingHook(TriggeredHook):
     def uid(self):
         return super().uid + f"({self.name})"
 
+    def state_dict(self):
+        return {
+            'scale': self.scale,
+        }
+
+    def load_state_dict(self, state_dict):
+        self.scale = state_dict['scale']
+
     def get_value(self, trainer):
         raise NotImplementedError
 
@@ -940,14 +949,19 @@ class AnnealingHook(TriggeredHook):
                     (self.breakpoints[i][1] - last_break[1])
                     / (self.breakpoints[i][0] - last_break[0])
                 )  # a = (y1 - y0) / (x1 - x0)
-                value = (
+                factor = (
                     last_break[1] + slope * (x - last_break[0])
                 )  # y = y0 + a * (x - x0)
-                value *= self.scale  # relative to absolute
-                self.set_value(trainer, value)
             else:
-                value = self.breakpoints[-1][1] * self.scale
+                factor = self.breakpoints[-1][1]
+            if isinstance(self.scale, (list, tuple)):
+                value = [factor * s for s in self.scale]
+            else:
+                value = factor * self.scale
             self.set_value(trainer, value)
+
+    def set_last(self, iteration, epoch):
+        pass
 
 
 class LossWeightAnnealingHook(AnnealingHook):
@@ -1017,12 +1031,21 @@ class LRAnnealingHook(AnnealingHook):
         return optimizer.optimizer
 
     def get_value(self, trainer):
-        return self.get_optimizer(trainer).param_groups[0]['lr']
+        opt = self.get_optimizer(trainer)
+        lrs = [param_group['lr'] for param_group in opt.param_groups]
+        if len(set(lrs)) == 1:
+            return lrs[0]
+        return lrs
 
     def set_value(self, trainer, value):
         optimizer = self.get_optimizer(trainer)
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = value
+        if np.isscalar(value):
+            new_lrs = len(optimizer.param_groups)*[value]
+        else:
+            assert len(value) == len(optimizer.param_groups), (len(value), len(optimizer.param_groups))
+            new_lrs = value
+        for param_group, lr in zip(optimizer.param_groups, new_lrs):
+            param_group['lr'] = lr
 
 
 class EmissionsTrackerHook(TriggeredHook):
