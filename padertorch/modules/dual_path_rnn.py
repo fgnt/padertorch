@@ -146,7 +146,7 @@ def segment(
     if sequence_lengths is not None:
         sequence_lengths = sequence_lengths + 2 * padding
         sequence_lengths = (sequence_lengths - padding)
-        sequence_lengths = (sequence_lengths - 1) // hop_size + 1
+        sequence_lengths = torch.div(sequence_lengths - 1, hop_size, rounding_mode='floor')  + 1
     return segmented, sequence_lengths
 
 
