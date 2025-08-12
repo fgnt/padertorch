@@ -11,11 +11,11 @@ from paderbox.transform.module_stft import (
 )
 import padertorch as pt
 from padertorch.contrib.mk.typing import TSeqLen
-from padertorch.contrib.mk.visualization import compute_receptive_field_1d
+from padertorch.contrib.mk.utils import compute_receptive_field_1d
 from padertorch.ops.sequence.mask import compute_mask
 from padertorch.utils import to_numpy
 import torch
-from torch import Tensor
+from torch import Tensor, nn
 import torch.nn.functional as F
 from torch.nn.utils import parametrize
 import torchaudio
@@ -61,6 +61,7 @@ class Wav2Vec2(pt.Module):
         device: str = 'cpu',
         pad: bool = False,
         fading: tp.Optional[tp.Union[str, bool]] = None,
+        attention_fn: tp.Optional[nn.Module] = None,
     ):
         super().__init__()
         if not freeze and detach:
@@ -77,6 +78,7 @@ class Wav2Vec2(pt.Module):
         self.fading = fading
         self.backend = backend
         self.device = device
+        self.attention_fn = attention_fn
 
         self._init_model(model_name)
 
@@ -106,12 +108,20 @@ class Wav2Vec2(pt.Module):
             pad=self.pad, fading=self.fading,
         )
 
+    @property
+    def frame_rate(self):
+        return int(self.sampling_rate / self.downsample_factor)
+
     def _init_model(self, model_name):
         if self.backend == "hf":
             if "wav2vec2" not in model_name.lower():
                 raise ValueError(
                     "Wav2Vec2 only supports wav2vec 2.0 models.\n"
                     f"model_name: {model_name}"
+                )
+            if self.attention_fn is not None:
+                raise NotImplementedError(
+                    "Custom attention function is not supported for hf backend."
                 )
             self.model = Wav2Vec2Model.from_pretrained(
                 model_name, cache_dir=self.cache_dir
@@ -122,6 +132,15 @@ class Wav2Vec2(pt.Module):
             self.sampling_rate = bundle.sample_rate
             if self.layer == -1:
                 self.layer = len(self.model.encoder.transformer.layers)-1
+            if self.attention_fn is not None:
+                for layer in self.model.encoder.transformer.layers:
+                    named_params = dict(layer.attention.named_parameters())
+                    layer.attention = self.attention_fn
+                    for name, param in named_params.items():
+                        m = layer.attention
+                        for part in name.split("."):
+                            m = getattr(m, part)
+                        m.data = param.data
         else:
             raise ValueError(f'Unknown backend: {self.backend}')
 
@@ -148,7 +167,7 @@ class Wav2Vec2(pt.Module):
 
     @property
     def context(self):
-        if self.detach:
+        if self.freeze:
             return torch.no_grad()
         return nullcontext()
 
@@ -253,7 +272,7 @@ class Wav2Vec2(pt.Module):
             pad_sizes = torch.maximum(
                 torch.tensor(0.), pad_size - zero_padding
             ).long()
-            to_pad[:, 1] += pad_sizes
+            to_pad[:, 1] += pad_sizes.to(to_pad.device)
             signal = list(map(F.pad, signal, to_pad.tolist()))
             signal = pt.pad_sequence(list(
                 map(lambda t: t.moveaxis(-1, 0), signal)
@@ -399,30 +418,40 @@ class Wav2Vec2(pt.Module):
         with self.context:
             if self.backend == "torchaudio":
                 self.model: torchaudio.models.Wav2Vec2Model
+                sequence_lengths = self.compute_output_lengths(
+                    sequence_lengths
+                )
                 if return_latents:
-                    z, sequence_lengths = self.model.feature_extractor(
+                    z, _ = self.model.feature_extractor(
                         time_signal, pad_sequence_lengths
                     )
-                    sequence_lengths = np.array(
-                        to_numpy(sequence_lengths, detach=True)
-                    )
+                    if sequence_lengths is not None:
+                        sequence_lengths = np.array(
+                            to_numpy(sequence_lengths, detach=True)
+                        )
+                        z = z[..., :sequence_lengths.max(), :]
                     try:
-                        sequence_lengths = sequence_lengths.item()
                         if sequence_lengths is not None:
+                            sequence_lengths = sequence_lengths.item()
                             sequence_lengths = np.array([sequence_lengths])
                     except ValueError:
                         pass
                     return z, sequence_lengths
 
-                x, sequence_lengths = self.model.extract_features(
+                x, _ = self.model.extract_features(
                     time_signal, lengths=pad_sequence_lengths,
                     num_layers=self.layer,
                 )
-                sequence_lengths = np.array(
-                    to_numpy(sequence_lengths, detach=True)
-                )
+                if sequence_lengths is not None:
+                    sequence_lengths = np.array(
+                        to_numpy(sequence_lengths, detach=True)
+                    )
+                if self.detach:
+                    x = list(map(torch.detach, x))
                 if isinstance(self.layer, int):
                     x = x[-1]
+                    if sequence_lengths is not None:
+                        x = x[..., :sequence_lengths.max(), :]
                     return x, sequence_lengths
                 if self.layer is None:
                     return x, sequence_lengths
