@@ -6,6 +6,8 @@ by instances of pytorch.train.Trainer.
 """
 import io
 import abc
+import contextlib
+from packaging import version
 from pathlib import Path
 
 import numpy as np
@@ -21,6 +23,33 @@ __all__ = [
     'Model',
     'torch_dataclass',
 ]
+
+
+# https://github.com/huggingface/transformers/pull/34632
+def _safe_globals():
+    # Starting from version 2.4 PyTorch introduces a check for the objects
+    # loaded with torch.load(weights_only=True). Starting from 2.6
+    # weights_only=True becomes a default and requires allowlisting of objects
+    # being loaded.
+    # See: https://github.com/pytorch/pytorch/pull/137602
+    # See: https://pytorch.org/docs/stable/notes/serialization.html#torch.serialization.add_safe_globals
+    # See: https://github.com/huggingface/accelerate/pull/3036
+    if (
+        version.parse(torch.__version__).release
+        < version.parse("2.6").release
+    ):
+        return contextlib.nullcontext()
+
+    np_core = (
+        np._core if version.parse(np.__version__)
+        >= version.parse("2.0.0") else np.core
+    )
+    allowlist = [
+        np_core.multiarray.scalar, type(np.dtype(np.float64)), np.dtype,
+    ]
+    # Additional types that were allowed by huggingface transformers
+    # allowlist.extend([np_core.multiarray._reconstruct, np.ndarray, type(np.dtype(np.uint32))])
+    return torch.serialization.safe_globals(allowlist)
 
 
 class Module(nn.Module, Configurable, abc.ABC):
@@ -53,6 +82,7 @@ class Module(nn.Module, Configurable, abc.ABC):
 
             map_location='cpu',
             consider_mpi=False,
+            weights_only=True,
     ) -> 'Module':
         """Instantiate the module from given config and checkpoint.
 
@@ -87,6 +117,7 @@ class Module(nn.Module, Configurable, abc.ABC):
             in_checkpoint_path=in_checkpoint_path,
             map_location=map_location,
             consider_mpi=consider_mpi,
+            weights_only=weights_only,
         )
 
     def load_checkpoint(
@@ -96,6 +127,7 @@ class Module(nn.Module, Configurable, abc.ABC):
 
             map_location='cpu',
             consider_mpi=False,
+            weights_only=True,
     ) -> 'Module':
         """Update the module parameters from the given checkpoint.
 
@@ -117,20 +149,25 @@ class Module(nn.Module, Configurable, abc.ABC):
         assert checkpoint_path.is_file(), checkpoint_path
 
         # Load weights
-        if consider_mpi:
-            import dlp_mpi
-            if dlp_mpi.IS_MASTER:
-                checkpoint_path_content = Path(checkpoint_path).read_bytes()
-            else:
-                checkpoint_path_content = None
-            checkpoint_path_content = dlp_mpi.bcast(checkpoint_path_content)
+        with _safe_globals():
+            if consider_mpi:
+                import dlp_mpi
+                if dlp_mpi.IS_MASTER:
+                    checkpoint_path_content = Path(checkpoint_path).read_bytes()
+                else:
+                    checkpoint_path_content = None
+                checkpoint_path_content = dlp_mpi.bcast(checkpoint_path_content)
 
-            checkpoint = torch.load(
-                io.BytesIO(checkpoint_path_content),
-                map_location=map_location,
-            )
-        else:
-            checkpoint = torch.load(checkpoint_path, map_location=map_location)
+                checkpoint = torch.load(
+                    io.BytesIO(checkpoint_path_content),
+                    map_location=map_location,
+                    weights_only=weights_only,
+                )
+            else:
+                checkpoint = torch.load(
+                    checkpoint_path, map_location=map_location,
+                    weights_only=weights_only,
+                )
 
         if in_checkpoint_path:
             for part in in_checkpoint_path.split('.'):
@@ -152,6 +189,7 @@ class Module(nn.Module, Configurable, abc.ABC):
             in_config_path: str = 'trainer.model',
             in_checkpoint_path: str = 'model',
             consider_mpi=False,
+            weights_only=True,
     ) -> 'Module':
         """Instantiate the module from a given storage directory.
 
@@ -183,6 +221,7 @@ class Module(nn.Module, Configurable, abc.ABC):
             in_config_path=in_config_path,
             in_checkpoint_path=in_checkpoint_path,
             consider_mpi=consider_mpi,
+            weights_only=weights_only,
         )
 
 

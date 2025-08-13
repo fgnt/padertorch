@@ -11,7 +11,6 @@ from datetime import datetime
 from pathlib import Path
 import functools
 import collections
-from packaging import version
 
 import numpy as np
 import torch
@@ -21,6 +20,7 @@ import warnings
 
 from paderbox.utils.nested import deflatten
 import padertorch as pt
+from padertorch.base import _safe_globals
 from padertorch.configurable import Configurable
 from padertorch.train.optimizer import Optimizer, Adam
 from padertorch.train.runtime_tests import test_run
@@ -30,33 +30,6 @@ __all__ = [
     'Trainer',
     'InteractiveTrainer',
 ]
-
-
-# https://github.com/huggingface/transformers/pull/34632
-def _safe_globals():
-    # Starting from version 2.4 PyTorch introduces a check for the objects
-    # loaded with torch.load(weights_only=True). Starting from 2.6
-    # weights_only=True becomes a default and requires allowlisting of objects
-    # being loaded.
-    # See: https://github.com/pytorch/pytorch/pull/137602
-    # See: https://pytorch.org/docs/stable/notes/serialization.html#torch.serialization.add_safe_globals
-    # See: https://github.com/huggingface/accelerate/pull/3036
-    if (
-        version.parse(torch.__version__).release
-        < version.parse("2.6").release
-    ):
-        return contextlib.nullcontext()
-
-    np_core = (
-        np._core if version.parse(np.__version__)
-        >= version.parse("2.0.0") else np.core
-    )
-    allowlist = [
-        np_core.multiarray.scalar, type(np.dtype(np.float64)), np.dtype
-    ]
-    # Additional types that were allowed by huggingface transformers
-    # allowlist.extend([np_core.multiarray._reconstruct, np.ndarray, type(np.dtype(np.uint32))])
-    return torch.serialization.safe_globals(allowlist)
 
 
 class Trainer(Configurable):
