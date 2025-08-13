@@ -82,6 +82,7 @@ class Module(nn.Module, Configurable, abc.ABC):
 
             map_location='cpu',
             consider_mpi=False,
+            weights_only=True,
     ) -> 'Module':
         """Instantiate the module from given config and checkpoint.
 
@@ -116,6 +117,7 @@ class Module(nn.Module, Configurable, abc.ABC):
             in_checkpoint_path=in_checkpoint_path,
             map_location=map_location,
             consider_mpi=consider_mpi,
+            weights_only=weights_only,
         )
 
     def load_checkpoint(
@@ -125,6 +127,7 @@ class Module(nn.Module, Configurable, abc.ABC):
 
             map_location='cpu',
             consider_mpi=False,
+            weights_only=True,
     ) -> 'Module':
         """Update the module parameters from the given checkpoint.
 
@@ -158,10 +161,12 @@ class Module(nn.Module, Configurable, abc.ABC):
                 checkpoint = torch.load(
                     io.BytesIO(checkpoint_path_content),
                     map_location=map_location,
+                    weights_only=weights_only,
                 )
             else:
                 checkpoint = torch.load(
                     checkpoint_path, map_location=map_location,
+                    weights_only=weights_only,
                 )
 
         if in_checkpoint_path:
@@ -184,6 +189,7 @@ class Module(nn.Module, Configurable, abc.ABC):
             in_config_path: str = 'trainer.model',
             in_checkpoint_path: str = 'model',
             consider_mpi=False,
+            weights_only=True,
     ) -> 'Module':
         """Instantiate the module from a given storage directory.
 
@@ -215,6 +221,7 @@ class Module(nn.Module, Configurable, abc.ABC):
             in_config_path=in_config_path,
             in_checkpoint_path=in_checkpoint_path,
             consider_mpi=consider_mpi,
+            weights_only=weights_only,
         )
 
 
