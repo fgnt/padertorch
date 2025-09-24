@@ -185,8 +185,8 @@ def compute_pairwise_losses(
         >>> T, K, F = 4, 2, 5
         >>> estimate = torch.stack([torch.ones(F, T), torch.zeros(F, T)])
         >>> target = estimate[(1, 0), :, :]
-        >>> pit_loss_from_loss_matrix(compute_pairwise_losses(estimate, target, axis=0), return_permutation=True)
-        (tensor(0.), array([1, 0]))
+        >>> pit_loss_from_loss_matrix(compute_pairwise_losses(estimate, target, axis=0), return_permutation=True) # doctest: +ELLIPSIS
+        (tensor(0.), array([1, 0]...))
 
         >>> K = 5
         >>> estimate, target = torch.ones(K), torch.zeros(K)

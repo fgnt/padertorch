@@ -1143,7 +1143,8 @@ def recursive_class_to_str(config, sort=False):
     >>> cfg = {'inplace': False, 'negative_slope': 0.01, 'partial': torch.nn.LeakyReLU}
     >>> recursive_class_to_str(cfg, sort=True)
     {'partial': 'torch.nn.modules.activation.LeakyReLU', 'negative_slope': 0.01, 'inplace': False}
-    >>> recursive_class_to_str(Path('/pathlib/Path/object'), sort=True)
+    >>> import os
+    >>> recursive_class_to_str(Path('/pathlib/Path/object'), sort=True).replace(os.sep, '/')
     '/pathlib/Path/object'
 
     """
