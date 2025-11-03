@@ -20,12 +20,12 @@ def tuple_to_int(sequence) -> list:
     return list(map(lambda t: t[0], sequence))
 
 
-class HubertExtractor(Wav2Vec2):
+class HuBERT(Wav2Vec2):
     """Extract HuBERT features from raw waveform.
 
     Args:
         model_name (str): Name of the pretrained HuBERT model to load.
-            Defaults to "HUBERT_LARGE". Needs to match with the backend (see
+            Defaults to "HUBERT_BASE". Needs to match with the backend (see
             below).
         layer (int): Index of the layer to extract features from.
             If None, all hidden features are extracted and returned as list.
@@ -46,25 +46,25 @@ class HubertExtractor(Wav2Vec2):
     """
     def __init__(
         self,
-        model_name: str = "HUBERT_LARGE",
+        model_name: str = "HUBERT_BASE",
         **kwargs,
     ):
         super().__init__(model_name, **kwargs)
 
     def _init_model(self, model_name):
+        if "hubert" not in model_name.lower():
+            raise ValueError(
+                "HuBERT only supports HuBERT models.\n"
+                f"model_name: {model_name}"
+            )
         if self.backend == "hf":
-            if "hubert" not in model_name.lower():
-                raise ValueError(
-                    "HuBERTExtractor only supports HuBERT models.\n"
-                    f"model_name: {model_name}"
-                )
             self.model = HubertModel.from_pretrained(
                 model_name, cache_dir=self.cache_dir
             ).to(self.device)
             self.sampling_rate = 16_000
         elif self.backend == "torchaudio":
             bundle = getattr(torchaudio.pipelines, model_name)
-            self.model = bundle.get_model().model.to(self.device)
+            self.model = bundle.get_model().to(self.device)
             self.sampling_rate = bundle.sample_rate
             if self.layer == -1:
                 self.layer = len(self.model.encoder.transformer.layers)-1
