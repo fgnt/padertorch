@@ -5,7 +5,7 @@ from padertorch.contrib.mk.typing import TSeqLen
 import torch
 from torch import Tensor
 import torchaudio
-from transformers.models.hubert.modeling_hubert import HubertModel
+from transformers.models.wavlm.modeling_wavlm import WavLMModel
 
 from .wav2vec2 import Wav2Vec2
 
@@ -20,12 +20,12 @@ def tuple_to_int(sequence) -> list:
     return list(map(lambda t: t[0], sequence))
 
 
-class HuBERT(Wav2Vec2):
-    """Extract HuBERT features from raw waveform.
+class WavLM(Wav2Vec2):
+    """Extract WavLM features from raw waveform.
 
     Args:
-        model_name (str): Name of the pretrained HuBERT model to load.
-            Defaults to "HUBERT_BASE". Needs to match with the backend (see
+        model_name (str): Name of the pretrained WavLM model to load.
+            Defaults to "WAVLM_BASE". Needs to match with the backend (see
             below).
         layer (int): Index of the layer to extract features from.
             If None, all hidden features are extracted and returned as list.
@@ -46,30 +46,42 @@ class HuBERT(Wav2Vec2):
     """
     def __init__(
         self,
-        model_name: str = "HUBERT_BASE",
+        model_name: str = "WAVLM_BASE",
         **kwargs,
     ):
         super().__init__(model_name, **kwargs)
 
     def _init_model(self, model_name):
-        if "hubert" not in model_name.lower():
+        if "wavlm" not in model_name.lower():
             raise ValueError(
-                "HuBERT only supports HuBERT models.\n"
+                "WavLMExtractor only supports WavLM models.\n"
                 f"model_name: {model_name}"
             )
         if self.backend == "hf":
-            self.model = HubertModel.from_pretrained(
+            self.model = WavLMModel.from_pretrained(
                 model_name, cache_dir=self.cache_dir
             ).to(self.device)
             self.sampling_rate = 16_000
         elif self.backend == "torchaudio":
             bundle = getattr(torchaudio.pipelines, model_name)
             self.model = bundle.get_model().to(self.device)
+            if hasattr(self.model, 'model'):
+                # WavLM Large specific
+                self.model = self.model.model
             self.sampling_rate = bundle.sample_rate
             if self.layer == -1:
                 self.layer = len(self.model.encoder.transformer.layers)-1
         else:
             raise ValueError(f'Unknown backend: {self.backend}')
+
+    def _forward(self, time_signal: Tensor, sequence_lengths: TSeqLen):
+        # WavLM does not support sequence lengths
+        del sequence_lengths
+        x, _ = self.model.extract_features(
+            time_signal, lengths=None,
+            num_layers=self.layer,
+        )
+        return x
 
     def extract_features_from_latents(
         self, latents: Tensor, sequence_lengths: TSeqLen
@@ -84,7 +96,7 @@ class HuBERT(Wav2Vec2):
             if self.backend == "torchaudio":
                 x = self.model.encoder.extract_features(
                     latents,
-                    lengths=sequence_lengths,
+                    lengths=None,  # WavLM does not support sequence lengths
                     num_layers=self.layer,
                 )
                 if isinstance(self.layer, int):
@@ -116,7 +128,7 @@ class HuBERT(Wav2Vec2):
         sequence_lengths: TSeqLen = None,
         return_latents: bool = False,
     ) -> tp.Tuple[tp.Union[Tensor, tp.List[Tensor]], TSeqLen]:
-        """Extract HuBERT features from raw waveform.
+        """Extract WavLM features from raw waveform.
 
         Args:
             time_signal (Tensor): Time signal of shape (batch, 1, time) or
@@ -127,7 +139,7 @@ class HuBERT(Wav2Vec2):
                 feature extractor instead of the features. Defaults to False.
 
         Returns:
-            x (Tensor): HuBERT features of shape (batch, D, time frames).
+            x (Tensor): WavLM features of shape (batch, D, time frames).
             sequence_lengths (list): List with number of time frames per
                 batch entry.
         """
