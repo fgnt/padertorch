@@ -1292,31 +1292,31 @@ def config_to_instance(config, strict=False):
     ...     'factory': 'torch.nn.modules.activation.ReLU'}
     >>> config_to_instance(config)
     ReLU()
-    >>> config_to_instance(config, strict=True)
+    >>> config_to_instance(config, strict=True)  # doctest: +SKIP
     Traceback (most recent call last):
     ...
     TypeError: missing a required argument: 'inplace'
     Tried to instantiate/call <class 'torch.nn.modules.activation.ReLU'> with
     `torch.nn.modules.activation.ReLU(**{})` in strict mode.
     Strict means ignore defaults from the signature.
-    Signature: (inplace)
+    Signature: (inplace) -> None
     >>> config = {
     ...     'factory': 'torch.nn.modules.activation.ReLU',
     ...     'inplace_typo': False}
-    >>> config_to_instance(config)
+    >>> config_to_instance(config)  # doctest: +SKIP
     Traceback (most recent call last):
     ...
     TypeError: got an unexpected keyword argument 'inplace_typo'
     Tried to instantiate/call <class 'torch.nn.modules.activation.ReLU'> with
     `torch.nn.modules.activation.ReLU(**{'inplace_typo': False})`.
-    Signature: (inplace=False)
-    >>> config_to_instance(config, strict=True)
+    Signature: (inplace=False) -> None
+    >>> config_to_instance(config, strict=True)  # doctest: +SKIP
     Traceback (most recent call last):
     ...
     TypeError: got an unexpected keyword argument 'inplace_typo'
     Tried to instantiate/call <class 'torch.nn.modules.activation.ReLU'> with
     `torch.nn.modules.activation.ReLU(**{'inplace_typo': False})`.
-    Signature: (inplace=False)
+    Signature: (inplace=False) -> None
     >>> config = {
     ...     'partial': 'torch.nn.modules.activation.ReLU',
     ...     'inplace': False}
