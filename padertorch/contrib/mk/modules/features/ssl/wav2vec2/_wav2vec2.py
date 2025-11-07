@@ -22,6 +22,8 @@ from torch.nn.utils import parametrize
 import torchaudio
 from transformers.models.wav2vec2.modeling_wav2vec2 import Wav2Vec2Model
 
+SAMPLING_RATE = 16_000
+
 
 def tuple_to_int(sequence) -> list:
     return list(map(lambda t: t[0], sequence))
@@ -110,6 +112,14 @@ class Wav2Vec2(pt.Module):
         )
 
     @property
+    def num_layers(self):
+        if self.backend == "torchaudio":
+            return len(self.model.encoder.transformer.layers)
+        if self.backend == "hf":
+            return len(self.model.encoder.layers)
+        raise ValueError(f'Unknown backend: {self.backend}')
+
+    @property
     def frame_rate(self):
         return int(self.sampling_rate / self.downsample_factor)
 
@@ -140,12 +150,13 @@ class Wav2Vec2(pt.Module):
             self.model = Wav2Vec2Model.from_pretrained(
                 model_name, cache_dir=self.cache_dir, from_tf=False,
             ).to(self.device)
+            self.sampling_rate = SAMPLING_RATE
         elif self.backend == "torchaudio":
             bundle = getattr(torchaudio.pipelines, model_name)
             self.model = bundle.get_model().to(self.device)
             self.sampling_rate = bundle.sample_rate
             if self.layer == -1:
-                self.layer = len(self.model.encoder.transformer.layers)-1
+                self.layer = self.num_layers
             if self.attention_fn is not None:
                 for layer in self.model.encoder.transformer.layers:
                     named_params = dict(layer.attention.named_parameters())
@@ -381,6 +392,7 @@ class Wav2Vec2(pt.Module):
         if isinstance(sequence_lengths, np.ndarray):
             sequence_lengths = torch.from_numpy(sequence_lengths).long()\
                 .to(latents.device)
+
         with self.context:
             if self.backend == "torchaudio":
                 x = self.model.encoder.extract_features(
@@ -395,6 +407,8 @@ class Wav2Vec2(pt.Module):
                 else:
                     raise NotImplementedError(self.layer)
                 return x
+
+            # hf backend
             hidden_states, latents = self.model.feature_projection(
                 latents
             )
@@ -405,9 +419,14 @@ class Wav2Vec2(pt.Module):
             )
             x = encoder_outputs.hidden_states
             if isinstance(self.layer, int):
-                x = x[self.layer]
+                try:
+                    x = x[self.layer]
+                except IndexError as exc:
+                    raise ValueError(
+                        f"`layer` must be between [1, {self.num_layers}]"
+                    ) from exc
             elif self.layer is None:
-                return x
+                return x[1:]  # Drop input of first Transformer layer
             else:
                 raise NotImplementedError(self.layer)
             return x
@@ -509,11 +528,16 @@ class Wav2Vec2(pt.Module):
                 return_dict=True,
             )
             if isinstance(self.layer, int):
-                x = outputs.hidden_states[self.layer]
+                try:
+                    x = outputs.hidden_states[self.layer]
+                except IndexError as exc:
+                    raise ValueError(
+                        f"`layer` must be between [1, {self.num_layers}]"
+                    ) from exc
                 if self.detach:
                     x = x.detach()
             elif self.layer is None:
-                x = outputs.hidden_states
+                x = outputs.hidden_states[1:]  # Drop input of first Transformer layer
                 if self.detach:
                     x = [h.detach() for h in x]
                 return x, out_sequence_lengths

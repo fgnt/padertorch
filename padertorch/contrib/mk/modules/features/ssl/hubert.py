@@ -7,7 +7,7 @@ from torch import Tensor
 import torchaudio
 from transformers.models.hubert.modeling_hubert import HubertModel
 
-from .wav2vec2 import Wav2Vec2
+from .wav2vec2 import Wav2Vec2, SAMPLING_RATE
 
 # See https://ieeexplore.ieee.org/abstract/document/9814838, Fig. 2
 PR_BASE_LAYER = 11
@@ -61,13 +61,13 @@ class HuBERT(Wav2Vec2):
             self.model = HubertModel.from_pretrained(
                 model_name, cache_dir=self.cache_dir
             ).to(self.device)
-            self.sampling_rate = 16_000
+            self.sampling_rate = SAMPLING_RATE
         elif self.backend == "torchaudio":
             bundle = getattr(torchaudio.pipelines, model_name)
             self.model = bundle.get_model().to(self.device)
             self.sampling_rate = bundle.sample_rate
             if self.layer == -1:
-                self.layer = len(self.model.encoder.transformer.layers)-1
+                self.layer = self.num_layers
         else:
             raise ValueError(f'Unknown backend: {self.backend}')
 
@@ -80,6 +80,7 @@ class HuBERT(Wav2Vec2):
         if isinstance(sequence_lengths, np.ndarray):
             sequence_lengths = torch.from_numpy(sequence_lengths).long()\
                 .to(latents.device)
+
         with self.context:
             if self.backend == "torchaudio":
                 x = self.model.encoder.extract_features(
@@ -94,6 +95,8 @@ class HuBERT(Wav2Vec2):
                 else:
                     raise NotImplementedError(self.layer)
                 return x
+
+            # hf backend
             hidden_states = self.model.feature_projection(latents)
             hidden_states = self.model._mask_hidden_states(hidden_states)
             encoder_outputs = self.model.encoder(
@@ -103,9 +106,14 @@ class HuBERT(Wav2Vec2):
             )
             x = encoder_outputs.hidden_states
             if isinstance(self.layer, int):
-                x = x[self.layer]
+                try:
+                    x = x[self.layer]
+                except IndexError as exc:
+                    raise ValueError(
+                        f"`layer` must be between [1, {self.num_layers}]"
+                    ) from exc
             elif self.layer is None:
-                return x
+                return x[1:]  # Drop input of first Transformer layer
             else:
                 raise NotImplementedError(self.layer)
             return x
