@@ -52,6 +52,26 @@ class Wav2Vec2(pt.Module):
             loaded from huggingface.co. Defaults to "torchaudio".
         pad (bool):
         fading (str, bool, optional):
+
+    >>> wav2vec2 = Wav2Vec2()
+    >>> signal = torch.zeros((2, 99919))
+    >>> num_samples = [99919, 99840]
+    >>> x, seq_len_x = wav2vec2(signal, num_samples)
+    >>> x.shape
+    torch.Size([2, 313, 768])
+    >>> seq_len_x
+    [313, 312]
+
+    >>> wav2vec = Wav2Vec2(layer=None)
+    >>> x, seq_len_x = wav2vec(signal, num_samples)
+    >>> len(x)
+    12
+
+    >>> wav2vec2 = Wav2Vec2(layer=13)
+    >>> x, seq_len_x = wav2vec2(signal, num_samples)
+    Traceback (most recent call last):
+    ...
+    ValueError: `num_layers` must be between [1, 12]
     """
     def __init__(
         self,
