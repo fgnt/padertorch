@@ -45,6 +45,8 @@ jobs:
         pip install flake8 pytest pytest-cov codecov
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         pip install numpy scipy Cython
+        # https://github.com/pypa/pip/issues/12030#issuecomment-1546344047
+        python -m pip install wheel
         pip install --editable .[all]
     - name: Lint with flake8
       run: |
