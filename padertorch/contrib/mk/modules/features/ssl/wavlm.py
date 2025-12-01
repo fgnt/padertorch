@@ -7,7 +7,7 @@ from torch import Tensor
 import torchaudio
 from transformers.models.wavlm.modeling_wavlm import WavLMModel
 
-from .wav2vec2 import Wav2Vec2
+from .wav2vec2 import Wav2Vec2, SAMPLING_RATE
 
 # See https://ieeexplore.ieee.org/abstract/document/9814838, Fig. 2
 PR_BASE_LAYER = 11
@@ -61,7 +61,7 @@ class WavLM(Wav2Vec2):
             self.model = WavLMModel.from_pretrained(
                 model_name, cache_dir=self.cache_dir
             ).to(self.device)
-            self.sampling_rate = 16_000
+            self.sampling_rate = SAMPLING_RATE
         elif self.backend == "torchaudio":
             bundle = getattr(torchaudio.pipelines, model_name)
             self.model = bundle.get_model().to(self.device)
@@ -70,18 +70,19 @@ class WavLM(Wav2Vec2):
                 self.model = self.model.model
             self.sampling_rate = bundle.sample_rate
             if self.layer == -1:
-                self.layer = len(self.model.encoder.transformer.layers)-1
+                self.layer = self.num_layers
         else:
             raise ValueError(f'Unknown backend: {self.backend}')
 
     def _forward(self, time_signal: Tensor, sequence_lengths: TSeqLen):
         # WavLM does not support sequence lengths
         del sequence_lengths
-        x, _ = self.model.extract_features(
-            time_signal, lengths=None,
-            num_layers=self.layer,
-        )
-        return x
+        return super()._forward(time_signal, None)
+        # x, _ = self.model.extract_features(
+        #     time_signal, lengths=None,
+        #     num_layers=self.layer,
+        # )
+        # return x
 
     def extract_features_from_latents(
         self, latents: Tensor, sequence_lengths: TSeqLen
@@ -92,20 +93,18 @@ class WavLM(Wav2Vec2):
         if isinstance(sequence_lengths, np.ndarray):
             sequence_lengths = torch.from_numpy(sequence_lengths).long()\
                 .to(latents.device)
+
         with self.context:
             if self.backend == "torchaudio":
+                num_layers = None if isinstance(self.layer, str) else self.layer
                 x = self.model.encoder.extract_features(
                     latents,
                     lengths=None,  # WavLM does not support sequence lengths
-                    num_layers=self.layer,
+                    num_layers=num_layers,
                 )
-                if isinstance(self.layer, int):
-                    x = x[-1]
-                elif self.layer is None:
-                    return x
-                else:
-                    raise NotImplementedError(self.layer)
-                return x
+                return self.extract_layer(x)
+
+            # hf backend
             hidden_states = self.model.feature_projection(latents)
             hidden_states = self.model._mask_hidden_states(hidden_states)
             encoder_outputs = self.model.encoder(
@@ -114,13 +113,7 @@ class WavLM(Wav2Vec2):
                 return_dict=True,
             )
             x = encoder_outputs.hidden_states
-            if isinstance(self.layer, int):
-                x = x[self.layer]
-            elif self.layer is None:
-                return x
-            else:
-                raise NotImplementedError(self.layer)
-            return x
+            return self.extract_layer(x)
 
     def forward(
         self,
