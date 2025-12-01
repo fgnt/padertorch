@@ -784,7 +784,11 @@ class LRSchedulerHook(TriggeredHook):
         # updates the LR of the optimizer. Note that this might print
         # a warning message in PyTorch 1.1+ if this is called before
         # the first optimizer step.
-        self.lr_scheduler.step(epoch=epoch)
+        if self.trigger.unit == "epoch":
+            counter = epoch // self.trigger.period  # Correctly resume
+        else:
+            counter = iteration // self.trigger.period
+        self.lr_scheduler.step(epoch=counter)
 
 
 class ProgressBarHook(TriggeredHook):

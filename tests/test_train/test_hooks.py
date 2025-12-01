@@ -478,3 +478,86 @@ def test_LRSchedulerHook():
         hook.pre_step(trainer)
     assert lr_scheduler.calls_iteration == [0, 2, 4, 6, 8, 10]
     assert lr_scheduler.calls_epoch == [0, 0, 1, 2, 2, 3]
+
+
+def test_LRSchedulerHook_resume():
+    class DummyTrainer:
+        epoch = 0
+        iteration = 0
+
+    lin = torch.nn.Linear(1, 1)
+
+    # Step per epoch
+    opti = torch.optim.Adam(lin.parameters(), lr=0.05)
+    lr_scheduler = torch.optim.lr_scheduler.LinearLR(
+        opti, start_factor=0.5, total_iters=8
+    )
+    hook = pt.train.hooks.LRSchedulerHook(lr_scheduler, (1, 'epoch'))
+    trainer = DummyTrainer()
+    hook.PYTORCH_ge_1_1 = True
+    for i in range(12):
+        trainer.iteration = i
+        trainer.epoch = i // 3
+        hook.pre_step(trainer)
+    assert opti.param_groups[0]['lr'] == 0.05 * 0.5 * (1 + trainer.epoch/8)
+
+    # Resume
+    hook.set_last(trainer.iteration, trainer.epoch)
+    for i in range(12, 24):
+        trainer.iteration = i
+        trainer.epoch = i // 3
+        hook.pre_step(trainer)
+    torch.testing.assert_close(
+        opti.param_groups[0]['lr'],
+        0.05 * 0.5 * (1 + trainer.epoch/8)
+    )
+
+    # Step per 2 epochs
+    opti = torch.optim.Adam(lin.parameters(), lr=0.05)
+    lr_scheduler = torch.optim.lr_scheduler.LinearLR(
+        opti, start_factor=0.5, total_iters=8
+    )
+    hook = pt.train.hooks.LRSchedulerHook(lr_scheduler, (2, 'epoch'))
+    trainer = DummyTrainer()
+    hook.PYTORCH_ge_1_1 = True
+    for i in range(12):
+        trainer.iteration = i
+        trainer.epoch = i // 3
+        hook.pre_step(trainer)
+    assert opti.param_groups[0]['lr'] == 0.05 * 0.5 * (1 + trainer.epoch//2/8)
+
+    # Resume
+    hook.set_last(trainer.iteration, trainer.epoch)
+    for i in range(12, 24):
+        trainer.iteration = i
+        trainer.epoch = i // 3
+        hook.pre_step(trainer)
+    assert opti.param_groups[0]['lr'] == 0.05 * 0.5 * (1 + trainer.epoch//2/8)
+
+    # Step per 2 iterations
+    opti = torch.optim.Adam(lin.parameters(), lr=0.05)
+    lr_scheduler = torch.optim.lr_scheduler.LinearLR(
+        opti, start_factor=0.5, total_iters=20
+    )
+    hook = pt.train.hooks.LRSchedulerHook(lr_scheduler, (2, 'iteration'))
+    trainer = DummyTrainer()
+    hook.PYTORCH_ge_1_1 = True
+    for i in range(12):
+        trainer.iteration = i
+        trainer.epoch = i // 3
+        hook.pre_step(trainer)
+    torch.testing.assert_close(
+        opti.param_groups[0]['lr'],
+        0.05 * 0.5 * (1 + trainer.iteration//2/20)
+    )
+
+    # Resume
+    hook.set_last(trainer.iteration, trainer.epoch)
+    for i in range(12, 24):
+        trainer.iteration = i
+        trainer.epoch = i // 3
+        hook.pre_step(trainer)
+    torch.testing.assert_close(
+        opti.param_groups[0]['lr'],
+        0.05 * 0.5 * (1 + trainer.iteration//2/20)
+    )
