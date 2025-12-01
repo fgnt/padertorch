@@ -95,10 +95,11 @@ class WavLM(Wav2Vec2):
 
         with self.context:
             if self.backend == "torchaudio":
+                num_layers = None if isinstance(self.layer, str) else self.layer
                 x = self.model.encoder.extract_features(
                     latents,
                     lengths=None,  # WavLM does not support sequence lengths
-                    num_layers=self.layer,
+                    num_layers=num_layers,
                 )
                 if isinstance(self.layer, int):
                     x = x[-1]
