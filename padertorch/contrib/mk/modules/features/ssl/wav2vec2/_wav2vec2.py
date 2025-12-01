@@ -133,6 +133,16 @@ class Wav2Vec2(pt.Module):
         )
 
     @property
+    def d_model(self):
+        if self.backend == "torchaudio":
+            return self.model.encoder.transformer.layers[-1]\
+                .feed_forward.output_dense.out_features
+        if self.backend == "hf":
+            return self.model.encoder.layers[-1].feed_forward.output_dense\
+                .out_features
+        raise ValueError(f'Unknown backend: {self.backend}')
+
+    @property
     def num_layers(self):
         if self.backend == "torchaudio":
             return len(self.model.encoder.transformer.layers)
@@ -156,6 +166,9 @@ class Wav2Vec2(pt.Module):
         if self.detach:
             return torch.no_grad()
         return nullcontext()
+
+    def __getitem__(self, item):
+        return self.layers[item]
 
     def _init_model(self, model_name):
         if "wav2vec2" not in model_name.lower():
@@ -221,7 +234,7 @@ class Wav2Vec2(pt.Module):
                 f"Output shape: {x.shape}\n"
                 f"Expected sequence lengths: {sequence_lengths}\n"
                 f"Padded sequence lengths: {sequence_lengths}\n"
-                "Setting fading=half will likely fix this issue."
+                "Setting pad=True or fading=half will likely fix this issue."
             )
 
     def remove_weight_norm(self):
