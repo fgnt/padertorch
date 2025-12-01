@@ -101,13 +101,7 @@ class WavLM(Wav2Vec2):
                     lengths=None,  # WavLM does not support sequence lengths
                     num_layers=num_layers,
                 )
-                if isinstance(self.layer, int):
-                    x = x[-1]
-                elif self.layer is None:
-                    return x
-                else:
-                    raise NotImplementedError(self.layer)
-                return x
+                return self.extract_layer(x)
 
             # hf backend
             hidden_states = self.model.feature_projection(latents)
@@ -118,18 +112,7 @@ class WavLM(Wav2Vec2):
                 return_dict=True,
             )
             x = encoder_outputs.hidden_states
-            if isinstance(self.layer, int):
-                try:
-                    x = x[self.layer]
-                except IndexError as exc:
-                    raise ValueError(
-                        f"`layer` must be between [1, {self.num_layers}]"
-                    ) from exc
-            elif self.layer is None:
-                return x[1:]  # Drop input of first Transformer layer
-            else:
-                raise NotImplementedError(self.layer)
-            return x
+            return self.extract_layer(x)
 
     def forward(
         self,

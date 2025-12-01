@@ -10,7 +10,8 @@ from paderbox.transform.module_stft import (
     STFT, stft_frame_index_to_sample_index
 )
 import padertorch as pt
-from padertorch.contrib.je.modules.conv_utils import compute_conv_output_sequence_lengths
+from padertorch.contrib.je.modules.conv_utils import\
+    compute_conv_output_sequence_lengths
 from padertorch.contrib.mk.typing import TSeqLen
 from padertorch.contrib.mk.utils import compute_receptive_field_1d
 from padertorch.ops.sequence.mask import compute_mask
@@ -204,9 +205,10 @@ class Wav2Vec2(pt.Module):
         ))
 
     def _forward(self, time_signal: Tensor, sequence_lengths: TSeqLen):
+        num_layers = None if isinstance(self.layer, str) else self.layer
         x, _ = self.model.extract_features(
             time_signal, lengths=sequence_lengths,
-            num_layers=self.layer,
+            num_layers=num_layers,
         )
         return x
 
@@ -405,6 +407,31 @@ class Wav2Vec2(pt.Module):
             last_frame_index = frame_index
         return y
 
+    def extract_layer(
+        self, hidden: tp.Union[Tensor, tp.List[Tensor]],
+        sequence_lengths: TSeqLen = None,
+    ):
+        if sequence_lengths is not None:
+            hidden = [hi[..., :sequence_lengths.max(), :] for hi in hidden]
+        if self.backend == "torchaudio":
+            if isinstance(self.layer, int):
+                return hidden[-1]
+            if self.layer is None:
+                return hidden
+            raise NotImplementedError(self.layer)
+
+        if isinstance(self.layer, int):
+            try:
+                hidden = hidden[self.layer]
+            except IndexError as exc:
+                raise ValueError(
+                    f"`layer` must be between [1, {self.num_layers}]"
+                ) from exc
+            return hidden
+        if self.layer is None:
+            return hidden[1:]  # Drop input of first Transformer layer
+        raise NotImplementedError(self.layer)
+
     def extract_features_from_latents(
         self, latents: Tensor, sequence_lengths: TSeqLen
     ):
@@ -415,18 +442,13 @@ class Wav2Vec2(pt.Module):
 
         with self.context:
             if self.backend == "torchaudio":
+                num_layers = None if isinstance(self.layer, str) else self.layer
                 x = self.model.encoder.extract_features(
                     latents,
                     lengths=sequence_lengths,
-                    num_layers=self.layer,
+                    num_layers=num_layers,
                 )
-                if isinstance(self.layer, int):
-                    x = x[-1]
-                elif self.layer is None:
-                    return x
-                else:
-                    raise NotImplementedError(self.layer)
-                return x
+                return self.extract_layer(x)
 
             # hf backend
             hidden_states, latents = self.model.feature_projection(
@@ -438,18 +460,7 @@ class Wav2Vec2(pt.Module):
                 return_dict=True,
             )
             x = encoder_outputs.hidden_states
-            if isinstance(self.layer, int):
-                try:
-                    x = x[self.layer]
-                except IndexError as exc:
-                    raise ValueError(
-                        f"`layer` must be between [1, {self.num_layers}]"
-                    ) from exc
-            elif self.layer is None:
-                return x[1:]  # Drop input of first Transformer layer
-            else:
-                raise NotImplementedError(self.layer)
-            return x
+            return self.extract_layer(x)
 
     def forward(
         self,
@@ -522,16 +533,12 @@ class Wav2Vec2(pt.Module):
                     )
                 if self.detach:
                     x = list(map(torch.detach, x))
-                if isinstance(self.layer, int):
-                    x = x[-1]
-                    if out_sequence_lengths is not None:
-                        x = x[..., :out_sequence_lengths.max(), :]
-                    return x, out_sequence_lengths
-                if self.layer is None:
-                    x = [xi[..., :out_sequence_lengths.max(), :] for xi in x]
-                    return x, out_sequence_lengths
-                raise NotImplementedError(self.layer)
+                return (
+                    self.extract_layer(x, out_sequence_lengths),
+                    out_sequence_lengths
+                )
 
+            # hf backend
             self.model: Wav2Vec2Model
             out_sequence_lengths = self.compute_output_lengths(sequence_lengths)
             z = self.model.feature_extractor(time_signal.float())\
@@ -547,21 +554,9 @@ class Wav2Vec2(pt.Module):
                 output_hidden_states=True,
                 return_dict=True,
             )
-            if isinstance(self.layer, int):
-                try:
-                    x = outputs.hidden_states[self.layer]
-                except IndexError as exc:
-                    raise ValueError(
-                        f"`layer` must be between [1, {self.num_layers}]"
-                    ) from exc
-                if self.detach:
-                    x = x.detach()
-            elif self.layer is None:
-                x = outputs.hidden_states[1:]  # Drop input of first Transformer layer
-                if self.detach:
-                    x = [h.detach() for h in x]
-                return x, out_sequence_lengths
-            else:
-                raise ValueError(f'Unknown layer: {self.layer}')
-
-        return x, out_sequence_lengths
+            if self.detach:
+                x = [h.detach() for h in x]
+            return (
+                self.extract_layer(outputs.hidden_states, out_sequence_lengths),
+                out_sequence_lengths
+            )
