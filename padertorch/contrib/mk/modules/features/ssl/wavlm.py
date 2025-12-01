@@ -77,11 +77,12 @@ class WavLM(Wav2Vec2):
     def _forward(self, time_signal: Tensor, sequence_lengths: TSeqLen):
         # WavLM does not support sequence lengths
         del sequence_lengths
-        x, _ = self.model.extract_features(
-            time_signal, lengths=None,
-            num_layers=self.layer,
-        )
-        return x
+        return super()._forward(time_signal, None)
+        # x, _ = self.model.extract_features(
+        #     time_signal, lengths=None,
+        #     num_layers=self.layer,
+        # )
+        # return x
 
     def extract_features_from_latents(
         self, latents: Tensor, sequence_lengths: TSeqLen
