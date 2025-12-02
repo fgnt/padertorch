@@ -31,7 +31,29 @@ class Normalization(Module):
              [1.],
              [1.],
              [1.]]])
+    >>> norm.running_var
+    tensor([[[1.0000],
+             [1.0000],
+             [1.0000],
+             [1.0000],
+             [1.0000],
+             [1.0000],
+             [1.0000],
+             [1.0000],
+             [1.0000],
+             [1.0000]]])
     >>> x = norm(x, seq_len)
+    >>> norm.num_tracked_values
+    tensor([[[6.],
+             [6.],
+             [6.],
+             [6.],
+             [6.],
+             [6.],
+             [6.],
+             [6.],
+             [6.],
+             [6.]]])
     >>> norm.running_mean
     tensor([[[1.],
              [1.],
@@ -54,6 +76,17 @@ class Normalization(Module):
              [2.5000],
              [2.5000],
              [2.5000]]])
+    >>> norm.running_var
+    tensor([[[1.8000],
+             [1.8000],
+             [1.8000],
+             [1.8000],
+             [1.8000],
+             [1.8000],
+             [1.8000],
+             [1.8000],
+             [1.8000],
+             [1.8000]]])
     """
     def __init__(
             self,
@@ -152,10 +185,9 @@ class Normalization(Module):
 
     @property
     def running_var(self):
-        n = torch.clip(self.num_tracked_values, min=2)
         running_var = self.running_power
         if self.shift:
-            running_var = n / (n-1) * running_var - self.running_mean ** 2
+            running_var = torch.clip(self.num_tracked_values, min=1) / (torch.clip(self.num_tracked_values-1, min=1)) * (running_var - self.running_mean ** 2)
         running_var = torch.clamp(running_var, min=0.)
         running_var = running_var + self.eps
         assert (running_var >= 0).all(), running_var.min()
@@ -176,9 +208,10 @@ class Normalization(Module):
         if self.beta is not None:
             nn.init.zeros_(self.beta.shift)
 
-    def freeze(self, freeze_stats=True):
-        for param in self.parameters():
-            param.requires_grad = False
+    def freeze(self, freeze_stats=True, freeze_params=True):
+        if freeze_params:
+            for param in self.parameters():
+                param.requires_grad = False
         self.frozen_stats = freeze_stats
 
     def unfreeze(self):

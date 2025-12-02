@@ -2,6 +2,7 @@ import json
 from math import ceil
 from pathlib import Path
 from typing import Callable
+from functools import partial
 
 import dataclasses
 import numpy as np
@@ -33,6 +34,7 @@ class AudioReader:
     storage_dir: str = None
     preemphasis_factor: float = 0.
     alignment_keys: list = None
+    cutoff_length: int = None
 
     def __post_init__(self):
         self.norm = None
@@ -66,10 +68,14 @@ class AudioReader:
 
     def load(self, filepath, start_sample=0, stop_sample=None):
         x, sr = self._load_source(filepath, start_sample, stop_sample)
+        # print(start_sample, stop_sample, len(x[0]))
         if self.target_sample_rate != sr:
             x = samplerate.resample(
                 x.T, self.target_sample_rate / sr, "sinc_fastest"
             ).T
+        if self.cutoff_length is not None:
+            x = x[..., :int(self.cutoff_length*self.target_sample_rate)]
+            # print(x.shape)
         return x
 
     def _prenormalize(self, audio):
@@ -168,15 +174,8 @@ class AudioReader:
         if self.alignment_keys is not None:
             for ali_key in self.alignment_keys:
                 if f'{ali_key}_start_times' in example or f'{ali_key}_stop_times' in example:
-                    assert f'{ali_key}_start_times' in example and f'{ali_key}_stop_times' in example, example.keys()
-                    example[f'{ali_key}_start_samples'] = [
-                        int(self.target_sample_rate*t)
-                        for t in example[f'{ali_key}_start_times']
-                    ]
-                    example[f'{ali_key}_stop_samples'] = [
-                        int(self.target_sample_rate*t)
-                        for t in example[f'{ali_key}_stop_times']
-                    ]
+                    example[f'{ali_key}_start_samples'] = (np.asanyarray(example[f'{ali_key}_start_times'])*self.target_sample_rate).astype(int)
+                    example[f'{ali_key}_stop_samples'] = (np.asanyarray(example[f'{ali_key}_stop_times'])*self.target_sample_rate).astype(int)
         return example
 
     def __call__(self, example):
@@ -518,7 +517,7 @@ class StackArrays:
 
 @dataclasses.dataclass
 class ConcatenateArrays:
-    axis: int
+    axis: int = -1
 
     def __call__(self, example):
         if isinstance(example, dict):
@@ -569,14 +568,30 @@ class Collate:
            [1., 1.],
            [1., 1.]]), 'b': ['0', '1']}
     """
-    leaf_op: callable = StackArrays()
+    leaf_op: dict = "stack"
 
     def __call__(self, example):
-        example = nested_op(self.collate, *example, sequence_type=())
+        if isinstance(self.leaf_op, dict):
+            example = nested_op(lambda *x: list(x), *example, sequence_type=())
+            for key, leaf_op in self.leaf_op.items():
+                if leaf_op is None:
+                    continue
+                leaf_op = self._get_leaf_op(leaf_op)
+                example[key] = nested_op(leaf_op, example[key], sequence_type=())
+        else:
+            leaf_op = partial(self._collate, leaf_op=self._get_leaf_op(self.leaf_op))
+            example = nested_op(leaf_op, *example, sequence_type=())
         return example
 
-    def collate(self, *batch):
+    def _get_leaf_op(self, leaf_op):
+        if leaf_op == "stack":
+            leaf_op = StackArrays()
+        elif leaf_op == "concat" or leaf_op == "concatenate":
+            leaf_op = ConcatenateArrays()
+        return leaf_op
+
+    def _collate(self, *batch, leaf_op):
         batch = list(batch)
-        if self.leaf_op is not None:
-            batch = self.leaf_op(batch)
+        if leaf_op is not None:
+            batch = leaf_op(batch)
         return batch

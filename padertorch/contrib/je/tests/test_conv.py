@@ -2,8 +2,8 @@ from copy import copy
 
 import numpy as np
 import torch
-from padertorch.contrib.je.modules.conv import CNN1d, CNNTranspose1d
-from padertorch.contrib.je.modules.conv import CNN2d, CNNTranspose2d
+from padertorch.contrib.je.modules.conv import CNN1d
+from padertorch.contrib.je.modules.conv import CNN2d
 from padertorch.contrib.je.modules.conv import Conv1d, ConvTranspose1d
 from padertorch.contrib.je.modules.conv import Conv2d, ConvTranspose2d
 from padertorch.contrib.je.modules.hybrid import CNN, CNNTranspose
@@ -105,10 +105,10 @@ def test_conv_2d():
         )
 
 
-def run_cnn_sweep(x, enc_cls, kwargs_sweep, *, decode=True):
+def run_cnn_sweep(x, cls, kwargs_sweep, *, decode=True):
     x.requires_grad = True
     for kwargs in sweep(kwargs_sweep):
-        enc = enc_cls(
+        enc = cls(
             return_pool_indices=True,
             **kwargs
         )
@@ -133,10 +133,9 @@ def run_cnn_sweep(x, enc_cls, kwargs_sweep, *, decode=True):
         assert all(expected_seq_len == seq_lens_enc[-1]), (expected_seq_len, seq_lens_enc, kwargs)
         if decode:
             kwargs = copy(kwargs)
-            kwargs['factory'] = enc_cls
+            kwargs['factory'] = cls
             transpose_kwargs = enc.get_transpose_config(kwargs)
-            dec_cls = transpose_kwargs.pop('factory')
-            dec = dec_cls(**transpose_kwargs)
+            dec = cls.from_config(transpose_kwargs)
             shapes_dec = dec.get_shapes(target_shape=x.shape)
             assert (np.array(shapes_dec) == np.array(shapes_enc)[::-1]).all(), (shapes_dec, shapes_enc)
             seq_lens_dec = dec.get_sequence_lengths(target_sequence_lengths=seq_len_in)
@@ -149,7 +148,6 @@ def run_cnn_sweep(x, enc_cls, kwargs_sweep, *, decode=True):
             )
             assert x_hat.shape == x.shape, (x_hat.shape, x.shape, kwargs)
             transpose_kwargs = copy(transpose_kwargs)
-            transpose_kwargs['factory'] = dec_cls
             transpose_transpose_kwargs = dec.get_transpose_config(transpose_kwargs)
             assert transpose_transpose_kwargs == kwargs, (
                 kwargs, transpose_kwargs, transpose_transpose_kwargs
@@ -172,6 +170,7 @@ def test_cnn_1d():
                 ('pool_size', [1, 2]),
                 ('pool_stride', [None, 1]),
                 ('pad_type', ['front','both','end']),
+                ('transpose', [False]),
                 # ('activation_fn', ['relu']),
                 # ('pre_activation', [False]),
                 # ('input_layer', [False]),
@@ -198,6 +197,7 @@ def test_cnn_2d():
                 ('pool_size', [1, [(2, 3),(2, 3),1]]),
                 ('pool_stride', [None, 1]),
                 ('pad_type', ['front','both','end']),
+                ('transpose', [False]),
                 # ('activation_fn', ['relu', 'prelu']),
                 # ('pre_activation', [False, True]),
                 # ('input_layer', [False]),
@@ -222,6 +222,7 @@ def test_resnet_1d():
                 ('pool_size', [1, 2]),
                 ('pool_stride', [None, 1]),
                 ('pad_type', ['front','both','end']),
+                ('transpose', [False]),
                 # ('activation_fn', ['relu']),
                 # ('pre_activation', [False]),
                 # ('input_layer', [False]),
@@ -249,6 +250,7 @@ def test_resnet_2d():
                 ('pool_size', [1, [(2, 3),(2, 3),1]]),
                 ('pool_stride', [None, 1]),
                 ('pad_type', ['front','both','end']),
+                ('transpose', [False]),
                 # ('activation_fn', ['relu', 'prelu']),
                 # ('pre_activation', [False, True]),
                 # ('input_layer', [False]),
@@ -274,6 +276,7 @@ def test_densenet_1d():
                 ('pool_size', [1, 2]),
                 ('pool_stride', [None, 1]),
                 ('pad_type', ['front','both','end']),
+                ('transpose', [False]),
                 # ('activation_fn', ['relu']),
                 # ('pre_activation', [False]),
                 # ('input_layer', [False]),
@@ -302,6 +305,7 @@ def test_densenet_2d():
                 ('pool_size', [1, [(2, 3),(2, 3),1]]),
                 ('pool_stride', [None, 1]),
                 ('pad_type', ['front','both','end']),
+                ('transpose', [False]),
                 # ('activation_fn', ['relu', 'prelu']),
                 # ('pre_activation', [False, True]),
                 # ('input_layer', [False]),
@@ -328,6 +332,7 @@ def test_denseresnet_1d():
                 ('pool_size', [1, 2]),
                 ('pool_stride', [None, 1]),
                 ('pad_type', ['front','both','end']),
+                ('transpose', [False]),
                 # ('activation_fn', ['relu']),
                 # ('pre_activation', [False]),
                 # ('input_layer', [False]),
@@ -357,6 +362,7 @@ def test_denseresnet_2d():
                 ('pool_size', [1, [(2, 3),(2, 3),1]]),
                 ('pool_stride', [None, 1]),
                 ('pad_type', ['front','both','end']),
+                ('transpose', [False]),
                 # ('activation_fn', ['relu', 'prelu']),
                 # ('pre_activation', [False, True]),
                 # ('input_layer', [False]),
@@ -368,26 +374,42 @@ def test_denseresnet_2d():
         )
 
 
+def test_unet():
+    unet = CNN2d(
+        in_channels=3,
+        out_channels=[16,32,64,128,256,128,64,32,16,3],
+        kernel_size=3,
+        pool_size=2,
+        transpose=5*[False]+5*[True],
+        residual_connections=[None, 9, 8, 7, 6] + 5*[None],
+        pool_type='avg',
+    )
+    print(unet.residual_skip_convs.keys())
+    shape = (5, 3, 32, 125)
+    x = torch.randn(shape)
+    seq_len = 5*[128]
+    y, _ = unet(x, seq_len, target_shape=shape)
+
+
 def test_get_transpose_config():
-    for cls, cls_transpose in zip(
-            [CNN1d, CNN2d],
-            [CNNTranspose1d, CNNTranspose2d]
-    ):
+    for cls in [CNN1d, CNN2d]:
         config = {
             'factory': cls,
+            'transpose': False,
             'in_channels': 3,
             'out_channels': [1, 2, 3, 4, 10],
             'kernel_size': 3,
         }
         expected_transpose_config = {
-            'factory': cls_transpose,
+            'factory': cls,
+            'transpose': True,
             'in_channels': 10,
             'out_channels': [4, 3, 2, 1, 3],
             'kernel_size': 3,
         }
         transpose_config = cls.get_transpose_config(config)
         assert transpose_config == expected_transpose_config
-        transpose_transpose_config = cls_transpose.get_transpose_config(transpose_config)
+        transpose_transpose_config = cls.get_transpose_config(transpose_config)
         assert transpose_transpose_config == config
 
     config = dict(
@@ -397,27 +419,31 @@ def test_get_transpose_config():
             'in_channels': 3,
             'out_channels': [1, 2, 3, 4, 10],
             'kernel_size': 3,
+            'transpose': False,
         },
         cnn_1d={
             'factory': CNN1d,
             'in_channels': 3,
             'out_channels': [1, 2, 3, 4, 10],
             'kernel_size': 3,
+            'transpose': False,
         }
     )
     expected_transpose_config = dict(
         factory=CNNTranspose,
         cnn_transpose_2d={
-            'factory': CNNTranspose2d,
+            'factory': CNN2d,
             'in_channels': 10,
             'out_channels': [4, 3, 2, 1, 3],
             'kernel_size': 3,
+            'transpose': True,
         },
         cnn_transpose_1d={
-            'factory': CNNTranspose1d,
+            'factory': CNN1d,
             'in_channels': 10,
             'out_channels': [4, 3, 2, 1, 3],
             'kernel_size': 3,
+            'transpose': True,
         }
     )
     transpose_config = CNN.get_transpose_config(config)
