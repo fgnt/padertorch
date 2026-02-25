@@ -40,8 +40,8 @@ def nested_test_assert_allclose(struct1, struct2, rtol=1e-5, atol=1e-5):
             # elif ..:
             #     # ToDo: Does review['figures'] work?
             else:
-                array1 = pt.utils.to_numpy(array1, detach=False)
-                array2 = pt.utils.to_numpy(array2, detach=False)
+                array1 = pt.utils.to_numpy(array1, detach=False, force_dense=True)
+                array2 = pt.utils.to_numpy(array2, detach=False, force_dense=True)
                 try:
                     np.testing.assert_allclose(
                         array1, array2,

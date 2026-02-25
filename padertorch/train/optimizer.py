@@ -1,3 +1,4 @@
+import itertools
 import torch
 from torch import optim
 
@@ -37,9 +38,11 @@ class Optimizer:
         # Todo: report clipped and unclipped
         # Todo: allow clip=None but still report grad_norm
         grad_clips = self.gradient_clipping
-        return torch.nn.utils.clip_grad_norm_(
-            self.parameters, grad_clips
-        )
+        if isinstance(self.parameters[0], dict) and 'params' in self.parameters[0]:
+            params = itertools.chain(*[param_group['params'] for param_group in self.parameters])
+        else:
+            params = self.parameters
+        return torch.nn.utils.clip_grad_norm_(params, grad_clips)
 
     def to(self, device):
         if device is None:
@@ -78,6 +81,28 @@ class Adam(Optimizer):
             betas=(0.9, 0.999),
             eps=1e-8,
             weight_decay=0,
+            amsgrad=False
+    ):
+        super().__init__(
+            gradient_clipping,
+            lr=lr,
+            betas=betas,
+            eps=eps,
+            weight_decay=weight_decay,
+            amsgrad=amsgrad
+        )
+
+
+class AdamW(Optimizer):
+    optimizer_cls = optim.AdamW
+
+    def __init__(
+            self,
+            gradient_clipping=1e10,
+            lr=1e-3,
+            betas=(0.9, 0.999),
+            eps=1e-8,
+            weight_decay=0.01,
             amsgrad=False
     ):
         super().__init__(

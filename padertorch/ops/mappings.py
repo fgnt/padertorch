@@ -37,6 +37,7 @@ ACTIVATION_FN_MAP = _CallableDispatcher(
     prelu=torch.nn.PReLU,
     leaky_relu=torch.nn.LeakyReLU,
     elu=torch.nn.ELU,
+    gelu=torch.nn.GELU,
     tanh=torch.nn.Tanh,
     sigmoid=torch.nn.Sigmoid,
     softmax=torch.nn.Softmax,  # Defaults to softmax along last dimension
