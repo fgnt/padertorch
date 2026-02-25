@@ -41,7 +41,7 @@ jobs:
       if: matrix.os == 'macos-latest'
     - name: Install python dependencies
       run: |
-        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install --upgrade pip setuptools<82 wheel
         pip install flake8 pytest pytest-cov codecov
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         pip install numpy scipy Cython
