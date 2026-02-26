@@ -31,7 +31,7 @@ jobs:
     - name: Install linux dependencies
       run: |
         sudo apt-get install libsndfile1
-      if: matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-22.04'
+      if: matrix.os == 'ubuntu-latest'
     - name: Install macos dependencies
       run: |
         brew install libsndfile
