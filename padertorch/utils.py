@@ -40,7 +40,7 @@ def to_list(x, length=None):
     [1]
     >>> to_list((i for i in range(3)))
     [0, 1, 2]
-    >>> pprint(to_list(np.arange(3)), nep51=True)  # use pprint to support numpy 1 and 2
+    >>> pprint(to_list(np.arange(3, dtype=np.int64)), nep51=True)  # use pprint to support numpy 1 and 2
     [np.int64(0), np.int64(1), np.int64(2)]
     >>> to_list({'a': 1})
     [{'a': 1}]
