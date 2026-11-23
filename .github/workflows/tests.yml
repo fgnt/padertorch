@@ -13,17 +13,20 @@ jobs:
     strategy:
       fail-fast: false  # Let other jobs keep running even if one fails
       matrix:
-        python-version: [3.8, 3.9, "3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]
         os: [ubuntu-latest]
         include:
           - os: ubuntu-22.04
-            python-version: 3.7
+            python-version: "3.7"
+          - os: ubuntu-24.04
+            python-version: "3.8"
+          - os: ubuntu-24.04
+            python-version: "3.9"
           - os: macos-latest
             python-version: "3.12"
 
     env:
-      TMPDIR: /private/tmp  # Default TMPDIR on macOS is /var which pathlib.Path resolves to /private/var
-      if: matrix.os == 'macos-latest'
+      TMPDIR: ${{ matrix.os == 'macos-latest' && '/private/tmp' || '/tmp' }}
     steps:
     - uses: actions/checkout@v3
     - name: Set up Python ${{ matrix.python-version }}
@@ -33,7 +36,7 @@ jobs:
     - name: Install linux dependencies
       run: |
         sudo apt-get install libsndfile1
-      if: matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-22.04'
+      if: runner.os == 'Linux'
     - name: Install macos dependencies
       run: |
         brew install libsndfile

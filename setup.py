@@ -4,7 +4,6 @@ See:
 https://packaging.python.org/en/latest/distributing.html
 https://github.com/pypa/sampleproject
 """
-import os
 # Allow editable install into user site directory.
 # See https://github.com/pypa/pip/issues/7953.
 import site
@@ -40,23 +39,12 @@ test = [
     'protobuf3_to_dict',
     'torchvision',
     'matplotlib',  # padertorch.summary.tbx_utils use mpl for colorize
-    'pb_bss @ git+http://github.com/fgnt/pb_bss',
+    'pb_bss',
     'torch_complex',  # https://github.com/kamo-naoyuki/pytorch_complex
     'pyyaml',
     'humanize',
     'codecarbon',
 ]
-
-if os.environ.get('SETUP_PY_IGNORE_GIT_DEPENDENCIES', False):
-    # Remove git dependencies for sdist, because they are not supported on
-    # pypi.
-    # Can't have direct dependency: pb_bss@ git+http://github.com/fgnt/pb_bss ; extra == "test".
-    # https://packaging.python.org/specifications/core-metadata for more information.
-    test = [
-        d
-        for d in test
-        if '@ git+http://' not in d
-    ]
 
 setup(
     name='padertorch',
