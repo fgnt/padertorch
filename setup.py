@@ -35,6 +35,7 @@ test = [
     'coverage',
     'pylint',
     'sacred',
+    'standard-pkg-resources; python_version >= "3.9"',  # Sacred needs pkg_resources.
     'appdirs',
     'protobuf3_to_dict',
     'torchvision',
