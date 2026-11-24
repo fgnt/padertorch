@@ -1,4 +1,5 @@
 from unittest.mock import Mock
+from types import SimpleNamespace
 
 from google.protobuf.struct_pb2 import Struct
 from tensorboardX.proto.event_pb2 import Event
@@ -49,3 +50,15 @@ def test_fallback_message_map():
             }},
         },
     }
+
+
+def test_fallback_legacy_descriptor():
+    field = SimpleNamespace(
+        name='values', label=3, LABEL_REPEATED=3,
+        is_extension=False, message_type=None,
+    )
+    message = SimpleNamespace(ListFields=lambda: [(field, (1, 2))])
+    assert tfevents._protobuf_to_dict_fallback(message) == {'values': [1, 2]}
+    field.label = 1
+    message.ListFields = lambda: [(field, 1)]
+    assert tfevents._protobuf_to_dict_fallback(message) == {'values': 1}

@@ -1,9 +1,20 @@
 import pytest
+import sys
 
 import numpy as np
 
 import paderbox as pb
 import padertorch as pt
+
+
+def test_plain_config_without_sacred(monkeypatch):
+    monkeypatch.setitem(sys.modules, 'sacred', None)
+    monkeypatch.delitem(sys.modules, 'sacred.config.custom_containers', raising=False)
+    config = {'nested': {'value': 1}}
+    converted = pt.configurable._sacred_dogmatic_to_dict(config)
+    assert converted == config
+    assert converted is not config
+    assert converted['nested'] is not config['nested']
 
 
 def foo(b=1, c=2):

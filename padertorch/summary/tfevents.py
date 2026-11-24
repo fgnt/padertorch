@@ -45,6 +45,10 @@ def _protobuf_to_dict_fallback(message):
     """
     result = {}
     for field, value in message.ListFields():
+        try:
+            is_repeated = field.is_repeated
+        except AttributeError:  # Older protobuf versions.
+            is_repeated = field.label == field.LABEL_REPEATED
         if field.is_extension:
             raise NotImplementedError(field.full_name)
         if field.message_type is not None:
@@ -56,11 +60,11 @@ def _protobuf_to_dict_fallback(message):
                     for k, v in value.items()
                 }
                 continue
-            if field.is_repeated:
+            if is_repeated:
                 value = [_protobuf_to_dict_fallback(v) for v in value]
             else:
                 value = _protobuf_to_dict_fallback(value)
-        elif field.is_repeated:
+        elif is_repeated:
             value = list(value)
         result[field.name] = value
     return result

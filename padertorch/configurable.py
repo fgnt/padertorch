@@ -676,7 +676,7 @@ def dataclass_to_config(cls, depth=0, force_valid_config=True):
     >>> config = dataclass_to_config(B)  # doctest: +ELLIPSIS
     Traceback (most recent call last):
     ...
-    RuntimeError: ('no_default', Field(name='no_default',type=None,default=<..._MISSING_TYPE...>,default_factory=<..._MISSING_TYPE...>,init=True,repr=True,hash=None,compare=True,metadata=mappingproxy({}),..._field_type=_FIELD), <class '...configurable.B'>)
+    RuntimeError: ('no_default', Field(name='no_default',type=None,default=...,default_factory=...,init=True,repr=True,hash=None,compare=True,metadata=...,..._field_type=_FIELD), <class '...configurable.B'>)
     >>> config = dataclass_to_config(B, force_valid_config=False)
     >>> pprint(config)  # doctest: +ELLIPSIS
     {'factory': ...configurable.B}
@@ -1534,9 +1534,10 @@ def _sacred_dogmatic_to_dict(config):
     from sacred as "fixed". Returns the nested structure with all updates
     applied from sacred.
     """
-    import sacred.config.custom_containers
+    # A DogmaticDict can only exist if its module has already been imported.
+    sacred_containers = sys.modules.get('sacred.config.custom_containers')
 
-    if isinstance(config, sacred.config.custom_containers.DogmaticDict):
+    if sacred_containers is not None and isinstance(config, sacred_containers.DogmaticDict):
         merge_keys = [
             *config.keys(),
             *_sacred_dogmatic_to_dict(config.fallback).keys(),
