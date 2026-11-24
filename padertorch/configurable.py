@@ -1567,16 +1567,19 @@ def _get_signature(cls, drop_positional_only=False, drop_type_annotations=False)
     Traceback (most recent call last):
     ...
     ValueError: no signature found for builtin type <class 'dict'>
-    >>> inspect.signature(set)
+
+    Before Python 3.13, inspect.signature(set) raised ValueError:
+    >>> inspect.signature(set)  # doctest: +SKIP
     Traceback (most recent call last):
     ...
     ValueError: no signature found for builtin type <class 'set'>
 
-
-    >>> _get_signature(Configurable.from_file)
-    <Signature (config_path: pathlib.Path, in_config_path: str = '', consider_mpi=False)>
-    >>> _get_signature(Configurable.from_file, drop_type_annotations=True)
-    <Signature (config_path, in_config_path='', consider_mpi=False)>
+    >>> def example(path: str, count: int = 1) -> bool:
+    ...     pass
+    >>> _get_signature(example)
+    <Signature (path: str, count: int = 1) -> bool>
+    >>> _get_signature(example, drop_type_annotations=True)
+    <Signature (path, count=1)>
 
     """
     if cls in [
