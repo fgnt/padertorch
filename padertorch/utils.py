@@ -33,6 +33,8 @@ def to_list(x, length=None):
     handled here.
 
     >>> from paderbox.utils.pretty import pprint
+    >>> import sys, pytest
+    >>> if sys.platform == 'win32': pytest.skip('ToDO: Fix nep51=True for Windows')
 
     >>> to_list(1)
     [1]

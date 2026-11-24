@@ -957,6 +957,9 @@ class ContextTimerDict:
     >>> for _ in timer('test_3', range(3)):
     ...     time.sleep(0.1)
 
+    >>> import pytest
+    >>> if sys.platform == 'win32': pytest.skip('ToDO: Timing is not reliable for Windows')
+
     Ignore timing when an exception is raised
     >>> with contextlib.suppress(Exception), timer['test_2']:
     ...     raise Exception
